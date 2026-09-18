@@ -16,7 +16,7 @@ import {
   type FixtureDocument,
 } from '@recouple/fixtures';
 import { processUpload, reconcileCase, type PipelineDeps } from '@recouple/pipeline';
-import { PostgresStore } from '../src/store';
+import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -129,6 +129,9 @@ describeDb('the pipeline against a real database', () => {
   });
 
   afterAll(async () => {
+    // The pools are shared for the life of the process now, so a test suite ends
+    // them explicitly rather than leaving connections open behind it.
+    await closeAllPools();
     await store?.close();
     await otherStore?.close();
     await admin.end();

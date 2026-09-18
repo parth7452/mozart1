@@ -65,14 +65,25 @@ the connecting role.
 
 ## Build order (do not reorder)
 
-Phase 0 foundations → 1 ingest+classify → 2 evidence+decision → 3
+Phase 0 foundations → 1 ingest+classify → **1.5 ERP read + triage** → 2
+evidence+decision (EV-gated) + portal **read** → **2.5 EDI 812/820** → 3
 packet+approval+manual submission+outcomes → 4 QBO write-back + contingency
 billing → 5 learning loop → 6 careful autonomy.
 
-**Do not build yet**: portal credentialed fetch, browser-agent auto-submission,
-EDI/carrier/3PL connectors, NetSuite/Xero. Their interfaces
-(`SubmissionChannel`, `EvidenceSource`) already exist so adding them is
-additive.
+Phases 1.5, 2's portal read and 2.5 are new, from `docs/STRATEGY.md` §5.4. The
+reason is one sentence: a deduction could only enter the system if the supplier
+already knew about it and sent it to us, and the whole coverage thesis is the
+~70% they never surface. **Read** moves early; **write** (auto-submission,
+write-back) stays exactly where it was, behind the approval gate.
+
+**Do not build yet**: browser-agent auto-submission (Phase 6), portal *write* of
+any kind, NetSuite/Xero (after QBO, same `AccountingSource` port). Their
+interfaces (`SubmissionChannel`, `EvidenceSource`) already exist so adding them
+is additive.
+
+Portal credentials, when they arrive, belong in KMS-backed storage and never in
+an application table, and a credential failure degrades to upload/email rather
+than failing the case.
 
 Definition of done for a phase: exit tests green in CI, an eval run recorded
 with no regression beyond tolerance, fixtures/cassettes committed for every new
@@ -92,6 +103,7 @@ append-only tables.
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
+| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1) |
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |

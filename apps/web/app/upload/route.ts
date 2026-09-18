@@ -6,6 +6,9 @@ import { mayWrite, pipelineDepsFor } from '../../lib/pipeline';
 /** One document per request, and not a large one: a notice is a few pages. */
 const MAX_BYTES = 25 * 1024 * 1024;
 
+/** Multipart framing around the file itself: boundaries, headers, field names. */
+const FORM_OVERHEAD_BYTES = 64 * 1024;
+
 /**
  * Takes a file and runs the real pipeline over it: ingest, scan, classify,
  * extract, and open a case when it turns out to be a deduction notice.
@@ -24,12 +27,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(back, { status: 303 });
   }
 
+  // Before the body is touched. `formData()` materialises the whole upload in
+  // memory, so checking the size after parsing is checking it after the damage:
+  // a 5 GB POST would already be buffered by the time we looked.
+  const declaredLength = Number(request.headers.get('content-length') ?? '0');
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BYTES + FORM_OVERHEAD_BYTES) {
+    back.searchParams.set('upload', `that file is larger than ${MAX_BYTES / 1024 / 1024} MB`);
+    return NextResponse.redirect(back, { status: 303 });
+  }
+
   const form = await request.formData();
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) {
     back.searchParams.set('upload', 'choose a file first');
     return NextResponse.redirect(back, { status: 303 });
   }
+  // Again on the real size: `content-length` is the client's claim, and a
+  // chunked request does not send one at all.
   if (file.size > MAX_BYTES) {
     back.searchParams.set('upload', `that file is larger than ${MAX_BYTES / 1024 / 1024} MB`);
     return NextResponse.redirect(back, { status: 303 });

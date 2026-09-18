@@ -83,16 +83,25 @@ recouple/
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Foundations: append-only DDL, approval trigger, RLS, roles, money maths, state machine, contracts, CI | **done** |
-| 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **pipeline done and measured**; `apps/web` and the Inngest binding remain |
-| 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, confidence gates, calibration | — |
-| 3 | Packet + approval + manual submission + outcomes | — |
-| 4 | QBO write-back, attribution, Stripe contingency billing | — |
+| 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **done and measured**, and running behind auth in `apps/web`; the Inngest binding remains |
+| 1.5 | ERP (QBO) **read**: discovery, reconciliation, the coverage denominator, and cheap triage over short-pay lines | — |
+| 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, **expected-value gating**, owned calibration; retailer portal **read** | — |
+| 2.5 | EDI 812/820 ingestion where a supplier already has it | — |
+| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | — |
+| 4 | QBO write-back, attribution, Stripe contingency billing, dilution view | — |
 | 5 | Learning loop: override capture, candidate rules, backtest, shadow, promotion | — |
 | 6 | Careful autonomy — only where per-tenant ECE < 0.10 is sustained | — |
 
-Deliberately not built, by design rather than by omission: retailer portal
-credentialed fetch, browser-agent auto-submission, EDI/carrier/3PL connectors,
-NetSuite and Xero. Their interfaces exist (`SubmissionChannel`,
+Phases 1.5 and 2.5, and the portal **read** in Phase 2, come from
+[the strategy addendum](./docs/STRATEGY.md) §5. The reason is one sentence: until
+they exist, a deduction can only enter the system if the supplier already knows
+about it and sends it to us — and the whole thesis is the deductions they never
+surface. Reading moves early; **writing** anywhere (auto-submission, accounting
+write-back) stays exactly where it was, behind the approval gate.
+
+Deliberately not built, by design rather than by omission: browser-agent
+auto-submission and portal writes of any kind (Phase 6), NetSuite and Xero (after
+QBO, behind the same port). Their interfaces exist (`SubmissionChannel`,
 `EvidenceSource`), so each is a new implementation rather than a refactor.
 
 ## How extraction is kept honest

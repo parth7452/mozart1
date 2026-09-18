@@ -6,6 +6,9 @@ const config: NextConfig = {
   // `pg` is a server-only dependency with native-ish internals; keeping it
   // external stops the bundler trying to trace it into a client chunk.
   serverExternalPackages: ['pg'],
+  // The upload route checks `content-length` before it parses, but a server
+  // action has no such hook — this is the backstop for one.
+  experimental: { serverActions: { bodySizeLimit: '26mb' } },
 };
 
 export default config;

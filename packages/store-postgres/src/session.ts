@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { sessionPool } from './store';
 
 /** A membership, as the sign-in path needs it: which tenant, and what they may do. */
 export interface OrgMembership {
@@ -35,8 +35,11 @@ export async function resolveSession(
   config: SessionResolverConfig,
   identity: { readonly authUserId: string; readonly email: string },
 ): Promise<ResolvedSession> {
-  const pool = new Pool({ connectionString: config.connectionString, max: 1 });
-  try {
+  // The shared pool, for the same reason the store uses one: this runs on every
+  // request, and a connection opened and discarded per request is a connection
+  // budget spent on nothing.
+  const pool = sessionPool(config);
+  {
     const client = await pool.connect();
     try {
       await client.query('begin');
@@ -82,7 +85,5 @@ export async function resolveSession(
     } finally {
       client.release();
     }
-  } finally {
-    await pool.end();
   }
 }

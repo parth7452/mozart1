@@ -12,7 +12,7 @@ import {
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import { processUpload, type PipelineDeps } from '@recouple/pipeline';
-import { PostgresStore } from '../src/store';
+import { closeAllPools, PostgresStore } from '../src/store';
 import { resolveSession } from '../src/session';
 
 const connectionString = process.env.DATABASE_URL;
@@ -152,6 +152,9 @@ describeDb('signing in, and the reads the web app makes', () => {
   });
 
   afterAll(async () => {
+    // The pools are shared for the life of the process now, so a test suite ends
+    // them explicitly rather than leaving connections open behind it.
+    await closeAllPools();
     await store?.close();
     await admin.end();
   });

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { allFixtureDocuments } from '@recouple/fixtures';
-import { PostgresStore } from '../src/store';
+import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
@@ -59,6 +59,9 @@ describeDb('a stored document’s bytes', () => {
   });
 
   afterAll(async () => {
+    // The pools are shared for the life of the process now, so a test suite ends
+    // them explicitly rather than leaving connections open behind it.
+    await closeAllPools();
     await store?.close();
     await admin.end();
   });

@@ -37,6 +37,49 @@ export interface PostgresStoreConfig {
   readonly max?: number;
 }
 
+/**
+ * One pool per connection string, for the life of the process.
+ *
+ * A store is constructed per request — it carries the tenant, so it has to be —
+ * and a pool per store meant a request opened connections and threw them away.
+ * Postgres connections are expensive and Supabase allows few of them; a page
+ * view that opens five is a page view that fails under any load at all.
+ *
+ * Sharing is safe precisely because the tenant is not on the connection: claims
+ * are set with `set_config(..., true)` inside each transaction and the role with
+ * `set local role`, both of which end with the transaction. A pooled connection
+ * therefore cannot carry one tenant's claims into another tenant's query — which
+ * is the property that makes pooling and RLS safe together, and the reason it was
+ * written that way from the start.
+ */
+const pools = new Map<string, Pool>();
+
+function poolFor(config: PostgresStoreConfig): Pool {
+  const key = `${config.connectionString}::${config.max ?? 4}`;
+  const existing = pools.get(key);
+  if (existing !== undefined) return existing;
+  const pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
+  // A pool that throws on an idle client's error takes the process with it.
+  pool.on('error', () => undefined);
+  pools.set(key, pool);
+  return pool;
+}
+
+/** The shared pool for a connection string, for callers that are not a store. */
+export function sessionPool(config: PostgresStoreConfig): Pool {
+  return poolFor(config);
+}
+
+/**
+ * Ends every shared pool. For a process that is shutting down, and for tests —
+ * a request path never calls this, because the pool outlives the request.
+ */
+export async function closeAllPools(): Promise<void> {
+  const open = [...pools.values()];
+  pools.clear();
+  await Promise.all(open.map((pool) => pool.end().catch(() => undefined)));
+}
+
 /** A case as the list route shows it. */
 export interface CaseSummary {
   readonly deductionId: string;
@@ -221,15 +264,23 @@ export class PostgresStore implements PipelineStore {
     private readonly tenant: TenantContext,
     blobs?: BlobStore,
   ) {
-    this.pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
+    this.pool = poolFor(config);
     this.role = config.role ?? 'app_rw';
     // Durable by default. An in-memory blob store is a thing a test may choose,
     // not the behaviour a caller gets by forgetting to choose.
     this.blobs = blobs ?? new PostgresBlobStore(this.pool, tenant, this.role);
   }
 
+  /**
+   * Releases this store's hold on the database.
+   *
+   * The pool is shared with every other store on the same connection string, so
+   * ending it here would break them. There is nothing per-store to release:
+   * every connection is returned to the pool at the end of its transaction.
+   * `closeAllPools()` is what actually ends them, at shutdown.
+   */
   async close(): Promise<void> {
-    await this.pool.end();
+    return;
   }
 
   /**
