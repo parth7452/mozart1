@@ -1,0 +1,58 @@
+# CI gate: unit + invariant + RLS tests all have to pass to merge.
+#
+# While recouple lives inside the Mozart repository this file is inert — GitHub
+# only reads workflows from the repository root (see docs/adr/0002). It is
+# correct as-is for the extracted repository; to run it sooner, add a
+# root-level workflow that calls the same steps with
+# `working-directory: recouple`.
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: recouple_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/recouple_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: unit + property tests
+        run: pnpm test
+
+      - name: database invariants (approval gate, append-only, RLS)
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          pnpm db:test

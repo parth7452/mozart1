@@ -1,0 +1,27 @@
+{
+  "name": "recouple",
+  "private": true,
+  "description": "Deductions recovery for CPG suppliers: a deterministic, human-gated document workflow.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:test": "./scripts/db-test.sh",
+    "verify": "pnpm typecheck && pnpm test && pnpm db:test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "fast-check": "^4.10.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
