@@ -137,7 +137,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Three suites, gated separately (never blended — the mix changes, and a blended
+Four suites, gated separately (never blended — the mix changes, and a blended
 number moves when it does):
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
@@ -150,8 +150,15 @@ number moves when it does):
 About $0.021 per document across 25 of them. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
-than storing a truncated document as a complete one. Still to do before Phase 1 is done: the case-view UI
-in `apps/web` (side-by-side document and highlighted quote), the Inngest binding
-over the existing steps, and fixtures for the formats still missing — dense
-retailer tables, email-body notices, EDI-derived exports. Real customer documents
+than storing a truncated document as a complete one.
+
+`apps/review-prototype` renders a reviewer's workspace over the recorded output —
+the scan with every field boxed and traceable to its quote. It is a prototype, not
+the product: no database, no auth, and approving is a Phase 3 action a trigger
+governs.
+
+Still to do before Phase 1 is done: `apps/web` proper (Supabase Auth, the case
+list, the real review route), the Inngest binding over the existing steps, and
+fixtures for the formats still missing — dense retailer tables with merged cells,
+notices in an email body, EDI-derived portal exports. Real customer documents
 would be worth more than all of them.
