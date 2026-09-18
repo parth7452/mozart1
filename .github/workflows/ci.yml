@@ -49,13 +49,15 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
-      - name: unit + property tests
-        run: pnpm test
-
+      # Applies the migrations, which the Postgres integration tests then run
+      # against — so this has to come before `pnpm test`.
       - name: database invariants (approval gate, append-only, RLS)
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pnpm db:test
+
+      - name: unit, property and integration tests
+        run: pnpm test
 
       # Replays committed cassettes. Calls no model and spends nothing.
       - name: extraction evals (no regression beyond tolerance)

@@ -1,0 +1,17 @@
+{
+  "name": "@recouple/store-postgres",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@recouple/core-domain": "workspace:*",
+    "@recouple/extraction": "workspace:*",
+    "@recouple/ingest": "workspace:*",
+    "@recouple/pipeline": "workspace:*",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": { "@recouple/fixtures": "workspace:*" },
+  "scripts": { "typecheck": "tsc -p ../../tsconfig.json" }
+}

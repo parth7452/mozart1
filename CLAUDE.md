@@ -55,10 +55,10 @@ what enforces each one.
 | --- | --- |
 | `pnpm test` | Vitest across every package (includes the money property tests) |
 | `pnpm typecheck` | `tsc` over the workspace |
-| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites |
+| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
 | `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
 | `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
-| `pnpm verify` | typecheck + test + db:test + eval — what CI runs |
+| `pnpm verify` | typecheck + db:test + test + eval — what CI runs, in that order |
 
 `pnpm db:test` needs `DATABASE_URL` pointing at a throwaway database owned by
 the connecting role.
@@ -89,6 +89,7 @@ append-only tables.
 | `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
+| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |

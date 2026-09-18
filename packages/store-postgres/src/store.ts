@@ -1,0 +1,518 @@
+/**
+ * The PipelineStore, backed by Postgres.
+ *
+ * Every query runs as `app_rw` with the caller's tenant claim set, so the same
+ * RLS policies that protect the database in production protect it here. The
+ * service role never appears: this store is what a request path uses, and
+ * invariant 6 says the service-role key does not belong in one.
+ *
+ * It writes through the real constraints — append-only triggers, the approval
+ * gate, the tenant policies — which is the point. An in-memory store can only
+ * ever prove the pipeline's own logic; this proves the schema supports it.
+ */
+
+import { Pool, type PoolClient } from 'pg';
+import type { CaseState } from '@recouple/core-domain';
+import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
+import type { ScanVerdict } from '@recouple/ingest';
+import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeline';
+
+export interface TenantContext {
+  readonly orgId: string;
+  readonly userId?: string;
+}
+
+export interface PostgresStoreConfig {
+  readonly connectionString: string;
+  /** The role to run as. Never the owner in production. */
+  readonly role?: string;
+  readonly max?: number;
+}
+
+interface DocumentRow {
+  id: string;
+  org_id: string;
+  sha256: Buffer;
+  filename: string;
+  mime_type: string;
+  byte_size: string;
+  storage_ref: string;
+}
+
+/**
+ * Documents carry their bytes in object storage, not in Postgres. The store
+ * keeps them in memory for the length of a pipeline run so the reader models can
+ * be handed a payload without a round trip to a bucket that does not exist yet;
+ * Phase 1b replaces this with Supabase Storage.
+ */
+export interface BlobStore {
+  put(ref: string, bytes: Uint8Array): Promise<void>;
+  get(ref: string): Promise<Uint8Array | undefined>;
+}
+
+export class InMemoryBlobStore implements BlobStore {
+  private readonly blobs = new Map<string, Uint8Array>();
+  async put(ref: string, bytes: Uint8Array): Promise<void> {
+    this.blobs.set(ref, bytes);
+  }
+  async get(ref: string): Promise<Uint8Array | undefined> {
+    return this.blobs.get(ref);
+  }
+}
+
+export class PostgresStore implements PipelineStore {
+  private readonly pool: Pool;
+  private readonly role: string;
+
+  constructor(
+    config: PostgresStoreConfig,
+    private readonly tenant: TenantContext,
+    private readonly blobs: BlobStore = new InMemoryBlobStore(),
+  ) {
+    this.pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
+    this.role = config.role ?? 'app_rw';
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
+  /**
+   * Runs a unit of work as the application role with the tenant's claims set.
+   *
+   * Both settings are transaction-local, so a pooled connection cannot carry one
+   * tenant's claims into another tenant's query — the failure mode that makes
+   * connection pooling and RLS dangerous together.
+   */
+  private async withTenant<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({
+          org_id: this.tenant.orgId,
+          ...(this.tenant.userId !== undefined ? { sub: this.tenant.userId } : {}),
+        }),
+      ]);
+      const result = await work(client);
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async toStoredDocument(row: DocumentRow): Promise<StoredDocument> {
+    const bytes = (await this.blobs.get(row.storage_ref)) ?? new Uint8Array();
+    const pages = await this.pagesFor(row.id);
+    return {
+      documentId: row.id,
+      orgId: row.org_id,
+      sha256: row.sha256.toString('hex'),
+      filename: row.filename,
+      mimeType: row.mime_type,
+      byteSize: Number(row.byte_size),
+      bytes,
+      ...(pages !== undefined ? { pageText: pages } : {}),
+      requiresSplit: false,
+    };
+  }
+
+  async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<DocumentRow>(
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+                coalesce(filename, '') as filename
+           from documents
+          where org_id = $1 and sha256 = $2`,
+        [orgId, Buffer.from(sha256, 'hex')],
+      );
+      const row = rows[0];
+      return row === undefined ? undefined : this.toStoredDocument(row);
+    });
+  }
+
+  async putDocument(document: Omit<StoredDocument, 'documentId'>): Promise<StoredDocument> {
+    const storageRef = `blob://${document.orgId}/${document.sha256}`;
+    await this.blobs.put(storageRef, document.bytes);
+
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref, filename)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id`,
+        [
+          document.orgId,
+          Buffer.from(document.sha256, 'hex'),
+          document.byteSize,
+          document.mimeType,
+          storageRef,
+          document.filename,
+        ],
+      );
+      const id = rows[0]?.id as string;
+
+      if (document.pageText !== undefined && document.pageText.length > 0) {
+        await this.insertPages(client, document.orgId, id, document.pageText);
+      }
+
+      return { ...document, documentId: id };
+    });
+  }
+
+  private async insertPages(
+    client: PoolClient,
+    orgId: string,
+    documentId: string,
+    pages: readonly string[],
+  ): Promise<void> {
+    for (const [index, text] of pages.entries()) {
+      await client.query(
+        `insert into document_pages (org_id, document_id, page_number, text_layer)
+         values ($1, $2, $3, $4)
+         on conflict (document_id, page_number) do nothing`,
+        [orgId, documentId, index + 1, text],
+      );
+    }
+  }
+
+  async recordScan(documentId: string, verdict: ScanVerdict): Promise<void> {
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into document_scans (org_id, document_id, status, scanner, detail)
+         values ($1, $2, $3, $4, $5)`,
+        [this.tenant.orgId, documentId, verdict.status, verdict.scanner, verdict.detail ?? null],
+      );
+    });
+  }
+
+  async latestScan(documentId: string): Promise<ScanVerdict | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ status: ScanVerdict['status']; scanner: string; detail: string | null }>(
+        `select status, scanner, detail from document_scans
+          where document_id = $1 order by id desc limit 1`,
+        [documentId],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return {
+        status: row.status,
+        scanner: row.scanner,
+        ...(row.detail !== null ? { detail: row.detail } : {}),
+      };
+    });
+  }
+
+  async recordClassification(
+    documentId: string,
+    docType: DocType,
+    confidence: number,
+  ): Promise<void> {
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into document_classifications (org_id, document_id, doc_type, confidence)
+         values ($1, $2, $3, $4)`,
+        [this.tenant.orgId, documentId, docType, confidence],
+      );
+    });
+  }
+
+  async recordExtraction(input: {
+    documentId: string;
+    deductionId?: string;
+    docType: DocType;
+    extractor: string;
+    schemaVersion: string;
+    fields: readonly ExtractedField[];
+    document: unknown;
+  }): Promise<void> {
+    await this.withTenant(async (client) => {
+      for (const field of input.fields) {
+        await client.query(
+          `insert into extraction_results
+             (org_id, document_id, deduction_id, field_path, value_json, confidence,
+              source_page, source_quote, source_bbox, quote_verified,
+              extractor, model_version, schema_version)
+           values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::numeric(6,5)[], $10, $11, $12, $13)`,
+          [
+            this.tenant.orgId,
+            input.documentId,
+            input.deductionId ?? null,
+            field.fieldPath,
+            JSON.stringify(field.value ?? null),
+            field.confidence,
+            field.sourcePage,
+            field.sourceQuote.slice(0, 2000),
+            field.sourceBbox === null ? null : [...field.sourceBbox],
+            field.quoteVerified,
+            input.extractor,
+            'recorded',
+            input.schemaVersion,
+          ],
+        );
+      }
+    });
+  }
+
+  async latestExtraction(
+    documentId: string,
+  ): Promise<{ docType: DocType; document: unknown } | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ doc_type: DocType }>(
+        `select doc_type from document_classifications
+          where document_id = $1 order by id desc limit 1`,
+        [documentId],
+      );
+      const docType = rows[0]?.doc_type;
+      if (docType === undefined) return undefined;
+
+      // The typed object is rebuilt from the field rows: they are the record of
+      // record, and reassembling from them proves nothing was lost on the way in.
+      const { rows: fields } = await client.query<{ field_path: string; value_json: unknown }>(
+        `select field_path, value_json from extraction_results
+          where document_id = $1 order by id asc`,
+        [documentId],
+      );
+      if (fields.length === 0) return undefined;
+      return { docType, document: rebuildDocument(fields) };
+    });
+  }
+
+  async recordModelCall(call: ModelCallRecord): Promise<void> {
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into model_calls
+           (org_id, purpose, provider, model_version, document_id, deduction_id,
+            input_tokens, output_tokens, cached_tokens, cost_micros, latency_ms, outcome, detail)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          this.tenant.orgId,
+          call.purpose,
+          call.provider,
+          call.modelVersion,
+          call.documentId ?? null,
+          call.deductionId ?? null,
+          call.inputTokens ?? null,
+          call.outputTokens ?? null,
+          call.cachedTokens ?? null,
+          call.costMicros,
+          call.latencyMs,
+          call.outcome,
+          call.detail ?? null,
+        ],
+      );
+    });
+  }
+
+  async recordPages(
+    documentId: string,
+    pages: readonly { readonly page: number; readonly text: string }[],
+  ): Promise<void> {
+    await this.withTenant(async (client) => {
+      for (const page of pages) {
+        await client.query(
+          `insert into document_pages (org_id, document_id, page_number, text_layer)
+           values ($1, $2, $3, $4)
+           on conflict (document_id, page_number) do nothing`,
+          [this.tenant.orgId, documentId, page.page, page.text],
+        );
+      }
+    });
+  }
+
+  async pagesFor(documentId: string): Promise<readonly string[] | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ text_layer: string | null }>(
+        `select text_layer from document_pages
+          where document_id = $1 order by page_number asc`,
+        [documentId],
+      );
+      if (rows.length === 0) return undefined;
+      return rows.map((row) => row.text_layer ?? '');
+    });
+  }
+
+  async openCase(input: {
+    orgId: string;
+    claimId?: string;
+    retailerName?: string;
+    deductionAmountCents?: number;
+  }): Promise<CaseRecord> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string; state: CaseState }>(
+        `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
+         values ($1, $2, $3, 'discovered')
+         returning id, state`,
+        [input.orgId, input.claimId ?? null, input.deductionAmountCents ?? 1],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new Error('insert into deductions returned no row');
+      return {
+        deductionId: row.id,
+        orgId: input.orgId,
+        state: row.state,
+        ...(input.claimId !== undefined ? { claimId: input.claimId } : {}),
+        ...(input.retailerName !== undefined ? { retailerName: input.retailerName } : {}),
+        ...(input.deductionAmountCents !== undefined
+          ? { deductionAmountCents: input.deductionAmountCents }
+          : {}),
+      };
+    });
+  }
+
+  async linkDocument(
+    deductionId: string,
+    documentId: string,
+    role: 'notice' | 'evidence',
+  ): Promise<void> {
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into deduction_documents (org_id, deduction_id, document_id, role)
+         values ($1, $2, $3, $4)
+         on conflict (deduction_id, document_id, role) do nothing`,
+        [this.tenant.orgId, deductionId, documentId, role],
+      );
+    });
+  }
+
+  async transitionCase(deductionId: string, to: CaseState): Promise<CaseRecord> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        org_id: string;
+        state: CaseState;
+        claim_id: string | null;
+        deduction_amount_cents: string;
+      }>(
+        `update deductions set state = $2, updated_at = now()
+          where id = $1
+          returning id, org_id, state, claim_id, deduction_amount_cents`,
+        [deductionId, to],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new Error(`no case ${deductionId}`);
+      return {
+        deductionId: row.id,
+        orgId: row.org_id,
+        state: row.state,
+        ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+        deductionAmountCents: Number(row.deduction_amount_cents),
+      };
+    });
+  }
+
+  async appendEvent(input: {
+    orgId: string;
+    deductionId: string;
+    eventType: string;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+         values ($1, $2, $3, $4::jsonb, now())`,
+        [input.orgId, input.deductionId, input.eventType, JSON.stringify(input.payload)],
+      );
+    });
+  }
+
+  async getCase(deductionId: string): Promise<CaseRecord | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        org_id: string;
+        state: CaseState;
+        claim_id: string | null;
+        deduction_amount_cents: string;
+      }>(
+        `select id, org_id, state, claim_id, deduction_amount_cents
+           from deductions where id = $1`,
+        [deductionId],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return {
+        deductionId: row.id,
+        orgId: row.org_id,
+        state: row.state,
+        ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+        deductionAmountCents: Number(row.deduction_amount_cents),
+      };
+    });
+  }
+
+  async documentsForCase(deductionId: string): Promise<readonly StoredDocument[]> {
+    const rows = await this.withTenant(async (client) => {
+      const { rows } = await client.query<DocumentRow>(
+        `select d.id, d.org_id, d.sha256, d.mime_type, d.byte_size, d.storage_ref,
+                coalesce(d.filename, '') as filename
+           from deduction_documents dd
+           join documents d on d.id = dd.document_id
+          where dd.deduction_id = $1
+          order by dd.id asc`,
+        [deductionId],
+      );
+      return rows;
+    });
+    return Promise.all(rows.map((row) => this.toStoredDocument(row)));
+  }
+
+  async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string; slug: string }>(
+        `select id, slug from organizations where slug = $1`,
+        [slug],
+      );
+      const row = rows[0];
+      return row === undefined ? undefined : { orgId: row.id, slug: row.slug };
+    });
+  }
+
+  /** Total model spend on this tenant's book, in micro-USD. */
+  async totalCostMicros(): Promise<number> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ total: string | null }>(
+        `select sum(cost_micros)::text as total from model_calls`,
+      );
+      return Number(rows[0]?.total ?? 0);
+    });
+  }
+}
+
+/** Rebuilds a nested document from flat field rows (`lines[0].sku_upc` → nested). */
+function rebuildDocument(
+  rows: readonly { field_path: string; value_json: unknown }[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const row of rows) {
+    const segments = row.field_path.split('.');
+    let node: Record<string, unknown> = out;
+    segments.forEach((segment, index) => {
+      const match = /^([^[]+)\[(\d+)\]$/.exec(segment);
+      const last = index === segments.length - 1;
+      if (match?.[1] !== undefined && match[2] !== undefined) {
+        const key = match[1];
+        const row_index = Number(match[2]);
+        const array = (node[key] as unknown[] | undefined) ?? [];
+        node[key] = array;
+        const existing = (array[row_index] as Record<string, unknown> | undefined) ?? {};
+        array[row_index] = existing;
+        node = existing;
+        return;
+      }
+      if (last) {
+        node[segment] = { value: row.value_json };
+        return;
+      }
+      const existing = (node[segment] as Record<string, unknown> | undefined) ?? {};
+      node[segment] = existing;
+      node = existing;
+    });
+  }
+  return out;
+}
