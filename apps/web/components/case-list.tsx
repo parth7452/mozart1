@@ -20,10 +20,16 @@ export function CaseList({
   viewer,
   cases,
   today,
+  mayUpload,
+  notice,
 }: {
   viewer: Viewer;
   cases: readonly CaseSummary[];
   today: Date;
+  /** Whether this member's role may add a document; the database decides too. */
+  mayUpload: boolean;
+  /** What happened to the last upload, when something did. */
+  notice?: string | undefined;
 }) {
   const total = cases.reduce((sum, row) => sum + row.deductionAmountCents, 0);
 
@@ -37,6 +43,24 @@ export function CaseList({
         </span>
       </header>
       <main>
+        {notice !== undefined ? <p className="notice bad">{notice}</p> : null}
+        {mayUpload ? (
+          <form className="card upload" action="/upload" method="post" encType="multipart/form-data">
+            <label htmlFor="file">
+              <strong>Add a document</strong>
+              <span>
+                A deduction notice opens a case. Anything else is read and waits for a case to be
+                attached to. Nothing is submitted anywhere either way.
+              </span>
+            </label>
+            <div>
+              <input id="file" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" required />
+              <button className="primary" type="submit">
+                Read it
+              </button>
+            </div>
+          </form>
+        ) : null}
         <div className="card">
           <h2 className="section" style={{ marginTop: 0 }}>
             {cases.length === 0

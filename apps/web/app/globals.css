@@ -130,3 +130,10 @@ ul.findings { margin: 0; padding-left: 18px; font-size: 14px; }
 @media (max-width: 900px) {
   .review { grid-template-columns: minmax(0, 1fr); }
 }
+
+form.upload { margin-bottom: 18px; display: grid; gap: 12px; }
+form.upload label { display: grid; gap: 4px; }
+form.upload label span { color: var(--ink-soft); font-size: 13.5px; }
+form.upload > div { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+form.upload input[type='file'] { font-size: 14px; }
+form.upload button.primary { margin-top: 0; }

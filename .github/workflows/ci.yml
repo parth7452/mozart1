@@ -62,3 +62,9 @@ jobs:
       # Replays committed cassettes. Calls no model and spends nothing.
       - name: extraction evals (no regression beyond tolerance)
         run: pnpm eval
+
+      # The app's own build: a route that does not compile is a page nobody can
+      # open. It needs no secrets — configuration is read per request, so a
+      # missing value fails loudly at the first request rather than at build.
+      - name: web app builds
+        run: pnpm build:web

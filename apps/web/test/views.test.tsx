@@ -67,7 +67,7 @@ describe('money and deadlines', () => {
 describe('the case list', () => {
   it('totals the deductions and links each case', () => {
     const html = renderToStaticMarkup(
-      <CaseList viewer={viewer} cases={[summary(), summary({
+      <CaseList mayUpload viewer={viewer} cases={[summary(), summary({
         deductionId: '99999999-8888-7777-6666-555555555555',
         claimId: 'KS-40112',
         deductionAmountCents: 88_450,
@@ -83,8 +83,43 @@ describe('the case list', () => {
     expect(html).toContain('4 docs');
   });
 
+  it('offers the upload to a member who may write, and not to one who may not', () => {
+    const writer = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
+    );
+    expect(writer).toContain('action="/upload"');
+    expect(writer).toContain('Add a document');
+
+    // The database refuses a read_only member's insert whatever the page shows;
+    // hiding the form is the difference between a refusal and a dead end.
+    const reader = renderToStaticMarkup(
+      <CaseList
+        mayUpload={false}
+        viewer={{ ...viewer, role: 'read_only' }}
+        cases={[]}
+        today={today}
+      />,
+    );
+    expect(reader).not.toContain('action="/upload"');
+  });
+
+  it('says what came of the last upload, including a refusal', () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        mayUpload
+        viewer={viewer}
+        cases={[]}
+        today={today}
+        notice="not scanned clean: error (none)"
+      />,
+    );
+    expect(html).toContain('not scanned clean: error (none)');
+  });
+
   it('says what will happen rather than showing an empty table', () => {
-    const html = renderToStaticMarkup(<CaseList viewer={viewer} cases={[]} today={today} />);
+    const html = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
+    );
     expect(html).toContain('No cases yet');
     expect(html).not.toContain('<table');
   });

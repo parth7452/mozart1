@@ -167,7 +167,13 @@ taking the identity from the claims rather than an argument (migration 0012, ADR
 policies, not a signed URL (migration 0013, ADR 0014). Still no approve button,
 for the same reason.
 
-Still to do before Phase 1 is done: an upload route in the app, the Inngest
-binding over the existing steps, and fixtures for the formats still missing —
+Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed:
+no `CLAMAV_HOST` builds a `NullScanner`, which reports an error rather than a
+clean bill of health, so an unconfigured environment cannot read a stranger's
+file at all; no `REDUCTO_API_KEY` builds no OCR provider rather than one that
+throws. `apps/web/test/fail-closed.test.tsx` asserts both.
+
+Still to do before Phase 1 is done: the Inngest binding over the existing steps,
+and fixtures for the formats still missing —
 dense retailer tables with merged cells, notices in an email body, EDI-derived
 portal exports. Real customer documents would be worth more than all of them.

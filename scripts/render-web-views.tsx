@@ -154,7 +154,7 @@ const page = (title: string, body: string): string =>
 writeFileSync(
   path.join(outDir, 'case-list.html'),
   page('Recouple — cases', renderToStaticMarkup(
-    <CaseList viewer={viewer} cases={cases} today={today} />,
+    <CaseList viewer={viewer} cases={cases} today={today} mayUpload />,
   )),
 );
 

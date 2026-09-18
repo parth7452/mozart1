@@ -229,6 +229,16 @@ came from, and says which of three checks each field got: the quote was found in
 the page text, it was looked for and was not there, or there was no text to look
 in. There is still no approve button, for the same reason as in the prototype.
 
+A member whose role may write can add a document from the case list, which runs
+the real pipeline: ingest, scan, classify, extract, and open a case when the file
+turns out to be a notice. It needs two more variables, and refuses rather than
+guesses without them:
+
+```
+CLAMAV_HOST=…          # no scanner configured means no file is read at all
+REDUCTO_API_KEY=…      # no OCR means a scan's quotes come back unverifiable
+```
+
 To see the two views without a sign-in, `pnpm render:web` seeds a tenant, runs
 the real pipeline over the fixture case, reads it back through RLS and writes
 `apps/web/preview/*.html` — the same components the app renders, over real rows.
@@ -237,8 +247,7 @@ the real pipeline over the fixture case, reads it back through RLS and writes
 
 No Inngest binding: the steps exist and are tested, but the durable wrapper needs
 an HTTP endpoint. No decision layer, no packet, no submission, and no money
-movement anywhere. No upload route in the app yet either — documents arrive
-through the pipeline API and inbound email.
+movement anywhere.
 
 Phase 0's floor still holds under all of it: nothing can be submitted or written
 back to accounting without an approval row, and the database is what refuses.
