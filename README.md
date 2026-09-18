@@ -171,6 +171,19 @@ text layer can answer, when the question that matters is whether the consignee
 signed. The model answered the question as written, correctly. The description
 was fixed; the ground truth was not touched.
 
+## Seeing it work
+
+`apps/review-prototype` builds a self-contained review workspace from the
+recorded data — `pnpm build:review`. It is the scanned Walmart notice with every
+extracted field placed on the page: click a field and its box lights up on the
+scan, click a box and it scrolls to the field. Each row carries the value, the
+model's confidence, whether the quote was found on the page it cited, and the
+quote itself.
+
+It is a prototype over recorded output, not the product: no database, no auth,
+and the approve button is deliberately dead, because approving is a Phase 3
+action that a Postgres trigger governs.
+
 ### What is not built yet
 
 No case-view UI, no Inngest binding (the steps exist; the durable wrapper lands

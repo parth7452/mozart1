@@ -15,7 +15,8 @@
     "verify": "pnpm typecheck && pnpm db:test && pnpm test && pnpm eval",
     "record:cassettes": "tsx scripts/record-cassettes.ts",
     "eval": "tsx scripts/run-evals.ts",
-    "render:scans": "tsx scripts/render-scans.mts"
+    "render:scans": "tsx scripts/render-scans.mts",
+    "build:review": "tsx scripts/build-review-bundle.mts"
   },
   "devDependencies": {
     "@recouple/adapters": "workspace:*",
