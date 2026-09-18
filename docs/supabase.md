@@ -8,12 +8,14 @@ verified there, not only against local Postgres.
 | Project ref | `hvheqbgkvwhlqutklwfh` |
 | Region | `us-east-1` |
 | Postgres | 17.6 (local tests run on 16 — see below) |
-| Applied | migrations 0001–0007, as seven named migrations matching the filenames in `supabase/migrations/` |
+| Applied | migrations 0001–0011, as named migrations matching the filenames in `supabase/migrations/` |
 
 ## What was verified on the live project
 
-A transaction that seeds a tenant, asserts each invariant and rolls back. It
-raises unless all ten checks pass, and it left no rows behind:
+A transaction that seeds a tenant, asserts each invariant and then aborts, so
+the project keeps nothing. It raises unless every check passes.
+
+The first pass, after 0007, covered ten:
 
 1. A submission with no approval row is refused
 2. A QBO write-back with no approval row is refused
@@ -26,8 +28,39 @@ raises unless all ten checks pass, and it left no rows behind:
 9. An extraction with page, quote and bounding box is stored
 10. An extraction with no quote is refused
 
-Structural check afterwards: 22 tables with RLS enabled, 22 `tenant_isolation`
-policies, 22 append-only triggers, 3 approval triggers.
+The second pass, after 0010 and 0011, covered fifteen more — and this time
+**as `app_rw` throughout**, which is what found the bug below: a submission
+cannot be repointed at an unapproved decision or an approved one, its channel
+and deduction are immutable, it cannot be deleted, a confirmation number can
+still be recorded, a write-off cannot be inflated after approval, a `read_only`
+member can read but cannot open, advance, delete or annotate a case, and an
+analyst still can.
+
+Structural check afterwards: 22 tables with RLS enabled, 82 policies (four per
+command on the twenty org-scoped tables, plus a read policy each for
+`organizations` and `users`), and no rows left behind.
+
+### The bug that only a live check could find
+
+Verifying 0010 as `app_rw` rather than as the owner, every hash-chained write
+failed:
+
+```
+insert into deduction_events … → function digest(bytea, unknown) does not exist
+```
+
+pgcrypto lives in `public` on local Postgres and in `extensions` on Supabase.
+0008 pinned the function search paths to `pg_catalog, public, extensions` so one
+setting would serve both — but a schema in the search path is still invisible
+without USAGE on it, and the app roles had none on `extensions`. So on the live
+project the application could not append an event at all, while the local suite
+passed: `public` is a schema every role may use.
+
+Migration 0011 grants it, reading pgcrypto's schema from the catalogue so the
+grant is right on either Postgres. Suite 08 asserts the privilege, which is the
+form of the invariant that travels; the behavioural half of that suite passes
+locally either way, which is exactly why the live run was necessary. Running the
+invariants as the owner is not running them.
 
 ## Two Postgres versions on purpose
 
@@ -60,4 +93,4 @@ database cannot enforce for us.
 This project was empty, so recouple uses it rather than spending a second
 project slot. If Mozart ever needs Supabase too, recouple should move to its own
 project: ADR 0002 keeps these codebases separate, and sharing a database would
-undo that. Moving is re-running the same seven migrations against a new ref.
+undo that. Moving is re-running the same migrations against a new ref.

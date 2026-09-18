@@ -159,3 +159,12 @@ create policy tenant_read on users for select
   using (exists (
     select 1 from memberships m
      where m.user_id = users.id and m.org_id = app.current_org_id()));
+
+-- ---------------------------------------------------------------------------
+-- 4. The two functions added above get the pinned search_path 0008 gave every
+--    function that existed then. 0008 runs before this migration, so a
+--    function added here would otherwise resolve unqualified names however the
+--    caller pleased — and both of these decide whether a write is allowed.
+-- ---------------------------------------------------------------------------
+alter function app.guard_immutable_core() set search_path = pg_catalog, public, extensions;
+alter function app.member_may_write() set search_path = pg_catalog, public, extensions;
