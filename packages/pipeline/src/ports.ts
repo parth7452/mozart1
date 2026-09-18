@@ -86,6 +86,8 @@ export interface PipelineStore {
     payload: Record<string, unknown>;
   }): Promise<void>;
   getCase(deductionId: string): Promise<CaseRecord | undefined>;
+  /** The tenant an inbound address belongs to, or undefined if there is none. */
+  findOrgBySlug(slug: string): Promise<{ readonly orgId: string; readonly slug: string } | undefined>;
   documentsForCase(deductionId: string): Promise<readonly StoredDocument[]>;
 }
 

@@ -21,7 +21,11 @@ import {
 import {
   acceptUpload,
   assertScannedClean,
+  InboundEmailError,
+  parseInboundEmail,
   RejectedUploadError,
+  type InboundEmail,
+  type PostmarkInboundPayload,
   type ScanVerdict,
 } from '@recouple/ingest';
 import type { CaseRecord, PipelineDeps, StoredDocument } from './ports';
@@ -357,4 +361,86 @@ export async function reconcileCase(
     ...(byType.has('po') ? { po: byType.get('po') as never } : {}),
     ...(shipment !== undefined ? { shipment: shipment as never } : {}),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Email-in
+// ---------------------------------------------------------------------------
+
+export interface InboundEmailResult {
+  readonly orgId: string;
+  readonly email: InboundEmail;
+  readonly documents: readonly ProcessedDocument[];
+  /**
+   * Whether a case may be opened from this email without a human. False for an
+   * unauthenticated sender: `From:` is forgeable, so an email that fails DKIM
+   * and DMARC is filed for review rather than acted on.
+   */
+  readonly mayOpenCase: boolean;
+  readonly skipped: readonly { readonly filename: string; readonly reason: string }[];
+}
+
+/**
+ * Ingests the attachments on an inbound email.
+ *
+ * The tenant comes from the address the email was sent to — never from the
+ * sender, and never from anything in the body. An attachment the front door
+ * refuses (wrong type, too large, a bomb) is skipped with its reason rather than
+ * failing the whole email: a supplier who attaches their signature image
+ * alongside a notice should not lose the notice.
+ */
+export async function ingestInboundEmail(
+  payload: PostmarkInboundPayload,
+  deps: PipelineDeps,
+): Promise<InboundEmailResult> {
+  const email = parseInboundEmail(payload);
+
+  const org = await deps.store.findOrgBySlug(email.orgSlug);
+  if (org === undefined) {
+    throw new InboundEmailError(
+      `no tenant with inbound slug ${JSON.stringify(email.orgSlug)}; refusing to guess one`,
+    );
+  }
+
+  const documents: ProcessedDocument[] = [];
+  const skipped: { filename: string; reason: string }[] = [];
+
+  for (const attachment of email.attachments) {
+    const bytes = new Uint8Array(Buffer.from(attachment.base64, 'base64'));
+    try {
+      documents.push(
+        await processUpload(
+          {
+            orgId: org.orgId,
+            filename: attachment.filename,
+            bytes,
+            declaredMimeType: attachment.contentType,
+            source: 'email_in',
+          },
+          deps,
+          // An unauthenticated email may not open a case, so nothing it carries
+          // is classified into one automatically.
+          {},
+        ),
+      );
+    } catch (error) {
+      skipped.push({
+        filename: attachment.filename,
+        reason:
+          error instanceof RejectedUploadError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
+    }
+  }
+
+  return {
+    orgId: org.orgId,
+    email,
+    documents,
+    mayOpenCase: email.authenticated,
+    skipped,
+  };
 }

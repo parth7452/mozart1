@@ -84,7 +84,7 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
-| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic |
 | `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
@@ -132,7 +132,21 @@ in `packages/evals/baseline.json`: 100% recall, precision and quote verification
 8/8 classification, $0.015 per document. That is a floor, not a victory — the
 corpus is generated text PDFs, and the numbers that matter will come from scans.
 
-Still to do before Phase 1 is done: the case-view UI in `apps/web` (side-by-side
-document and highlighted quote), the Inngest binding over the existing steps,
-Postmark email-in, the Reducto fallback for scanned remittances, and fixtures for
-the remaining retailers and formats (scanned, skewed, email-body, EDI-derived).
+Since then: a held-out corpus of twelve documents written elsewhere, a scanned
+suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
+with every invariant verified there, and Postmark email-in.
+
+Three suites, gated separately (never blended — the mix changes, and a blended
+number moves when it does):
+
+| Suite | What it measures | Recall / precision | Grounding | Classification |
+| --- | --- | --- | --- | --- |
+| authored | does the pipeline work | 100% | 100% | 8/8 |
+| held_out | does it generalise | 100% | 100% | 12/12 |
+| scanned | does it survive a scan | 100% | 98.4% | 4/4 |
+
+About $0.017 per document. Still to do before Phase 1 is done: the case-view UI
+in `apps/web` (side-by-side document and highlighted quote), the Inngest binding
+over the existing steps, and fixtures for the formats still missing — dense
+retailer tables, email-body notices, EDI-derived exports. Real customer documents
+would be worth more than all of them.

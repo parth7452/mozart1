@@ -18,7 +18,14 @@ import {
   expectedExtraction,
   type FixtureDocument,
 } from '@recouple/fixtures';
-import { RejectedUploadError, processUpload, reconcileCase, ingestDocument, classifyDocument } from '../src/steps';
+import {
+  RejectedUploadError,
+  classifyDocument,
+  ingestDocument,
+  ingestInboundEmail,
+  processUpload,
+  reconcileCase,
+} from '../src/steps';
 import type { PipelineDeps } from '../src/ports';
 import {
   AlwaysCleanScanner,
@@ -240,5 +247,94 @@ describe('what the front door refuses', () => {
       processUpload({ ...upload(fixtureFor('walmart-po.pdf')), bytes: zip, filename: 'a.zip' }, deps),
     ).rejects.toThrow(RejectedUploadError);
     expect(store.documents.size).toBe(0);
+  });
+});
+
+describe('email-in', () => {
+  const emailPayload = (overrides: Record<string, unknown> = {}) => {
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+    return {
+      From: 'ap@walmart.example',
+      To: 'u-harborline@in.recouple.app',
+      Subject: 'Deduction notice APDP-99812',
+      MessageID: 'msg-1',
+      TextBody: 'Notice attached.',
+      Headers: [{ Name: 'Authentication-Results', Value: 'mx; spf=pass; dkim=pass; dmarc=pass' }],
+      Attachments: [
+        {
+          Name: notice.filename,
+          Content: Buffer.from(notice.bytes).toString('base64'),
+          ContentType: 'application/pdf',
+          ContentLength: notice.bytes.length,
+        },
+      ],
+      ...overrides,
+    };
+  };
+
+  function emailHarness() {
+    const h = harness();
+    h.store.addOrg('harborline', 'org-1');
+    return h;
+  }
+
+  it('ingests the attachments into the tenant the address names', async () => {
+    const { store, deps } = emailHarness();
+    const result = await ingestInboundEmail(emailPayload(), deps);
+
+    expect(result.orgId).toBe('org-1');
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]?.classification?.docType).toBe('deduction_notice');
+    expect(store.documents.size).toBe(1);
+  });
+
+  it('refuses an address that belongs to no tenant, rather than picking one', async () => {
+    const { deps } = emailHarness();
+    await expect(
+      ingestInboundEmail(emailPayload({ To: 'u-nobody@in.recouple.app' }), deps),
+    ).rejects.toThrow(/no tenant with inbound slug/);
+  });
+
+  it('will not open a case from an unauthenticated sender', async () => {
+    const { deps } = emailHarness();
+    const spoofed = await ingestInboundEmail(
+      emailPayload({
+        Headers: [{ Name: 'Authentication-Results', Value: 'mx; spf=pass; dkim=fail; dmarc=fail' }],
+      }),
+      deps,
+    );
+    // From: is forgeable, so the documents are filed for a human to attach.
+    expect(spoofed.mayOpenCase).toBe(false);
+    expect(spoofed.documents).toHaveLength(1);
+
+    const genuine = await ingestInboundEmail(emailPayload({ MessageID: 'msg-2' }), deps);
+    expect(genuine.mayOpenCase).toBe(true);
+  });
+
+  it('keeps the good attachments when one is refused at the door', async () => {
+    const { deps } = emailHarness();
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+    const result = await ingestInboundEmail(
+      emailPayload({
+        Attachments: [
+          {
+            Name: notice.filename,
+            Content: Buffer.from(notice.bytes).toString('base64'),
+            ContentType: 'application/pdf',
+          },
+          {
+            Name: 'signature.zip',
+            Content: Buffer.from(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0])).toString('base64'),
+            ContentType: 'application/zip',
+          },
+        ],
+      }),
+      deps,
+    );
+
+    // A supplier who attaches something odd alongside a notice keeps the notice.
+    expect(result.documents).toHaveLength(1);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.reason).toMatch(/type_not_allowed/);
   });
 });
