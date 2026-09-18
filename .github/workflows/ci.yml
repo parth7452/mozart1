@@ -1,10 +1,10 @@
 # CI gate: unit + invariant + RLS tests all have to pass to merge.
 #
-# While recouple lives inside the Mozart repository this file is inert — GitHub
-# only reads workflows from the repository root (see docs/adr/0002). It is
-# correct as-is for the extracted repository; to run it sooner, add a
-# root-level workflow that calls the same steps with
-# `working-directory: recouple`.
+# This sat inert from Phase 0 until the repository extraction (ADR 0017), because
+# GitHub reads workflows only from a repository root and this project lived in a
+# subdirectory. Its first real run failed before reaching any of the steps below,
+# on a pnpm version specified in two places — which is the argument for running a
+# gate rather than admiring it.
 name: ci
 
 on:
@@ -35,9 +35,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here on purpose. `packageManager` in package.json pins the
+      # exact pnpm build, and the action refuses to be told twice — specifying
+      # both fails the run before a line of this project's code executes.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
