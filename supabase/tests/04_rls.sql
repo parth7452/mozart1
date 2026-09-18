@@ -34,6 +34,29 @@ begin
   perform test.ok((select count(*) from deductions) = 1, 'the other tenant sees only its own row');
   perform test.ok((select claim_id from deductions) = 'CLAIM-tenant-b', 'and it is the right row');
 
+  -- A view over RLS-protected tables is a second path to those rows, and it
+  -- needs its own test: `document_state` read as its owner until it was made
+  -- security_invoker, which the table-level tests could never have caught
+  -- (ADR 0010).
+  declare doc_a uuid;
+  begin
+    perform test.as_member(org_a, (a->>'analyst')::uuid);
+    insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+      values (org_a, digest('tenant-a-doc', 'sha256'), 2048, 'application/pdf', 'storage://a/1')
+      returning id into doc_a;
+    insert into document_scans (org_id, document_id, status, scanner)
+      values (org_a, doc_a, 'clean', 'clamav');
+    perform test.ok((select count(*) from document_state) = 1,
+      'a tenant sees its own document through the view');
+
+    perform test.as_member(org_b, (b->>'analyst')::uuid);
+    perform test.ok((select count(*) from document_state) = 0,
+      'the view does not leak another tenant''s documents');
+    perform test.ok(
+      (select count(*) from document_state where document_id = doc_a) = 0,
+      'naming another tenant''s document id through the view returns nothing');
+  end;
+
   -- No claims at all (unauthenticated) means no rows.
   perform test.as_nobody();
   perform test.ok((select count(*) from deductions) = 0, 'no claims, no data');
