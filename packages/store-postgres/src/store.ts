@@ -11,6 +11,7 @@
  * ever prove the pipeline's own logic; this proves the schema supports it.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import type { CaseState } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
@@ -117,6 +118,84 @@ export interface BlobStore {
   get(ref: string): Promise<Uint8Array | undefined>;
 }
 
+/**
+ * The bytes of a document, in the same database as everything else about it.
+ *
+ * It runs through the same tenant claims as the store that owns it, so a blob is
+ * readable exactly when the document row is — one authorization story rather
+ * than two kept in step by hand (ADR 0014).
+ */
+export class PostgresBlobStore implements BlobStore {
+  constructor(
+    private readonly pool: Pool,
+    private readonly tenant: TenantContext,
+    private readonly role: string,
+  ) {}
+
+  private async withTenant<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      const result = await work(client);
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Keyed by document id, not by the storage ref: the ref is a name for where the
+   * bytes are, and here that is "the row for this document".
+   */
+  async put(ref: string, bytes: Uint8Array): Promise<void> {
+    const documentId = documentIdFromRef(ref);
+    if (documentId === undefined) return;
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into document_blobs (document_id, org_id, bytes, byte_size)
+         values ($1, $2, $3, $4)
+         on conflict (document_id) do nothing`,
+        [documentId, this.tenant.orgId, Buffer.from(bytes), bytes.byteLength],
+      );
+    });
+  }
+
+  async get(ref: string): Promise<Uint8Array | undefined> {
+    const documentId = documentIdFromRef(ref);
+    if (documentId === undefined) return undefined;
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ bytes: Buffer }>(
+        `select bytes from document_blobs where document_id = $1`,
+        [documentId],
+      );
+      const found = rows[0]?.bytes;
+      return found === undefined ? undefined : new Uint8Array(found);
+    });
+  }
+}
+
+const REF_PREFIX = 'pgblob://';
+
+/** `pgblob://<document id>` — the ref a document row carries. */
+export function refForDocument(documentId: string): string {
+  return `${REF_PREFIX}${documentId}`;
+}
+
+function documentIdFromRef(ref: string): string | undefined {
+  if (!ref.startsWith(REF_PREFIX)) return undefined;
+  const id = ref.slice(REF_PREFIX.length);
+  return /^[0-9a-f-]{36}$/i.test(id) ? id : undefined;
+}
+
 export class InMemoryBlobStore implements BlobStore {
   private readonly blobs = new Map<string, Uint8Array>();
   async put(ref: string, bytes: Uint8Array): Promise<void> {
@@ -131,13 +210,18 @@ export class PostgresStore implements PipelineStore {
   private readonly pool: Pool;
   private readonly role: string;
 
+  private readonly blobs: BlobStore;
+
   constructor(
     config: PostgresStoreConfig,
     private readonly tenant: TenantContext,
-    private readonly blobs: BlobStore = new InMemoryBlobStore(),
+    blobs?: BlobStore,
   ) {
     this.pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
     this.role = config.role ?? 'app_rw';
+    // Durable by default. An in-memory blob store is a thing a test may choose,
+    // not the behaviour a caller gets by forgetting to choose.
+    this.blobs = blobs ?? new PostgresBlobStore(this.pool, tenant, this.role);
   }
 
   async close(): Promise<void> {
@@ -202,15 +286,20 @@ export class PostgresStore implements PipelineStore {
   }
 
   async putDocument(document: Omit<StoredDocument, 'documentId'>): Promise<StoredDocument> {
-    const storageRef = `blob://${document.orgId}/${document.sha256}`;
+    // The id is generated here rather than by the insert, because the bytes are
+    // written first and keyed by it: a `documents` row that points at bytes
+    // nothing can produce is worse than bytes nothing references.
+    const documentId = randomUUID();
+    const storageRef = refForDocument(documentId);
     await this.blobs.put(storageRef, document.bytes);
 
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
-        `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref, filename)
-         values ($1, $2, $3, $4, $5, $6)
+        `insert into documents (id, org_id, sha256, byte_size, mime_type, storage_ref, filename)
+         values ($1, $2, $3, $4, $5, $6, $7)
          returning id`,
         [
+          documentId,
           document.orgId,
           Buffer.from(document.sha256, 'hex'),
           document.byteSize,
