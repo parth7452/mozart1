@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { authoredDocuments, type FixtureDocument, type TruthExpectation } from './cases';
+import { scannedDocuments } from './scans';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
 
@@ -195,7 +196,7 @@ export function corpusDocuments(): readonly FixtureDocument[] {
   return cache;
 }
 
-/** Every document in both suites: what the recorder and the eval gate iterate. */
+/** Every document in every suite: what the recorder and the eval gate iterate. */
 export function everyDocument(): readonly FixtureDocument[] {
-  return [...authoredDocuments(), ...corpusDocuments()];
+  return [...authoredDocuments(), ...corpusDocuments(), ...scannedDocuments()];
 }

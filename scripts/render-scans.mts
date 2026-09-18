@@ -18,7 +18,13 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { fixtureDocument } from '@recouple/fixtures';
+import { everyDocument } from '@recouple/fixtures';
+
+const documentByKey = (key: string) => {
+  const found = everyDocument().find((d) => d.key === key);
+  if (found === undefined) throw new Error(`no fixture ${key}`);
+  return found;
+};
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.join(here, '..', 'packages', 'fixtures', 'scans');
@@ -27,6 +33,8 @@ const outDir = path.join(here, '..', 'packages', 'fixtures', 'scans');
 const TARGETS = [
   { key: 'walmart-apdp-notice', rotate: -1.4, quality: 68, speckle: 0.1, blur: 0.4 },
   { key: 'carrier-bol', rotate: 2.1, quality: 55, speckle: 0.16, blur: 0.6 },
+  { key: 'hl-case-01-notice', rotate: -2.3, quality: 60, speckle: 0.13, blur: 0.5 },
+  { key: 'hl-case-06-notice', rotate: 1.7, quality: 50, speckle: 0.18, blur: 0.7 },
 ] as const;
 
 function html(lines: readonly string[], opts: (typeof TARGETS)[number]): string {
@@ -50,7 +58,7 @@ function html(lines: readonly string[], opts: (typeof TARGETS)[number]): string 
     transform-origin: 50% 40%;
     position: relative; overflow: hidden;
   }
-  .line { white-space: pre; }
+  .line { white-space: pre-wrap; word-break: break-word; }
   .blank { height: 21px; }
   /* Toner falloff towards the spine, the way a flatbed scan of a stapled page goes. */
   .sheet::before {
@@ -85,12 +93,12 @@ ${body}
 </div></div></body></html>`;
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
 try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 1300 }, deviceScaleFactor: 1.4 });
 
   for (const target of TARGETS) {
-    const fixture = fixtureDocument(target.key);
+    const fixture = documentByKey(target.key);
     const lines = fixture.pageText.join('\n').split('\n');
     await page.setContent(html(lines, target), { waitUntil: 'load' });
     const buffer = await page.screenshot({ type: 'jpeg', quality: target.quality, fullPage: true });

@@ -12,6 +12,7 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { classificationIsActionable } from '@recouple/core-domain';
 import {
   CassetteClassifier,
   CassetteExtractor,
@@ -64,7 +65,11 @@ const scores: DocumentScore[] = [];
 const suiteOf = new Map<string, string>();
 let classifiedCorrectly = 0;
 let recordedCostMicros = 0;
-const classifiedBySuite = new Map<string, { correct: number; total: number }>();
+const classifiedBySuite = new Map<
+  string,
+  { correct: number; total: number; unsafe: number }
+>();
+const unsafeDetail: string[] = [];
 
 for (const fixture of documents) {
   suiteOf.set(fixture.key, fixture.suite);
@@ -81,10 +86,23 @@ for (const fixture of documents) {
   const classification = await classifier.classify(payload);
   const correct = classification.docType === fixture.docType;
   if (correct) classifiedCorrectly += 1;
-  const tally = classifiedBySuite.get(fixture.suite) ?? { correct: 0, total: 0 };
+  // A wrong answer the confidence gate would have let through is the expensive
+  // kind; a wrong answer below the floor gets routed to a human.
+  const unsafe = !correct && classificationIsActionable(classification.confidence);
+  if (unsafe) {
+    unsafeDetail.push(
+      `${fixture.key}: classified ${classification.docType} (expected ${fixture.docType}) at ${classification.confidence.toFixed(2)} — above the review floor`,
+    );
+  } else if (!correct) {
+    unsafeDetail.push(
+      `${fixture.key}: classified ${classification.docType} (expected ${fixture.docType}) at ${classification.confidence.toFixed(2)} — below the review floor, routed to a human`,
+    );
+  }
+  const tally = classifiedBySuite.get(fixture.suite) ?? { correct: 0, total: 0, unsafe: 0 };
   classifiedBySuite.set(fixture.suite, {
     correct: tally.correct + (correct ? 1 : 0),
     total: tally.total + 1,
+    unsafe: tally.unsafe + (unsafe ? 1 : 0),
   });
 
   const extraction = await extractor.extract(payload, fixture.docType as DocType);
@@ -102,11 +120,12 @@ const pct = (n: number | null) => (n === null ? '   —' : `${(n * 100).toFixed(
 const SUITE_LABELS: Record<string, string> = {
   authored: 'authored here — does the pipeline work',
   held_out: 'written elsewhere — does it generalise',
+  scanned: 'rasterised + degraded — does it survive a scan',
 };
 
 const perSuite = new Map<string, ReturnType<typeof summarise>>();
 
-for (const suiteName of ['authored', 'held_out']) {
+for (const suiteName of ['authored', 'held_out', 'scanned']) {
   const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
   if (suiteScores.length === 0) continue;
   const tally = classifiedBySuite.get(suiteName);
@@ -127,7 +146,8 @@ for (const suiteName of ['authored', 'held_out']) {
   console.log('─'.repeat(72));
   console.log(
     `${'subtotal'.padEnd(30)} ${pct(summary.recall)}  ${pct(summary.precision)}  ` +
-      `${pct(summary.groundedRate)}   classification ${pct(summary.classificationAccuracy)}`,
+      `${pct(summary.groundedRate)}   classification ${pct(summary.classificationAccuracy)}` +
+      `${tally !== undefined && tally.unsafe > 0 ? `  (${tally.unsafe} above the review floor)` : ''}`,
   );
 }
 
@@ -139,6 +159,11 @@ console.log(
   `recorded cost $${(suite.totalCostMicros / 1_000_000).toFixed(4)} across ${documents.length} documents ` +
     `($${(suite.totalCostMicros / 1_000_000 / documents.length).toFixed(4)} each)`,
 );
+
+if (unsafeDetail.length > 0) {
+  console.log('\nclassification misses:');
+  for (const line of unsafeDetail) console.log(`  ${line}`);
+}
 
 console.log();
 for (const score of scores) {
@@ -165,7 +190,7 @@ if (!existsSync(baselinePath)) {
 }
 
 const baseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline;
-const regressions = findRegressions(baseline, suite, DEFAULT_TOLERANCE, suiteRecord);
+const regressions = findRegressions(baseline, DEFAULT_TOLERANCE, suiteRecord);
 
 if (baseline.extractModel !== modelFor('extract')) {
   console.log(

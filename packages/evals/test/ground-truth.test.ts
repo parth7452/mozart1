@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { flattenExtraction, schemaFor, verifyQuotes, type DocType } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
 import { scoreDocument, summarise } from '../src/score';
-import { findRegressions, toBaseline, type Baseline } from '../src/baseline';
+import {
+  DEFAULT_TOLERANCE,
+  findRegressions,
+  toBaseline,
+  type Baseline,
+} from '../src/baseline';
+import {
+  DEFAULT_MIN_CLASSIFICATION_CONFIDENCE,
+  classificationIsActionable,
+} from '@recouple/core-domain';
 
 /**
  * The fixture corpus has three parts that must agree: the document text, the
@@ -109,34 +118,90 @@ describe('the regression gate', () => {
     groundedRate: 0.99,
     classificationAccuracy: 1,
     totalCostMicros: 120_000,
+    suites: {
+      authored: { recall: 1, precision: 1, groundedRate: 1, classificationAccuracy: 1 },
+      held_out: { recall: 0.98, precision: 0.98, groundedRate: 1, classificationAccuracy: 1 },
+    },
   };
 
+  const suite = (recall: number, precision = recall) => ({
+    ...summarise([], { classificationAccuracy: 1 }),
+    recall,
+    precision,
+    groundedRate: 1,
+  });
+
   it('passes a run that holds the line', () => {
-    const current = summarise([], { classificationAccuracy: 1 });
     expect(
-      findRegressions(baseline, { ...current, recall: 0.95, precision: 0.97, groundedRate: 0.99 }),
+      findRegressions(baseline, DEFAULT_TOLERANCE, {
+        authored: suite(1),
+        held_out: suite(0.98),
+      }),
     ).toEqual([]);
   });
 
-  it('tolerates noise but fails a real drop, naming the metric', () => {
-    const current = summarise([], { classificationAccuracy: 1 });
+  it('tolerates noise but fails a real drop, naming the suite and metric', () => {
     expect(
-      findRegressions(baseline, { ...current, recall: 0.94, precision: 0.97, groundedRate: 0.99 }),
+      findRegressions(baseline, DEFAULT_TOLERANCE, {
+        authored: suite(0.99),
+        held_out: suite(0.97),
+      }),
     ).toEqual([]);
 
-    const regressions = findRegressions(baseline, {
-      ...current,
-      recall: 0.8,
-      precision: 0.97,
-      groundedRate: 0.99,
+    const regressions = findRegressions(baseline, DEFAULT_TOLERANCE, {
+      authored: suite(1),
+      held_out: suite(0.8),
     });
-    expect(regressions.map((r) => r.metric)).toEqual(['recall']);
-    expect(regressions[0]?.drop).toBeCloseTo(0.15, 5);
+    expect(regressions.map((r) => r.metric)).toEqual([
+      'held_out.recall',
+      'held_out.precision',
+    ]);
+    expect(regressions[0]?.drop).toBeCloseTo(0.18, 5);
   });
 
-  it('records what a run scored, with the model that scored it', () => {
-    const recorded = toBaseline(summarise([], { classificationAccuracy: 1 }), 'claude-sonnet-5');
+  it('does not let a held-out drop hide behind the fixtures we wrote', () => {
+    // Blended, this run looks like a 9-point drop across 20 documents, which a
+    // single tolerance would swallow. Per suite, it is an 18-point collapse.
+    const regressions = findRegressions(baseline, DEFAULT_TOLERANCE, {
+      authored: suite(1),
+      held_out: suite(0.8),
+    });
+    expect(regressions.length).toBeGreaterThan(0);
+  });
+
+  it('ignores a suite the baseline has never seen, rather than failing on it', () => {
+    // Adding a harder corpus must not read as a regression on day one.
+    expect(
+      findRegressions(baseline, DEFAULT_TOLERANCE, {
+        authored: suite(1),
+        held_out: suite(0.98),
+        scanned: suite(0.4),
+      }),
+    ).toEqual([]);
+  });
+
+  it('records what a run scored, per suite, with the model that scored it', () => {
+    const recorded = toBaseline(
+      summarise([], { classificationAccuracy: 1 }),
+      'claude-sonnet-5',
+      { authored: suite(1), scanned: suite(0.9) },
+    );
     expect(recorded.extractModel).toBe('claude-sonnet-5');
+    expect(recorded.suites?.scanned?.recall).toBe(0.9);
     expect(recorded.recordedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe('the confidence floor', () => {
+  it('separates a wrong answer that gets reviewed from one that gets acted on', () => {
+    // The scanned BOL came back as a POD at 0.75. Wrong, but below the floor,
+    // so it routes to a human — which is the system working, not failing.
+    expect(classificationIsActionable(0.75)).toBe(false);
+    expect(classificationIsActionable(0.99)).toBe(true);
+    expect(classificationIsActionable(DEFAULT_MIN_CLASSIFICATION_CONFIDENCE)).toBe(true);
+  });
+
+  it('honours a tenant that has tightened its own floor', () => {
+    expect(classificationIsActionable(0.96, 0.99)).toBe(false);
   });
 });

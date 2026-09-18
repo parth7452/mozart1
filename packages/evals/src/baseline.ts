@@ -14,6 +14,12 @@ export interface SuiteBaseline {
   readonly precision: number;
   readonly groundedRate: number | null;
   readonly classificationAccuracy: number | null;
+  /**
+   * Wrong classifications the confidence gate would have let through. A wrong
+   * answer below the floor is routed to a human, which is the system working;
+   * a confident wrong answer is the one that costs money.
+   */
+  readonly unsafeMisclassifications?: number;
 }
 
 export interface Baseline {
@@ -69,19 +75,15 @@ export function toBaseline(
 
 export function findRegressions(
   baseline: Baseline,
-  current: SuiteScore,
   tolerance = DEFAULT_TOLERANCE,
   currentSuites: Readonly<Record<string, SuiteScore>> = {},
 ): readonly Regression[] {
-  const pairs: Array<[string, number | null, number | null]> = [
-    ['recall', baseline.recall, current.recall],
-    ['precision', baseline.precision, current.precision],
-    ['groundedRate', baseline.groundedRate, current.groundedRate],
-    ['classificationAccuracy', baseline.classificationAccuracy, current.classificationAccuracy],
-  ];
+  // Gated per suite only. The blended figure across suites of different
+  // difficulty moves whenever the corpus mix changes — adding a harder suite
+  // drops it without anything having got worse — so it is reported, not gated.
+  const pairs: Array<[string, number | null, number | null]> = [];
 
-  // Each suite is gated on its own numbers. Averaging them would let a drop on
-  // documents we did not write hide behind fixtures we did.
+  // A drop on documents we did not write must not hide behind fixtures we did.
   for (const [name, before] of Object.entries(baseline.suites ?? {})) {
     const after = currentSuites[name];
     if (after === undefined) continue;

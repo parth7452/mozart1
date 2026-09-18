@@ -22,7 +22,7 @@ export type TruthExpectation =
 export interface FixtureDocument {
   readonly key: string;
   readonly filename: string;
-  readonly mimeType: 'application/pdf';
+  readonly mimeType: 'application/pdf' | 'image/jpeg';
   readonly docType: string;
   readonly pageText: readonly string[];
   readonly bytes: Uint8Array;
@@ -33,7 +33,7 @@ export interface FixtureDocument {
    * pipeline works. `held_out` documents came from elsewhere and measure whether
    * it generalises. Never average the two into one headline number.
    */
-  readonly suite: 'authored' | 'held_out';
+  readonly suite: 'authored' | 'held_out' | 'scanned';
 }
 
 export interface FixtureCase {

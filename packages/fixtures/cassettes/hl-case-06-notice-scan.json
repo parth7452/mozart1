@@ -1,0 +1,141 @@
+{
+  "key": "hl-case-06-notice-scan",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "retailer_name": {
+      "value": "Pine Ridge Distribution",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Pine Ridge Distribution"
+    },
+    "vendor_number": {
+      "value": "NSP-1048",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Supplier account: NSP-1048"
+    },
+    "claim_id": {
+      "value": "DN-2609-006",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Notice: DN-2609-006"
+    },
+    "invoice_number": {
+      "value": "INV-260806",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Invoice: INV-260806"
+    },
+    "po_number": {
+      "value": "PO-PRD-3356",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Purchase order: PO-PRD-3356"
+    },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "deduction_total": {
+      "value": "$440.00",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "$440.00"
+    },
+    "deduction_date": {
+      "value": "2026-09-14",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Notice date: 2026-09-14"
+    },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "remittance_or_check": {
+      "value": "RA-2609-006",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Remittance: RA-2609-006"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "null",
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "description": {
+          "value": "Early-payment discount",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Customer took a 2% early-payment discount."
+        },
+        "unit_cost": {
+          "value": "null",
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "deduction_amount": {
+          "value": "$440.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$440.00"
+        },
+        "reason_code": {
+          "value": "DISC",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Reason code: DISC"
+        },
+        "reason_description": {
+          "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date."
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:53:12.013Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5591,
+    "outputTokens": 1087,
+    "costMicros": 22052,
+    "latencyMs": 8225
+  }
+}
