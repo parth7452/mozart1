@@ -141,11 +141,12 @@ const SUITE_LABELS: Record<string, string> = {
   held_out: 'written elsewhere — does it generalise',
   scanned: 'rasterised + degraded — does it survive a scan',
   dense: 'dozens of rows — does it survive a real remittance',
+  email_body: 'no page at all — a notice pasted into a message',
 };
 
 const perSuite = new Map<string, ReturnType<typeof summarise>>();
 
-for (const suiteName of ['authored', 'held_out', 'scanned', 'dense']) {
+for (const suiteName of ['authored', 'held_out', 'scanned', 'dense', 'email_body']) {
   const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
   if (suiteScores.length === 0) continue;
   const tally = classifiedBySuite.get(suiteName);

@@ -19,6 +19,7 @@ import path from 'node:path';
 import { authoredDocuments, type FixtureDocument, type TruthExpectation } from './cases';
 import { scannedDocuments } from './scans';
 import { denseDocuments } from './dense';
+import { emailBodyDocuments } from './email-body';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
 
@@ -204,5 +205,6 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...corpusDocuments(),
     ...scannedDocuments(),
     ...denseDocuments(),
+    ...emailBodyDocuments(),
   ];
 }

@@ -28,6 +28,7 @@ function field(overrides: Partial<StoredField> = {}): StoredField {
   return {
     documentId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     filename: 'walmart-apdp-notice.pdf',
+    mimeType: 'application/pdf',
     docType: 'deduction_notice',
     fieldPath: 'claim_id',
     value: 'APDP-99812',
@@ -205,6 +206,23 @@ describe('the review page', () => {
     expect(html).not.toContain('onerror="alert(1)"');
     // Present, but as text.
     expect(html).toContain('&lt;img src=x onerror=');
+  });
+
+  it('shows a document with its own type, not always as a PDF', () => {
+    // A notice that arrived in an email body is text. Embedding it as a PDF
+    // shows a broken-document icon where the notice should be.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        viewer={viewer}
+        summary={summary()}
+        fields={[field({ mimeType: 'text/plain', filename: 'Deduction APDP-99812 (email body).txt' })]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('type="text/plain"');
+    expect(html).not.toContain('type="application/pdf"');
   });
 
   it('shows what the documents say together, when they disagree', () => {

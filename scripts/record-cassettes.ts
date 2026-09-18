@@ -29,7 +29,7 @@ import {
   type OcrBlock,
   type OcrResult,
 } from '@recouple/extraction';
-import { acceptUpload } from '@recouple/ingest';
+import { acceptEmailBody, acceptUpload } from '@recouple/ingest';
 import { everyDocument } from '@recouple/fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,8 +56,14 @@ let totalMicros = 0;
 let mismatches = 0;
 
 for (const fixture of documents) {
-  // Fixtures go through the same front door as a customer's upload.
-  const accepted = acceptUpload(fixture.bytes, fixture.filename);
+  // Fixtures go through the same front door as the real thing — which for a
+  // notice that arrived in a message is not the upload door. Sniffing magic
+  // bytes on text the mail server already parsed would be checking the wrong
+  // thing, so the email-body gate applies instead.
+  const accepted =
+    fixture.mimeType === 'text/plain'
+      ? acceptEmailBody(new TextDecoder().decode(fixture.bytes)).accepted
+      : acceptUpload(fixture.bytes, fixture.filename);
   let payload: DocumentPayload = {
     documentId: fixture.key,
     orgId: 'fixture-org',

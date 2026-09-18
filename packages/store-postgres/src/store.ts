@@ -55,6 +55,7 @@ export interface CaseSummary {
 export interface StoredField {
   readonly documentId: string;
   readonly filename: string;
+  readonly mimeType: string;
   readonly docType: DocType | null;
   readonly fieldPath: string;
   readonly value: unknown;
@@ -89,6 +90,7 @@ interface CaseSummaryRow {
 interface StoredFieldRow {
   document_id: string;
   filename: string;
+  mime_type: string;
   doc_type: DocType | null;
   field_path: string;
   value_json: unknown;
@@ -701,7 +703,7 @@ export class PostgresStore implements PipelineStore {
   async fieldsForCase(deductionId: string): Promise<readonly StoredField[]> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<StoredFieldRow>(
-        `select e.document_id, coalesce(d.filename, '') as filename,
+        `select e.document_id, coalesce(d.filename, '') as filename, d.mime_type,
                 c.doc_type, e.field_path, e.value_json, e.confidence,
                 e.source_page, e.source_quote, e.source_bbox, e.quote_verified
            from extraction_results e
@@ -717,6 +719,7 @@ export class PostgresStore implements PipelineStore {
       return rows.map((row) => ({
         documentId: row.document_id,
         filename: row.filename,
+        mimeType: row.mime_type,
         docType: row.doc_type,
         fieldPath: row.field_path,
         value: row.value_json,

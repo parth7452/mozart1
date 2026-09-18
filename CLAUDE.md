@@ -84,7 +84,7 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
-| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic |
 | `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
@@ -147,8 +147,9 @@ number moves when it does):
 | held_out | does it generalise | 100% | 100% | 12/12 |
 | scanned | does it survive a scan | 100% | 98.4% | 4/4 |
 | dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
+| email_body | does it work with no page at all | 100% | 100% | 1/1 |
 
-About $0.021 per document across 25 of them. Extraction streams with a 32,000
+About $0.021 per document across 26 of them. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
 than storing a truncated document as a complete one.
@@ -174,6 +175,6 @@ file at all; no `REDUCTO_API_KEY` builds no OCR provider rather than one that
 throws. `apps/web/test/fail-closed.test.tsx` asserts both.
 
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
-and fixtures for the formats still missing —
-dense retailer tables with merged cells, notices in an email body, EDI-derived
-portal exports. Real customer documents would be worth more than all of them.
+and fixtures for the formats still missing — dense retailer tables with merged
+cells, and EDI-derived portal exports. Real customer documents would be worth
+more than all of them.

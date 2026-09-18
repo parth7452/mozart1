@@ -19,6 +19,7 @@ import {
   type Reconciliation,
 } from '@recouple/extraction';
 import {
+  acceptEmailBody,
   acceptUpload,
   assertScannedClean,
   InboundEmailError,
@@ -35,7 +36,16 @@ export interface IngestInput {
   readonly filename: string;
   readonly bytes: Uint8Array;
   readonly declaredMimeType?: string;
-  readonly source: 'web_upload' | 'email_in';
+  /**
+   * Where this came from, and which door it goes through.
+   *
+   * `email_body` is the one that is not a file: the mail server handed us text,
+   * so there are no magic bytes to check and sniffing would be checking the
+   * wrong thing. The gate it gets is `acceptEmailBody`'s, and the distinction
+   * lives here rather than in a flag a caller could set, so no upload path can
+   * reach it by mistake.
+   */
+  readonly source: 'web_upload' | 'email_in' | 'email_body';
   /** Known text layer, when the caller already has one. */
   readonly pageText?: readonly string[];
   readonly pageTextSource?: 'embedded' | 'ocr';
@@ -56,9 +66,14 @@ export async function ingestDocument(
   input: IngestInput,
   deps: PipelineDeps,
 ): Promise<IngestResult> {
-  const accepted = acceptUpload(input.bytes, input.filename, {
-    ...(input.declaredMimeType !== undefined ? { declaredMimeType: input.declaredMimeType } : {}),
-  });
+  const accepted =
+    input.source === 'email_body'
+      ? acceptEmailBody(new TextDecoder().decode(input.bytes)).accepted
+      : acceptUpload(input.bytes, input.filename, {
+          ...(input.declaredMimeType !== undefined
+            ? { declaredMimeType: input.declaredMimeType }
+            : {}),
+        });
 
   const existing = await deps.store.findDocumentByHash(input.orgId, accepted.sha256);
   if (existing !== undefined) {
@@ -491,7 +506,8 @@ export interface InboundEmailResult {
 }
 
 /**
- * Ingests the attachments on an inbound email.
+ * Ingests an inbound email: its attachments, and its body when the body is what
+ * the notice was written in.
  *
  * The tenant comes from the address the email was sent to — never from the
  * sender, and never from anything in the body. An attachment the front door
@@ -547,6 +563,48 @@ export async function ingestInboundEmail(
     }
   }
 
+  // Some retailers put the deduction in the message rather than attaching it.
+  // Until this existed, such an email produced nothing and said nothing about
+  // why — the loop above only reads attachments, so an inbox with a real notice
+  // in it looked like an empty inbox.
+  //
+  // The body is read only when no attachment turned out to be the notice. If one
+  // did, the body is a cover note ("please see attached") and reading it would
+  // cost a model call to learn that.
+  const foundNotice = documents.some(
+    (d) => d.classification?.docType === 'deduction_notice',
+  );
+  if (!foundNotice) {
+    try {
+      const body = acceptEmailBody(email.textBody);
+      documents.push(
+        await processUpload(
+          {
+            orgId: org.orgId,
+            filename: emailBodyFilename(email),
+            bytes: body.bytes,
+            source: 'email_body',
+            pageText: [body.text],
+          },
+          deps,
+          { allowCaseOpen: email.authenticated },
+        ),
+      );
+    } catch (error) {
+      // A body too short to be a notice is the ordinary case — most email is
+      // "thanks" — so it is recorded as skipped rather than raised.
+      skipped.push({
+        filename: 'the email body',
+        reason:
+          error instanceof RejectedUploadError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error),
+      });
+    }
+  }
+
   return {
     orgId: org.orgId,
     email,
@@ -554,4 +612,16 @@ export async function ingestInboundEmail(
     mayOpenCase: email.authenticated,
     skipped,
   };
+}
+
+/**
+ * A name for a document that arrived as a message rather than a file.
+ *
+ * It goes in front of a reviewer, so it says where the thing came from. The
+ * subject is the sender's text and is trimmed and stripped of path characters
+ * before it becomes part of a filename.
+ */
+function emailBodyFilename(email: InboundEmail): string {
+  const subject = email.subject.replace(/[^\w .\-]+/g, ' ').trim().slice(0, 80);
+  return subject === '' ? 'email body.txt' : `${subject} (email body).txt`;
 }

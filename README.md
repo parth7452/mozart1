@@ -149,7 +149,7 @@ CI runs the replay, so tests never call a model or spend anything.
 
 Eight documents, Sonnet 5 extracting and Haiku 4.5 classifying:
 
-Four suites, each gated on its own baseline — never blended, because the mix
+Five suites, each gated on its own baseline — never blended, because the mix
 changes and a blended number moves when it does:
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
@@ -158,8 +158,9 @@ changes and a blended number moves when it does:
 | `held_out` | does it generalise to documents written elsewhere | 100% | 100% | 12 / 12 |
 | `scanned` | does it survive a rasterised, skewed, JPEG-degraded page | 100% | 98.4% | 4 / 4 |
 | `dense` | does it survive a 42-row, two-page remittance | 100% | 100% | 1 / 1 |
+| `email_body` | does it work with no page, layout or image at all | 100% | 100% | 1 / 1 |
 
-25 documents, 464 extracted fields, $0.52 to read all of them.
+26 documents, 490 extracted fields, $0.54 to read all of them.
 
 ### What a document costs, and how that scales
 
@@ -184,7 +185,7 @@ Treat 100% across the board as "the corpus is not hard enough yet", not as
 "extraction is solved". These are generated PDFs and simulated scans. The numbers
 that matter will come from real customer documents, and the formats still missing
 are the ones most likely to move them: dense retailer tables with merged cells,
-notices in an email body, EDI-derived portal exports.
+and EDI-derived portal exports.
 
 The first run did find one real defect — in our spec, not the model. Full account
 in [ADR 0008](./docs/adr/0008-flat-wire-format-for-extraction.md); the short

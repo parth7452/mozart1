@@ -96,8 +96,13 @@ export function CaseReview({
                 <div className="doc">
                   {/* The bytes come back through the same policies as the rest of
                       the page, sandboxed so a document cannot do anything but be
-                      looked at. */}
-                  <embed src={`/api/document/${primary[0]}`} type="application/pdf" height={820} />
+                      looked at. The type is the document's own: a notice that
+                      arrived in an email body is text, not a PDF. */}
+                  <embed
+                    src={`/api/document/${primary[0]}`}
+                    type={primary[1][0]?.mimeType ?? 'application/pdf'}
+                    height={820}
+                  />
                 </div>
               )}
             </div>

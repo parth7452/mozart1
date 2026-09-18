@@ -10,6 +10,9 @@ import { requireSession, storeFor } from '../../../../lib/session';
  */
 const INLINE_TYPES = new Set([
   'application/pdf',
+  // An email body, which arrives as text. Served with nosniff and a sandbox, so
+  // a body claiming to be markup is still shown as the characters it is.
+  'text/plain',
   'image/jpeg',
   'image/png',
   'image/webp',

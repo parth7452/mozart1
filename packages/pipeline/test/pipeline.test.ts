@@ -40,6 +40,16 @@ function fixtureFor(filename: string): FixtureDocument {
 }
 
 /**
+ * The fixture readers key on the filename, which a document that arrived as an
+ * email body does not have. It stands in for the Walmart notice, whose text it
+ * carries: the point of those tests is the path a body takes, not the reading.
+ */
+function fixtureForPayload(document: DocumentPayload): FixtureDocument {
+  if (document.mimeType === 'text/plain') return fixtureFor('walmart-apdp-notice.pdf');
+  return fixtureFor(document.filename);
+}
+
+/**
  * Deterministic stand-ins for the reader models: they return exactly what a
  * perfect extraction would be. These test the pipeline's behaviour, not the
  * model's accuracy — that is what the eval suite and its cassettes are for.
@@ -48,7 +58,7 @@ class FixtureClassifier implements Classifier {
   calls = 0;
   async classify(document: DocumentPayload): Promise<ClassificationResult> {
     this.calls += 1;
-    const fixture = fixtureFor(document.filename);
+    const fixture = fixtureForPayload(document);
     return {
       docType: fixture.docType as DocType,
       confidence: 0.99,
@@ -70,7 +80,7 @@ class FixtureExtractor implements Extractor {
   calls = 0;
   async extract(document: DocumentPayload, docType: DocType): Promise<ExtractionResult> {
     this.calls += 1;
-    const fixture = fixtureFor(document.filename);
+    const fixture = fixtureForPayload(document);
     return buildExtractionResult({
       docType,
       extractor: this.name,
@@ -289,6 +299,90 @@ describe('email-in', () => {
     expect(result.documents).toHaveLength(1);
     expect(result.documents[0]?.classification?.docType).toBe('deduction_notice');
     expect(store.documents.size).toBe(1);
+  });
+
+  // A notice pasted into the message is a format some retailers actually send,
+  // and until the body was read it produced nothing at all: an inbox with a real
+  // deduction in it looked like an empty inbox.
+  const BODY_NOTICE = [
+    'WALMART STORES, INC. — Accounts Payable Deduction',
+    '',
+    'Vendor Number: 481207',
+    'Claim ID: APDP-99812',
+    'Invoice Number: HF-20418',
+    'Purchase Order: 7741-88203',
+    'Distribution Center: DC 6094 - Sanger, TX',
+    '',
+    'SKU 000-4471-08  Case Pack Olive Oil',
+    'Qty Invoiced 30   Qty Received 25   Unit Cost $624.00',
+    'Reason Code 24 — Shortage',
+    'Total Deduction: $3,120.00',
+    '',
+    'Disputes must be filed in APDP within 90 days of the deduction date.',
+    'Dispute Deadline: 11/12/2026',
+  ].join('\n');
+
+  it('reads a notice pasted into the message when nothing was attached', async () => {
+    const { store, deps } = emailHarness();
+    const result = await ingestInboundEmail(
+      emailPayload({ Attachments: [], TextBody: BODY_NOTICE }),
+      deps,
+    );
+
+    expect(result.skipped).toEqual([]);
+    expect(result.documents).toHaveLength(1);
+    const document = result.documents[0];
+    expect(document?.ingest.document.mimeType).toBe('text/plain');
+    expect(document?.classification?.docType).toBe('deduction_notice');
+    // It is a document like any other: stored, scanned, read, and a case opened.
+    expect(store.documents.size).toBe(1);
+    expect(document?.case?.claimId).toBe('APDP-99812');
+    // Named so a reviewer can tell where it came from without opening it.
+    expect(document?.ingest.document.filename).toContain('email body');
+  });
+
+  it('does not read the body when an attachment was the notice', async () => {
+    const { store, deps } = emailHarness();
+    // The body here would classify as a notice on its own. Reading it anyway
+    // would cost a model call and could open a second case for one deduction.
+    const result = await ingestInboundEmail(emailPayload({ TextBody: BODY_NOTICE }), deps);
+
+    expect(result.documents).toHaveLength(1);
+    expect(store.documents.size).toBe(1);
+    expect(result.documents[0]?.ingest.document.mimeType).toBe('application/pdf');
+  });
+
+  it('says why a body too short to be a notice was not read', async () => {
+    const { store, deps } = emailHarness();
+    const result = await ingestInboundEmail(
+      emailPayload({ Attachments: [], TextBody: 'thanks!' }),
+      deps,
+    );
+
+    expect(result.documents).toHaveLength(0);
+    expect(store.documents.size).toBe(0);
+    // Silence was the bug. An email that produced nothing now says what it was.
+    expect(result.skipped).toEqual([
+      { filename: 'the email body', reason: expect.stringContaining('body_too_short') },
+    ]);
+  });
+
+  it('will not open a case from a body sent by an unauthenticated sender', async () => {
+    const { deps } = emailHarness();
+    const result = await ingestInboundEmail(
+      emailPayload({
+        Attachments: [],
+        TextBody: BODY_NOTICE,
+        Headers: [{ Name: 'Authentication-Results', Value: 'mx; spf=fail; dkim=fail' }],
+      }),
+      deps,
+    );
+
+    // The body is even easier to forge than an attachment: it is just text in a
+    // message anyone can send. It is read and filed, and it opens nothing.
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]?.case).toBeUndefined();
+    expect(result.documents[0]?.haltedBecause).toMatch(/unauthenticated sender/);
   });
 
   it('refuses an address that belongs to no tenant, rather than picking one', async () => {

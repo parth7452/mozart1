@@ -28,8 +28,23 @@ export const ALLOWED_MIME_TYPES = [
 
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
 
+/**
+ * An email body is not an upload, and this is the type it gets.
+ *
+ * It is deliberately outside `ALLOWED_MIME_TYPES`: an uploaded file is opaque
+ * bytes whose type we determine from magic bytes, because the sender's claim is
+ * worthless. An email body is text the mail server already parsed and handed us
+ * as text — there are no magic bytes to check and no file to have lied about its
+ * type, so sniffing it would be checking the wrong thing. Only
+ * `acceptEmailBody` produces it, so no upload path can reach it.
+ */
+export const EMAIL_BODY_MIME = 'text/plain' as const;
+
+export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME;
+
 export type RejectionCode =
   | 'empty_file'
+  | 'body_too_short'
   | 'too_large'
   | 'type_not_allowed'
   | 'content_does_not_match_type'
@@ -185,7 +200,7 @@ export function inspectPdf(
 
 export interface AcceptedUpload {
   readonly sha256: string;
-  readonly mimeType: AllowedMimeType;
+  readonly mimeType: DocumentMimeType;
   readonly byteSize: number;
   readonly pageCount?: number;
   /** Things a reviewer should know that are not grounds for rejection. */
@@ -272,5 +287,74 @@ export function acceptUpload(
     ...(pageCount !== undefined ? { pageCount } : {}),
     warnings,
     requiresSplit,
+  };
+}
+
+/** A notice pasted into an email is a few hundred characters at least. */
+export const MIN_EMAIL_BODY_CHARS = 200;
+
+/** Above this an email body is not a notice; it is a thread, or an attack. */
+export const MAX_EMAIL_BODY_BYTES = 1024 * 1024;
+
+export interface AcceptBodyOptions {
+  readonly minChars?: number;
+  readonly maxBytes?: number;
+}
+
+/**
+ * Accepts an email body as a document.
+ *
+ * Some retailers put the deduction in the message itself rather than attaching
+ * it, and until now those emails were dropped without a word: the loop only read
+ * attachments, so an inbox with a real notice in it produced nothing and said
+ * nothing about why.
+ *
+ * The checks here are the ones that make sense for text. There is no type to
+ * sniff — the mail server parsed it and handed us characters — so what is left
+ * is: is there enough of it to be a notice, and not so much that it is a
+ * forwarded thread or something trying to be expensive. The hash is taken over
+ * the normalised text, so the same body arriving twice deduplicates the same way
+ * a re-sent attachment does.
+ */
+export function acceptEmailBody(
+  text: string,
+  options: AcceptBodyOptions = {},
+): { accepted: AcceptedUpload; bytes: Uint8Array; text: string } {
+  const minChars = options.minChars ?? MIN_EMAIL_BODY_CHARS;
+  const maxBytes = options.maxBytes ?? MAX_EMAIL_BODY_BYTES;
+
+  // Normalised so that the same body through two mail servers hashes the same:
+  // line endings differ, and trailing whitespace is nobody's content.
+  const normalised = text.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
+
+  if (normalised.length === 0) {
+    throw new RejectedUploadError('empty_file', 'the email body is empty');
+  }
+  if (normalised.length < minChars) {
+    throw new RejectedUploadError(
+      'body_too_short',
+      `the email body is ${normalised.length} characters, too short to be a notice ` +
+        `(under ${minChars})`,
+    );
+  }
+
+  const bytes = new TextEncoder().encode(normalised);
+  if (bytes.length > maxBytes) {
+    throw new RejectedUploadError(
+      'too_large',
+      `the email body is ${bytes.length} bytes, over the ${maxBytes} byte limit`,
+    );
+  }
+
+  return {
+    accepted: {
+      sha256: sha256(bytes),
+      mimeType: EMAIL_BODY_MIME,
+      byteSize: bytes.length,
+      warnings: [],
+      requiresSplit: false,
+    },
+    bytes,
+    text: normalised,
   };
 }

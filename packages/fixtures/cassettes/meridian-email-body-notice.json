@@ -1,0 +1,191 @@
+{
+  "key": "meridian-email-body-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "retailer_name": {
+      "value": "MERIDIAN GROCERY GROUP",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "MERIDIAN GROCERY GROUP — DEDUCTION ADVICE"
+    },
+    "vendor_number": {
+      "value": "55219",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Vendor Number: 55219"
+    },
+    "claim_id": {
+      "value": "MGG-2026-44817",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Claim ID: MGG-2026-44817"
+    },
+    "invoice_number": {
+      "value": "HF-20933",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice Number: HF-20933"
+    },
+    "po_number": {
+      "value": "4410-77219",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Purchase Order: 4410-77219"
+    },
+    "store_or_dc": {
+      "value": "RDC 12 — Joliet, IL",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Ship To: RDC 12 — Joliet, IL"
+    },
+    "deduction_total": {
+      "value": "$499.20",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Total Deduction: $499.20"
+    },
+    "deduction_date": {
+      "value": "09/08/2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Deduction Date: 09/08/2026"
+    },
+    "dispute_deadline": {
+      "value": "11/07/2026",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Dispute Deadline: 11/07/2026"
+    },
+    "remittance_or_check": {
+      "value": "09/08/2026",
+      "confidence": 0.5,
+      "source_page": 1,
+      "source_quote": "Please see the deduction below, taken against your remittance of 09/08/2026."
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "000-4471-08",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-08"
+        },
+        "description": {
+          "value": "Case Pack Olive Oil",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Case Pack Olive Oil"
+        },
+        "qty_invoiced": {
+          "value": 48,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "48"
+        },
+        "qty_received": {
+          "value": 40,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "40"
+        },
+        "unit_cost": {
+          "value": "$62.40",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$62.40"
+        },
+        "deduction_amount": {
+          "value": "$499.20",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$499.20"
+        },
+        "reason_code": {
+          "value": "24",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Reason Code 24 — Shortage on receipt"
+        },
+        "reason_description": {
+          "value": "Shortage on receipt",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Shortage on receipt"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "000-4471-22",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-22"
+        },
+        "description": {
+          "value": "Case Pack Balsamic",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Case Pack Balsamic"
+        },
+        "qty_invoiced": {
+          "value": 24,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "24"
+        },
+        "qty_received": {
+          "value": 24,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "24"
+        },
+        "unit_cost": {
+          "value": "$41.10",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$41.10"
+        },
+        "deduction_amount": {
+          "value": "$0.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$0.00"
+        },
+        "reason_code": {
+          "value": "24",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Reason Code 24 — Shortage on receipt"
+        },
+        "reason_description": {
+          "value": "Shortage on receipt",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "Shortage on receipt"
+        }
+      }
+    ],
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T19:56:38.645Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 2707,
+    "outputTokens": 1508,
+    "costMicros": 20494,
+    "latencyMs": 10112
+  }
+}

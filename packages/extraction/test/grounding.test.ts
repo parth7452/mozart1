@@ -146,8 +146,39 @@ describe('what the reader is given', () => {
 
   it('refuses a type no reader model can read', () => {
     expect(() => buildReadContent({ ...payload, mimeType: 'text/csv' }, 'x')).toThrow(
-      /only PDF and image/,
+      /only PDF, image and text/,
     );
+  });
+
+  it('reads a text document as text, with no document block at all', () => {
+    // An email body has no image behind it. The blocks are the text and the
+    // instruction — there is nothing else, and asking for a document block would
+    // be asking for a file that does not exist.
+    const blocks = buildReadContent(
+      { ...payload, mimeType: 'text/plain', pageText: ['Claim ID: APDP-99812'] },
+      'Read this.',
+    );
+    expect(blocks.map((b) => b.type)).toEqual(['text', 'text']);
+    expect(String(blocks[0]?.text)).toContain('the body of an email');
+    expect(String(blocks[0]?.text)).toContain('APDP-99812');
+    expect(String(blocks[0]?.text)).toContain('<untrusted_document>');
+  });
+
+  it('will not build a text document with nothing in it', () => {
+    expect(() => buildReadContent({ ...payload, mimeType: 'text/plain' }, 'x')).toThrow(
+      /nothing to read/,
+    );
+  });
+
+  it('keeps a text document’s own text even when the text layer is withheld', () => {
+    // Withholding is a judgement about OCR, which can be worse than the image it
+    // transcribes. There is no image here, so withholding would leave nothing.
+    const blocks = buildReadContent(
+      { ...payload, mimeType: 'text/plain', pageText: ['Claim ID: APDP-99812'] },
+      'Read this.',
+      { includeTextLayer: false },
+    );
+    expect(String(blocks[0]?.text)).toContain('APDP-99812');
   });
 });
 
