@@ -207,6 +207,22 @@ describeDb('signing in, and the reads the web app makes', () => {
     expect(found?.state).toBe('classified');
   });
 
+  it('hands dates back as strings, not as whatever the driver parsed', async () => {
+    // `pg` turns `date` and `timestamptz` into Date objects, so a store that
+    // declares strings and passes them through is lying — and the first thing to
+    // call `.slice` on one crashes the page rather than the test. The deadline is
+    // a calendar day, so it comes back as one.
+    await admin.query(
+      `update deductions set deduction_date = '2026-09-08', dispute_deadline = '2026-12-07'
+        where id = $1`,
+      [deductionId],
+    );
+    const found = (await store.listCases()).find((row) => row.deductionId === deductionId);
+    expect(found?.disputeDeadline).toBe('2026-12-07');
+    expect(found?.deductionDate).toBe('2026-09-08');
+    expect(typeof found?.createdAt).toBe('string');
+  });
+
   it('shows another tenant no cases at all', async () => {
     const otherStore = new PostgresStore(
       { connectionString: connectionString as string },

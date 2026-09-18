@@ -92,6 +92,7 @@ append-only tables.
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
+| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
 | `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle |
@@ -157,8 +158,16 @@ the scan with every field boxed and traceable to its quote. It is a prototype, n
 the product: no database, no auth, and approving is a Phase 3 action a trigger
 governs.
 
-Still to do before Phase 1 is done: `apps/web` proper (Supabase Auth, the case
-list, the real review route), the Inngest binding over the existing steps, and
-fixtures for the formats still missing — dense retailer tables with merged cells,
-notices in an email body, EDI-derived portal exports. Real customer documents
-would be worth more than all of them.
+`apps/web` is the product's shell: Next.js 16 App Router, Supabase Auth by magic
+link, a case list and a review route, reading through the same RLS policies as
+everything else (ADR 0015). Signing in resolves a tenant rather than creating
+one — `app.link_auth_user()` and `app.my_orgs()`, both security definer and both
+taking the identity from the claims rather than an argument (migration 0012, ADR
+0012). Document bytes are durable and served through a route under the same
+policies, not a signed URL (migration 0013, ADR 0014). Still no approve button,
+for the same reason.
+
+Still to do before Phase 1 is done: an upload route in the app, the Inngest
+binding over the existing steps, and fixtures for the formats still missing —
+dense retailer tables with merged cells, notices in an email body, EDI-derived
+portal exports. Real customer documents would be worth more than all of them.

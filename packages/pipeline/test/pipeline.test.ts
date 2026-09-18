@@ -116,6 +116,9 @@ describe('a notice becomes a case', () => {
     expect(result.case?.state).toBe('classified');
     expect(result.case?.claimId).toBe('APDP-99812');
     expect(result.case?.retailerName).toBe('Walmart');
+    // The amount is the number the whole case is about: what the retailer took.
+    // A case that does not carry it cannot be prioritised, costed or billed.
+    expect(result.case?.deductionAmountCents).toBe(312_000);
     expect(result.extraction?.fields.length).toBeGreaterThan(10);
 
     // Every extracted field was checked against the page it cites.

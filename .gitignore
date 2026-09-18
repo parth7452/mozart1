@@ -7,3 +7,11 @@ coverage/
 .env
 .env.local
 .DS_Store
+
+# Next.js build output, and the standalone preview render (regenerate with
+# `pnpm render:web` — it needs a database, so it is not a source artifact).
+apps/web/.next
+apps/web/.cache
+apps/web/preview
+apps/web/next-env.d.ts
+apps/web/.env.local

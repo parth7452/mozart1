@@ -6,7 +6,7 @@
  * which is what makes the whole chain safe to retry.
  */
 
-import { applyTransition } from '@recouple/core-domain';
+import { applyTransition, parseMoneyToCents } from '@recouple/core-domain';
 import {
   locateQuote,
   OcrError,
@@ -362,6 +362,25 @@ export async function processUpload(
   };
 }
 
+/**
+ * The notice's total, in cents.
+ *
+ * Undefined when the notice does not say or says something we cannot read: the
+ * case still opens, because a deduction we cannot price is still a deduction
+ * that arrived, and reconciliation reports the unreadable amount as a blocking
+ * finding where a reviewer will see it.
+ */
+function deductionTotalCents(document: unknown): number | undefined {
+  const text = fieldValue(document, ['deduction_total', 'value']);
+  if (typeof text === 'number' && Number.isSafeInteger(text) && text > 0) return text;
+  if (typeof text !== 'string') return undefined;
+  try {
+    return parseMoneyToCents(text);
+  } catch {
+    return undefined;
+  }
+}
+
 function fieldValue(document: unknown, path: readonly string[]): unknown {
   let node: unknown = document;
   for (const key of path) {
@@ -383,11 +402,19 @@ export async function openCaseFromNotice(
 ): Promise<CaseRecord> {
   const claimId = fieldValue(extraction.document, ['claim_id', 'value']);
   const retailer = fieldValue(extraction.document, ['retailer_name', 'value']);
+  // The amount the retailer took is what the case is about: it decides what is
+  // worth disputing first, what the work is costed against, and what a
+  // contingency fee is a percentage of. The model reports the text exactly as
+  // printed — "$3,120.00" — and we do the arithmetic, which is invariant 3 and
+  // the reason a wrong reading shows up as an unparseable amount rather than as
+  // a plausible wrong number.
+  const total = deductionTotalCents(extraction.document);
 
   const opened = await deps.store.openCase({
     orgId: document.orgId,
     ...(typeof claimId === 'string' ? { claimId } : {}),
     ...(typeof retailer === 'string' ? { retailerName: retailer } : {}),
+    ...(total !== undefined ? { deductionAmountCents: total } : {}),
   });
 
   await deps.store.linkDocument(opened.deductionId, document.documentId, 'notice');

@@ -76,9 +76,11 @@ interface CaseSummaryRow {
   state: CaseState;
   claim_id: string | null;
   amount: string;
-  deduction_date: string | null;
-  dispute_deadline: string | null;
-  created_at: string;
+  // `pg` hands back `date` and `timestamptz` as Date objects, so these are
+  // normalised on the way out rather than left for each caller to discover.
+  deduction_date: Date | string | null;
+  dispute_deadline: Date | string | null;
+  created_at: Date | string;
   debtor_name: string | null;
   retailer_key: string | null;
   document_count: number;
@@ -615,6 +617,26 @@ export class PostgresStore implements PipelineStore {
     return Promise.all(rows.map((row) => this.toStoredDocument(row)));
   }
 
+  /**
+   * One document by id, bytes included.
+   *
+   * There is no org predicate here on purpose: the policies decide, and a
+   * document of another tenant comes back as nothing rather than as a row we
+   * then have to remember to check.
+   */
+  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+    const row = await this.withTenant(async (client) => {
+      const { rows } = await client.query<DocumentRow>(
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+                coalesce(filename, '') as filename
+           from documents where id = $1`,
+        [documentId],
+      );
+      return rows[0];
+    });
+    return row === undefined ? undefined : this.toStoredDocument(row);
+  }
+
   async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string; slug: string }>(
@@ -648,18 +670,22 @@ export class PostgresStore implements PipelineStore {
           limit $1`,
         [limit],
       );
-      return rows.map((row) => ({
-        deductionId: row.id,
-        state: row.state,
-        ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
-        deductionAmountCents: Number(row.amount),
-        ...(row.deduction_date !== null ? { deductionDate: row.deduction_date } : {}),
-        ...(row.dispute_deadline !== null ? { disputeDeadline: row.dispute_deadline } : {}),
-        ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
-        ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
-        documentCount: row.document_count,
-        createdAt: row.created_at,
-      }));
+      return rows.map((row) => {
+        const deductionDate = isoDate(row.deduction_date);
+        const disputeDeadline = isoDate(row.dispute_deadline);
+        return {
+          deductionId: row.id,
+          state: row.state,
+          ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+          deductionAmountCents: Number(row.amount),
+          ...(deductionDate !== undefined ? { deductionDate } : {}),
+          ...(disputeDeadline !== undefined ? { disputeDeadline } : {}),
+          ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
+          ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
+          documentCount: row.document_count,
+          createdAt: isoDate(row.created_at) ?? '',
+        };
+      });
     });
   }
 
@@ -725,6 +751,23 @@ export class PostgresStore implements PipelineStore {
       return Number(rows[0]?.total ?? 0);
     });
   }
+}
+
+/**
+ * A date as an ISO string, whatever the driver handed us.
+ *
+ * `pg` parses `date` and `timestamptz` into Date objects, and a `date` in
+ * particular becomes local midnight — so `toISOString()` on it can name the day
+ * before. The date columns here are calendar dates (a dispute deadline is a day,
+ * not an instant), so the local Y-M-D is the right reading of one.
+ */
+function isoDate(value: Date | string | null | undefined): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /** Segments that would reach the prototype chain rather than the object. */

@@ -151,6 +151,8 @@ describeDb('the pipeline against a real database', () => {
     expect(result.classification?.docType).toBe('deduction_notice');
     expect(result.case?.state).toBe('classified');
     expect(result.case?.claimId).toBe('APDP-99812');
+    // Through the real column, not just the in-memory record.
+    expect(result.case?.deductionAmountCents).toBe(312_000);
     deductionId = result.case?.deductionId as string;
 
     const { rows } = await admin.query<{ n: string }>(

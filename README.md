@@ -206,12 +206,39 @@ It is a prototype over recorded output, not the product: no database, no auth,
 and the approve button is deliberately dead, because approving is a Phase 3
 action that a Postgres trigger governs.
 
+## The app
+
+`apps/web` is the real thing: Supabase Auth, a case list and a review route,
+reading through the same RLS policies as everything else.
+
+```
+pnpm --filter @recouple/web dev        # needs NEXT_PUBLIC_SUPABASE_* and DATABASE_URL
+```
+
+Sign-in is a magic link to an address a workspace already invited — signing in
+resolves a tenant, it does not create one. From there the request reaches
+Postgres as `app_rw` with the tenant's claims set transaction-locally, exactly
+the way the pipeline does, so what a page can see is what the policies allow
+rather than what a query remembered to filter. The service-role key does not
+appear in the app at all; the publishable key is the only Supabase credential it
+holds, and that one is designed to be public
+([ADR 0015](./docs/adr/0015-the-web-app-authenticates-with-supabase-and-reads-as-app-rw.md)).
+
+The review route shows every stored field with the document, page and quote it
+came from, and says which of three checks each field got: the quote was found in
+the page text, it was looked for and was not there, or there was no text to look
+in. There is still no approve button, for the same reason as in the prototype.
+
+To see the two views without a sign-in, `pnpm render:web` seeds a tenant, runs
+the real pipeline over the fixture case, reads it back through RLS and writes
+`apps/web/preview/*.html` — the same components the app renders, over real rows.
+
 ### What is not built yet
 
-No `apps/web` — no auth, no case list, no route anyone can log into. No Inngest
-binding: the steps exist and are tested, but the durable wrapper needs an HTTP
-endpoint, which arrives with the app. No decision layer, no packet, no
-submission, and no money movement anywhere.
+No Inngest binding: the steps exist and are tested, but the durable wrapper needs
+an HTTP endpoint. No decision layer, no packet, no submission, and no money
+movement anywhere. No upload route in the app yet either — documents arrive
+through the pipeline API and inbound email.
 
 Phase 0's floor still holds under all of it: nothing can be submitted or written
 back to accounting without an approval row, and the database is what refuses.

@@ -73,20 +73,51 @@ why the RLS policies could be tested before auth existed.
 Keep running `pnpm db:test` against local Postgres — it is faster and it proves
 the migrations stay portable.
 
-## Connecting an app
+## Connecting the app
 
-Get the project URL and the publishable (anon) key from the Supabase dashboard,
-or the CLI, and put them in `.env`:
+`apps/web` needs three values, and deliberately not a fourth:
 
 ```
-SUPABASE_URL=https://hvheqbgkvwhlqutklwfh.supabase.co
-SUPABASE_ANON_KEY=…
-SUPABASE_SERVICE_ROLE_KEY=…      # server-side jobs only (invariant 6)
+NEXT_PUBLIC_SUPABASE_URL=https://hvheqbgkvwhlqutklwfh.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
+DATABASE_URL=postgres://…                # a role that may `set role app_rw`
 ```
 
-The service-role key bypasses RLS. It belongs in background jobs and nowhere
-near a request path — that is invariant 6, and it is the one invariant the
-database cannot enforce for us.
+The publishable key is designed to be public and is used for one thing:
+`supabase.auth.getUser()`, which says who is asking. Everything else goes through
+`PostgresStore` as `app_rw` with the tenant's claims set transaction-locally
+(ADR 0015).
+
+**There is no `SUPABASE_SERVICE_ROLE_KEY` here.** The service-role key bypasses
+RLS; it belongs in background jobs and nowhere near a request path. That is
+invariant 6, and it is the one invariant the database cannot enforce for us, so
+the way to keep it is to never need the key.
+
+### The connecting role
+
+`DATABASE_URL` must name a login role that can `set role app_rw` — not the
+postgres superuser in production. On Supabase, create one and grant it the
+membership:
+
+```sql
+create role recouple_app login password '…';
+grant app_rw to recouple_app;
+grant app_ro to recouple_app;
+```
+
+The app never runs *as* that role's own privileges: every unit of work opens a
+transaction, does `set local role app_rw`, and sets the claims. The login role is
+a door, not a permission set.
+
+### Auth settings to check in the dashboard
+
+- **Site URL and redirect URLs** must include the app's `/auth/callback`, or the
+  magic link comes back to the wrong place.
+- **Email confirmations** are what a magic link is; the built-in SMTP is
+  rate-limited and fine for a handful of testers, not for customers.
+- A person can only sign in if they were invited: a `users` row with their
+  address and a `memberships` row for their tenant. Seed those as the owner —
+  `app.link_auth_user()` refuses an address with no invitation, on purpose.
 
 ## Sharing a project with Mozart
 

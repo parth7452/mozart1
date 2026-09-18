@@ -8,7 +8,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && pnpm --filter @recouple/web typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:test": "./scripts/db-test.sh",
@@ -16,7 +16,9 @@
     "record:cassettes": "tsx scripts/record-cassettes.ts",
     "eval": "tsx scripts/run-evals.ts",
     "render:scans": "tsx scripts/render-scans.mts",
-    "build:review": "tsx scripts/build-review-bundle.mts"
+    "build:review": "tsx scripts/build-review-bundle.mts",
+    "build:web": "pnpm --filter @recouple/web build",
+    "render:web": "./scripts/render-web.sh"
   },
   "devDependencies": {
     "@recouple/adapters": "workspace:*",
@@ -28,12 +30,17 @@
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
     "@recouple/store-postgres": "workspace:*",
+    "@recouple/web": "workspace:*",
     "@types/node": "^22.18.0",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "dotenv": "^18.0.0",
     "fast-check": "^4.10.0",
     "pg": "^8.23.0",
     "playwright": "^1.63.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "tsx": "^4.23.13",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
