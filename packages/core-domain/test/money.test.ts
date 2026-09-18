@@ -11,6 +11,7 @@ import {
   formatCents,
   MoneyError,
   shortageCents,
+  parseMoneyToCents,
   sumCents,
 } from '../src/money';
 
@@ -164,5 +165,46 @@ describe('allocateCents', () => {
     expect(() => allocateCents(cents(100), [])).toThrow(MoneyError);
     expect(() => allocateCents(cents(100), [0, 0])).toThrow(MoneyError);
     expect(() => allocateCents(cents(100), [-1, 2])).toThrow(MoneyError);
+  });
+});
+
+describe('parseMoneyToCents', () => {
+  it('reads money the way it appears on a deduction notice', () => {
+    expect(parseMoneyToCents('$3,120.00')).toBe(312_000);
+    expect(parseMoneyToCents('3120')).toBe(312_000_00 / 100);
+    expect(parseMoneyToCents('  $624.00 ')).toBe(62_400);
+    expect(parseMoneyToCents('1,234.56 USD')).toBe(123_456);
+    expect(parseMoneyToCents('0.01')).toBe(1);
+    expect(parseMoneyToCents('.99')).toBe(99);
+  });
+
+  it('reads the two ways a document says "negative"', () => {
+    expect(parseMoneyToCents('(1,234.56)')).toBe(-123_456);
+    expect(parseMoneyToCents('-1,234.56')).toBe(-123_456);
+    expect(parseMoneyToCents('1,234.56 CR')).toBe(-123_456);
+    expect(parseMoneyToCents('1,234.56 DR')).toBe(123_456);
+    // Both markers cancel, which is what a credit in parentheses means.
+    expect(parseMoneyToCents('(1,234.56 CR)')).toBe(123_456);
+  });
+
+  it('refuses to guess', () => {
+    expect(() => parseMoneyToCents('')).toThrow(MoneyError);
+    expect(() => parseMoneyToCents('three thousand')).toThrow(MoneyError);
+    expect(() => parseMoneyToCents('1,23.45')).toThrow(/ambiguous/);
+    expect(() => parseMoneyToCents('12,3456')).toThrow(/ambiguous/);
+    // Three decimals could be 1.234 or 1,234 — either reading is a real number
+    // of dollars, so this is exactly where guessing would cost money.
+    expect(() => parseMoneyToCents('1.234')).toThrow(/two decimal places/);
+    expect(() => parseMoneyToCents('$')).toThrow(MoneyError);
+    expect(() => parseMoneyToCents('.')).toThrow(MoneyError);
+  });
+
+  it('round-trips anything we format', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
+        const amount = cents(n);
+        expect(parseMoneyToCents(formatCents(amount))).toBe(amount);
+      }),
+    );
   });
 });

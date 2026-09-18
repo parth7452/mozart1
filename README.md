@@ -36,9 +36,10 @@ pnpm install
 cp .env.example .env            # only DATABASE_URL matters for Phase 0
 
 pnpm typecheck
-pnpm test                       # 54 unit + property tests
-pnpm db:test                    # migrations + 45 database invariant assertions
-pnpm verify                     # all three, in the order CI runs them
+pnpm test                       # 133 unit, property and pipeline tests
+pnpm db:test                    # migrations + 58 database invariant assertions
+pnpm eval                       # replays cassettes, scores against ground truth
+pnpm verify                     # all four, in the order CI runs them
 ```
 
 `pnpm db:test` applies every migration to the database in `DATABASE_URL` and then
@@ -61,7 +62,12 @@ recouple/
 ├─ packages/
 │  ├─ core-domain/      money (integer cents), case state machine, reason codes, invariants
 │  ├─ decision/         DecisionProvider contract, schemas A–D, state hashing
-│  └─ adapters/         SubmissionChannel + EvidenceSource contracts
+│  ├─ adapters/         SubmissionChannel + EvidenceSource contracts
+│  ├─ ingest/           upload hardening, zip-bomb check, malware scan gate
+│  ├─ extraction/       typed schemas, the no-tools reader, reconciliation
+│  ├─ pipeline/         ingest → classify → extract as pure steps over ports
+│  ├─ fixtures/         generated documents + labelled ground truth
+│  └─ evals/            field-level scoring and the regression gate
 ├─ supabase/
 │  ├─ migrations/       append-only DDL, approval trigger, RLS policies
 │  └─ tests/            invariant, RLS and separation-of-duties suites
@@ -75,7 +81,7 @@ recouple/
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Foundations: append-only DDL, approval trigger, RLS, roles, money maths, state machine, contracts, CI | **done** |
-| 1 | Ingest + classify: upload/email-in, malware scan, doc-type, extraction with source spans, case view | next |
+| 1 | Ingest + classify: upload hardening, scan gate, doc-type, typed extraction with provenance, reconciliation, fixtures, evals | **pipeline done**; UI, Inngest binding, email-in and cassettes remain |
 | 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, confidence gates, calibration | — |
 | 3 | Packet + approval + manual submission + outcomes | — |
 | 4 | QBO write-back, attribution, Stripe contingency billing | — |
@@ -87,12 +93,54 @@ credentialed fetch, browser-agent auto-submission, EDI/carrier/3PL connectors,
 NetSuite and Xero. Their interfaces exist (`SubmissionChannel`,
 `EvidenceSource`), so each is a new implementation rather than a refactor.
 
-### What Phase 0 does not do
+## How extraction is kept honest
 
-No model is called, no money moves, no vendor API is contacted, and nothing is
-reachable over HTTP. Phase 0 is the floor the rest is allowed to stand on:
-tenancy, the approval gate, immutability, tenant isolation, exact money maths,
-and the contracts the later phases implement.
+Three things, none of which is "trust the model":
+
+**Every field carries provenance, and the quote is checked.** A field arrives
+with the page it was read from and the text exactly as printed. We then look for
+that text in the page and record whether we found it. A quote that is nowhere on
+the page is the signature of an invented value, and it is caught before a human
+sees the field. Bounding boxes are stored when the model offers one, but the
+reviewer UI highlights the quote — a confident rectangle in the wrong place is
+worse than no rectangle ([ADR 0007](./docs/adr/0007-phase-1-ingest-and-extraction.md)).
+
+**The model copies; our code computes.** Money comes back as the verbatim text on
+the page. `parseMoneyToCents` turns it into integer cents, and
+`reconcileNotice` does the shortage arithmetic, the total check and the
+three-way match against the PO, invoice and delivery document. A model that does
+its own arithmetic leaves nothing to check.
+
+**The reader has no tools and no clean bill of health by default.** The reader
+client is constructed without a `tools` parameter at all, so an instruction
+injected into a PDF has nothing to reach for, and document text is wrapped in
+quarantine delimiters with any forged delimiter defanged first. Nothing reaches a
+model until the document has a recorded `clean` scan verdict — and with no
+scanner configured the verdict is `error`, not `clean`, so an unconfigured
+environment reads nothing rather than reading everything.
+
+## Fixtures, cassettes and evals
+
+Fixtures are generated, not committed as binaries: the document text, its ground
+truth and its expected extraction sit in the same file, and the suite fails if
+they disagree. Three cases ship: the plan's worked Walmart code 24 shortage
+($3,120, four documents), a KeHE claim whose only evidence is an unsigned
+carrier-generated report, and a Target price-discrepancy claim the PO
+contradicts.
+
+`pnpm record:cassettes` calls the API once per fixture and writes what the model
+actually said to `packages/fixtures/cassettes/`. `pnpm eval` replays those
+recordings through the same flatten-and-verify code production uses, scores them
+against ground truth, and fails when recall, precision, grounding or
+classification accuracy drops more than two points below the recorded baseline.
+CI runs the replay, so tests never call a model or spend anything.
+
+### What is not built yet
+
+No case-view UI, no Inngest binding (the steps exist; the durable wrapper lands
+with `apps/web`), no email-in, no Reducto fallback, and no money movement
+anywhere. Phase 0's floor still holds: nothing can be submitted or written back
+to accounting without an approval row.
 
 ## Working on it
 

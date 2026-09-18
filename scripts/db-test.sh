@@ -10,6 +10,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Local convenience: fall back to .env when DATABASE_URL is not already set.
+if [ -z "${DATABASE_URL:-}" ] && [ -f "$ROOT/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set +a
+fi
+
 : "${DATABASE_URL:?set DATABASE_URL to a scratch Postgres database owned by the connecting role}"
 
 psql_run() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q --no-psqlrc -f "$1"; }

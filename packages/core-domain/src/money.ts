@@ -123,6 +123,92 @@ export function allocateCents(amount: Cents, weights: readonly number[]): Cents[
   return out;
 }
 
+/**
+ * Parses money as written on a document into integer cents.
+ *
+ * Extraction models report the *verbatim* text of a money field; converting it
+ * to cents is our job, not theirs (invariant 3 — and a model that does its own
+ * arithmetic gives us no way to check it). USD only in V1.
+ *
+ * Accepts: `$3,120.00`, `3120`, `3,120.00 USD`, `(1,234.56)` and `-1,234.56`
+ * (both negative), a trailing `CR`/`DR`. Rejects anything it cannot read
+ * unambiguously rather than guessing a value that will be billed on.
+ */
+export function parseMoneyToCents(text: string): Cents {
+  const original = text;
+  let working = text.trim().toUpperCase();
+  if (working === '') throw new MoneyError('cannot parse money from an empty string');
+
+  let negative = false;
+
+  // Accounting parentheses.
+  const parenthesised = /^\((.*)\)$/.exec(working);
+  if (parenthesised?.[1] !== undefined) {
+    negative = true;
+    working = parenthesised[1].trim();
+  }
+
+  // Trailing credit/debit marker.
+  const marker = /^(.*?)\s*(CR|DR)$/.exec(working);
+  if (marker?.[1] !== undefined) {
+    if (marker[2] === 'CR') negative = !negative;
+    working = marker[1].trim();
+  }
+
+  working = working.replace(/\bUSD\b/g, '').replace(/\$/g, '').replace(/\s/g, '');
+
+  if (working.startsWith('-')) {
+    negative = !negative;
+    working = working.slice(1);
+  } else if (working.startsWith('+')) {
+    working = working.slice(1);
+  }
+
+  if (!/^[0-9,]*\.?[0-9]*$/.test(working) || working === '' || working === '.') {
+    throw new MoneyError(`cannot parse money from ${JSON.stringify(original)}`);
+  }
+
+  const [wholePart = '', fractionPart] = working.split('.');
+
+  // Thousands separators must be exactly that: 1,234 or 1,234,567, never 1,23.
+  if (wholePart.includes(',')) {
+    const groups = wholePart.split(',');
+    const [first, ...rest] = groups;
+    if (
+      first === undefined ||
+      first.length === 0 ||
+      first.length > 3 ||
+      rest.some((g) => g.length !== 3)
+    ) {
+      throw new MoneyError(
+        `ambiguous thousands separators in ${JSON.stringify(original)}`,
+      );
+    }
+  }
+
+  const whole = wholePart.replace(/,/g, '');
+  if (whole === '' && (fractionPart === undefined || fractionPart === '')) {
+    throw new MoneyError(`cannot parse money from ${JSON.stringify(original)}`);
+  }
+
+  // Two decimal places, or none. Three would mean we are guessing.
+  let fraction = '00';
+  if (fractionPart !== undefined && fractionPart !== '') {
+    if (fractionPart.length !== 2) {
+      throw new MoneyError(
+        `expected two decimal places in ${JSON.stringify(original)}, got ${fractionPart.length}`,
+      );
+    }
+    fraction = fractionPart;
+  }
+
+  const magnitude = Number(`${whole === '' ? '0' : whole}${fraction}`);
+  if (!Number.isSafeInteger(magnitude)) {
+    throw new MoneyError(`money out of safe integer range: ${JSON.stringify(original)}`);
+  }
+  return cents(negative ? -magnitude : magnitude);
+}
+
 export function formatCents(amount: Cents): string {
   const negative = amount < 0;
   const abs = Math.abs(amount);

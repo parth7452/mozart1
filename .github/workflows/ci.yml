@@ -56,3 +56,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pnpm db:test
+
+      # Replays committed cassettes. Calls no model and spends nothing.
+      - name: extraction evals (no regression beyond tolerance)
+        run: pnpm eval

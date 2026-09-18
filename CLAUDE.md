@@ -56,7 +56,9 @@ what enforces each one.
 | `pnpm test` | Vitest across every package (includes the money property tests) |
 | `pnpm typecheck` | `tsc` over the workspace |
 | `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites |
-| `pnpm verify` | typecheck + test + db:test — what CI runs |
+| `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
+| `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
+| `pnpm verify` | typecheck + test + db:test + eval — what CI runs |
 
 `pnpm db:test` needs `DATABASE_URL` pointing at a throwaway database owned by
 the connecting role.
@@ -82,6 +84,11 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic |
+| `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production |
+| `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
+| `evals` | Never move a baseline to make a run pass |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
@@ -89,9 +96,32 @@ append-only tables.
 | `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
+## Models
+
+Extraction and narrative run on `claude-sonnet-5`; first-page doc-type
+classification runs on `claude-haiku-4-5` (ADR 0007). Both are overridable with
+`RECOUPLE_EXTRACT_MODEL` / `RECOUPLE_CLASSIFY_MODEL`, and every call writes the
+model it actually used to `model_calls` alongside its tokens, cost and latency.
+
+Two rules that are easy to break by accident:
+
+- **The reader is constructed with no `tools` parameter.** Not "with an empty
+  tool list" — the parameter is never passed. If you find yourself adding a tool
+  to a call that reads a document, you are about to break invariant 4.
+- **Models copy, we compute.** Money comes back as the verbatim text on the page
+  (`"$3,120.00"`), and `parseMoneyToCents` turns it into cents. A model that does
+  its own arithmetic leaves nothing to check.
+
 ## Current state
 
-Phase 0 is in place: migrations with the approval trigger, append-only tables
-and hash chains, RLS policies, the SQL invariant suite, money maths, the case
-state machine, the decision and adapter contracts. Phase 1 (ingest + classify)
-is next; nothing calls a model or moves money yet.
+Phase 0: done. Migrations with the approval trigger, append-only tables and hash
+chains, RLS policies, the SQL invariant suite, money maths, the case state
+machine, the decision and adapter contracts.
+
+Phase 1: the pipeline is built and tested — upload hardening, the fail-closed
+scan gate, doc-type classification, typed extraction with per-field provenance,
+quote verification, cross-document reconciliation, the synthetic fixture corpus
+and the eval harness. Still to do before Phase 1 is done: the case-view UI in
+`apps/web` (side-by-side document and highlighted quote), the Inngest binding
+over the existing steps, Postmark email-in, the Reducto fallback for scanned
+remittances, and the recorded cassettes plus eval baseline.
