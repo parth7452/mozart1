@@ -24,7 +24,10 @@ export const DeductionNoticeSchema = z.object({
   lines: z
     .array(
       z.object({
-        sku_upc: Field(z.string(), 'The item identifier: SKU, UPC, GTIN or item number.'),
+        sku_upc: OptionalField(
+          z.string(),
+          'The item identifier: SKU, UPC, GTIN or item number. Many deductions are taken against a whole invoice rather than an item (an allowance, a compliance charge, a discount); those have no item identifier.',
+        ),
         description: OptionalField(z.string(), 'The item description as printed.'),
         qty_invoiced: OptionalField(Qty(), 'Quantity the supplier invoiced.'),
         qty_received: OptionalField(Qty(), 'Quantity the retailer says it received.'),

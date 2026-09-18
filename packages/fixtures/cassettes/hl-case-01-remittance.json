@@ -1,0 +1,75 @@
+{
+  "key": "hl-case-01-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "payer_name": {
+      "value": "Harbor Lane Markets",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Harbor Lane Markets"
+    },
+    "payment_reference": {
+      "value": "SIM-PAY-2609-001",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment reference: SIM-PAY-2609-001"
+    },
+    "payment_date": {
+      "value": "2026-09-03",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment date: 2026-09-03"
+    },
+    "payment_total": {
+      "value": "$11,400.00",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Net payment"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-260801",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "INV-260801"
+        },
+        "gross_amount": {
+          "value": "$12,000.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$12,000.00"
+        },
+        "deduction_amount": {
+          "value": "$600.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$600.00"
+        },
+        "net_amount": {
+          "value": "$11,400.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$11,400.00"
+        },
+        "reason_code": {
+          "value": "SHORT",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "SHORT"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:48:52.945Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4344,
+    "outputTokens": 510,
+    "costMicros": 13788,
+    "latencyMs": 4362
+  }
+}

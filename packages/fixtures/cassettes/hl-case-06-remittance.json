@@ -1,0 +1,75 @@
+{
+  "key": "hl-case-06-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "payer_name": {
+      "value": "Pine Ridge Distribution",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Pine Ridge Distribution"
+    },
+    "payment_reference": {
+      "value": "SIM-PAY-2609-006",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment reference: SIM-PAY-2609-006"
+    },
+    "payment_date": {
+      "value": "2026-09-14",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment date: 2026-09-14"
+    },
+    "payment_total": {
+      "value": "$21,560.00",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Net payment\n$21,560.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-260806",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "INV-260806"
+        },
+        "gross_amount": {
+          "value": "$22,000.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$22,000.00"
+        },
+        "deduction_amount": {
+          "value": "$440.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$440.00"
+        },
+        "net_amount": {
+          "value": "$21,560.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$21,560.00"
+        },
+        "reason_code": {
+          "value": "DISC",
+          "confidence": 0.96,
+          "source_page": 1,
+          "source_quote": "DISC"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:50:05.213Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4344,
+    "outputTokens": 518,
+    "costMicros": 13868,
+    "latencyMs": 4421
+  }
+}

@@ -9,6 +9,13 @@
 
 import type { SuiteScore } from './score';
 
+export interface SuiteBaseline {
+  readonly recall: number;
+  readonly precision: number;
+  readonly groundedRate: number | null;
+  readonly classificationAccuracy: number | null;
+}
+
 export interface Baseline {
   readonly recordedAt: string;
   readonly extractModel: string;
@@ -17,6 +24,11 @@ export interface Baseline {
   readonly groundedRate: number | null;
   readonly classificationAccuracy: number | null;
   readonly totalCostMicros: number;
+  /**
+   * Per suite, so a drop on the held-out corpus cannot be averaged away by the
+   * fixtures we wrote ourselves — which is the drop that would actually matter.
+   */
+  readonly suites?: Readonly<Record<string, SuiteBaseline>>;
 }
 
 /** Absolute drop tolerated before a metric counts as a regression. */
@@ -29,7 +41,20 @@ export interface Regression {
   readonly drop: number;
 }
 
-export function toBaseline(score: SuiteScore, extractModel: string): Baseline {
+export function toBaseline(
+  score: SuiteScore,
+  extractModel: string,
+  suites: Readonly<Record<string, SuiteScore>> = {},
+): Baseline {
+  const perSuite: Record<string, SuiteBaseline> = {};
+  for (const [name, suite] of Object.entries(suites)) {
+    perSuite[name] = {
+      recall: suite.recall,
+      precision: suite.precision,
+      groundedRate: suite.groundedRate,
+      classificationAccuracy: suite.classificationAccuracy,
+    };
+  }
   return {
     recordedAt: new Date().toISOString(),
     extractModel,
@@ -38,6 +63,7 @@ export function toBaseline(score: SuiteScore, extractModel: string): Baseline {
     groundedRate: score.groundedRate,
     classificationAccuracy: score.classificationAccuracy,
     totalCostMicros: score.totalCostMicros,
+    ...(Object.keys(perSuite).length > 0 ? { suites: perSuite } : {}),
   };
 }
 
@@ -45,6 +71,7 @@ export function findRegressions(
   baseline: Baseline,
   current: SuiteScore,
   tolerance = DEFAULT_TOLERANCE,
+  currentSuites: Readonly<Record<string, SuiteScore>> = {},
 ): readonly Regression[] {
   const pairs: Array<[string, number | null, number | null]> = [
     ['recall', baseline.recall, current.recall],
@@ -52,6 +79,23 @@ export function findRegressions(
     ['groundedRate', baseline.groundedRate, current.groundedRate],
     ['classificationAccuracy', baseline.classificationAccuracy, current.classificationAccuracy],
   ];
+
+  // Each suite is gated on its own numbers. Averaging them would let a drop on
+  // documents we did not write hide behind fixtures we did.
+  for (const [name, before] of Object.entries(baseline.suites ?? {})) {
+    const after = currentSuites[name];
+    if (after === undefined) continue;
+    pairs.push(
+      [`${name}.recall`, before.recall, after.recall],
+      [`${name}.precision`, before.precision, after.precision],
+      [`${name}.groundedRate`, before.groundedRate, after.groundedRate],
+      [
+        `${name}.classificationAccuracy`,
+        before.classificationAccuracy,
+        after.classificationAccuracy,
+      ],
+    );
+  }
 
   const regressions: Regression[] = [];
   for (const [metric, before, after] of pairs) {

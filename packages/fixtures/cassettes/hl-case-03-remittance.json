@@ -1,0 +1,75 @@
+{
+  "key": "hl-case-03-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "payer_name": {
+      "value": "Summit Basket Retail",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Summit Basket Retail"
+    },
+    "payment_reference": {
+      "value": "SIM-PAY-2609-003",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment reference: SIM-PAY-2609-003"
+    },
+    "payment_date": {
+      "value": "2026-09-07",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment date: 2026-09-07"
+    },
+    "payment_total": {
+      "value": "$23,000.00",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Net payment $23,000.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-260803",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "INV-260803"
+        },
+        "gross_amount": {
+          "value": "$25,000.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$25,000.00"
+        },
+        "deduction_amount": {
+          "value": "$2,000.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$2,000.00"
+        },
+        "net_amount": {
+          "value": "$23,000.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$23,000.00"
+        },
+        "reason_code": {
+          "value": "PROMO",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "PROMO"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:49:21.653Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4358,
+    "outputTokens": 518,
+    "costMicros": 13896,
+    "latencyMs": 4830
+  }
+}

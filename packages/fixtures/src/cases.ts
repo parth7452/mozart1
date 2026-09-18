@@ -28,6 +28,12 @@ export interface FixtureDocument {
   readonly bytes: Uint8Array;
   /** field path → what a correct extraction must produce. */
   readonly truth: Readonly<Record<string, TruthExpectation>>;
+  /**
+   * `authored` fixtures were written alongside this code and measure whether the
+   * pipeline works. `held_out` documents came from elsewhere and measure whether
+   * it generalises. Never average the two into one headline number.
+   */
+  readonly suite: 'authored' | 'held_out';
 }
 
 export interface FixtureCase {
@@ -54,6 +60,7 @@ function pdfDocument(input: {
     pageText: input.pages.map((lines) => lines.join('\n')),
     bytes: renderTextPdf(input.pages),
     truth: input.truth,
+    suite: 'authored',
   };
 }
 
@@ -381,8 +388,23 @@ export function fixtureCase(key: string): FixtureCase {
   return found;
 }
 
-export function allFixtureDocuments(): readonly FixtureDocument[] {
+/** The fixtures written alongside this code. */
+export function authoredDocuments(): readonly FixtureDocument[] {
   return FIXTURE_CASES.flatMap((c) => c.documents);
+}
+
+export function allFixtureDocuments(): readonly FixtureDocument[] {
+  return authoredDocuments();
+}
+
+export function fixtureDocumentsBySuite(
+  documents: readonly FixtureDocument[],
+): Map<FixtureDocument['suite'], FixtureDocument[]> {
+  const bySuite = new Map<FixtureDocument['suite'], FixtureDocument[]>();
+  for (const document of documents) {
+    bySuite.set(document.suite, [...(bySuite.get(document.suite) ?? []), document]);
+  }
+  return bySuite;
 }
 
 export function fixtureDocument(key: string): FixtureDocument {

@@ -1,9 +1,23 @@
 {
-  "recordedAt": "2026-09-18T03:44:02.546Z",
+  "recordedAt": "2026-09-18T12:51:00.704Z",
   "extractModel": "claude-sonnet-5",
   "recall": 1,
   "precision": 1,
   "groundedRate": 1,
   "classificationAccuracy": 1,
-  "totalCostMicros": 118568
+  "totalCostMicros": 310346,
+  "suites": {
+    "authored": {
+      "recall": 1,
+      "precision": 1,
+      "groundedRate": 1,
+      "classificationAccuracy": 1
+    },
+    "held_out": {
+      "recall": 1,
+      "precision": 1,
+      "groundedRate": 1,
+      "classificationAccuracy": 1
+    }
+  }
 }

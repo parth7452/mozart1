@@ -1,0 +1,98 @@
+{
+  "hl-case-01-notice": {
+    "filename": "hl-case-01-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n1 / 12\nCASE 01 / QUANTITY SHORTAGE\nDeduction notice\nHarbor Lane Markets\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-001\nNotice date: 2026-09-03\nReason code: SHORT\nInvoice: INV-260801\nInvoice date: 2026-08-04\nPurchase order: PO-HLM-8042\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-001\nCurrency: USD\nDeduction assessment\nCustomer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases\nwere deducted.\nOriginal invoice\nDeduction\nNet remitted\n$12,000.00\n$600.00\n$11,400.00\nCalculation: 20 cases x $30.00 = $600.00\nCustomer-stated basis\nReceiving report RR-HLM-442 records 380 cases. Carrier delivery reference POD-442 is cited by the customer.\nSupporting records requested for review\nSigned proof of delivery, bill of lading, warehouse pick record, and customer receiving report.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-001, INV-260801, and RA-2609-001 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2519
+  },
+  "hl-case-01-remittance": {
+    "filename": "hl-case-01-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n2 / 12\nCASE 01 / MATCHING PAYMENT\nRemittance advice\nHarbor Lane Markets\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-001\nPayment date: 2026-09-03\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-001\nDeduction notice: DN-2609-001\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260801\nPO-HLM-8042\n$12,000.00\n$600.00\n$11,400.00\nAdjustment detail\nReason code\nDescription\nAmount\nSHORT\nQuantity shortage\n$600.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$12,000.00\nLess: customer deduction\n$600.00\nOther credits / discounts\n$0.00\nNet payment\n$11,400.00\nCash-application note\nApply $11,400.00 to INV-260801 and route the $600.00 difference to deduction case DN-2609-001. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2569
+  },
+  "hl-case-02-notice": {
+    "filename": "hl-case-02-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n3 / 12\nCASE 02 / INVOICE PRICE VARIANCE\nDeduction notice\nCedar Point Grocers\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-002\nNotice date: 2026-09-04\nReason code: PRICE\nInvoice: INV-260802\nInvoice date: 2026-08-05\nPurchase order: PO-CPG-5170\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-002\nCurrency: USD\nDeduction assessment\nCustomer applied a purchase-order price of $28.50 per case to 600 cases of Oat Beverage, SKU NS-210. Supplier invoiced\n$30.00 per case.\nOriginal invoice\nDeduction\nNet remitted\n$18,000.00\n$900.00\n$17,100.00\nCalculation: 600 cases x ($30.00 - $28.50) = $900.00\nCustomer-stated basis\nCustomer cites purchase order PO-CPG-5170, revision 2, for the lower price.\nSupporting records requested for review\nApproved price list, purchase-order revision history, order acknowledgment, and contract effective dates.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-002, INV-260802, and RA-2609-002 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2494
+  },
+  "hl-case-02-remittance": {
+    "filename": "hl-case-02-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n4 / 12\nCASE 02 / MATCHING PAYMENT\nRemittance advice\nCedar Point Grocers\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-002\nPayment date: 2026-09-04\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-002\nDeduction notice: DN-2609-002\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260802\nPO-CPG-5170\n$18,000.00\n$900.00\n$17,100.00\nAdjustment detail\nReason code\nDescription\nAmount\nPRICE\nInvoice price variance\n$900.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$18,000.00\nLess: customer deduction\n$900.00\nOther credits / discounts\n$0.00\nNet payment\n$17,100.00\nCash-application note\nApply $17,100.00 to INV-260802 and route the $900.00 difference to deduction case DN-2609-002. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2560
+  },
+  "hl-case-03-notice": {
+    "filename": "hl-case-03-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n5 / 12\nCASE 03 / PROMOTIONAL ALLOWANCE\nDeduction notice\nSummit Basket Retail\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-003\nNotice date: 2026-09-07\nReason code: PROMO\nInvoice: INV-260803\nInvoice date: 2026-08-06\nPurchase order: PO-SBR-6631\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-003\nCurrency: USD\nDeduction assessment\nCustomer deducted an 8% promotional allowance from the full invoice for a summer feature event. Products: assorted snack\nbars, SKU family NS-300.\nOriginal invoice\nDeduction\nNet remitted\n$25,000.00\n$2,000.00\n$23,000.00\nCalculation: $25,000.00 x 8% = $2,000.00\nCustomer-stated basis\nCustomer cites promotion PR-SUM-26 covering shipments dated August 1 through August 15, 2026.\nSupporting records requested for review\nSigned promotion agreement, eligible SKU list, event dates, shipment dates, and previously settled allowance claims.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-003, INV-260803, and RA-2609-003 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2533
+  },
+  "hl-case-03-remittance": {
+    "filename": "hl-case-03-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n6 / 12\nCASE 03 / MATCHING PAYMENT\nRemittance advice\nSummit Basket Retail\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-003\nPayment date: 2026-09-07\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-003\nDeduction notice: DN-2609-003\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260803\nPO-SBR-6631\n$25,000.00\n$2,000.00\n$23,000.00\nAdjustment detail\nReason code\nDescription\nAmount\nPROMO\nPromotional allowance\n$2,000.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$25,000.00\nLess: customer deduction\n$2,000.00\nOther credits / discounts\n$0.00\nNet payment\n$23,000.00\nCash-application note\nApply $23,000.00 to INV-260803 and route the $2,000.00 difference to deduction case DN-2609-003. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2575
+  },
+  "hl-case-04-notice": {
+    "filename": "hl-case-04-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n7 / 12\nCASE 04 / DAMAGED MERCHANDISE\nDeduction notice\nWillow Creek Wholesale\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-004\nNotice date: 2026-09-08\nReason code: DAMAGE\nInvoice: INV-260804\nInvoice date: 2026-08-07\nPurchase order: PO-WCW-9128\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-004\nCurrency: USD\nDeduction assessment\nCustomer reports 30 damaged cases of Tomato Soup, SKU NS-410, priced at $24.00 per case, out of 400 cases invoiced.\nOriginal invoice\nDeduction\nNet remitted\n$9,600.00\n$720.00\n$8,880.00\nCalculation: 30 cases x $24.00 = $720.00\nCustomer-stated basis\nInspection record IR-WCW-198 describes crushed cartons. Customer requests credit for the affected quantity.\nSupporting records requested for review\nDelivery exception notes, dated damage photographs, inspection report, freight terms, and return or disposal authorization.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-004, INV-260804, and RA-2609-004 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2541
+  },
+  "hl-case-04-remittance": {
+    "filename": "hl-case-04-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n8 / 12\nCASE 04 / MATCHING PAYMENT\nRemittance advice\nWillow Creek Wholesale\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-004\nPayment date: 2026-09-08\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-004\nDeduction notice: DN-2609-004\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260804\nPO-WCW-9128\n$9,600.00\n$720.00\n$8,880.00\nAdjustment detail\nReason code\nDescription\nAmount\nDAMAGE\nDamaged merchandise\n$720.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$9,600.00\nLess: customer deduction\n$720.00\nOther credits / discounts\n$0.00\nNet payment\n$8,880.00\nCash-application note\nApply $8,880.00 to INV-260804 and route the $720.00 difference to deduction case DN-2609-004. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2573
+  },
+  "hl-case-05-notice": {
+    "filename": "hl-case-05-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n9 / 12\nCASE 05 / DELIVERY COMPLIANCE CHARGE\nDeduction notice\nMaple Gate Stores\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-005\nNotice date: 2026-09-09\nReason code: OTIF\nInvoice: INV-260805\nInvoice date: 2026-08-10\nPurchase order: PO-MGS-2084\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-005\nCurrency: USD\nDeduction assessment\nCustomer assessed a 3% late-delivery charge. Requested delivery was August 10, 2026; customer receiving record shows\nAugust 12, 2026.\nOriginal invoice\nDeduction\nNet remitted\n$15,000.00\n$450.00\n$14,550.00\nCalculation: $15,000.00 x 3% = $450.00\nCustomer-stated basis\nCustomer cites compliance rule OTIF-03 and appointment reference AP-MGS-721.\nSupporting records requested for review\nRouting guide version, delivery appointment confirmation, carrier tracking, signed delivery timestamp, and approved\nrescheduling records.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-005, INV-260805, and RA-2609-005 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2518
+  },
+  "hl-case-05-remittance": {
+    "filename": "hl-case-05-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n10 / 12\nCASE 05 / MATCHING PAYMENT\nRemittance advice\nMaple Gate Stores\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-005\nPayment date: 2026-09-09\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-005\nDeduction notice: DN-2609-005\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260805\nPO-MGS-2084\n$15,000.00\n$450.00\n$14,550.00\nAdjustment detail\nReason code\nDescription\nAmount\nOTIF\nDelivery compliance charge\n$450.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$15,000.00\nLess: customer deduction\n$450.00\nOther credits / discounts\n$0.00\nNet payment\n$14,550.00\nCash-application note\nApply $14,550.00 to INV-260805 and route the $450.00 difference to deduction case DN-2609-005. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2571
+  },
+  "hl-case-06-notice": {
+    "filename": "hl-case-06-notice.pdf",
+    "docType": "deduction_notice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n11 / 12\nCASE 06 / EARLY-PAYMENT DISCOUNT\nDeduction notice\nPine Ridge Distribution\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-006\nNotice date: 2026-09-14\nReason code: DISC\nInvoice: INV-260806\nInvoice date: 2026-08-11\nPurchase order: PO-PRD-3356\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-006\nCurrency: USD\nDeduction assessment\nCustomer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility\nended August 21, 2026.\nOriginal invoice\nDeduction\nNet remitted\n$22,000.00\n$440.00\n$21,560.00\nCalculation: $22,000.00 x 2% = $440.00\nCustomer-stated basis\nCustomer remittance is dated September 14, 2026. The timing difference is included as an exception for validation.\nSupporting records requested for review\nInvoice terms, negotiated exceptions, payment initiation timestamp, receipt date, and cash-application record.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-006, INV-260806, and RA-2609-006 in any\ndispute response. Supporting records are referenced for testing and are not included in this sample.\n"
+    ],
+    "bytes": 2536
+  },
+  "hl-case-06-remittance": {
+    "filename": "hl-case-06-remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n12 / 12\nCASE 06 / MATCHING PAYMENT\nRemittance advice\nPine Ridge Distribution\nPayment to: Northstar Pantry Co. | Supplier account: NSP-1048\nPayment information\nMatching references\nAdvice: RA-2609-006\nPayment date: 2026-09-14\nMethod: ACH (simulated)\nPayment reference: SIM-PAY-2609-006\nDeduction notice: DN-2609-006\nCurrency: USD\nInvoice settlement\nInvoice / PO\nGross amount\nDeduction\nPayment applied\nINV-260806\nPO-PRD-3356\n$22,000.00\n$440.00\n$21,560.00\nAdjustment detail\nReason code\nDescription\nAmount\nDISC\nEarly-payment discount\n$440.00\nPayment reconciliation\nComponent\nUSD amount\nGross invoices included\n$22,000.00\nLess: customer deduction\n$440.00\nOther credits / discounts\n$0.00\nNet payment\n$21,560.00\nCash-application note\nApply $21,560.00 to INV-260806 and route the $440.00 difference to deduction case DN-2609-006. The customer presents this\ninvoice as settled after its deduction; supplier acceptance of the claim remains pending.\nThis remittance covers one invoice. No bank account or live payment instruction is included. The payment reference is a\nsynthetic matching key.\n"
+    ],
+    "bytes": 2566
+  }
+}

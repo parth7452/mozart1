@@ -20,7 +20,7 @@ import {
   type DocType,
   type DocumentPayload,
 } from '@recouple/extraction';
-import { allFixtureDocuments } from '@recouple/fixtures';
+import { everyDocument } from '@recouple/fixtures';
 import {
   DEFAULT_TOLERANCE,
   findRegressions,
@@ -44,7 +44,7 @@ if (existsSync(cassetteDir)) {
   }
 }
 
-const documents = allFixtureDocuments().filter((d) => cassettes.has(d.key));
+const documents = everyDocument().filter((d) => cassettes.has(d.key));
 
 if (documents.length === 0) {
   console.error(
@@ -61,10 +61,13 @@ const extractor = new CassetteExtractor(cassettes, (d) => d.documentId);
 const classifier = new CassetteClassifier(cassettes, (d) => d.documentId);
 
 const scores: DocumentScore[] = [];
+const suiteOf = new Map<string, string>();
 let classifiedCorrectly = 0;
 let recordedCostMicros = 0;
+const classifiedBySuite = new Map<string, { correct: number; total: number }>();
 
 for (const fixture of documents) {
+  suiteOf.set(fixture.key, fixture.suite);
   const payload: DocumentPayload = {
     documentId: fixture.key,
     orgId: 'eval',
@@ -76,7 +79,13 @@ for (const fixture of documents) {
   };
 
   const classification = await classifier.classify(payload);
-  if (classification.docType === fixture.docType) classifiedCorrectly += 1;
+  const correct = classification.docType === fixture.docType;
+  if (correct) classifiedCorrectly += 1;
+  const tally = classifiedBySuite.get(fixture.suite) ?? { correct: 0, total: 0 };
+  classifiedBySuite.set(fixture.suite, {
+    correct: tally.correct + (correct ? 1 : 0),
+    total: tally.total + 1,
+  });
 
   const extraction = await extractor.extract(payload, fixture.docType as DocType);
   scores.push(scoreDocument({ key: fixture.key, truth: fixture.truth, fields: extraction.fields }));
@@ -90,23 +99,48 @@ const suite = summarise(scores, {
 
 const pct = (n: number | null) => (n === null ? '   —' : `${(n * 100).toFixed(1)}%`);
 
-console.log('\nfixture                        recall  precis  ground  wrong  missing');
-console.log('─'.repeat(72));
-for (const score of scores) {
+const SUITE_LABELS: Record<string, string> = {
+  authored: 'authored here — does the pipeline work',
+  held_out: 'written elsewhere — does it generalise',
+};
+
+const perSuite = new Map<string, ReturnType<typeof summarise>>();
+
+for (const suiteName of ['authored', 'held_out']) {
+  const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
+  if (suiteScores.length === 0) continue;
+  const tally = classifiedBySuite.get(suiteName);
+  const summary = summarise(suiteScores, {
+    classificationAccuracy: tally === undefined ? null : tally.correct / tally.total,
+  });
+  perSuite.set(suiteName, summary);
+
+  console.log(`\n${suiteName.toUpperCase()}  (${SUITE_LABELS[suiteName] ?? ''})`);
+  console.log('document                       recall  precis  ground  wrong  missing');
+  console.log('─'.repeat(72));
+  for (const score of suiteScores) {
+    console.log(
+      `${score.key.padEnd(30)} ${pct(score.recall)}  ${pct(score.precision)}  ` +
+        `${pct(score.groundedRate)}  ${String(score.wrong).padStart(5)}  ${String(score.missing).padStart(7)}`,
+    );
+  }
+  console.log('─'.repeat(72));
   console.log(
-    `${score.key.padEnd(30)} ${pct(score.recall)}  ${pct(score.precision)}  ` +
-      `${pct(score.groundedRate)}  ${String(score.wrong).padStart(5)}  ${String(score.missing).padStart(7)}`,
+    `${'subtotal'.padEnd(30)} ${pct(summary.recall)}  ${pct(summary.precision)}  ` +
+      `${pct(summary.groundedRate)}   classification ${pct(summary.classificationAccuracy)}`,
   );
 }
-console.log('─'.repeat(72));
+
 console.log(
-  `${'suite'.padEnd(30)} ${pct(suite.recall)}  ${pct(suite.precision)}  ${pct(suite.groundedRate)}`,
+  `\noverall ${pct(suite.recall)} recall · ${pct(suite.precision)} precision · ` +
+    `${pct(suite.groundedRate)} grounded · classification ${pct(suite.classificationAccuracy)}`,
 );
 console.log(
-  `classification ${pct(suite.classificationAccuracy)} · recorded cost ` +
-    `$${(suite.totalCostMicros / 1_000_000).toFixed(4)} across ${documents.length} documents`,
+  `recorded cost $${(suite.totalCostMicros / 1_000_000).toFixed(4)} across ${documents.length} documents ` +
+    `($${(suite.totalCostMicros / 1_000_000 / documents.length).toFixed(4)} each)`,
 );
 
+console.log();
 for (const score of scores) {
   for (const field of score.fields.filter((f) => f.outcome !== 'correct')) {
     console.log(
@@ -116,8 +150,10 @@ for (const score of scores) {
   }
 }
 
+const suiteRecord = Object.fromEntries(perSuite);
+
 if (recordBaseline) {
-  const baseline = toBaseline(suite, modelFor('extract'));
+  const baseline = toBaseline(suite, modelFor('extract'), suiteRecord);
   writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   console.log(`\nbaseline written to packages/evals/baseline.json`);
   process.exit(0);
@@ -129,7 +165,7 @@ if (!existsSync(baselinePath)) {
 }
 
 const baseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline;
-const regressions = findRegressions(baseline, suite);
+const regressions = findRegressions(baseline, suite, DEFAULT_TOLERANCE, suiteRecord);
 
 if (baseline.extractModel !== modelFor('extract')) {
   console.log(

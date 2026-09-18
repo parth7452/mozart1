@@ -1,0 +1,141 @@
+{
+  "key": "hl-case-02-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "retailer_name": {
+      "value": "Cedar Point Grocers",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Cedar Point Grocers"
+    },
+    "claim_id": {
+      "value": "DN-2609-002",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Notice: DN-2609-002"
+    },
+    "invoice_number": {
+      "value": "INV-260802",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice: INV-260802"
+    },
+    "po_number": {
+      "value": "PO-CPG-5170",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Purchase order: PO-CPG-5170"
+    },
+    "deduction_total": {
+      "value": "$900.00",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "$900.00"
+    },
+    "deduction_date": {
+      "value": "2026-09-04",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Notice date: 2026-09-04"
+    },
+    "remittance_or_check": {
+      "value": "RA-2609-002",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Remittance: RA-2609-002"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "NS-210",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "SKU NS-210"
+        },
+        "description": {
+          "value": "Oat Beverage",
+          "confidence": 0.93,
+          "source_page": 1,
+          "source_quote": "600 cases of Oat Beverage, SKU NS-210"
+        },
+        "qty_invoiced": {
+          "value": 600,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "600 cases of Oat Beverage"
+        },
+        "unit_cost": {
+          "value": "$30.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Supplier invoiced\n$30.00 per case."
+        },
+        "deduction_amount": {
+          "value": "$900.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$900.00"
+        },
+        "reason_code": {
+          "value": "PRICE",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Reason code: PRICE"
+        },
+        "reason_description": {
+          "value": "Customer applied a purchase-order price of $28.50 per case to 600 cases of Oat Beverage, SKU NS-210. Supplier invoiced $30.00 per case.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Customer applied a purchase-order price of $28.50 per case to 600 cases of Oat Beverage, SKU NS-210. Supplier invoiced\n$30.00 per case."
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "vendor_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "dispute_deadline": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:49:01.300Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4948,
+    "outputTokens": 921,
+    "costMicros": 19106,
+    "latencyMs": 6999
+  }
+}

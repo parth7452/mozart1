@@ -25,13 +25,13 @@ import {
   type DocumentPayload,
 } from '@recouple/extraction';
 import { acceptUpload } from '@recouple/ingest';
-import { allFixtureDocuments } from '@recouple/fixtures';
+import { everyDocument } from '@recouple/fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 
 const filter = process.argv[2];
-const documents = allFixtureDocuments().filter(
+const documents = everyDocument().filter(
   (d) => filter === undefined || d.key.includes(filter),
 );
 

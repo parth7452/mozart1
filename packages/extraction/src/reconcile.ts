@@ -101,7 +101,9 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
 
   input.notice.lines.forEach((line, index) => {
     const path = `lines[${index}]`;
-    const sku = line.sku_upc.value;
+    // An invoice-level deduction (allowance, compliance charge, discount) has no
+    // item identifier. It is still a line, and still has to add up.
+    const sku = line.sku_upc.value ?? `line ${index + 1}`;
     const claimed = money(line.deduction_amount, `${path}.deduction_amount`, findings);
     if (claimed !== undefined) claimedAmounts.push(claimed);
 
@@ -167,6 +169,8 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
       input.invoice.lines.map((l) => [normaliseSku(l.sku_upc.value), l] as const),
     );
     input.notice.lines.forEach((line, index) => {
+      // Nothing to match a line against when the deduction names no item.
+      if (line.sku_upc.value === null) return;
       const invoiceLine = invoiceBySku.get(normaliseSku(line.sku_upc.value));
       if (invoiceLine === undefined) {
         findings.push({
@@ -193,6 +197,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
   if (input.po !== undefined) {
     const poBySku = new Map(input.po.lines.map((l) => [normaliseSku(l.sku_upc.value), l] as const));
     input.notice.lines.forEach((line, index) => {
+      if (line.sku_upc.value === null) return;
       const poLine = poBySku.get(normaliseSku(line.sku_upc.value));
       if (poLine === undefined) return;
       const noticeCost = money(line.unit_cost, `lines[${index}].unit_cost`, findings);

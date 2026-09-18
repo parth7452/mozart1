@@ -1,0 +1,75 @@
+{
+  "key": "hl-case-04-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "payer_name": {
+      "value": "Willow Creek Wholesale",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Willow Creek Wholesale"
+    },
+    "payment_reference": {
+      "value": "SIM-PAY-2609-004",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment reference: SIM-PAY-2609-004"
+    },
+    "payment_date": {
+      "value": "2026-09-08",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment date: 2026-09-08"
+    },
+    "payment_total": {
+      "value": "$8,880.00",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Net payment\n$8,880.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-260804",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "INV-260804"
+        },
+        "gross_amount": {
+          "value": "$9,600.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$9,600.00"
+        },
+        "deduction_amount": {
+          "value": "$720.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$720.00"
+        },
+        "net_amount": {
+          "value": "$8,880.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$8,880.00"
+        },
+        "reason_code": {
+          "value": "DAMAGE",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "DAMAGE"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:49:36.299Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4352,
+    "outputTokens": 524,
+    "costMicros": 13944,
+    "latencyMs": 4540
+  }
+}

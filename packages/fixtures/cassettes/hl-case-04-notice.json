@@ -1,0 +1,141 @@
+{
+  "key": "hl-case-04-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "retailer_name": {
+      "value": "Willow Creek Wholesale",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Willow Creek Wholesale"
+    },
+    "claim_id": {
+      "value": "DN-2609-004",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Notice: DN-2609-004"
+    },
+    "invoice_number": {
+      "value": "INV-260804",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice: INV-260804"
+    },
+    "po_number": {
+      "value": "PO-WCW-9128",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Purchase order: PO-WCW-9128"
+    },
+    "deduction_total": {
+      "value": "$720.00",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "$720.00"
+    },
+    "deduction_date": {
+      "value": "2026-09-08",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Notice date: 2026-09-08"
+    },
+    "remittance_or_check": {
+      "value": "RA-2609-004",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Remittance: RA-2609-004"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "NS-410",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "SKU NS-410"
+        },
+        "description": {
+          "value": "Tomato Soup",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Tomato Soup"
+        },
+        "qty_invoiced": {
+          "value": 400,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "out of 400 cases invoiced"
+        },
+        "unit_cost": {
+          "value": "$24.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$24.00 per case"
+        },
+        "deduction_amount": {
+          "value": "$720.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$720.00"
+        },
+        "reason_code": {
+          "value": "DAMAGE",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "Reason code: DAMAGE"
+        },
+        "reason_description": {
+          "value": "Inspection record IR-WCW-198 describes crushed cartons.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Inspection record IR-WCW-198 describes crushed cartons."
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "vendor_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "dispute_deadline": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:49:30.343Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4952,
+    "outputTokens": 829,
+    "costMicros": 18194,
+    "latencyMs": 6790
+  }
+}

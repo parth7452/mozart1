@@ -1,0 +1,75 @@
+{
+  "key": "hl-case-05-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "payer_name": {
+      "value": "Maple Gate Stores",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Maple Gate Stores"
+    },
+    "payment_reference": {
+      "value": "SIM-PAY-2609-005",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment reference: SIM-PAY-2609-005"
+    },
+    "payment_date": {
+      "value": "2026-09-09",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment date: 2026-09-09"
+    },
+    "payment_total": {
+      "value": "$14,550.00",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "$14,550.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-260805",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "INV-260805"
+        },
+        "gross_amount": {
+          "value": "$15,000.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$15,000.00"
+        },
+        "deduction_amount": {
+          "value": "$450.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$450.00"
+        },
+        "net_amount": {
+          "value": "$14,550.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "$14,550.00"
+        },
+        "reason_code": {
+          "value": "OTIF",
+          "confidence": 0.96,
+          "source_page": 1,
+          "source_quote": "OTIF"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T12:49:50.645Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4346,
+    "outputTokens": 510,
+    "costMicros": 13792,
+    "latencyMs": 4472
+  }
+}
