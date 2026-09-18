@@ -18,7 +18,7 @@ import {
   verifyQuotes,
   type Cassette,
 } from '@recouple/extraction';
-import { everyDocument, WALMART_CODE_24 } from '@recouple/fixtures';
+import { everyDocument, inlineJsonSafely, WALMART_CODE_24 } from '@recouple/fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
@@ -132,8 +132,13 @@ console.log(
 // with it and it needs no network at all.
 const templatePath = path.join(here, '..', 'apps', 'review-prototype', 'template.html');
 const pagePath = path.join(here, '..', 'apps', 'review-prototype', 'case-review.html');
-const bundle = readFileSync(out, 'utf8');
-writeFileSync(pagePath, readFileSync(templatePath, 'utf8').replace('__BUNDLE__', bundle));
+// Escaped even though the bundle now ships in an inert JSON block: the data is
+// document-derived, and the cost of belt and braces here is nothing.
+const bundle = inlineJsonSafely(readFileSync(out, 'utf8'));
+writeFileSync(
+  pagePath,
+  readFileSync(templatePath, 'utf8').replace('__BUNDLE__', () => bundle),
+);
 console.log(
   `case-review.html: ${(Buffer.byteLength(readFileSync(pagePath)) / 1024 / 1024).toFixed(2)} MB`,
 );

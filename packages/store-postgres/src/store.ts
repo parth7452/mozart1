@@ -19,7 +19,14 @@ import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeli
 
 export interface TenantContext {
   readonly orgId: string;
-  readonly userId?: string;
+  /**
+   * Required, not optional. Since migration 0010 the write policies ask whether
+   * this member holds a writer role, so a store with no identity can read and
+   * nothing else — and an actor is what an authorization decision is made
+   * about. A background job that genuinely has no user runs as its own
+   * service member, not as nobody.
+   */
+  readonly userId: string;
 }
 
 export interface PostgresStoreConfig {
@@ -91,10 +98,7 @@ export class PostgresStore implements PipelineStore {
       await client.query(`set local role ${this.role}`);
       await client.query('select set_config($1, $2, true)', [
         'request.jwt.claims',
-        JSON.stringify({
-          org_id: this.tenant.orgId,
-          ...(this.tenant.userId !== undefined ? { sub: this.tenant.userId } : {}),
-        }),
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
       ]);
       const result = await work(client);
       await client.query('commit');
@@ -484,13 +488,26 @@ export class PostgresStore implements PipelineStore {
   }
 }
 
-/** Rebuilds a nested document from flat field rows (`lines[0].sku_upc` → nested). */
+/** Segments that would reach the prototype chain rather than the object. */
+const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Rebuilds a nested document from flat field rows (`lines[0].sku_upc` → nested).
+ *
+ * Paths written by `recordExtraction` are schema-derived, but this reads them
+ * back out of the database and walks them as object keys, so it refuses the
+ * segments that would climb the prototype chain instead of trusting where the
+ * row came from.
+ */
 function rebuildDocument(
   rows: readonly { field_path: string; value_json: unknown }[],
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const row of rows) {
     const segments = row.field_path.split('.');
+    if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment.replace(/\[\d+\]$/, '')))) {
+      continue;
+    }
     let node: Record<string, unknown> = out;
     segments.forEach((segment, index) => {
       const match = /^([^[]+)\[(\d+)\]$/.exec(segment);

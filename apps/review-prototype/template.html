@@ -279,8 +279,13 @@
   <footer class="note" id="footnote"></footer>
 </div>
 
+<script id="case-data" type="application/json">__BUNDLE__</script>
 <script>
-  const DATA = __BUNDLE__;
+  // The bundle carries text copied out of an untrusted document — OCR output,
+  // the model's verbatim quotes, the supplier's filename. It ships in an inert
+  // JSON block rather than as script source, so a document containing
+  // "</script>" cannot close the element and become markup.
+  const DATA = JSON.parse(document.getElementById('case-data').textContent);
 
   const LABELS = {
     retailer_name: 'Retailer',
@@ -399,12 +404,26 @@
     const money = (c) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
     const a = document.createElement('div');
     a.className = 'arith';
-    a.innerHTML =
-      '(' + valueOf('lines[0].qty_invoiced') + ' invoiced &minus; ' +
-      valueOf('lines[0].qty_received') + ' received) &times; ' +
-      valueOf('lines[0].unit_cost') + ' = <b>' + money(line.expectedShortageCents) + '</b> &nbsp;·&nbsp; ' +
-      'deducted <b>' + money(line.claimedCents) + '</b> &nbsp;·&nbsp; ' +
-      (line.verdict === 'matches' ? 'the claim adds up' : 'does not match');
+    // Built from nodes, not markup: unit_cost is a string the model copied
+    // verbatim off the page, so it is document content like any other.
+    const strong = (t) => {
+      const b = document.createElement('b');
+      b.textContent = t;
+      return b;
+    };
+    a.append(
+      document.createTextNode(
+        '(' + valueOf('lines[0].qty_invoiced') + ' invoiced − ' +
+        valueOf('lines[0].qty_received') + ' received) × ' +
+        valueOf('lines[0].unit_cost') + ' = ',
+      ),
+      strong(money(line.expectedShortageCents)),
+      document.createTextNode('  ·  deducted '),
+      strong(money(line.claimedCents)),
+      document.createTextNode(
+        '  ·  ' + (line.verdict === 'matches' ? 'the claim adds up' : 'does not match'),
+      ),
+    );
     findings.append(a);
   }
   DATA.reconciliation.findings.forEach((f) => {

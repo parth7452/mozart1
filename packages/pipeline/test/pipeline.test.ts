@@ -296,19 +296,32 @@ describe('email-in', () => {
   });
 
   it('will not open a case from an unauthenticated sender', async () => {
-    const { deps } = emailHarness();
+    const { store, deps } = emailHarness();
     const spoofed = await ingestInboundEmail(
       emailPayload({
         Headers: [{ Name: 'Authentication-Results', Value: 'mx; spf=pass; dkim=fail; dmarc=fail' }],
       }),
       deps,
     );
-    // From: is forgeable, so the documents are filed for a human to attach.
+
+    // The flag, and — the part that matters — that nothing acted on it. An
+    // earlier version computed this correctly and then opened the case anyway;
+    // asserting only the flag is what let that through.
     expect(spoofed.mayOpenCase).toBe(false);
+    expect(store.cases.size).toBe(0);
+    expect(store.events).toHaveLength(0);
+    expect(spoofed.documents[0]?.case).toBeUndefined();
+    expect(spoofed.documents[0]?.haltedBecause).toMatch(/unauthenticated sender/);
+
+    // The document itself is still read: it may be perfectly real, and a human
+    // decides which case it belongs to.
     expect(spoofed.documents).toHaveLength(1);
+    expect(spoofed.documents[0]?.extraction?.fields.length).toBeGreaterThan(10);
+    expect(store.documents.size).toBe(1);
 
     const genuine = await ingestInboundEmail(emailPayload({ MessageID: 'msg-2' }), deps);
     expect(genuine.mayOpenCase).toBe(true);
+    expect(store.cases.size).toBe(1);
   });
 
   it('keeps the good attachments when one is refused at the door', async () => {

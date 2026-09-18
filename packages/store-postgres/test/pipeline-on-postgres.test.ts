@@ -79,6 +79,8 @@ describeDb('the pipeline against a real database', () => {
   const admin = new Pool({ connectionString });
   const orgId = randomUUID();
   const otherOrgId = randomUUID();
+  const analystId = randomUUID();
+  const otherAnalystId = randomUUID();
   const slug = `it-${orgId.slice(0, 8)}`;
   let store: PostgresStore;
   let otherStore: PostgresStore;
@@ -96,10 +98,26 @@ describeDb('the pipeline against a real database', () => {
     ]);
     await admin.query(`insert into org_settings (org_id) values ($1), ($2)`, [orgId, otherOrgId]);
 
-    store = new PostgresStore({ connectionString: connectionString as string }, { orgId });
+    // Writes need a member with a writer role (migration 0010), so the tenant
+    // context carries one — as every real request path does.
+    await admin.query(`insert into users (id, email) values ($1, $2), ($3, $4)`, [
+      analystId,
+      `analyst-${analystId}@example.test`,
+      otherAnalystId,
+      `analyst-${otherAnalystId}@example.test`,
+    ]);
+    await admin.query(
+      `insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst'), ($3, $4, 'analyst')`,
+      [orgId, analystId, otherOrgId, otherAnalystId],
+    );
+
+    store = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId, userId: analystId },
+    );
     otherStore = new PostgresStore(
       { connectionString: connectionString as string },
-      { orgId: otherOrgId },
+      { orgId: otherOrgId, userId: otherAnalystId },
     );
     deps = {
       store,
@@ -201,9 +219,11 @@ describeDb('the pipeline against a real database', () => {
     try {
       await client.query('begin');
       await client.query('set local role app_rw');
+      // Since migration 0010 a write also needs to say who is writing: the
+      // claims carry the analyst, not just the tenant.
       await client.query('select set_config($1, $2, true)', [
         'request.jwt.claims',
-        JSON.stringify({ org_id: orgId }),
+        JSON.stringify({ org_id: orgId, sub: analystId }),
       ]);
 
       const { rows } = await client.query<{ id: string }>(

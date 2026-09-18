@@ -230,7 +230,16 @@ export interface ProcessedDocument {
 export async function processUpload(
   input: IngestInput,
   deps: PipelineDeps,
-  options: { readonly attachToCase?: string } = {},
+  options: {
+    readonly attachToCase?: string;
+    /**
+     * Whether this upload may open a new case on its own. False for a document
+     * that arrived by email from a sender we could not authenticate: the file is
+     * still ingested, classified and extracted, but a human decides which case
+     * it belongs to rather than an unauthenticated stranger creating one.
+     */
+    readonly allowCaseOpen?: boolean;
+  } = {},
 ): Promise<ProcessedDocument> {
   const ingest = await ingestDocument(input, deps);
 
@@ -255,7 +264,8 @@ export async function processUpload(
     caseRecord?.deductionId,
   );
 
-  if (classification.docType === 'deduction_notice' && caseRecord === undefined) {
+  const mayOpenCase = options.allowCaseOpen ?? true;
+  if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
     caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
   } else if (caseRecord !== undefined) {
     await deps.store.linkDocument(caseRecord.deductionId, ingest.document.documentId, 'evidence');
@@ -276,6 +286,9 @@ export async function processUpload(
     classification,
     extraction,
     ...(caseRecord !== undefined ? { case: caseRecord } : {}),
+    ...(classification.docType === 'deduction_notice' && caseRecord === undefined && !mayOpenCase
+      ? { haltedBecause: 'a notice from an unauthenticated sender: filed for a human to attach' }
+      : {}),
   };
 }
 
@@ -418,9 +431,10 @@ export async function ingestInboundEmail(
             source: 'email_in',
           },
           deps,
-          // An unauthenticated email may not open a case, so nothing it carries
-          // is classified into one automatically.
-          {},
+          // `From:` is forgeable, so an email that fails DKIM and DMARC may not
+          // open a case. The documents are still read — they may be perfectly
+          // real — and wait for a human to attach them.
+          { allowCaseOpen: email.authenticated },
         ),
       );
     } catch (error) {

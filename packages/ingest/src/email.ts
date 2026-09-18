@@ -88,15 +88,57 @@ function headerValue(headers: readonly PostmarkHeader[], name: string): string |
   return found?.Value;
 }
 
-/** Reads one method's verdict out of an Authentication-Results header. */
-export function authResultFor(header: string | undefined, method: string): AuthResult {
-  if (header === undefined || header === '') return 'unknown';
-  const match = new RegExp(`\\b${method}\\s*=\\s*([a-z]+)`, 'i').exec(header);
-  const verdict = match?.[1]?.toLowerCase();
+function verdictOf(raw: string | undefined): AuthResult {
+  const verdict = raw?.toLowerCase();
   if (verdict === 'pass') return 'pass';
   if (verdict === 'fail' || verdict === 'softfail' || verdict === 'permerror') return 'fail';
   if (verdict === 'none') return 'none';
-  return verdict === undefined ? 'unknown' : 'unknown';
+  return 'unknown';
+}
+
+/**
+ * Reads one method's verdict out of an Authentication-Results header (RFC 8601).
+ *
+ * The header is a list of clauses separated by `;`: an authserv-id first, then
+ * one `method=result` per clause followed by properties. Only the *leading*
+ * token of each clause is the verdict — the properties after it carry
+ * sender-controlled values, and `=` is legal in an email local part.
+ *
+ * Scanning the whole header for `method=result` is therefore forgeable. An
+ * attacker sending from `bounce+dkim=pass@evil.example` produces a genuine
+ * header reading `spf=pass smtp.mailfrom=bounce+dkim=pass@evil.example;
+ * dkim=fail`, and a loose scan reads `dkim=pass` out of the envelope sender
+ * while the header plainly says the signature failed.
+ *
+ * `trustedAuthservId`, when given, must equal the header's authserv-id — the
+ * identity of the verifier we actually trust. A header from anyone else is
+ * ignored rather than read, because a sender may add their own.
+ */
+export function authResultFor(
+  header: string | undefined,
+  method: string,
+  trustedAuthservId?: string,
+): AuthResult {
+  if (header === undefined || header.trim() === '') return 'unknown';
+
+  const clauses = header.split(';').map((clause) => clause.trim()).filter((c) => c !== '');
+  const [authservClause, ...methodClauses] = clauses;
+  if (authservClause === undefined) return 'unknown';
+
+  if (trustedAuthservId !== undefined && trustedAuthservId !== '') {
+    const authservId = authservClause.split(/\s+/)[0]?.toLowerCase();
+    if (authservId !== trustedAuthservId.toLowerCase()) return 'unknown';
+  }
+
+  for (const clause of methodClauses) {
+    // The verdict is the first token of the clause and nothing else.
+    const token = clause.split(/\s+/)[0] ?? '';
+    const separator = token.indexOf('=');
+    if (separator < 0) continue;
+    if (token.slice(0, separator).toLowerCase() !== method.toLowerCase()) continue;
+    return verdictOf(token.slice(separator + 1));
+  }
+  return 'unknown';
 }
 
 /**
@@ -143,7 +185,19 @@ const FORWARD_MARKERS = [
  * result so the caller can decide, because refusing to parse would lose a
  * document a supplier really did send.
  */
-export function parseInboundEmail(payload: PostmarkInboundPayload): InboundEmail {
+export interface InboundConfig {
+  /**
+   * The verifier whose Authentication-Results we trust — our inbound MTA's own
+   * identity. A sender can add a header claiming anything; without this, the
+   * only defence is that the provider's header comes first.
+   */
+  readonly trustedAuthservId?: string;
+}
+
+export function parseInboundEmail(
+  payload: PostmarkInboundPayload,
+  config: InboundConfig = {},
+): InboundEmail {
   const to = payload.OriginalRecipient ?? payload.To ?? '';
   const orgSlug = orgSlugFromAddress(to, payload.MailboxHash);
   if (orgSlug === undefined) {
@@ -156,9 +210,10 @@ export function parseInboundEmail(payload: PostmarkInboundPayload): InboundEmail
   const authHeader = headerValue(headers, 'Authentication-Results');
   const receivedSpf = headerValue(headers, 'Received-SPF');
 
-  const dkim = authResultFor(authHeader, 'dkim');
-  const dmarc = authResultFor(authHeader, 'dmarc');
-  let spf = authResultFor(authHeader, 'spf');
+  const authserv = config.trustedAuthservId ?? process.env.RECOUPLE_INBOUND_AUTHSERV_ID;
+  const dkim = authResultFor(authHeader, 'dkim', authserv);
+  const dmarc = authResultFor(authHeader, 'dmarc', authserv);
+  let spf = authResultFor(authHeader, 'spf', authserv);
   if (spf === 'unknown' && receivedSpf !== undefined) {
     spf = /^\s*pass/i.test(receivedSpf) ? 'pass' : /^\s*(fail|softfail)/i.test(receivedSpf) ? 'fail' : 'unknown';
   }
