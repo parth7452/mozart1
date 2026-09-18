@@ -1,0 +1,63 @@
+{
+  "key": "target-po",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "document": {
+    "po_number": {
+      "value": "0088-41200",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Number: 0088-41200"
+    },
+    "po_date": {
+      "value": "08/15/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Date: 08/15/2026"
+    },
+    "buyer_name": {
+      "value": "Target Corporation",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Buyer: Target Corporation"
+    },
+    "ship_to": {
+      "value": "Target DC 0581",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Ship To: Target DC 0581"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "551-9930",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "551-9930"
+        },
+        "qty_ordered": {
+          "value": 120,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "120"
+        },
+        "unit_cost": {
+          "value": "$14.25",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$14.25"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:56.806Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3467,
+    "outputTokens": 382,
+    "costMicros": 10754,
+    "latencyMs": 3551
+  }
+}

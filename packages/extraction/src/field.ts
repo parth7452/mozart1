@@ -1,46 +1,45 @@
 /**
  * Every extracted value carries its own provenance.
  *
- * `source_page` and `source_quote` are required: a value we cannot point at in
- * the document is a value we do not have. `source_bbox` is nullable because a
- * vision model's box is an estimate — the reviewer UI highlights the quote and
- * uses the box only as a hint (ADR 0007).
+ * `source_page` and `source_quote` are what make a value checkable: we search
+ * the cited page for the quote and record whether it was there. A value we
+ * cannot point at in the document is a value we do not have.
  *
- * Optional document fields are modelled as a nullable Field rather than an
- * absent key, so the structured-output schema stays closed and a missing value
- * is an explicit null rather than something the model can quietly omit.
+ * The model is not asked for a bounding box (ADR 0008). Two reasons: a vision
+ * model's box is an estimate, and the reviewer UI highlights the quote anyway;
+ * and an array-of-number box repeated across every field was a large part of a
+ * structured-output grammar the API rejected as too big. `extraction_results`
+ * keeps the nullable `source_bbox` column for a layout-aware extractor to fill.
+ *
+ * Optional fields are a nullable *value* inside the same object, never a
+ * nullable object: one shape everywhere keeps the schema closed and the grammar
+ * small, and the model still has to say "not present" explicitly.
  */
 
 import { z } from 'zod';
 
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '1.1.0';
 
-export const BboxSchema = z
-  .array(z.number())
-  .describe(
-    'Normalised [x0, y0, x1, y1] in 0..1 from the top-left of the page, or null if you cannot place the value precisely. Never guess a box.',
-  )
-  .nullable();
+const ABSENT = 'If this is not on the document, return null — never a guess.';
 
 export function Field<T extends z.ZodType>(value: T, description: string) {
   return z.object({
     value: value.describe(description),
     confidence: z
       .number()
-      .describe('0..1. Your calibrated confidence in this value. Be honest: a low number is useful, a wrong high number is not.'),
+      .describe('0..1, calibrated. A low number is useful; a wrong high number is not.'),
     source_page: z.number().int().describe('1-indexed page this value was read from.'),
     source_quote: z
       .string()
       .describe(
-        'The text exactly as it appears on the page, copied verbatim, including any currency symbol or punctuation. Do not paraphrase or reformat.',
+        'The text exactly as printed, copied verbatim including currency symbols and punctuation. Empty string if the value is null.',
       ),
-    source_bbox: BboxSchema,
   });
 }
 
-/** An optional field: present in the schema, explicitly null when absent. */
+/** An optional field: same shape, with null standing for "not on the document". */
 export function OptionalField<T extends z.ZodType>(value: T, description: string) {
-  return Field(value, description).nullable();
+  return Field(value.nullable(), `${description} ${ABSENT}`);
 }
 
 /**
@@ -60,5 +59,5 @@ export type FieldValue<T> = {
   readonly confidence: number;
   readonly source_page: number;
   readonly source_quote: string;
-  readonly source_bbox: readonly number[] | null;
+  readonly source_bbox?: readonly number[] | null;
 };

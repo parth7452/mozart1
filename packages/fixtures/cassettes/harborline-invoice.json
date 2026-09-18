@@ -1,0 +1,75 @@
+{
+  "key": "harborline-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "invoice_number": {
+      "value": "HF-20418",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Number: HF-20418"
+    },
+    "invoice_date": {
+      "value": "08/01/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Date: 08/01/2026"
+    },
+    "po_number": {
+      "value": "7741-88203",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Purchase Order: 7741-88203"
+    },
+    "customer_name": {
+      "value": "Walmart Stores, Inc.",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Bill To: Walmart Stores, Inc."
+    },
+    "invoice_total": {
+      "value": "$18,720.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Total: $18,720.00"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "000-4471-08",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-08"
+        },
+        "qty": {
+          "value": 30,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "30"
+        },
+        "unit_cost": {
+          "value": "$624.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$624.00"
+        },
+        "extended_amount": {
+          "value": "$18,720.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$18,720.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:19.689Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3565,
+    "outputTokens": 511,
+    "costMicros": 12240,
+    "latencyMs": 4168
+  }
+}

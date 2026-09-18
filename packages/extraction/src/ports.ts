@@ -82,8 +82,15 @@ export interface ExtractionResult {
   readonly schemaVersion: string;
   readonly extractor: string;
   readonly fields: readonly ExtractedField[];
-  /** The validated document object, for callers that want it whole. */
+  /** The reassembled document object, for callers that want it whole. */
   readonly document: unknown;
+  /**
+   * Whether `document` satisfied the typed schema. Fields are stored either
+   * way — a partial read is still evidence — but only a validated document is
+   * safe to reconcile against, since reconciliation reads typed paths.
+   */
+  readonly validated: boolean;
+  readonly issues: readonly { readonly path: string; readonly problem: string }[];
   readonly call: ModelCallRecord;
 }
 

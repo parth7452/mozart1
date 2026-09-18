@@ -17,6 +17,14 @@ function f<T>(value: T, quote: string, page = 1, confidence = 0.98) {
   return { value, confidence, source_page: page, source_quote: quote, source_bbox: null };
 }
 
+/**
+ * "Not on this document": an optional field is a null *value* inside the same
+ * object shape, never a missing key, so absence is stated rather than implied.
+ */
+function absent() {
+  return { value: null, confidence: 0, source_page: 1, source_quote: '' };
+}
+
 const NOTICE_WALMART = {
   retailer_name: f('Walmart', 'WALMART STORES, INC.'),
   vendor_number: f('481207', 'Vendor Number: 481207'),
@@ -24,8 +32,8 @@ const NOTICE_WALMART = {
   invoice_number: f('HF-20418', 'Invoice Number: HF-20418'),
   po_number: f('7741-88203', 'Purchase Order: 7741-88203'),
   store_or_dc: f('DC 6094 - Sanger, TX', 'Distribution Center: DC 6094 - Sanger, TX'),
-  gln: null,
-  asn_number: null,
+  gln: absent(),
+  asn_number: absent(),
   lines: [
     {
       sku_upc: f('000-4471-08', '000-4471-08'),
@@ -92,7 +100,7 @@ const BOL_CARRIER = {
     {
       sku_upc: f('000-4471-08', '000-4471-08'),
       qty_shipped: f(30, '30'),
-      qty_received: null,
+      qty_received: absent(),
     },
   ],
 };
@@ -102,17 +110,17 @@ const NOTICE_KEHE = {
   vendor_number: f('NF-2231', 'Vendor: NF-2231'),
   claim_id: f('KS-774120', 'Claim: KS-774120'),
   invoice_number: f('NFC-9931', 'Invoice: NFC-9931'),
-  po_number: null,
-  store_or_dc: null,
-  gln: null,
-  asn_number: null,
+  po_number: absent(),
+  store_or_dc: absent(),
+  gln: absent(),
+  asn_number: absent(),
   lines: [
     {
       sku_upc: f('884-2210', '884-2210'),
       description: f('Trail Mix 12ct', 'Trail Mix 12ct'),
-      qty_invoiced: null,
-      qty_received: null,
-      unit_cost: null,
+      qty_invoiced: absent(),
+      qty_received: absent(),
+      unit_cost: absent(),
       deduction_amount: f('$1,847.50', '$1,847.50'),
       reason_code: f('UDR', 'UDR'),
       reason_description: f('Unsaleable / Damaged on Receipt', 'Unsaleable / Damaged on Receipt'),
@@ -120,8 +128,8 @@ const NOTICE_KEHE = {
   ],
   deduction_total: f('$1,847.50', 'Total Deduction: $1,847.50'),
   deduction_date: f('09/02/2026', 'Deduction Date: 09/02/2026'),
-  dispute_deadline: null,
-  remittance_or_check: null,
+  dispute_deadline: absent(),
+  remittance_or_check: absent(),
 };
 
 const POD_UNSIGNED = {
@@ -129,11 +137,11 @@ const POD_UNSIGNED = {
   ship_date: f('08/28/2026', 'Delivery Date: 08/28/2026'),
   carrier_name: f('Ridgeway Logistics', 'Ridgeway Logistics - System Generated'),
   po_number: f('KH-55120', 'Purchase Order: KH-55120'),
-  ship_from: null,
+  ship_from: absent(),
   ship_to: f('KeHE Aurora DC', 'Ship To: KeHE Aurora DC'),
   total_cartons_shipped: f(48, 'Total Cartons Shipped: 48'),
   total_cartons_received: f(48, 'Total Cartons Received: 48'),
-  signed_by: null,
+  signed_by: absent(),
   signature_present: f(false, 'No consignee signature was captured for this delivery.'),
   lines: [],
 };
@@ -144,9 +152,9 @@ const NOTICE_TARGET = {
   claim_id: f('TGT-2026-41880', 'Claim Number: TGT-2026-41880'),
   invoice_number: f('NFC-10042', 'Invoice: NFC-10042'),
   po_number: f('0088-41200', 'PO: 0088-41200'),
-  store_or_dc: null,
-  gln: null,
-  asn_number: null,
+  store_or_dc: absent(),
+  gln: absent(),
+  asn_number: absent(),
   lines: [
     {
       sku_upc: f('551-9930', '551-9930'),
@@ -164,8 +172,8 @@ const NOTICE_TARGET = {
   ],
   deduction_total: f('$1,710.00', 'Total Deduction: $1,710.00'),
   deduction_date: f('09/09/2026', 'Deduction Date: 09/09/2026'),
-  dispute_deadline: null,
-  remittance_or_check: null,
+  dispute_deadline: absent(),
+  remittance_or_check: absent(),
 };
 
 const PO_TARGET = {

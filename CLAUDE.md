@@ -111,6 +111,12 @@ Two rules that are easy to break by accident:
 - **Models copy, we compute.** Money comes back as the verbatim text on the page
   (`"$3,120.00"`), and `parseMoneyToCents` turns it into cents. A model that does
   its own arithmetic leaves nothing to check.
+- **Never send a document schema as the output format.** The API compiles a
+  structured-output schema into a grammar and rejects anything past ~10–12
+  properties, so a typed document schema will not compile (ADR 0008). The wire
+  format is the flat `WireExtractionSchema`; `describeFields` tells the model
+  what to look for and `reassemble` rebuilds and validates the typed object.
+  Adding a field to a document type stays a one-line schema change.
 
 ## Current state
 
@@ -121,7 +127,12 @@ machine, the decision and adapter contracts.
 Phase 1: the pipeline is built and tested — upload hardening, the fail-closed
 scan gate, doc-type classification, typed extraction with per-field provenance,
 quote verification, cross-document reconciliation, the synthetic fixture corpus
-and the eval harness. Still to do before Phase 1 is done: the case-view UI in
-`apps/web` (side-by-side document and highlighted quote), the Inngest binding
-over the existing steps, Postmark email-in, the Reducto fallback for scanned
-remittances, and the recorded cassettes plus eval baseline.
+and the eval harness. Cassettes are recorded for all eight fixture documents and the eval baseline is
+in `packages/evals/baseline.json`: 100% recall, precision and quote verification,
+8/8 classification, $0.015 per document. That is a floor, not a victory — the
+corpus is generated text PDFs, and the numbers that matter will come from scans.
+
+Still to do before Phase 1 is done: the case-view UI in `apps/web` (side-by-side
+document and highlighted quote), the Inngest binding over the existing steps,
+Postmark email-in, the Reducto fallback for scanned remittances, and fixtures for
+the remaining retailers and formats (scanned, skewed, email-body, EDI-derived).

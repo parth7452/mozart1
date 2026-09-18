@@ -50,13 +50,19 @@ export interface Reconciliation {
   readonly internallyConsistent: boolean;
 }
 
-function valueOf<T>(field: FieldValue<T> | null | undefined): T | undefined {
-  return field === null || field === undefined ? undefined : field.value;
+/**
+ * The value of a field, or undefined when the document does not carry it.
+ * An optional field arrives as a null *value* inside the field object, so both
+ * shapes mean the same thing here. `??` leaves false and 0 alone.
+ */
+function valueOf<T>(field: FieldValue<T | null> | null | undefined): T | undefined {
+  if (field === null || field === undefined) return undefined;
+  return field.value ?? undefined;
 }
 
 /** Parses a money field, turning a failure into a finding instead of a throw. */
 function money(
-  field: FieldValue<string> | null | undefined,
+  field: FieldValue<string | null> | null | undefined,
   fieldPath: string,
   findings: Finding[],
 ): Cents | undefined {

@@ -4,6 +4,8 @@ export * from './field';
 export * from './schemas';
 export * from './prompt';
 export * from './flatten';
+export * from './paths';
+export * from './wire';
 export * from './verify';
 export * from './reconcile';
 export * from './claude';

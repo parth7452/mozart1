@@ -100,7 +100,7 @@ export const ShipmentDocumentSchema = z.object({
   signed_by: OptionalField(z.string(), 'Name or mark of whoever signed for the delivery.'),
   signature_present: Field(
     z.boolean(),
-    'True only if an actual signature or stamp is visible on the page. This decides whether the document is usable as evidence, so do not infer it from a printed name.',
+    'Did the consignee sign for this delivery? True if the document carries a completed signature — a handwritten signature, a stamp, a conformed signature such as "/s/ Name", or an explicit statement that a signature was captured. False if the signature line is blank, or the document says no signature was captured (a carrier-generated report usually says so). This decides whether the document can be used as evidence, so judge what the document records, not how it was typeset.',
   ),
   lines: z.array(
     z.object({

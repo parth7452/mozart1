@@ -1,0 +1,63 @@
+{
+  "key": "walmart-po",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "document": {
+    "po_number": {
+      "value": "7741-88203",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Number: 7741-88203"
+    },
+    "po_date": {
+      "value": "07/28/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Date: 07/28/2026"
+    },
+    "buyer_name": {
+      "value": "Walmart Stores, Inc.",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Buyer: Walmart Stores, Inc."
+    },
+    "ship_to": {
+      "value": "DC 6094 - Sanger, TX",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Ship To: DC 6094 - Sanger, TX"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "000-4471-08",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-08       Case Pack Olive Oil             30     $624.00"
+        },
+        "qty_ordered": {
+          "value": 30,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "30"
+        },
+        "unit_cost": {
+          "value": "$624.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$624.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:13.938Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3555,
+    "outputTokens": 430,
+    "costMicros": 11410,
+    "latencyMs": 4149
+  }
+}

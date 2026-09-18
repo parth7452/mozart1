@@ -1,0 +1,141 @@
+{
+  "key": "kehe-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "retailer_name": {
+      "value": "KeHE DISTRIBUTORS",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "KeHE DISTRIBUTORS"
+    },
+    "vendor_number": {
+      "value": "NF-2231",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Vendor: NF-2231"
+    },
+    "claim_id": {
+      "value": "KS-774120",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Claim: KS-774120"
+    },
+    "invoice_number": {
+      "value": "NFC-9931",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice: NFC-9931"
+    },
+    "deduction_total": {
+      "value": "$1,847.50",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Total Deduction: $1,847.50"
+    },
+    "deduction_date": {
+      "value": "09/02/2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Deduction Date: 09/02/2026"
+    },
+    "dispute_deadline": {
+      "value": "180 days",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "K-Solve disputes accepted within 180 days."
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "884-2210",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "884-2210      Trail Mix 12ct      UDR   $1,847.50"
+        },
+        "description": {
+          "value": "Trail Mix 12ct",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Trail Mix 12ct"
+        },
+        "deduction_amount": {
+          "value": "$1,847.50",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$1,847.50"
+        },
+        "reason_code": {
+          "value": "UDR",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "UDR"
+        },
+        "reason_description": {
+          "value": "Unsaleable / Damaged on Receipt",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "UDR - Unsaleable / Damaged on Receipt"
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "po_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "remittance_or_check": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:38.110Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4190,
+    "outputTokens": 922,
+    "costMicros": 17600,
+    "latencyMs": 6931
+  }
+}

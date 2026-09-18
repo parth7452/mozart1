@@ -1,0 +1,141 @@
+{
+  "key": "target-price-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "retailer_name": {
+      "value": "TARGET CORPORATION",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "TARGET CORPORATION"
+    },
+    "vendor_number": {
+      "value": "VN-77120",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Vendor: Northfork Components (VN-77120)"
+    },
+    "claim_id": {
+      "value": "TGT-2026-41880",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Claim Number: TGT-2026-41880"
+    },
+    "invoice_number": {
+      "value": "NFC-10042",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice: NFC-10042"
+    },
+    "po_number": {
+      "value": "0088-41200",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO: 0088-41200"
+    },
+    "deduction_total": {
+      "value": "$1,710.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Total Deduction: $1,710.00"
+    },
+    "deduction_date": {
+      "value": "09/09/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Deduction Date: 09/09/2026"
+    },
+    "dispute_deadline": {
+      "value": "60 days of deduction date",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Disputes within 60 days of deduction date."
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "551-9930",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "551-9930"
+        },
+        "description": {
+          "value": "Insulated Bottle",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "Insulated Bottle"
+        },
+        "qty_invoiced": {
+          "value": 120,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "120"
+        },
+        "qty_received": {
+          "value": 120,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "120"
+        },
+        "unit_cost": {
+          "value": "$14.25",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$14.25"
+        },
+        "deduction_amount": {
+          "value": "$1,710.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$1,710.00"
+        },
+        "reason_code": {
+          "value": "PD",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "PD"
+        },
+        "reason_description": {
+          "value": "Price discrepancy - billed above agreed cost",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "Code PD: Price discrepancy - billed above agreed cost"
+        }
+      }
+    ],
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "remittance_or_check": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:52.091Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4260,
+    "outputTokens": 917,
+    "costMicros": 17690,
+    "latencyMs": 7188
+  }
+}

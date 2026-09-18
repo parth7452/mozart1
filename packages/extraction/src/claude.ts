@@ -26,8 +26,10 @@ import {
 } from './ports';
 import { CLASSIFY_SYSTEM, EXTRACTION_GUIDANCE, EXTRACTION_SYSTEM, buildReadContent } from './prompt';
 import { flattenExtraction } from './flatten';
+import { describeFields, renderFieldList } from './paths';
 import { schemaFor } from './schemas';
 import { verifyQuotes } from './verify';
+import { WireExtractionSchema, reassemble, type ReassemblyIssue } from './wire';
 
 export interface ReaderConfig {
   /** Pass a client to share connection pooling, or let each reader build one. */
@@ -188,6 +190,7 @@ export class ClaudeExtractor implements Extractor {
       documentId: document.documentId,
     } as const;
     const schema = schemaFor(docType);
+    const descriptors = describeFields(schema);
 
     try {
       const response = await this.client.messages.parse({
@@ -200,12 +203,21 @@ export class ClaudeExtractor implements Extractor {
             role: 'user',
             content: buildReadContent(
               document,
-              `This document has been classified as: ${docType}.\n\n${EXTRACTION_GUIDANCE[docType]}\n\nExtract it now. Remember: quotes verbatim, amounts as printed, null for anything absent.`,
+              [
+                `This document has been classified as: ${docType}.`,
+                EXTRACTION_GUIDANCE[docType],
+                '',
+                'Return one entry in `fields` for each of these that the document carries, using the path exactly as written. Leave out anything the document does not carry.',
+                '',
+                renderFieldList(descriptors),
+                '',
+                'Quotes verbatim, amounts exactly as printed, nothing invented.',
+              ].join('\n'),
             ) as never,
           },
         ],
         output_config: {
-          format: zodOutputFormat(schema),
+          format: zodOutputFormat(WireExtractionSchema),
           effort: this.config.effort ?? 'medium',
         },
       });
@@ -233,7 +245,7 @@ export class ClaudeExtractor implements Extractor {
         );
       }
 
-      const parsed: unknown = response.parsed_output;
+      const parsed = response.parsed_output;
       if (parsed === null || parsed === undefined) {
         throw new ExtractionError('the extractor returned no parseable output', {
           ...call,
@@ -241,12 +253,18 @@ export class ClaudeExtractor implements Extractor {
         });
       }
 
+      const rebuilt = reassemble(parsed.fields, descriptors, schema);
       return buildExtractionResult({
         docType,
         extractor: this.name,
-        document: parsed,
+        document: rebuilt.document,
+        validated: rebuilt.validated,
+        issues: rebuilt.issues,
         pageText: document.pageText,
-        call,
+        // A document that did not satisfy its schema is recorded as such: the
+        // fields are still evidence, but nothing downstream may treat it as typed.
+        call: rebuilt.validated ? call : { ...call, outcome: 'schema_mismatch',
+          detail: rebuilt.issues.map((i) => `${i.path}: ${i.problem}`).join('; ').slice(0, 500) },
       });
     } catch (error) {
       if (error instanceof ExtractionError) throw error;
@@ -273,6 +291,8 @@ export function buildExtractionResult(input: {
   document: unknown;
   pageText: readonly string[] | undefined;
   call: ModelCallRecord;
+  validated?: boolean;
+  issues?: readonly ReassemblyIssue[];
 }): ExtractionResult {
   const fields = verifyQuotes(flattenExtraction(input.document), input.pageText);
   return {
@@ -281,6 +301,8 @@ export function buildExtractionResult(input: {
     extractor: input.extractor,
     fields,
     document: input.document,
+    validated: input.validated ?? true,
+    issues: input.issues ?? [],
     call: input.call,
   };
 }

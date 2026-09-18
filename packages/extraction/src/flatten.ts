@@ -53,6 +53,9 @@ export function flattenExtraction(document: unknown): ExtractedField[] {
     if (node === null || node === undefined) return;
 
     if (isFieldObject(node)) {
+      // A null value is the model saying "not on this document". It gets no
+      // row: absence is recorded by absence, not by a row with no provenance.
+      if (node.value === null) return;
       const page = typeof node.source_page === 'number' ? Math.trunc(node.source_page) : 0;
       const quote = typeof node.source_quote === 'string' ? node.source_quote.trim() : '';
       // Provenance is not optional: without a page and a quote there is nothing

@@ -1,0 +1,78 @@
+{
+  "key": "unsigned-pod",
+  "docType": "pod",
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.85,
+  "document": {
+    "document_number": {
+      "value": "RL-DEL-88214",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Report Number: RL-DEL-88214"
+    },
+    "ship_date": {
+      "value": "08/28/2026",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Delivery Date: 08/28/2026"
+    },
+    "carrier_name": {
+      "value": "Ridgeway Logistics",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Ridgeway Logistics - System Generated"
+    },
+    "po_number": {
+      "value": "KH-55120",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Purchase Order: KH-55120"
+    },
+    "ship_to": {
+      "value": "KeHE Aurora DC",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Ship To: KeHE Aurora DC"
+    },
+    "total_cartons_shipped": {
+      "value": 48,
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Total Cartons Shipped: 48"
+    },
+    "total_cartons_received": {
+      "value": 48,
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Total Cartons Received: 48"
+    },
+    "signature_present": {
+      "value": false,
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "No consignee signature was captured for this delivery."
+    },
+    "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "signed_by": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T03:41:43.518Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3867,
+    "outputTokens": 472,
+    "costMicros": 12454,
+    "latencyMs": 4066
+  }
+}

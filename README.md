@@ -36,7 +36,7 @@ pnpm install
 cp .env.example .env            # only DATABASE_URL matters for Phase 0
 
 pnpm typecheck
-pnpm test                       # 133 unit, property and pipeline tests
+pnpm test                       # 149 unit, property and pipeline tests
 pnpm db:test                    # migrations + 58 database invariant assertions
 pnpm eval                       # replays cassettes, scores against ground truth
 pnpm verify                     # all four, in the order CI runs them
@@ -111,6 +111,14 @@ the page. `parseMoneyToCents` turns it into integer cents, and
 three-way match against the PO, invoice and delivery document. A model that does
 its own arithmetic leaves nothing to check.
 
+**The model's output is validated against a schema it never sees.** It returns a
+flat list of `{path, value, confidence, source_page, source_quote}` records; we
+rebuild the typed document from them and validate it here. A path that is not in
+the schema is dropped, a quantity that will not parse is dropped rather than
+rounded into something plausible, and a required field that never arrived fails
+loudly instead of vanishing ([ADR 0008](./docs/adr/0008-flat-wire-format-for-extraction.md),
+which also records why the nested-schema approach could not be used).
+
 **The reader has no tools and no clean bill of health by default.** The reader
 client is constructed without a `tools` parameter at all, so an instruction
 injected into a PDF has nothing to reach for, and document text is wrapped in
@@ -134,6 +142,34 @@ recordings through the same flatten-and-verify code production uses, scores them
 against ground truth, and fails when recall, precision, grounding or
 classification accuracy drops more than two points below the recorded baseline.
 CI runs the replay, so tests never call a model or spend anything.
+
+### The recorded baseline
+
+Eight documents, Sonnet 5 extracting and Haiku 4.5 classifying:
+
+| Metric | Result |
+| --- | --- |
+| Field recall / precision | 100% |
+| Quotes verified against the cited page | 100% (95 of 95) |
+| Doc-type classification | 8 / 8 |
+| Cost | $0.1186 for 8 documents — **$0.015 per document** |
+
+Per document that is roughly $0.003 to classify and $0.012 to extract, at 3.5k–4.5k
+input and 400–1,100 output tokens. The plan's estimate was $0.20–$1.00 per *case*;
+a four-document case here costs about $0.06, so the estimate holds with room to
+spare — on clean, generated PDFs. Scanned and skewed documents are the test that
+matters, and they are not in the corpus yet.
+
+Treat 100% as "the corpus is too easy", not as "extraction is solved". Every
+fixture is a generated text PDF; the number that will move is the one measured on
+real scans.
+
+The first run did find one real defect — in our spec, not the model. Full account
+in [ADR 0008](./docs/adr/0008-flat-wire-format-for-extraction.md); the short
+version is that a field asked whether a signature was *visibly* present, which no
+text layer can answer, when the question that matters is whether the consignee
+signed. The model answered the question as written, correctly. The description
+was fixed; the ground truth was not touched.
 
 ### What is not built yet
 
