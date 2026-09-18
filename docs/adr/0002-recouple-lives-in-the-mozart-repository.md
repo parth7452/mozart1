@@ -1,6 +1,6 @@
 # 0002 — recouple lives in the Mozart repository, as a self-contained monorepo
 
-- Status: accepted
+- Status: superseded by [0017](./0017-recouple-has-its-own-repository.md) on 2026-09-18
 - Date: 2026-09-18
 
 ## Context

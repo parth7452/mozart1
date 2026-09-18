@@ -1,23 +1,19 @@
 # Deploying `apps/web`
 
 The app builds from the monorepo root, not from this directory. On Vercel that
-means one setting matters more than the rest: **Root Directory =
-`recouple/apps/web`**, with "Include source files outside of the Root Directory"
-left on, so pnpm can resolve `@recouple/*` from the workspace.
+means one setting matters more than the rest: **Root Directory = `apps/web`**,
+with "Include source files outside of the Root Directory" left on, so pnpm can
+resolve `@recouple/*` from the workspace.
 
 ## Settings
 
 | | |
 | --- | --- |
-| Repository | `parth7452/Mozart` |
-| Root Directory | `recouple/apps/web` |
+| Repository | this one |
+| Root Directory | `apps/web` |
 | Framework | Next.js (auto-detected) |
-| Production Branch | whichever branch carries `recouple/` — **not `main`**, which holds a different project |
+| Production Branch | `main` |
 | Build / install command | leave as detected |
-
-The production branch matters because `recouple/apps/web` does not exist on
-`main`. Pointed at `main`, the build fails on a missing root directory rather
-than on anything to do with the code.
 
 ## Environment variables
 

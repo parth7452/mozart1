@@ -58,7 +58,7 @@ database invariants: all suites passed
 ## Layout
 
 ```
-recouple/
+.
 ├─ packages/
 │  ├─ core-domain/      money (integer cents), case state machine, reason codes, invariants
 │  ├─ decision/         DecisionProvider contract, schemas A–D, state hashing

@@ -6,11 +6,14 @@
   record of a decision at a point in time, so renumbering a committed one would
   falsify the record. The mapping used here is:
 
-    CH-3 / CH-4  deduction identity and sources   → ADR 0017
-    ADD-1        the counterfactual log           → ADR 0018
-    CH-1         expected-value gating            → ADR 0019
-    CH-2         owned, outcome-conditioned calibration → ADR 0020
-    ADR 0020 (agent-facing decision tool)         → ADR 0021
+    CH-3 / CH-4  deduction identity and sources   → ADR 0018
+    ADD-1        the counterfactual log           → ADR 0019
+    CH-1         expected-value gating            → ADR 0020
+    CH-2         owned, outcome-conditioned calibration → ADR 0021
+    ADR 0020 (agent-facing decision tool)         → ADR 0022
+
+  (0017 went to the repository extraction, which this document's §9 "Now" row
+  did not anticipate and which had to happen before anything could deploy.)
 
   Where this document and CLAUDE.md disagree about build order, this document
   wins and CLAUDE.md is updated to match; where they disagree about an invariant,
@@ -20,7 +23,7 @@
 # recouple — Strategy Addendum & Build Revision
 
 **Status:** addendum to the existing build. Not a replacement plan.
-**Applies to:** `recouple/` on `claude/getting-started-p34lno` (Phase 0 done, Phase 1 pipeline done and measured)
+**Applies to:** this repository (Phase 0 done, Phase 1 done and measured)
 **Date:** 2026-09-18 (rev. 3 — §6 decision layer, incl. §6.8 on the Jev+LLM pairing pattern)
 **Suggested home:** `recouple/docs/STRATEGY.md`, with the migration-bearing items promoted to ADRs 0016–0020
 
