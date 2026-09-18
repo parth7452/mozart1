@@ -19,10 +19,15 @@ import {
   ClaudeExtractor,
   ExtractionError,
   groundingReport,
+  locateQuote,
   modelFor,
+  ocrFromEnv,
+  OcrError,
   type Cassette,
   type DocType,
   type DocumentPayload,
+  type OcrBlock,
+  type OcrResult,
 } from '@recouple/extraction';
 import { acceptUpload } from '@recouple/ingest';
 import { everyDocument } from '@recouple/fixtures';
@@ -42,6 +47,10 @@ if (documents.length === 0) {
 
 const classifier = new ClaudeClassifier();
 const extractor = new ClaudeExtractor();
+const ocr = ocrFromEnv();
+if (ocr === undefined) {
+  console.warn('note: REDUCTO_API_KEY is not set — scans will be recorded without a text layer');
+}
 
 let totalMicros = 0;
 let mismatches = 0;
@@ -49,7 +58,7 @@ let mismatches = 0;
 for (const fixture of documents) {
   // Fixtures go through the same front door as a customer's upload.
   const accepted = acceptUpload(fixture.bytes, fixture.filename);
-  const payload: DocumentPayload = {
+  let payload: DocumentPayload = {
     documentId: fixture.key,
     orgId: 'fixture-org',
     filename: fixture.filename,
@@ -60,6 +69,29 @@ for (const fixture of documents) {
   };
 
   process.stdout.write(`\n=== ${fixture.key} (${fixture.filename})\n`);
+
+  // A document with no text layer gets one, so its quotes can be checked.
+  let ocrResult: OcrResult | undefined;
+  const needsOcr = fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
+  if (needsOcr && ocr !== undefined) {
+    try {
+      ocrResult = await ocr.ocr(payload);
+      totalMicros += ocrResult.call.costMicros;
+      payload = {
+        ...payload,
+        pageText: ocrResult.pages.map((page) => page.text),
+        pageTextSource: 'ocr',
+      };
+      console.log(
+        `  ocr       ${ocrResult.pages.length} page(s), ${ocrResult.blocks.length} blocks ` +
+          `(${ocrResult.call.latencyMs}ms, ${ocrResult.call.detail ?? ''})`,
+      );
+    } catch (error) {
+      console.error(
+        `  ocr       FAILED ${error instanceof OcrError ? error.message : String(error)}`,
+      );
+    }
+  }
 
   try {
     const classification = await classifier.classify(payload);
@@ -76,10 +108,17 @@ for (const fixture of documents) {
     // pipeline would read, so a classification slip does not poison the corpus.
     const extraction = await extractor.extract(payload, fixture.docType as DocType);
     totalMicros += extraction.call.costMicros;
+    const blocks: readonly OcrBlock[] = ocrResult?.blocks ?? [];
+    const boxed = blocks.length === 0
+      ? 0
+      : extraction.fields.filter(
+          (f) => locateQuote(f.sourceQuote, f.sourcePage, blocks) !== undefined,
+        ).length;
     const grounding = groundingReport(extraction.fields);
     console.log(
       `  extract   ${extraction.fields.length} fields, ` +
-        `${grounding.verified} quotes verified, ${grounding.ungrounded} ungrounded ` +
+        `${grounding.verified} quotes verified, ${grounding.ungrounded} ungrounded` +
+        `${blocks.length > 0 ? `, ${boxed} boxed` : ''} ` +
         `(${extraction.call.latencyMs}ms, ${extraction.call.costMicros}µ$, ` +
         `${extraction.call.inputTokens}in/${extraction.call.outputTokens}out)`,
     );
@@ -99,6 +138,17 @@ for (const fixture of documents) {
         costMicros: extraction.call.costMicros,
         latencyMs: extraction.call.latencyMs,
       },
+      ...(ocrResult !== undefined
+        ? {
+            ocr: {
+              provider: ocrResult.provider,
+              pages: ocrResult.pages,
+              blocks: ocrResult.blocks,
+              credits: ocrResult.call.costMicros / 1_000,
+              latencyMs: ocrResult.call.latencyMs,
+            },
+          }
+        : {}),
     };
     writeFileSync(
       path.join(cassetteDir, `${fixture.key}.json`),

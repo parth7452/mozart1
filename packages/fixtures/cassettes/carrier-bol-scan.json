@@ -1,8 +1,8 @@
 {
   "key": "carrier-bol-scan",
   "docType": "bol",
-  "classifiedAs": "pod",
-  "classifierConfidence": 0.75,
+  "classifiedAs": "bol",
+  "classifierConfidence": 0.98,
   "document": {
     "document_number": {
       "value": "MFL-553318",
@@ -60,7 +60,7 @@
     },
     "signature_present": {
       "value": true,
-      "confidence": 0.9,
+      "confidence": 0.85,
       "source_page": 1,
       "source_quote": "Signature: /s/ R. Alvarez      Date: 08/08/2026"
     },
@@ -79,21 +79,106 @@
           "source_quote": "30"
         },
         "qty_received": {
-          "value": 25,
-          "confidence": 0.6,
+          "value": null,
+          "confidence": 0,
           "source_page": 1,
-          "source_quote": "Total Cartons Received: 25"
+          "source_quote": ""
         }
       }
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:52:51.123Z",
+  "recordedAt": "2026-09-18T13:03:30.216Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 5349,
-    "outputTokens": 792,
-    "costMicros": 18618,
-    "latencyMs": 6417
+    "outputTokens": 780,
+    "costMicros": 18498,
+    "latencyMs": 6386
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "STRAIGHT BILL OF LADING\nCarrier: Meridian Freight Lines\nBOL Number: MFL-553318\nShip Date: 08/05/2026\nPurchase Order: 7741-88203\nShip From: Harborline Foods LLC, Modesto, CA\nShip To: Walmart DC 6094, Sanger, TX\nRECEIVED IN APPARENT GOOD ORDER EXCEPT AS NOTED\nException noted at delivery: 5 cartons short\nReceived By: R. Alvarez (signature on file)\nSignature: /s/ R. Alvarez Date: 08/08/2026\n<table><tr><th>Item</th><th>Description</th><th>Cartons Shipped</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>30</td></tr></table>\nTotal Cartons Shipped: 30\nTotal Cartons Received: 25\nRECEIVED"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "STRAIGHT BILL OF LADING\nCarrier: Meridian Freight Lines",
+        "page": 1,
+        "bbox": [
+          0.08408414911047052,
+          0.05408124461833656,
+          0.35794236642252586,
+          0.08859550333716609
+        ],
+        "kind": "Text",
+        "confidence": 0.6666810870170593
+      },
+      {
+        "text": "BOL Number: MFL-553318\nShip Date: 08/05/2026\nPurchase Order: 7741-88203\nShip From: Harborline Foods LLC, Modesto, CA\nShip To: Walmart DC 6094, Sanger, TX",
+        "page": 1,
+        "bbox": [
+          0.07674630025130096,
+          0.10067563414762755,
+          0.4730263446355815,
+          0.18960680110356481
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9807145357131958
+      },
+      {
+        "text": "RECEIVED IN APPARENT GOOD ORDER EXCEPT AS NOTED\nException noted at delivery: 5 cartons short\nReceived By: R. Alvarez (signature on file)\nSignature: /s/ R. Alvarez Date: 08/08/2026",
+        "page": 1,
+        "bbox": [
+          0.06790176560331186,
+          0.29338892543110867,
+          0.4881402841140066,
+          0.3665370771731557
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7659401774406434
+      },
+      {
+        "text": "<table><tr><th>Item</th><th>Description</th><th>Cartons Shipped</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>30</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.07522150533264471,
+          0.19623820123596797,
+          0.5738475152845401,
+          0.24086429038795565
+        ],
+        "kind": "Table",
+        "confidence": 0.8623220086097718
+      },
+      {
+        "text": "Total Cartons Shipped: 30\nTotal Cartons Received: 25",
+        "page": 1,
+        "bbox": [
+          0.07236025131479813,
+          0.2450881117700829,
+          0.30603777136778526,
+          0.2801261243713012
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9295583486557006
+      },
+      {
+        "text": "RECEIVED",
+        "page": 1,
+        "bbox": [
+          0.7587316015194354,
+          0.1796076066704645,
+          0.9229748195582312,
+          0.23848205522463106
+        ],
+        "kind": "Figure",
+        "confidence": 0.9442345321178436
+      }
+    ],
+    "credits": 2,
+    "latencyMs": 1292
   }
 }

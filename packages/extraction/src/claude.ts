@@ -213,6 +213,10 @@ export class ClaudeExtractor implements Extractor {
                 '',
                 'Quotes verbatim, amounts exactly as printed, nothing invented.',
               ].join('\n'),
+              // An OCR transcription is withheld here on purpose: the model
+              // anchors on it and inherits its character errors. It still backs
+              // the quote check and the boxes (ADR 0009).
+              { includeTextLayer: document.pageTextSource !== 'ocr' },
             ) as never,
           },
         ],

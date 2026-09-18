@@ -43,6 +43,7 @@ export class InMemoryStore implements PipelineStore {
   readonly events: StoredEvent[] = [];
   readonly cases = new Map<string, CaseRecord>();
   readonly links: Array<{ deductionId: string; documentId: string; role: string }> = [];
+  readonly pages = new Map<string, string[]>();
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -83,6 +84,17 @@ export class InMemoryStore implements PipelineStore {
 
   async recordModelCall(call: ModelCallRecord): Promise<void> {
     this.modelCalls.push(call);
+  }
+
+  async recordPages(
+    documentId: string,
+    pages: readonly { readonly page: number; readonly text: string }[],
+  ): Promise<void> {
+    this.pages.set(documentId, [...pages].sort((a, b) => a.page - b.page).map((p) => p.text));
+  }
+
+  async pagesFor(documentId: string): Promise<readonly string[] | undefined> {
+    return this.pages.get(documentId);
   }
 
   async openCase(input: {

@@ -16,6 +16,7 @@ import { classificationIsActionable } from '@recouple/core-domain';
 import {
   CassetteClassifier,
   CassetteExtractor,
+  locateQuote,
   modelFor,
   type Cassette,
   type DocType,
@@ -70,9 +71,15 @@ const classifiedBySuite = new Map<
   { correct: number; total: number; unsafe: number }
 >();
 const unsafeDetail: string[] = [];
+let boxedFields = 0;
+let totalFields = 0;
 
 for (const fixture of documents) {
   suiteOf.set(fixture.key, fixture.suite);
+  // A scan's text layer is the one OCR produced; replaying it means the score
+  // covers the whole pipeline rather than extraction in isolation (ADR 0009).
+  const cassette = cassettes.get(fixture.key);
+  const ocrPages = cassette?.ocr?.pages.map((page) => page.text);
   const payload: DocumentPayload = {
     documentId: fixture.key,
     orgId: 'eval',
@@ -80,7 +87,8 @@ for (const fixture of documents) {
     mimeType: fixture.mimeType,
     base64: '',
     byteSize: fixture.bytes.length,
-    pageText: fixture.pageText,
+    pageText: ocrPages ?? fixture.pageText,
+    ...(ocrPages !== undefined ? { pageTextSource: 'ocr' as const } : {}),
   };
 
   const classification = await classifier.classify(payload);
@@ -106,8 +114,19 @@ for (const fixture of documents) {
   });
 
   const extraction = await extractor.extract(payload, fixture.docType as DocType);
-  scores.push(scoreDocument({ key: fixture.key, truth: fixture.truth, fields: extraction.fields }));
-  recordedCostMicros += cassettes.get(fixture.key)?.call.costMicros ?? 0;
+  const blocks = cassette?.ocr?.blocks ?? [];
+  const fields =
+    blocks.length === 0
+      ? extraction.fields
+      : extraction.fields.map((field) => {
+          const block = locateQuote(field.sourceQuote, field.sourcePage, blocks);
+          return block === undefined ? field : { ...field, sourceBbox: block.bbox };
+        });
+  boxedFields += fields.filter((f) => f.sourceBbox !== null).length;
+  totalFields += fields.length;
+  scores.push(scoreDocument({ key: fixture.key, truth: fixture.truth, fields }));
+  recordedCostMicros += cassette?.call.costMicros ?? 0;
+  recordedCostMicros += Math.round((cassette?.ocr?.credits ?? 0) * 1_000);
 }
 
 const suite = summarise(scores, {
@@ -157,7 +176,10 @@ console.log(
 );
 console.log(
   `recorded cost $${(suite.totalCostMicros / 1_000_000).toFixed(4)} across ${documents.length} documents ` +
-    `($${(suite.totalCostMicros / 1_000_000 / documents.length).toFixed(4)} each)`,
+    `($${(suite.totalCostMicros / 1_000_000 / documents.length).toFixed(4)} each, plus OCR credits where used)`,
+);
+console.log(
+  `${boxedFields} of ${totalFields} fields carry a bounding box a reviewer can follow`,
 );
 
 if (unsafeDetail.length > 0) {

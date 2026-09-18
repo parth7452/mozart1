@@ -32,6 +32,12 @@ export interface DocumentPayload {
   readonly byteSize: number;
   /** Extracted text per page, 1-indexed by position, when a text layer exists. */
   readonly pageText?: readonly string[];
+  /**
+   * Where that text came from. `embedded` is the document's own text layer and
+   * is exact. `ocr` is a machine transcription of an image and may carry
+   * character-level errors, so the image — not the text — is authoritative.
+   */
+  readonly pageTextSource?: 'embedded' | 'ocr';
 }
 
 export type CallOutcome = 'ok' | 'schema_mismatch' | 'refusal' | 'error' | 'timeout';
@@ -70,6 +76,12 @@ export interface ExtractedField {
   readonly sourcePage: number;
   readonly sourceQuote: string;
   readonly sourceBbox: readonly number[] | null;
+  /**
+   * How the quote was matched against the page. `ocr_confusion` means it matched
+   * only after allowing for glyphs OCR routinely confuses (O/0, I/1, S/5), which
+   * a reviewer should be told rather than shown as a plain tick.
+   */
+  readonly quoteMatch?: 'exact' | 'punctuation' | 'ocr_confusion';
   /**
    * Whether the quote was found in the page's own text. Null when the page has
    * no text layer to check against (a scan), which is not the same as false.

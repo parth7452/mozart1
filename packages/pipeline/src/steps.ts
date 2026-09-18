@@ -8,9 +8,13 @@
 
 import { applyTransition } from '@recouple/core-domain';
 import {
+  locateQuote,
+  OcrError,
   type DocType,
+  type ExtractedField,
   type ExtractionResult,
   type ModelCallRecord,
+  type OcrBlock,
   reconcileNotice,
   type Reconciliation,
 } from '@recouple/extraction';
@@ -30,6 +34,7 @@ export interface IngestInput {
   readonly source: 'web_upload' | 'email_in';
   /** Known text layer, when the caller already has one. */
   readonly pageText?: readonly string[];
+  readonly pageTextSource?: 'embedded' | 'ocr';
 }
 
 export interface IngestResult {
@@ -78,21 +83,89 @@ export async function ingestDocument(
   return { document, verdict, deduplicated: false, warnings: accepted.warnings };
 }
 
-/** Turns a stored document into the payload a reader model is given. */
-async function readablePayload(document: StoredDocument, deps: PipelineDeps) {
+/**
+ * Turns a stored document into the payload a reader model is given, OCRing it
+ * first when it has no text layer of its own.
+ *
+ * The text layer is what makes an extracted quote checkable, so a scan without
+ * one is a document whose fields we cannot verify. OCR is best-effort: if it
+ * fails, extraction still runs and the fields come back unverifiable, with the
+ * failure recorded on model_calls rather than swallowed (ADR 0009).
+ */
+async function readablePayload(
+  document: StoredDocument,
+  deps: PipelineDeps,
+): Promise<{ payload: DocumentPayloadShape; blocks: readonly OcrBlock[] }> {
   const verdict = await deps.store.latestScan(document.documentId);
   // The gate. Nothing below this line runs on an unscanned or unclean file.
   assertScannedClean(verdict, document.documentId);
 
-  return {
+  let pageText = document.pageText ?? (await deps.store.pagesFor(document.documentId));
+  let textSource: 'embedded' | 'ocr' = 'embedded';
+  let blocks: readonly OcrBlock[] = [];
+
+  const payload = {
     documentId: document.documentId,
     orgId: document.orgId,
     filename: document.filename,
     mimeType: document.mimeType,
     base64: Buffer.from(document.bytes).toString('base64'),
     byteSize: document.byteSize,
-    ...(document.pageText !== undefined ? { pageText: document.pageText } : {}),
   };
+
+  const needsOcr = pageText === undefined || pageText.length === 0 || pageText.every((t) => t.trim() === '');
+  if (needsOcr && deps.ocr !== undefined) {
+    try {
+      const result = await deps.ocr.ocr(payload);
+      await deps.store.recordModelCall(result.call);
+      await deps.store.recordPages(document.documentId, result.pages);
+      pageText = result.pages.map((page) => page.text);
+      textSource = 'ocr';
+      blocks = result.blocks;
+    } catch (error) {
+      if (error instanceof OcrError) {
+        await deps.store.recordModelCall(error.call);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  return {
+    payload: {
+      ...payload,
+      ...(pageText !== undefined ? { pageText, pageTextSource: textSource } : {}),
+    },
+    blocks,
+  };
+}
+
+interface DocumentPayloadShape {
+  readonly documentId: string;
+  readonly orgId: string;
+  readonly filename: string;
+  readonly mimeType: string;
+  readonly base64: string;
+  readonly byteSize: number;
+  readonly pageText?: readonly string[];
+  readonly pageTextSource?: 'embedded' | 'ocr';
+}
+
+/**
+ * Gives each field the box of the OCR block its quote came from.
+ *
+ * Only when the quote lands in exactly one block: a reviewer follows a box to
+ * decide whether to approve, so an ambiguous box is worse than none.
+ */
+export function attachBoxes(
+  fields: readonly ExtractedField[],
+  blocks: readonly OcrBlock[],
+): ExtractedField[] {
+  if (blocks.length === 0) return [...fields];
+  return fields.map((field) => {
+    const block = locateQuote(field.sourceQuote, field.sourcePage, blocks);
+    return block === undefined ? field : { ...field, sourceBbox: block.bbox };
+  });
 }
 
 export interface ClassifyResult {
@@ -105,7 +178,7 @@ export async function classifyDocument(
   document: StoredDocument,
   deps: PipelineDeps,
 ): Promise<ClassifyResult> {
-  const payload = await readablePayload(document, deps);
+  const { payload } = await readablePayload(document, deps);
   const result = await deps.classifier.classify(payload);
   await deps.store.recordModelCall(result.call);
   await deps.store.recordClassification(document.documentId, result.docType, result.confidence);
@@ -118,8 +191,9 @@ export async function extractDocument(
   deps: PipelineDeps,
   deductionId?: string,
 ): Promise<ExtractionResult> {
-  const payload = await readablePayload(document, deps);
-  const result = await deps.extractor.extract(payload, docType);
+  const { payload, blocks } = await readablePayload(document, deps);
+  const extracted = await deps.extractor.extract(payload, docType);
+  const result: ExtractionResult = { ...extracted, fields: attachBoxes(extracted.fields, blocks) };
   await deps.store.recordModelCall(result.call);
   await deps.store.recordExtraction({
     documentId: document.documentId,

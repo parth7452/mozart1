@@ -2,7 +2,7 @@
   "key": "hl-case-01-notice-scan",
   "docType": "deduction_notice",
   "classifiedAs": "deduction_notice",
-  "classifierConfidence": 0.95,
+  "classifierConfidence": 0.99,
   "document": {
     "retailer_name": {
       "value": "Harbor Lane Markets",
@@ -34,21 +34,9 @@
       "source_page": 1,
       "source_quote": "Purchase order: PO-HLM-8042"
     },
-    "store_or_dc": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
     "gln": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": "null",
-      "confidence": 0.9,
+      "value": ",",
+      "confidence": 0,
       "source_page": 1,
       "source_quote": ""
     },
@@ -63,12 +51,6 @@
       "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-03"
-    },
-    "dispute_deadline": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
     },
     "remittance_or_check": {
       "value": "RA-2609-001",
@@ -88,13 +70,13 @@
           "value": "Citrus Sparkling Water",
           "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Citrus Sparkling Water"
+          "source_quote": "Citrus Sparkling Water, SKU NS-100"
         },
         "qty_invoiced": {
           "value": 400,
           "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "400 cases of Citrus Sparkling Water"
+          "source_quote": "400 of 400 cases"
         },
         "qty_received": {
           "value": 380,
@@ -121,21 +103,112 @@
           "source_quote": "Reason code: SHORT"
         },
         "reason_description": {
-          "value": "Customer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases were deducted.",
-          "confidence": 0.85,
+          "value": "Twenty cases were deducted.",
+          "confidence": 0.8,
           "source_page": 1,
-          "source_quote": "Customer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at\n$30.00 per case. Twenty cases\nwere deducted."
+          "source_quote": "Twenty cases\nwere deducted."
         }
       }
-    ]
+    ],
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "dispute_deadline": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:53:02.003Z",
+  "recordedAt": "2026-09-18T13:03:41.642Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 5708,
-    "outputTokens": 1188,
-    "costMicros": 23296,
-    "latencyMs": 9079
+    "outputTokens": 1077,
+    "costMicros": 22186,
+    "latencyMs": 8511
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n1 / 12\nCASE 01 / QUANTITY SHORTAGE\nDeduction notice\nHarbor Lane Markets\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-001\nNotice date: 2026-09-03\nReason code: SHORT\nInvoice: INV-260801\nInvoice date: 2026-08-04\nPurchase order: PO-HLM-8042\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-001\nCurrency: USD\nRECEIVED\nDeduction assessment\nCustomer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases were deducted.\nOriginal invoice: $12,000.00\nDeduction: $600.00\nNet remitted: $11,400.00\nCalculation: 20 cases x $30.00 = $600.00\nCustomer-stated basis: Receiving report RR-HLM-442 records 380 cases. Carrier delivery reference POD-442 is cited by the customer.\nSupporting records requested for review: Signed proof of delivery, bill of lading, warehouse pick record, and customer receiving report.\nClaim status and response reference: Open - deducted from payment; supplier review pending. Reference DN-2609-001, INV-260801, and RA-2609-001 in any dispute response. Supporting records are referenced for testing and are not included in this sample."
+      }
+    ],
+    "blocks": [
+      {
+        "text": "SYNTHETIC TEST DATA | Fictional entities and transactions | USD",
+        "page": 1,
+        "bbox": [
+          0.05239637363983313,
+          0.06252017742341648,
+          0.5992900391909481,
+          0.0894423365081835
+        ],
+        "kind": "Title",
+        "confidence": 0.49012710750102995
+      },
+      {
+        "text": "1 / 12\nCASE 01 / QUANTITY SHORTAGE\nDeduction notice\nHarbor Lane Markets\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-001\nNotice date: 2026-09-03\nReason code: SHORT\nInvoice: INV-260801\nInvoice date: 2026-08-04\nPurchase order: PO-HLM-8042\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-001\nCurrency: USD",
+        "page": 1,
+        "bbox": [
+          0.05041030445643068,
+          0.08653297262704482,
+          0.3624647109566553,
+          0.369078612738888
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7384529709815979
+      },
+      {
+        "text": "RECEIVED",
+        "page": 1,
+        "bbox": [
+          0.7302095709069595,
+          0.1586135241164286,
+          0.8913495604229715,
+          0.21930960654614834
+        ],
+        "kind": "Figure",
+        "confidence": 0.900278702378273
+      },
+      {
+        "text": "Deduction assessment",
+        "page": 1,
+        "bbox": [
+          0.06729189190078441,
+          0.36374477862109206,
+          0.24077771679928614,
+          0.377743458153117
+        ],
+        "kind": "Section Header",
+        "confidence": 0.5516360223293304
+      },
+      {
+        "text": "Customer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases were deducted.\nOriginal invoice: $12,000.00\nDeduction: $600.00\nNet remitted: $11,400.00\nCalculation: 20 cases x $30.00 = $600.00\nCustomer-stated basis: Receiving report RR-HLM-442 records 380 cases. Carrier delivery reference POD-442 is cited by the customer.\nSupporting records requested for review: Signed proof of delivery, bill of lading, warehouse pick record, and customer receiving report.\nClaim status and response reference: Open - deducted from payment; supplier review pending. Reference DN-2609-001, INV-260801, and RA-2609-001 in any dispute response. Supporting records are referenced for testing and are not included in this sample.",
+        "page": 1,
+        "bbox": [
+          0.06423227183206308,
+          0.35286628716893054,
+          0.9070234028273028,
+          0.7023483846550114
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7108500123023986
+      }
+    ],
+    "credits": 2,
+    "latencyMs": 1340
   }
 }

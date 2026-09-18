@@ -9,6 +9,7 @@
  */
 
 import { buildExtractionResult } from './claude';
+import type { OcrBlock, OcrPage } from './ocr';
 import {
   ExtractionError,
   type Classifier,
@@ -35,6 +36,18 @@ export interface Cassette {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly costMicros: number;
+    readonly latencyMs: number;
+  };
+  /**
+   * Present when the document had no text layer of its own and was OCR'd. The
+   * eval replays these pages as the text layer, so what it scores is the whole
+   * pipeline — OCR included — rather than extraction in isolation.
+   */
+  readonly ocr?: {
+    readonly provider: string;
+    readonly pages: readonly OcrPage[];
+    readonly blocks: readonly OcrBlock[];
+    readonly credits: number;
     readonly latencyMs: number;
   };
 }

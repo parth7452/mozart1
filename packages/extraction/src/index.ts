@@ -7,6 +7,8 @@ export * from './flatten';
 export * from './paths';
 export * from './wire';
 export * from './verify';
+export * from './ocr';
+export * from './reducto';
 export * from './reconcile';
 export * from './claude';
 export * from './cassette';

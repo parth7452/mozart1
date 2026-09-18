@@ -13,6 +13,7 @@ import type {
   ExtractedField,
   Extractor,
   ModelCallRecord,
+  OcrProvider,
 } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 
@@ -63,6 +64,13 @@ export interface PipelineStore {
 
   recordModelCall(call: ModelCallRecord): Promise<void>;
 
+  /** The text layer for a document, once something has produced one. */
+  recordPages(
+    documentId: string,
+    pages: readonly { readonly page: number; readonly text: string }[],
+  ): Promise<void>;
+  pagesFor(documentId: string): Promise<readonly string[] | undefined>;
+
   openCase(input: {
     orgId: string;
     claimId?: string;
@@ -91,6 +99,12 @@ export interface PipelineDeps {
   readonly scanner: Scanner;
   readonly classifier: Classifier;
   readonly extractor: Extractor;
+  /**
+   * Optional. When a document has no text layer and no provider is configured,
+   * extraction still runs — the fields just come back unverifiable, which is
+   * recorded rather than hidden (ADR 0009).
+   */
+  readonly ocr?: OcrProvider;
   /** Injected so tests are deterministic and events carry a real event_time. */
   readonly now: () => Date;
 }

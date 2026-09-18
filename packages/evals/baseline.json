@@ -1,11 +1,11 @@
 {
-  "recordedAt": "2026-09-18T12:54:54.573Z",
+  "recordedAt": "2026-09-18T13:04:44.546Z",
   "extractModel": "claude-sonnet-5",
   "recall": 1,
   "precision": 1,
-  "groundedRate": 1,
-  "classificationAccuracy": 0.9583333333333334,
-  "totalCostMicros": 396034,
+  "groundedRate": 0.9973958333333334,
+  "classificationAccuracy": 1,
+  "totalCostMicros": 400444,
   "suites": {
     "authored": {
       "recall": 1,
@@ -22,8 +22,8 @@
     "scanned": {
       "recall": 1,
       "precision": 1,
-      "groundedRate": null,
-      "classificationAccuracy": 0.75
+      "groundedRate": 0.984375,
+      "classificationAccuracy": 1
     }
   }
 }

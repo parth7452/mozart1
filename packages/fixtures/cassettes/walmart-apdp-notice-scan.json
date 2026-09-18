@@ -5,8 +5,8 @@
   "classifierConfidence": 0.99,
   "document": {
     "retailer_name": {
-      "value": "WALMART STORES, INC.",
-      "confidence": 0.98,
+      "value": "Walmart Stores, Inc.",
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "WALMART STORES, INC."
     },
@@ -130,12 +130,121 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:52:42.870Z",
+  "recordedAt": "2026-09-18T13:03:20.461Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 5591,
-    "outputTokens": 1054,
-    "costMicros": 21722,
-    "latencyMs": 8084
+    "outputTokens": 1055,
+    "costMicros": 21732,
+    "latencyMs": 7854
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "WALMART STORES, INC.\nAccounts Payable Disputes Portal (APDP)\nDEDUCTION NOTICE\nSupplier: Harborline Foods LLC\nVendor Number: 481207\nClaim ID: APDP-99812\nInvoice Number: HF-20418\nPurchase Order: 7741-88203\nDistribution Center: DC 6094 - Sanger, TX\nDeduction Date: 08/14/2026\nRemittance Reference: CHK-4471902\nRECEIVED\nDEDUCTION DETAIL\n<table><tr><th>Item</th><th>Description</th><th>Code</th><th>Inv</th><th>Qty</th><th>Rcv</th><th>Qty</th><th>Unit Cost</th><th>Amount</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>24</td><td></td><td>30</td><td></td><td>25</td><td>$624.00</td><td>$3,120.00</td></tr></table>\nReason Code 24: Merchandise billed not received (carton shortage)\nTotal Deduction: $3,120.00\nDisputes must be filed in APDP within 90 days of the deduction date. Dispute Deadline: 11/12/2026"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "WALMART STORES, INC.\nAccounts Payable Disputes Portal (APDP)\nDEDUCTION NOTICE",
+        "page": 1,
+        "bbox": [
+          0.05792144811213486,
+          0.0681517448620171,
+          0.401809234796718,
+          0.11549755071320285
+        ],
+        "kind": "Text",
+        "confidence": 0.807360029220581
+      },
+      {
+        "text": "Supplier: Harborline Foods LLC\nVendor Number: 481207\nClaim ID: APDP-99812\nInvoice Number: HF-20418\nPurchase Order: 7741-88203\nDistribution Center: DC 6094 - Sanger, TX\nDeduction Date: 08/14/2026\nRemittance Reference: CHK-4471902",
+        "page": 1,
+        "bbox": [
+          0.05762796828217847,
+          0.12929353935085258,
+          0.42735829042843054,
+          0.2621998287617401
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9803111553192139
+      },
+      {
+        "text": "RECEIVED",
+        "page": 1,
+        "bbox": [
+          0.7420774361084976,
+          0.16240813775698326,
+          0.9076870550483829,
+          0.22247667626509768
+        ],
+        "kind": "Figure",
+        "confidence": 0.9214939951896668
+      },
+      {
+        "text": "DEDUCTION DETAIL",
+        "page": 1,
+        "bbox": [
+          0.06625301652518398,
+          0.281024064638085,
+          0.2070961929982972,
+          0.29178620368006253
+        ],
+        "kind": "Section Header",
+        "confidence": 0.907288807630539
+      },
+      {
+        "text": "<table><tr><th>Item</th><th>Description</th><th>Code</th><th>Inv</th><th>Qty</th><th>Rcv</th><th>Qty</th><th>Unit Cost</th><th>Amount</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>24</td><td></td><td>30</td><td></td><td>25</td><td>$624.00</td><td>$3,120.00</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.06309539024043691,
+          0.28270578049152817,
+          0.8186104716174475,
+          0.3281036690418501
+        ],
+        "kind": "Table",
+        "confidence": 0.8856987506151199
+      },
+      {
+        "text": "Reason Code 24: Merchandise billed not received (carton shortage)",
+        "page": 1,
+        "bbox": [
+          0.06814433148591167,
+          0.3370362017381834,
+          0.6386203378222477,
+          0.35770272021381705
+        ],
+        "kind": "Text",
+        "confidence": 0.7226870149374008
+      },
+      {
+        "text": "Total Deduction: $3,120.00",
+        "page": 1,
+        "bbox": [
+          0.06910629340559217,
+          0.37556778621091275,
+          0.2982977884830698,
+          0.38901306556735044
+        ],
+        "kind": "Text",
+        "confidence": 0.7337309092283248
+      },
+      {
+        "text": "Disputes must be filed in APDP within 90 days of the deduction date. Dispute Deadline: 11/12/2026",
+        "page": 1,
+        "bbox": [
+          0.07005195088595605,
+          0.40083578397374703,
+          0.667158540480607,
+          0.43845045296766627
+        ],
+        "kind": "Text",
+        "confidence": 0.7315350562334061
+      }
+    ],
+    "credits": 2,
+    "latencyMs": 1687
   }
 }

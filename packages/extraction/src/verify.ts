@@ -14,13 +14,33 @@ function normalise(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Last resort: compare only letters and digits, for OCR punctuation noise. */
+/** Compare only letters and digits, for punctuation and spacing noise. */
 function alphanumeric(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/**
+ * Collapses the glyph pairs OCR confuses, so a value read correctly from the
+ * image still verifies against a transcription that misread a character.
+ *
+ * Deliberately narrow: only pairs that are visually near-identical in print. A
+ * hallucinated value differs in far more than one glyph class, so this loosens
+ * the check against OCR noise without loosening it against invention. Matches
+ * found this way are reported as `ocr_confusion`, never as an exact match.
+ */
+function glyphFolded(text: string): string {
+  return alphanumeric(text)
+    .replace(/[o]/g, '0')
+    .replace(/[il]/g, '1')
+    .replace(/[s]/g, '5')
+    .replace(/[b]/g, '8')
+    .replace(/[z]/g, '2')
+    .replace(/[g]/g, '6');
+}
+
 export interface QuoteCheck {
   readonly verified: boolean | null;
+  readonly matchedBy?: 'exact' | 'punctuation' | 'ocr_confusion';
   readonly reason?: string;
 }
 
@@ -42,9 +62,16 @@ export function checkQuote(
   if (page === undefined) {
     return { verified: false, reason: `cited page ${sourcePage} does not exist` };
   }
-  if (normalise(page).includes(normalise(quote))) return { verified: true };
+  if (normalise(page).includes(normalise(quote))) return { verified: true, matchedBy: 'exact' };
   if (alphanumeric(page).includes(alphanumeric(quote))) {
-    return { verified: true, reason: 'matched ignoring punctuation' };
+    return { verified: true, matchedBy: 'punctuation', reason: 'matched ignoring punctuation' };
+  }
+  if (glyphFolded(page).includes(glyphFolded(quote))) {
+    return {
+      verified: true,
+      matchedBy: 'ocr_confusion',
+      reason: 'matched only after allowing for glyphs OCR confuses (O/0, I/1, S/5)',
+    };
   }
   return { verified: false, reason: 'quote not found on the cited page' };
 }
@@ -53,10 +80,14 @@ export function verifyQuotes(
   fields: readonly ExtractedField[],
   pageText: readonly string[] | undefined,
 ): ExtractedField[] {
-  return fields.map((field) => ({
-    ...field,
-    quoteVerified: checkQuote(field.sourceQuote, field.sourcePage, pageText).verified,
-  }));
+  return fields.map((field) => {
+    const check = checkQuote(field.sourceQuote, field.sourcePage, pageText);
+    return {
+      ...field,
+      quoteVerified: check.verified,
+      ...(check.matchedBy !== undefined ? { quoteMatch: check.matchedBy } : {}),
+    };
+  });
 }
 
 /** Fields whose quote was checked and not found. These are the dangerous ones. */
@@ -72,6 +103,8 @@ export interface GroundingReport {
   /** Share of *checkable* fields that checked out. Null when nothing was checkable. */
   readonly groundedRate: number | null;
   readonly lowestConfidence: number | null;
+  /** Verified only by folding OCR glyph confusions — worth showing a reviewer. */
+  readonly matchedThroughOcrNoise: number;
 }
 
 export function groundingReport(fields: readonly ExtractedField[]): GroundingReport {
@@ -87,5 +120,6 @@ export function groundingReport(fields: readonly ExtractedField[]): GroundingRep
     ungrounded,
     groundedRate: checkable === 0 ? null : verified / checkable,
     lowestConfidence: confidences.length === 0 ? null : Math.min(...confidences),
+    matchedThroughOcrNoise: fields.filter((f) => f.quoteMatch === 'ocr_confusion').length,
   };
 }
