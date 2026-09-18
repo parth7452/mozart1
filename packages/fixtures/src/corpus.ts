@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { authoredDocuments, type FixtureDocument, type TruthExpectation } from './cases';
 import { scannedDocuments } from './scans';
+import { denseDocuments } from './dense';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
 
@@ -198,5 +199,10 @@ export function corpusDocuments(): readonly FixtureDocument[] {
 
 /** Every document in every suite: what the recorder and the eval gate iterate. */
 export function everyDocument(): readonly FixtureDocument[] {
-  return [...authoredDocuments(), ...corpusDocuments(), ...scannedDocuments()];
+  return [
+    ...authoredDocuments(),
+    ...corpusDocuments(),
+    ...scannedDocuments(),
+    ...denseDocuments(),
+  ];
 }

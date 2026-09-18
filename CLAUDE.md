@@ -145,8 +145,12 @@ number moves when it does):
 | authored | does the pipeline work | 100% | 100% | 8/8 |
 | held_out | does it generalise | 100% | 100% | 12/12 |
 | scanned | does it survive a scan | 100% | 98.4% | 4/4 |
+| dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
 
-About $0.017 per document. Still to do before Phase 1 is done: the case-view UI
+About $0.021 per document across 25 of them. Extraction streams with a 32,000
+output-token budget because a dense document costs ~250 output tokens per row —
+roughly 120 rows before a read is cut off, at which point it fails loudly rather
+than storing a truncated document as a complete one. Still to do before Phase 1 is done: the case-view UI
 in `apps/web` (side-by-side document and highlighted quote), the Inngest binding
 over the existing steps, and fixtures for the formats still missing — dense
 retailer tables, email-body notices, EDI-derived exports. Real customer documents

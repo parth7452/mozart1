@@ -147,22 +147,42 @@ CI runs the replay, so tests never call a model or spend anything.
 
 Eight documents, Sonnet 5 extracting and Haiku 4.5 classifying:
 
-| Metric | Result |
-| --- | --- |
-| Field recall / precision | 100% |
-| Quotes verified against the cited page | 100% (95 of 95) |
-| Doc-type classification | 8 / 8 |
-| Cost | $0.1186 for 8 documents — **$0.015 per document** |
+Four suites, each gated on its own baseline — never blended, because the mix
+changes and a blended number moves when it does:
 
-Per document that is roughly $0.003 to classify and $0.012 to extract, at 3.5k–4.5k
-input and 400–1,100 output tokens. The plan's estimate was $0.20–$1.00 per *case*;
-a four-document case here costs about $0.06, so the estimate holds with room to
-spare — on clean, generated PDFs. Scanned and skewed documents are the test that
-matters, and they are not in the corpus yet.
+| Suite | What it measures | Recall / precision | Grounding | Classification |
+| --- | --- | --- | --- | --- |
+| `authored` | does the pipeline work | 100% | 100% | 8 / 8 |
+| `held_out` | does it generalise to documents written elsewhere | 100% | 100% | 12 / 12 |
+| `scanned` | does it survive a rasterised, skewed, JPEG-degraded page | 100% | 98.4% | 4 / 4 |
+| `dense` | does it survive a 42-row, two-page remittance | 100% | 100% | 1 / 1 |
 
-Treat 100% as "the corpus is too easy", not as "extraction is solved". Every
-fixture is a generated text PDF; the number that will move is the one measured on
-real scans.
+25 documents, 464 extracted fields, $0.52 to read all of them.
+
+### What a document costs, and how that scales
+
+| | Single-line notice | 42-row remittance |
+| --- | --- | --- |
+| Output tokens | ~900 | 10,702 |
+| Latency | ~7s | ~63s |
+| Cost | ~$0.015 | $0.128 |
+
+Cost on a dense document is almost entirely output tokens, at roughly **250
+output tokens per row**. That number sets a hard limit: extraction now streams
+with a 32,000-token budget, which is about 120 rows. Past that the read is cut
+off — and it fails loudly rather than storing a truncated document as a complete
+one, because a remittance missing its last fifteen lines is worse than one that
+never arrived.
+
+Against the plan's $0.20–$1.00 per case: a four-document case of simple notices
+runs about $0.06, and one carrying a dense remittance about $0.17. The estimate
+holds.
+
+Treat 100% across the board as "the corpus is not hard enough yet", not as
+"extraction is solved". These are generated PDFs and simulated scans. The numbers
+that matter will come from real customer documents, and the formats still missing
+are the ones most likely to move them: dense retailer tables with merged cells,
+notices in an email body, EDI-derived portal exports.
 
 The first run did find one real defect — in our spec, not the model. Full account
 in [ADR 0008](./docs/adr/0008-flat-wire-format-for-extraction.md); the short

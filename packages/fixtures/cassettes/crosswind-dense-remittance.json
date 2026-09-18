@@ -1,0 +1,1387 @@
+{
+  "key": "crosswind-dense-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "payer_name": {
+      "value": "Crosswind Grocery Distribution",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "CROSSWIND GROCERY DISTRIBUTION"
+    },
+    "payment_reference": {
+      "value": "ACH-CW-880412",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment Reference: ACH-CW-880412"
+    },
+    "payment_date": {
+      "value": "09/15/2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment Date: 09/15/2026"
+    },
+    "payment_total": {
+      "value": "$1,063,297.00",
+      "confidence": 0.95,
+      "source_page": 2,
+      "source_quote": "TOTALS        $1,075,775.00   $12,478.00$1,063,297.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-271000",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271000        $4,125.00            -    $4,125.00"
+        },
+        "gross_amount": {
+          "value": "$4,125.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$4,125.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$4,125.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$4,125.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271001",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271001       $30,025.00            -   $30,025.00"
+        },
+        "gross_amount": {
+          "value": "$30,025.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$30,025.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$30,025.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$30,025.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271002",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271002       $13,100.00      $700.00   $12,400.00  SHORT"
+        },
+        "gross_amount": {
+          "value": "$13,100.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$13,100.00"
+        },
+        "deduction_amount": {
+          "value": "$700.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$700.00"
+        },
+        "net_amount": {
+          "value": "$12,400.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$12,400.00"
+        },
+        "reason_code": {
+          "value": "SHORT",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "SHORT"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271003",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271003       $32,350.00    $1,473.00   $30,877.00  PROMO"
+        },
+        "gross_amount": {
+          "value": "$32,350.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$32,350.00"
+        },
+        "deduction_amount": {
+          "value": "$1,473.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$1,473.00"
+        },
+        "net_amount": {
+          "value": "$30,877.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$30,877.00"
+        },
+        "reason_code": {
+          "value": "PROMO",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "PROMO"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271004",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271004        $9,750.00            -    $9,750.00"
+        },
+        "gross_amount": {
+          "value": "$9,750.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$9,750.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$9,750.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$9,750.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271005",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271005       $46,775.00            -   $46,775.00"
+        },
+        "gross_amount": {
+          "value": "$46,775.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$46,775.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$46,775.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$46,775.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271006",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271006       $22,625.00            -   $22,625.00"
+        },
+        "gross_amount": {
+          "value": "$22,625.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$22,625.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$22,625.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$22,625.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271007",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271007       $29,775.00            -   $29,775.00"
+        },
+        "gross_amount": {
+          "value": "$29,775.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$29,775.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$29,775.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$29,775.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271008",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271008        $3,600.00      $128.00    $3,472.00  OTIF"
+        },
+        "gross_amount": {
+          "value": "$3,600.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$3,600.00"
+        },
+        "deduction_amount": {
+          "value": "$128.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$128.00"
+        },
+        "net_amount": {
+          "value": "$3,472.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$3,472.00"
+        },
+        "reason_code": {
+          "value": "OTIF",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "OTIF"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271009",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271009       $21,125.00            -   $21,125.00"
+        },
+        "gross_amount": {
+          "value": "$21,125.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$21,125.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$21,125.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$21,125.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271010",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271010       $25,875.00    $1,171.00   $24,704.00  DAMAGE"
+        },
+        "gross_amount": {
+          "value": "$25,875.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$25,875.00"
+        },
+        "deduction_amount": {
+          "value": "$1,171.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$1,171.00"
+        },
+        "net_amount": {
+          "value": "$24,704.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$24,704.00"
+        },
+        "reason_code": {
+          "value": "DAMAGE",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "DAMAGE"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271011",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271011       $49,700.00    $1,976.00   $47,724.00  PRICE"
+        },
+        "gross_amount": {
+          "value": "$49,700.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$49,700.00"
+        },
+        "deduction_amount": {
+          "value": "$1,976.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$1,976.00"
+        },
+        "net_amount": {
+          "value": "$47,724.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$47,724.00"
+        },
+        "reason_code": {
+          "value": "PRICE",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "PRICE"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271012",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271012       $14,950.00            -   $14,950.00"
+        },
+        "gross_amount": {
+          "value": "$14,950.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$14,950.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$14,950.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$14,950.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271013",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271013       $34,350.00            -   $34,350.00"
+        },
+        "gross_amount": {
+          "value": "$34,350.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$34,350.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$34,350.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$34,350.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271014",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271014       $44,100.00            -   $44,100.00"
+        },
+        "gross_amount": {
+          "value": "$44,100.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$44,100.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$44,100.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$44,100.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271015",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271015       $24,225.00      $747.00   $23,478.00  DAMAGE"
+        },
+        "gross_amount": {
+          "value": "$24,225.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$24,225.00"
+        },
+        "deduction_amount": {
+          "value": "$747.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$747.00"
+        },
+        "net_amount": {
+          "value": "$23,478.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$23,478.00"
+        },
+        "reason_code": {
+          "value": "DAMAGE",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "DAMAGE"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271016",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271016        $7,400.00            -    $7,400.00"
+        },
+        "gross_amount": {
+          "value": "$7,400.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$7,400.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$7,400.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$7,400.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271017",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271017       $31,825.00            -   $31,825.00"
+        },
+        "gross_amount": {
+          "value": "$31,825.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$31,825.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$31,825.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$31,825.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271018",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271018       $13,600.00      $541.00   $13,059.00  SHORT"
+        },
+        "gross_amount": {
+          "value": "$13,600.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$13,600.00"
+        },
+        "deduction_amount": {
+          "value": "$541.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$541.00"
+        },
+        "net_amount": {
+          "value": "$13,059.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$13,059.00"
+        },
+        "reason_code": {
+          "value": "SHORT",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "SHORT"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271019",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271019       $23,175.00      $438.00   $22,737.00  OTIF"
+        },
+        "gross_amount": {
+          "value": "$23,175.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$23,175.00"
+        },
+        "deduction_amount": {
+          "value": "$438.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$438.00"
+        },
+        "net_amount": {
+          "value": "$22,737.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$22,737.00"
+        },
+        "reason_code": {
+          "value": "OTIF",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "OTIF"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271020",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271020       $43,400.00            -   $43,400.00"
+        },
+        "gross_amount": {
+          "value": "$43,400.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$43,400.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$43,400.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$43,400.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271021",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271021       $36,650.00            -   $36,650.00"
+        },
+        "gross_amount": {
+          "value": "$36,650.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$36,650.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$36,650.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$36,650.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271022",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271022       $14,175.00            -   $14,175.00"
+        },
+        "gross_amount": {
+          "value": "$14,175.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$14,175.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$14,175.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$14,175.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271023",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271023       $29,375.00            -   $29,375.00"
+        },
+        "gross_amount": {
+          "value": "$29,375.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$29,375.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$29,375.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$29,375.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271024",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271024       $45,200.00            -   $45,200.00"
+        },
+        "gross_amount": {
+          "value": "$45,200.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$45,200.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$45,200.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$45,200.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271025",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271025       $24,800.00            -   $24,800.00"
+        },
+        "gross_amount": {
+          "value": "$24,800.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$24,800.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$24,800.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$24,800.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271026",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271026       $32,550.00            -   $32,550.00"
+        },
+        "gross_amount": {
+          "value": "$32,550.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$32,550.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$32,550.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$32,550.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271027",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271027       $45,600.00            -   $45,600.00"
+        },
+        "gross_amount": {
+          "value": "$45,600.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$45,600.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$45,600.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$45,600.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271028",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271028       $39,975.00      $471.00   $39,504.00  OTIF"
+        },
+        "gross_amount": {
+          "value": "$39,975.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$39,975.00"
+        },
+        "deduction_amount": {
+          "value": "$471.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$471.00"
+        },
+        "net_amount": {
+          "value": "$39,504.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$39,504.00"
+        },
+        "reason_code": {
+          "value": "OTIF",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "OTIF"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271029",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271029        $9,300.00            -    $9,300.00"
+        },
+        "gross_amount": {
+          "value": "$9,300.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$9,300.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$9,300.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$9,300.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271030",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271030        $8,900.00            -    $8,900.00"
+        },
+        "gross_amount": {
+          "value": "$8,900.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$8,900.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$8,900.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$8,900.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271031",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271031       $29,800.00    $1,228.00   $28,572.00  SHORT"
+        },
+        "gross_amount": {
+          "value": "$29,800.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$29,800.00"
+        },
+        "deduction_amount": {
+          "value": "$1,228.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$1,228.00"
+        },
+        "net_amount": {
+          "value": "$28,572.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$28,572.00"
+        },
+        "reason_code": {
+          "value": "SHORT",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "SHORT"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271032",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271032       $15,100.00            -   $15,100.00"
+        },
+        "gross_amount": {
+          "value": "$15,100.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$15,100.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$15,100.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$15,100.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271033",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "INV-271033       $24,650.00    $2,185.00   $22,465.00  PRICE"
+        },
+        "gross_amount": {
+          "value": "$24,650.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$24,650.00"
+        },
+        "deduction_amount": {
+          "value": "$2,185.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$2,185.00"
+        },
+        "net_amount": {
+          "value": "$22,465.00",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "$22,465.00"
+        },
+        "reason_code": {
+          "value": "PRICE",
+          "confidence": 0.99,
+          "source_page": 1,
+          "source_quote": "PRICE"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271034",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271034       $26,625.00            -   $26,625.00"
+        },
+        "gross_amount": {
+          "value": "$26,625.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$26,625.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$26,625.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$26,625.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271035",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271035       $37,675.00            -   $37,675.00"
+        },
+        "gross_amount": {
+          "value": "$37,675.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$37,675.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$37,675.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$37,675.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271036",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271036       $25,050.00    $1,420.00   $23,630.00  SHORT"
+        },
+        "gross_amount": {
+          "value": "$25,050.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$25,050.00"
+        },
+        "deduction_amount": {
+          "value": "$1,420.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$1,420.00"
+        },
+        "net_amount": {
+          "value": "$23,630.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$23,630.00"
+        },
+        "reason_code": {
+          "value": "SHORT",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "SHORT"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271037",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271037        $2,975.00            -    $2,975.00"
+        },
+        "gross_amount": {
+          "value": "$2,975.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$2,975.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$2,975.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$2,975.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271038",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271038       $34,800.00            -   $34,800.00"
+        },
+        "gross_amount": {
+          "value": "$34,800.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$34,800.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$34,800.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$34,800.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271039",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271039        $6,375.00            -    $6,375.00"
+        },
+        "gross_amount": {
+          "value": "$6,375.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$6,375.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$6,375.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$6,375.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271040",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271040       $11,250.00            -   $11,250.00"
+        },
+        "gross_amount": {
+          "value": "$11,250.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$11,250.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$11,250.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$11,250.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "INV-271041",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "INV-271041       $49,100.00            -   $49,100.00"
+        },
+        "gross_amount": {
+          "value": "$49,100.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$49,100.00"
+        },
+        "deduction_amount": {
+          "value": "-",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "-"
+        },
+        "net_amount": {
+          "value": "$49,100.00",
+          "confidence": 0.99,
+          "source_page": 2,
+          "source_quote": "$49,100.00"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-18T18:27:30.032Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 7507,
+    "outputTokens": 10702,
+    "costMicros": 122034,
+    "latencyMs": 63297
+  }
+}

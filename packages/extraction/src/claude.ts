@@ -193,9 +193,13 @@ export class ClaudeExtractor implements Extractor {
     const descriptors = describeFields(schema);
 
     try {
-      const response = await this.client.messages.parse({
+      // Streamed, and given real headroom. A dense remittance measured 10,794
+      // output tokens for 42 rows — roughly 250 a row — so a 60-row advice would
+      // have run into a 16,000-token ceiling, and a non-streaming request that
+      // large risks the HTTP timeout before it risks the ceiling.
+      const stream = this.client.messages.stream({
         model: this.model,
-        max_tokens: this.config.maxTokens ?? 16_000,
+        max_tokens: this.config.maxTokens ?? 32_000,
         system: EXTRACTION_SYSTEM,
         thinking: { type: 'adaptive' },
         messages: [
@@ -225,6 +229,7 @@ export class ClaudeExtractor implements Extractor {
           effort: this.config.effort ?? 'medium',
         },
       });
+      const response = await stream.finalMessage();
 
       const usage = usageOf(response.usage);
       const call: ModelCallRecord = {
@@ -243,8 +248,11 @@ export class ClaudeExtractor implements Extractor {
         });
       }
       if (response.stop_reason === 'max_tokens') {
+        // The backstop, not the plan: a document dense enough to exhaust even a
+        // 32,000-token budget needs splitting, and failing loudly here is what
+        // stops a truncated read being stored as a complete one.
         throw new ExtractionError(
-          'the extraction was cut off by max_tokens: split the document and retry',
+          `the extraction was cut off at ${usage.outputTokens} output tokens: split the document and retry`,
           { ...call, outcome: 'schema_mismatch', detail: 'stop_reason=max_tokens' },
         );
       }
