@@ -71,6 +71,8 @@ recouple/
 ├─ supabase/
 │  ├─ migrations/       append-only DDL, approval trigger, RLS policies
 │  └─ tests/            invariant, RLS and separation-of-duties suites
+│  ├─ store-postgres/    the same PipelineStore against Postgres, under RLS
+├─ apps/review-prototype/  a reviewer's workspace over the recorded output
 ├─ scripts/db-test.sh   applies migrations to a scratch DB, runs the suites
 ├─ docs/adr/            architecture decision records
 └─ .claude/             hooks, slash commands (CLAUDE.md is at the root)
@@ -81,7 +83,7 @@ recouple/
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Foundations: append-only DDL, approval trigger, RLS, roles, money maths, state machine, contracts, CI | **done** |
-| 1 | Ingest + classify: upload hardening, scan gate, doc-type, typed extraction with provenance, reconciliation, fixtures, evals | **pipeline done**; UI, Inngest binding, email-in and cassettes remain |
+| 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **pipeline done and measured**; `apps/web` and the Inngest binding remain |
 | 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, confidence gates, calibration | — |
 | 3 | Packet + approval + manual submission + outcomes | — |
 | 4 | QBO write-back, attribution, Stripe contingency billing | — |
@@ -206,10 +208,13 @@ action that a Postgres trigger governs.
 
 ### What is not built yet
 
-No case-view UI, no Inngest binding (the steps exist; the durable wrapper lands
-with `apps/web`), no email-in, no Reducto fallback, and no money movement
-anywhere. Phase 0's floor still holds: nothing can be submitted or written back
-to accounting without an approval row.
+No `apps/web` — no auth, no case list, no route anyone can log into. No Inngest
+binding: the steps exist and are tested, but the durable wrapper needs an HTTP
+endpoint, which arrives with the app. No decision layer, no packet, no
+submission, and no money movement anywhere.
+
+Phase 0's floor still holds under all of it: nothing can be submitted or written
+back to accounting without an approval row, and the database is what refuses.
 
 ## Working on it
 
