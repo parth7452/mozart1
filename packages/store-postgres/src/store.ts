@@ -36,6 +36,66 @@ export interface PostgresStoreConfig {
   readonly max?: number;
 }
 
+/** A case as the list route shows it. */
+export interface CaseSummary {
+  readonly deductionId: string;
+  readonly state: CaseState;
+  readonly claimId?: string;
+  readonly deductionAmountCents: number;
+  readonly deductionDate?: string;
+  readonly disputeDeadline?: string;
+  readonly debtorName?: string;
+  readonly retailerKey?: string;
+  readonly documentCount: number;
+  readonly createdAt: string;
+}
+
+/** One stored field, with everything a reviewer needs to check it. */
+export interface StoredField {
+  readonly documentId: string;
+  readonly filename: string;
+  readonly docType: DocType | null;
+  readonly fieldPath: string;
+  readonly value: unknown;
+  readonly confidence: number;
+  readonly sourcePage: number;
+  readonly sourceQuote: string;
+  readonly sourceBbox: readonly [number, number, number, number] | null;
+  /**
+   * Three answers, not two: true means the quote was found in the page text,
+   * false means it was looked for and was not there, and null means there was no
+   * text to look in. A reviewer is told which kind of check a field got, because
+   * "unchecked" and "checked and wrong" are not the same claim.
+   */
+  readonly quoteVerified: boolean | null;
+}
+
+interface CaseSummaryRow {
+  id: string;
+  state: CaseState;
+  claim_id: string | null;
+  amount: string;
+  deduction_date: string | null;
+  dispute_deadline: string | null;
+  created_at: string;
+  debtor_name: string | null;
+  retailer_key: string | null;
+  document_count: number;
+}
+
+interface StoredFieldRow {
+  document_id: string;
+  filename: string;
+  doc_type: DocType | null;
+  field_path: string;
+  value_json: unknown;
+  confidence: string;
+  source_page: number;
+  source_quote: string;
+  source_bbox: string[] | null;
+  quote_verified: boolean | null;
+}
+
 interface DocumentRow {
   id: string;
   org_id: string;
@@ -478,6 +538,96 @@ export class PostgresStore implements PipelineStore {
   }
 
   /** Total model spend on this tenant's book, in micro-USD. */
+  /**
+   * The case list a reviewer lands on: newest first, with the deadline that
+   * decides what is urgent and the count of evidence already attached.
+   *
+   * Every row here comes back through RLS, so "the tenant's cases" is the
+   * database's answer, not a `where org_id = …` we remembered to write.
+   */
+  async listCases(limit = 100): Promise<readonly CaseSummary[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseSummaryRow>(
+        `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
+                d.deduction_date, d.dispute_deadline, d.created_at,
+                b.display_name as debtor_name, b.retailer_key,
+                (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
+                  ::int as document_count
+           from deductions d
+           left join debtors b on b.id = d.debtor_id
+          order by d.created_at desc
+          limit $1`,
+        [limit],
+      );
+      return rows.map((row) => ({
+        deductionId: row.id,
+        state: row.state,
+        ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+        deductionAmountCents: Number(row.amount),
+        ...(row.deduction_date !== null ? { deductionDate: row.deduction_date } : {}),
+        ...(row.dispute_deadline !== null ? { disputeDeadline: row.dispute_deadline } : {}),
+        ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
+        ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
+        documentCount: row.document_count,
+        createdAt: row.created_at,
+      }));
+    });
+  }
+
+  /**
+   * Every stored field of a case, with the provenance a reviewer follows: which
+   * document, which page, the quote as printed, whether that quote was found in
+   * the page text, and the box to draw over the scan.
+   *
+   * This is the read behind the review route. It deliberately returns the field
+   * rows rather than the rebuilt objects — a reviewer checks values against the
+   * page, and the page reference is the part a rebuilt object throws away.
+   */
+  async fieldsForCase(deductionId: string): Promise<readonly StoredField[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<StoredFieldRow>(
+        `select e.document_id, coalesce(d.filename, '') as filename,
+                c.doc_type, e.field_path, e.value_json, e.confidence,
+                e.source_page, e.source_quote, e.source_bbox, e.quote_verified
+           from extraction_results e
+           join documents d on d.id = e.document_id
+           left join lateral (
+             select doc_type from document_classifications dc
+              where dc.document_id = e.document_id order by dc.id desc limit 1
+           ) c on true
+          where e.deduction_id = $1
+          order by e.document_id, e.id asc`,
+        [deductionId],
+      );
+      return rows.map((row) => ({
+        documentId: row.document_id,
+        filename: row.filename,
+        docType: row.doc_type,
+        fieldPath: row.field_path,
+        value: row.value_json,
+        confidence: Number(row.confidence),
+        sourcePage: row.source_page,
+        sourceQuote: row.source_quote,
+        sourceBbox:
+          row.source_bbox === null
+            ? null
+            : (row.source_bbox.map((n) => Number(n)) as [number, number, number, number]),
+        quoteVerified: row.quote_verified,
+      }));
+    });
+  }
+
+  /** What this case has cost so far, which is what a contingency fee is set against. */
+  async costForCase(deductionId: string): Promise<number> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ total: string | null }>(
+        `select sum(cost_micros)::text as total from model_calls where deduction_id = $1`,
+        [deductionId],
+      );
+      return Number(rows[0]?.total ?? 0);
+    });
+  }
+
   async totalCostMicros(): Promise<number> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ total: string | null }>(

@@ -96,10 +96,23 @@ export async function ingestDocument(
  * fails, extraction still runs and the fields come back unverifiable, with the
  * failure recorded on model_calls rather than swallowed (ADR 0009).
  */
+/**
+ * A document read once, with the model calls that reading it cost.
+ *
+ * The calls are handed back rather than written: a document that opens a case
+ * is read before the case exists, and a spend nobody can attribute to a case is
+ * a spend nobody can bill for. `processUpload` records them once it knows.
+ */
+interface ReadableDocument {
+  readonly payload: DocumentPayloadShape;
+  readonly blocks: readonly OcrBlock[];
+  readonly calls: readonly ModelCallRecord[];
+}
+
 async function readablePayload(
   document: StoredDocument,
   deps: PipelineDeps,
-): Promise<{ payload: DocumentPayloadShape; blocks: readonly OcrBlock[] }> {
+): Promise<ReadableDocument> {
   const verdict = await deps.store.latestScan(document.documentId);
   // The gate. Nothing below this line runs on an unscanned or unclean file.
   assertScannedClean(verdict, document.documentId);
@@ -107,6 +120,7 @@ async function readablePayload(
   let pageText = document.pageText ?? (await deps.store.pagesFor(document.documentId));
   let textSource: 'embedded' | 'ocr' = 'embedded';
   let blocks: readonly OcrBlock[] = [];
+  const calls: ModelCallRecord[] = [];
 
   const payload = {
     documentId: document.documentId,
@@ -121,14 +135,16 @@ async function readablePayload(
   if (needsOcr && deps.ocr !== undefined) {
     try {
       const result = await deps.ocr.ocr(payload);
-      await deps.store.recordModelCall(result.call);
+      calls.push(result.call);
       await deps.store.recordPages(document.documentId, result.pages);
       pageText = result.pages.map((page) => page.text);
       textSource = 'ocr';
       blocks = result.blocks;
     } catch (error) {
       if (error instanceof OcrError) {
-        await deps.store.recordModelCall(error.call);
+        // A failed read is still a read that cost something, and a recorded
+        // failure is the difference between "unverifiable" and "unexplained".
+        calls.push(error.call);
       } else {
         throw error;
       }
@@ -141,6 +157,7 @@ async function readablePayload(
       ...(pageText !== undefined ? { pageText, pageTextSource: textSource } : {}),
     },
     blocks,
+    calls,
   };
 }
 
@@ -182,9 +199,11 @@ export async function classifyDocument(
   document: StoredDocument,
   deps: PipelineDeps,
 ): Promise<ClassifyResult> {
-  const { payload } = await readablePayload(document, deps);
-  const result = await deps.classifier.classify(payload);
-  await deps.store.recordModelCall(result.call);
+  const readable = await readablePayload(document, deps);
+  const result = await deps.classifier.classify(readable.payload);
+  for (const call of [...readable.calls, result.call]) {
+    await deps.store.recordModelCall(call);
+  }
   await deps.store.recordClassification(document.documentId, result.docType, result.confidence);
   return result;
 }
@@ -195,10 +214,38 @@ export async function extractDocument(
   deps: PipelineDeps,
   deductionId?: string,
 ): Promise<ExtractionResult> {
-  const { payload, blocks } = await readablePayload(document, deps);
-  const extracted = await deps.extractor.extract(payload, docType);
-  const result: ExtractionResult = { ...extracted, fields: attachBoxes(extracted.fields, blocks) };
-  await deps.store.recordModelCall(result.call);
+  const readable = await readablePayload(document, deps);
+  const result = await readExtraction(readable, docType, deps);
+  for (const call of readable.calls) {
+    await deps.store.recordModelCall(withCase(call, deductionId));
+  }
+  await recordExtraction(document, result, deps, deductionId);
+  return result;
+}
+
+/**
+ * The extraction itself, recording nothing.
+ *
+ * Boxes are attached here rather than at read time because they are a property
+ * of a field: the box is the OCR block the field's quote landed in, and a field
+ * that cannot be located gets no box at all (a wrong box is worse than none).
+ */
+async function readExtraction(
+  readable: ReadableDocument,
+  docType: DocType,
+  deps: PipelineDeps,
+): Promise<ExtractionResult> {
+  const extracted = await deps.extractor.extract(readable.payload, docType);
+  return { ...extracted, fields: attachBoxes(extracted.fields, readable.blocks) };
+}
+
+async function recordExtraction(
+  document: StoredDocument,
+  result: ExtractionResult,
+  deps: PipelineDeps,
+  deductionId?: string,
+): Promise<void> {
+  await deps.store.recordModelCall(withCase(result.call, deductionId));
   await deps.store.recordExtraction({
     documentId: document.documentId,
     ...(deductionId !== undefined ? { deductionId } : {}),
@@ -208,7 +255,11 @@ export async function extractDocument(
     fields: result.fields,
     document: result.document,
   });
-  return result;
+}
+
+/** A model call, told which case it was spent on. */
+function withCase(call: ModelCallRecord, deductionId?: string): ModelCallRecord {
+  return deductionId === undefined ? call : { ...call, deductionId };
 }
 
 export interface ProcessedDocument {
@@ -250,24 +301,43 @@ export async function processUpload(
     };
   }
 
-  const classification = await classifyDocument(ingest.document, deps);
+  // Read the document once. Classification and extraction both need the page
+  // text, and on a scan that text costs money and carries the boxes a reviewer
+  // follows — reading twice would pay twice and, because the second read finds
+  // the stored text and so never calls OCR, would arrive with no boxes at all.
+  const readable = await readablePayload(ingest.document, deps);
+
+  const classification = await deps.classifier.classify(readable.payload);
 
   let caseRecord: CaseRecord | undefined;
   if (options.attachToCase !== undefined) {
     caseRecord = await deps.store.getCase(options.attachToCase);
   }
 
-  const extraction = await extractDocument(
-    ingest.document,
-    classification.docType,
-    deps,
-    caseRecord?.deductionId,
-  );
+  const extraction = await readExtraction(readable, classification.docType, deps);
 
+  // The case is opened before anything is recorded, because the notice that
+  // opens a case is read before the case exists and every fact read from it —
+  // and every micro-dollar spent reading it — belongs to that case. Opening
+  // needs the extraction (the claim id is on the page), so this is the earliest
+  // the case can exist.
   const mayOpenCase = options.allowCaseOpen ?? true;
   if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
     caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
-  } else if (caseRecord !== undefined) {
+  }
+
+  const deductionId = caseRecord?.deductionId;
+  for (const call of [...readable.calls, classification.call]) {
+    await deps.store.recordModelCall(withCase(call, deductionId));
+  }
+  await deps.store.recordClassification(
+    ingest.document.documentId,
+    classification.docType,
+    classification.confidence,
+  );
+  await recordExtraction(ingest.document, extraction, deps, deductionId);
+
+  if (options.attachToCase !== undefined && caseRecord !== undefined) {
     await deps.store.linkDocument(caseRecord.deductionId, ingest.document.documentId, 'evidence');
     await deps.store.appendEvent({
       orgId: input.orgId,
