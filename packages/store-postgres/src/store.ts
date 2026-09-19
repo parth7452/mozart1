@@ -94,6 +94,63 @@ export interface CaseSummary {
   readonly createdAt: string;
 }
 
+/**
+ * Why a case was not fought. Mirrors the `decline_reason` enum in migration
+ * 0014 — the database is the referee, so an unknown value is refused there
+ * rather than stored and puzzled over later.
+ */
+export const DECLINE_REASONS = [
+  'below_economic_floor',
+  'deadline_passed',
+  'evidence_unavailable',
+  'deduction_valid',
+  'duplicate_of_other',
+  'below_confidence_floor',
+  'tenant_declined',
+  'other',
+] as const;
+
+export type DeclineReason = (typeof DECLINE_REASONS)[number];
+
+/**
+ * How a deduction reached us. Mirrors the `discovered_from` check in migration
+ * 0014; coverage is attributed by this, so it is a closed set.
+ */
+export const DISCOVERED_FROM = [
+  'web_upload',
+  'email_in',
+  'email_body',
+  'erp_sync',
+  'portal_fetch',
+  'edi_812',
+] as const;
+
+export type DiscoveredFrom = (typeof DISCOVERED_FROM)[number];
+
+export function isDeclineReason(value: unknown): value is DeclineReason {
+  return typeof value === 'string' && (DECLINE_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * What a human decision is stamped with, so a decline made by a person and one
+ * made by a future policy are distinguishable when the tail gets evaluated.
+ */
+export const HUMAN_DECISION_VERSION = 'human/v1';
+
+/** A recorded decline: what it was worth, and what would have changed it. */
+export interface DeclinedCandidate {
+  readonly declinedCandidateId: string;
+  readonly deductionId: string;
+  readonly reason: DeclineReason;
+  readonly estimatedRecoverableCents: number;
+  readonly discoveredFrom: string;
+  readonly decidedBy: string;
+  readonly decidedByVersion: string;
+  readonly missingEvidence: readonly string[];
+  readonly detail?: string;
+  readonly decidedAt: string;
+}
+
 /** One stored field, with everything a reviewer needs to check it. */
 export interface StoredField {
   readonly documentId: string;
@@ -803,6 +860,104 @@ export class PostgresStore implements PipelineStore {
         `select sum(cost_micros)::text as total from model_calls`,
       );
       return Number(rows[0]?.total ?? 0);
+    });
+  }
+
+  /**
+   * Records a case we are choosing not to fight.
+   *
+   * A discard is not a decision. Every declined case gets a row saying what it
+   * was worth and what was missing, because coverage is a ratio of dollars and
+   * it has no numerator without this (docs/STRATEGY.md, ADD-1). Deleting the
+   * case instead would flatter every number we ever report.
+   *
+   * `discovered_from` is read off the case's own notice rather than passed in:
+   * it is how the deduction reached us, which is a fact about the document, not
+   * something a reviewer should be able to type. Coverage is attributed by
+   * source, so a wrong value here quietly credits the wrong channel.
+   */
+  async declineCase(input: {
+    deductionId: string;
+    reason: DeclineReason;
+    decidedBy: string;
+    /**
+     * What to attribute the decline to when the case's own documents do not say.
+     *
+     * Nothing writes the `uploads` table yet, so `documents.upload_id` is always
+     * null and this fallback is, today, always what gets used. It is a required
+     * parameter and it is named for what it is, because `discovered_from` is
+     * NOT NULL so that coverage can be attributed by channel — and a channel
+     * quietly credited to the wrong source is a number that looks right.
+     *
+     * When ingest starts recording provenance this stops being reached, and the
+     * derivation below takes over with no change here.
+     */
+    assumedDiscoveredFrom: DiscoveredFrom;
+    missingEvidence?: readonly string[];
+    detail?: string;
+  }): Promise<DeclinedCandidate> {
+    return this.withTenant(async (client) => {
+      // The amount comes from the case, not the caller — what it was worth is
+      // not a reviewer's opinion. RLS scopes the read to this tenant.
+      const { rows: caseRows } = await client.query<{
+        amount: string;
+        discovered_from: string | null;
+      }>(
+        `select d.deduction_amount_cents::text as amount,
+                (select u.source
+                   from deduction_documents dd
+                   join documents doc on doc.id = dd.document_id
+                   join uploads u on u.id = doc.upload_id
+                  where dd.deduction_id = d.id and dd.role = 'notice'
+                  order by doc.created_at asc
+                  limit 1) as discovered_from
+           from deductions d
+          where d.id = $1`,
+        [input.deductionId],
+      );
+      const found = caseRows[0];
+      if (found === undefined) {
+        throw new Error(`case ${input.deductionId} is not visible to this tenant`);
+      }
+      // Derived when the document knows, the caller's stated assumption when it
+      // does not. Today it is always the latter.
+      const discoveredFrom = found.discovered_from ?? input.assumedDiscoveredFrom;
+
+      const { rows } = await client.query<{ id: string; decided_at: string }>(
+        `insert into declined_candidates
+           (org_id, deduction_id, discovered_from, reason,
+            estimated_recoverable_cents, decided_by, decided_by_version,
+            missing_evidence, detail)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         returning id, decided_at`,
+        [
+          this.tenant.orgId,
+          input.deductionId,
+          discoveredFrom,
+          input.reason,
+          found.amount,
+          input.decidedBy,
+          // A human decided, and that is a version like any other: when a policy
+          // starts declining cases, the two have to be tellable apart.
+          HUMAN_DECISION_VERSION,
+          input.missingEvidence ?? [],
+          input.detail ?? null,
+        ],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new Error('insert into declined_candidates returned no row');
+      return {
+        declinedCandidateId: row.id,
+        deductionId: input.deductionId,
+        reason: input.reason,
+        estimatedRecoverableCents: Number(found.amount),
+        discoveredFrom,
+        decidedBy: input.decidedBy,
+        decidedByVersion: HUMAN_DECISION_VERSION,
+        missingEvidence: input.missingEvidence ?? [],
+        ...(input.detail !== undefined ? { detail: input.detail } : {}),
+        decidedAt: row.decided_at,
+      };
     });
   }
 }
