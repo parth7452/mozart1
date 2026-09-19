@@ -49,6 +49,9 @@ describe('an unconfigured environment', () => {
     // Invariant 4: no verdict is not a pass. The file is stored and scanned —
     // the scan is what reports the error — and nothing reads it after that.
     expect(result.haltedBecause).toMatch(/not scanned clean/);
+    // And it says which of the two it is. `error (none)` on its own sends
+    // someone looking for a corrupt file when the answer is an unset variable.
+    expect(result.haltedBecause).toMatch(/no malware scanner is configured/);
     expect(result.classification).toBeUndefined();
     expect(result.extraction).toBeUndefined();
     expect(result.case).toBeUndefined();

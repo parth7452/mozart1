@@ -310,9 +310,15 @@ export async function processUpload(
   const ingest = await ingestDocument(input, deps);
 
   if (ingest.verdict.status !== 'clean') {
+    // The detail is the whole message. Without it this reads `error (none)`,
+    // which says a scan did not pass and not one word about why — and the two
+    // causes want opposite responses: `none` is a variable nobody set, and a
+    // named signature is a file nobody should open.
     return {
       ingest,
-      haltedBecause: `not scanned clean: ${ingest.verdict.status} (${ingest.verdict.scanner})`,
+      haltedBecause:
+        `not scanned clean: ${ingest.verdict.status} (${ingest.verdict.scanner})` +
+        (ingest.verdict.detail !== undefined ? ` — ${ingest.verdict.detail}` : ''),
     };
   }
 

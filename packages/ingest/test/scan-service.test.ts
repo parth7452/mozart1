@@ -103,22 +103,43 @@ let port: number;
 let url: string;
 let smallUrl: string;
 
+/**
+ * Starts a service on an ephemeral port and learns which one it got from the
+ * service's own startup line. Picking a port ourselves means picking one
+ * something else on the machine already has, which is a test that fails for
+ * reasons that have nothing to do with the code.
+ */
 async function startService(maxBytes: number): Promise<{ port: number; url: string }> {
-  // Port 0 would bind somewhere we cannot see, so pick one and let it fail loudly.
-  const chosen = 20000 + Math.floor(Math.random() * 20000);
-  running.push(
-    spawn(process.execPath, [SERVER], {
-      env: {
-        ...process.env,
-        PORT: String(chosen),
-        CLAMD_HOST: '127.0.0.1',
-        CLAMD_PORT: String(clamd.port),
-        SCAN_TOKEN: TOKEN,
-        MAX_BYTES: String(maxBytes),
-      },
-      stdio: 'ignore',
-    }),
-  );
+  const child = spawn(process.execPath, [SERVER], {
+    env: {
+      ...process.env,
+      PORT: '0',
+      CLAMD_HOST: '127.0.0.1',
+      CLAMD_PORT: String(clamd.port),
+      SCAN_TOKEN: TOKEN,
+      MAX_BYTES: String(maxBytes),
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  running.push(child);
+
+  const chosen = await new Promise<number>((resolve, reject) => {
+    const failed = setTimeout(() => reject(new Error('the scan service never said it was listening')), 15_000);
+    let seen = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      seen += chunk.toString('utf8');
+      const match = /listening on (\d+)/.exec(seen);
+      if (match?.[1] !== undefined) {
+        clearTimeout(failed);
+        resolve(Number(match[1]));
+      }
+    });
+    child.on('exit', (code) => {
+      clearTimeout(failed);
+      reject(new Error(`the scan service exited with ${code} before listening`));
+    });
+  });
+
   await waitForHealth(chosen);
   return { port: chosen, url: `http://127.0.0.1:${chosen}/scan` };
 }

@@ -215,4 +215,6 @@ const server = createServer(async (request, response) => {
 
 server.headersTimeout = 30_000;
 server.requestTimeout = 180_000;
-server.listen(PORT, () => console.log(`scan service listening on ${PORT}`));
+// The bound port, not the requested one: PORT=0 picks an ephemeral port, and
+// the number that matters is the one it actually got.
+server.listen(PORT, () => console.log(`scan service listening on ${server.address().port}`));

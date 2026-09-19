@@ -230,6 +230,9 @@ describe('nothing unclean reaches a model', () => {
     const { classifier, deps } = harness(erroring);
     const result = await processUpload(upload(fixtureFor('kehe-ksolve-notice.pdf')), deps);
     expect(result.haltedBecause).toMatch(/not scanned clean: error/);
+    // Why it errored, not only that it did: "clamd unreachable" and "no scanner
+    // is configured" are the same status and want different people to fix them.
+    expect(result.haltedBecause).toMatch(/clamd unreachable/);
     expect(classifier.calls).toBe(0);
   });
 
