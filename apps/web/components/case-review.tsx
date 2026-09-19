@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
-import { deadline, fieldLabel, fieldValue, money } from '../lib/format';
+import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import type { Viewer } from './case-list';
 
 /** Which document a reviewer looks at first: the notice the case came from. */
@@ -67,6 +67,9 @@ export function CaseReview({
   );
   const primary = documents[0];
   const due = deadline(summary.disputeDeadline, today);
+  // The debtor when one matched, otherwise the name the notice printed, marked
+  // as unmatched — and only "Retailer unknown" when nothing was read at all.
+  const who = retailer(summary, 'Retailer unknown');
   const findings: readonly Finding[] = reconciliation?.findings ?? [];
 
   return (
@@ -87,8 +90,11 @@ export function CaseReview({
           <div>
             <div className="card">
               <h2 className="section" style={{ marginTop: 0 }}>
-                {summary.debtorName ?? 'Retailer unknown'} · {money(summary.deductionAmountCents)}{' '}
-                deducted
+                {who.name}
+                {who.matched ? null : (
+                  <span className="unmatched">not matched to a debtor</span>
+                )}{' '}
+                · {money(summary.deductionAmountCents)} deducted
               </h2>
               {primary === undefined ? (
                 <p className="empty">No document has been read for this case yet.</p>

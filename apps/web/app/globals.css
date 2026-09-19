@@ -71,6 +71,10 @@ code, .mono { font-family: var(--mono); font-size: 13px; }
 .pill.overdue { background: #fdeceb; color: var(--bad); }
 .pill.ok { background: #e8f5ee; color: var(--good); }
 
+/* A retailer name read off a notice that no debtor of this tenant answers to
+   yet. Quiet on purpose: it is a note to the reviewer, not a failure. */
+.unmatched { color: var(--ink-soft); font-size: 12px; margin-left: 6px; white-space: nowrap; }
+
 .empty { color: var(--ink-soft); padding: 28px 10px; }
 
 /* Login */

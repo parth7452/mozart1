@@ -12,7 +12,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { CaseState } from '@recouple/core-domain';
+import { resolveDebtorId } from '@recouple/core-domain';
+import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import type { CaseRecord, PipelineStore, StoredDocument } from '../ports';
@@ -45,6 +46,12 @@ export class InMemoryStore implements PipelineStore {
   readonly links: Array<{ deductionId: string; documentId: string; role: string }> = [];
   readonly pages = new Map<string, string[]>();
   readonly orgs = new Map<string, string>();
+  /**
+   * The tenant's debtors, as a test set them up. Nothing here ever adds to this
+   * list: `openCase` resolves against it and never creates a debtor, which is
+   * the behaviour the Postgres store has to match (ADR 0019).
+   */
+  readonly debtors: DebtorCandidate[] = [];
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -103,8 +110,19 @@ export class InMemoryStore implements PipelineStore {
     claimId?: string;
     retailerName?: string;
     deductionAmountCents?: number;
+    deductionDate?: string;
+    disputeDeadline?: string;
   }): Promise<CaseRecord> {
-    const record: CaseRecord = { deductionId: randomUUID(), state: 'discovered', ...input };
+    const debtorId =
+      input.retailerName === undefined
+        ? undefined
+        : resolveDebtorId(input.retailerName, this.debtors);
+    const record: CaseRecord = {
+      deductionId: randomUUID(),
+      state: 'discovered',
+      ...input,
+      ...(debtorId !== undefined ? { debtorId } : {}),
+    };
     this.cases.set(record.deductionId, record);
     return record;
   }

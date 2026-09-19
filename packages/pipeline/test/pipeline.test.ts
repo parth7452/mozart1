@@ -99,6 +99,34 @@ class FixtureExtractor implements Extractor {
   }
 }
 
+/**
+ * A fixture extractor with one field overridden, for the cases that are about
+ * what the pipeline does with a value rather than about the corpus.
+ */
+class PatchedExtractor extends FixtureExtractor {
+  constructor(private readonly patch: Record<string, unknown>) {
+    super();
+  }
+  override async extract(document: DocumentPayload, docType: DocType): Promise<ExtractionResult> {
+    const fixture = fixtureForPayload(document);
+    return buildExtractionResult({
+      docType,
+      extractor: this.name,
+      document: { ...(expectedExtraction(fixture) as object), ...this.patch },
+      pageText: document.pageText,
+      call: {
+        purpose: 'extract',
+        provider: 'anthropic',
+        modelVersion: 'fixture',
+        documentId: document.documentId,
+        costMicros: 12_700,
+        latencyMs: 40,
+        outcome: 'ok',
+      },
+    });
+  }
+}
+
 function harness(scanner: PipelineDeps['scanner'] = new AlwaysCleanScanner()) {
   const store = new InMemoryStore();
   const classifier = new FixtureClassifier();
@@ -138,6 +166,72 @@ describe('a notice becomes a case', () => {
     expect(store.extractions).toHaveLength(1);
     expect(store.modelCalls.map((c) => c.purpose)).toEqual(['classify', 'extract']);
     expect(store.totalCostMicros()).toBe(14_000);
+  });
+
+  it('parses the printed dates onto the case, month-first', async () => {
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+
+    // The notice prints 08/14/2026 and 11/12/2026 and says 90 days; read
+    // month-first those are 90 days apart, which is why there is no day-first
+    // fallback (ADR 0019 §6).
+    expect(result.case?.deductionDate).toBe('2026-08-14');
+    expect(result.case?.disputeDeadline).toBe('2026-11-12');
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.deduction_date).toBe('2026-08-14');
+    expect(discovered?.payload.dispute_deadline).toBe('2026-11-12');
+    // Null, not absent: the projection has to be rebuildable from the events.
+    expect(discovered?.payload.debtor_id).toBeNull();
+  });
+
+  it('opens the case anyway when a deadline is a retailer rule, and says why', async () => {
+    // "60 days of deduction date" is a window a playbook computes in Phase 2,
+    // not a date. Losing the case over it would be worse; losing it silently
+    // would be worse still.
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        dispute_deadline: {
+          value: '60 days of deduction date',
+          confidence: 0.9,
+          source_page: 1,
+          source_quote: 'Dispute Deadline: 11/12/2026',
+        },
+      }),
+    });
+
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.disputeDeadline).toBeUndefined();
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.dispute_deadline).toBeNull();
+    expect(discovered?.payload.dispute_deadline_unread).toMatch(/60 days of deduction date/);
+    // The date that *did* read is unaffected.
+    expect(discovered?.payload.deduction_date).toBe('2026-08-14');
+  });
+
+  it('resolves a debtor only when exactly one of the tenant’s debtors matches', async () => {
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart (APDP)', 'Walmart'] });
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    expect(result.case?.debtorId).toBe('debtor-walmart');
+    expect(store.events.find((e) => e.eventType === 'case.discovered')?.payload.debtor_id).toBe(
+      'debtor-walmart',
+    );
+  });
+
+  it('never invents a debtor for a name nobody has claimed', async () => {
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-kehe', names: ['KeHE'] });
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    expect(result.case?.debtorId).toBeUndefined();
+    // The name still reaches the case; it is display, not identity.
+    expect(result.case?.retailerName).toBe('Walmart');
+    expect(store.debtors).toHaveLength(1);
   });
 
   it('walks the case through the state machine rather than assigning a state', async () => {
