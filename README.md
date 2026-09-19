@@ -241,13 +241,21 @@ in. There is still no approve button, for the same reason as in the prototype.
 
 A member whose role may write can add a document from the case list, which runs
 the real pipeline: ingest, scan, classify, extract, and open a case when the file
-turns out to be a notice. It needs two more variables, and refuses rather than
-guesses without them:
+turns out to be a notice. It needs a malware scanner, and refuses rather than
+guesses without one:
 
+```sh
+docker compose up -d clamd    # then CLAMAV_HOST=127.0.0.1
 ```
-CLAMAV_HOST=…          # no scanner configured means no file is read at all
-REDUCTO_API_KEY=…      # no OCR means a scan's quotes come back unverifiable
-```
+
+The first start downloads ~1 GB of signatures and takes a minute; the volume
+keeps them. Deployed, the app does not talk to clamd directly — clamd has no
+authentication of any kind, so it runs behind a token-checked HTTPS endpoint in
+`services/clamav-scan`, and the app gets `CLAMAV_SCAN_URL` and
+`CLAMAV_SCAN_TOKEN` instead
+([ADR 0018](./docs/adr/0018-a-hosted-scanner-is-reached-over-authenticated-https.md)).
+`REDUCTO_API_KEY` is the other one worth setting: without it a scan still
+extracts, with every quote unverifiable.
 
 To see the two views without a sign-in, `pnpm render:web` seeds a tenant, runs
 the real pipeline over the fixture case, reads it back through RLS and writes

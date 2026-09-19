@@ -1,0 +1,40 @@
+# Local dependencies for `pnpm --filter @recouple/web dev`.
+#
+# On a laptop the app talks to clamd directly over TCP — there is no untrusted
+# network between them, so the HTTP front door in `services/clamav-scan` is not
+# needed here. Production is the other way round (ADR 0018):
+#
+#   local:      CLAMAV_HOST=127.0.0.1
+#   deployed:   CLAMAV_SCAN_URL=https://… + CLAMAV_SCAN_TOKEN=…
+#
+#   docker compose up -d clamd     # ~60s before the first scan; watch `logs -f`
+services:
+  clamd:
+    image: clamav/clamav:1.4
+    ports:
+      # Loopback only. Nothing on the local network gets an unauthenticated clamd.
+      - '127.0.0.1:3310:3310'
+    volumes:
+      # Keeps the signature database across restarts, so only the first start
+      # pays for the download.
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdcheck.sh || exit 1']
+      interval: 30s
+      timeout: 10s
+      start_period: 240s
+      retries: 5
+
+  # The deployed shape, for testing the HTTP path before pushing it anywhere.
+  #   docker compose up -d --build scan
+  #   CLAMAV_SCAN_URL=http://127.0.0.1:8080/scan CLAMAV_SCAN_TOKEN=local-dev pnpm …
+  scan:
+    build: ./services/clamav-scan
+    profiles: ['http']
+    environment:
+      SCAN_TOKEN: ${CLAMAV_SCAN_TOKEN:-local-dev}
+    ports:
+      - '127.0.0.1:8080:8080'
+
+volumes:
+  clamav-db:

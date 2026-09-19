@@ -28,9 +28,26 @@ There is deliberately no `SUPABASE_SERVICE_ROLE_KEY`. It bypasses RLS and does
 not belong in a request path — invariant 6, and the one invariant the database
 cannot enforce for us (ADR 0015).
 
-`ANTHROPIC_API_KEY` and `REDUCTO_API_KEY` are needed only to *read* an uploaded
-document. Without them sign-in, the case list and the review route all work;
-an upload fails at the reader rather than silently doing nothing.
+### Uploads need three more
+
+An upload runs the real pipeline, and each of these refuses rather than guesses
+when it is missing:
+
+| Variable | Why |
+| --- | --- |
+| `CLAMAV_SCAN_URL` | The hosted scan service's `/scan` endpoint. Without it there is no scanner, and the gate refuses every file — `not scanned clean: error (none)` |
+| `CLAMAV_SCAN_TOKEN` | The bearer token that service was started with. A URL **without** a token is treated as no scanner at all, not as an unauthenticated call |
+| `ANTHROPIC_API_KEY` | Classification and extraction. An upload fails at the reader rather than silently doing nothing |
+| `REDUCTO_API_KEY` | OCR for scans. Optional: without it a scan still extracts, with every quote unverifiable (ADR 0009) |
+
+The scan service is a container that has to be deployed once, separately —
+`services/clamav-scan`, with its own README. It exists because clamd has no
+authentication and cannot be exposed to Vercel's egress directly (ADR 0018).
+Do not set `CLAMAV_HOST` here: that is the direct-clamd path, and it is for a
+laptop running `docker compose up -d clamd`, where there is no untrusted network
+in between.
+
+Without any of them, sign-in, the case list and the review route all work.
 
 Transaction-mode pooling is safe here for a specific reason: every setting the
 store touches is transaction-local (`set local role`, `set_config(..., true)`),

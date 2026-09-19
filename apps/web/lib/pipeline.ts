@@ -1,5 +1,5 @@
 import { ClaudeClassifier, ClaudeExtractor, ReductoOcr } from '@recouple/extraction';
-import { ClamAvScanner, NullScanner } from '@recouple/ingest';
+import { scannerFromEnv } from '@recouple/ingest';
 import type { PipelineDeps } from '@recouple/pipeline';
 
 /**
@@ -15,13 +15,14 @@ import type { PipelineDeps } from '@recouple/pipeline';
  *   throws on use. A document with a text layer is unaffected; a scan comes back
  *   with its quotes unverifiable and says so, which is a worse answer than
  *   OCR and a much better one than a silent guess (ADR 0009).
+ *
+ * Which scanner an environment gets is `scannerFromEnv`'s decision, not this
+ * file's — a hosted `HttpScanner` when `CLAMAV_SCAN_URL` is set, clamd over TCP
+ * when `CLAMAV_HOST` is, `NullScanner` otherwise. Deciding it twice is how the
+ * two answers drift (ADR 0018).
  */
 export function pipelineDepsFor(store: PipelineDeps['store']): PipelineDeps {
-  const clamHost = process.env.CLAMAV_HOST;
-  const scanner =
-    clamHost === undefined || clamHost === ''
-      ? new NullScanner()
-      : new ClamAvScanner({ host: clamHost, port: Number(process.env.CLAMAV_PORT ?? 3310) });
+  const scanner = scannerFromEnv();
 
   const ocr =
     process.env.REDUCTO_API_KEY === undefined || process.env.REDUCTO_API_KEY === ''

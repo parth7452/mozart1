@@ -180,11 +180,23 @@ taking the identity from the claims rather than an argument (migration 0012, ADR
 policies, not a signed URL (migration 0013, ADR 0014). Still no approve button,
 for the same reason.
 
-Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed:
-no `CLAMAV_HOST` builds a `NullScanner`, which reports an error rather than a
+Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed,
+and delegates the whole choice to `scannerFromEnv` so there is one answer to
+"what scans here": `CLAMAV_SCAN_URL` + `CLAMAV_SCAN_TOKEN` gives the hosted
+`HttpScanner`, `CLAMAV_HOST` gives clamd over TCP, and anything else — including
+a URL with no token — gives `NullScanner`, which reports an error rather than a
 clean bill of health, so an unconfigured environment cannot read a stranger's
-file at all; no `REDUCTO_API_KEY` builds no OCR provider rather than one that
-throws. `apps/web/test/fail-closed.test.tsx` asserts both.
+file at all. No `REDUCTO_API_KEY` builds no OCR provider rather than one that
+throws. `apps/web/test/fail-closed.test.tsx` asserts all of it.
+
+The deployed scanner is `services/clamav-scan`: clamd bound to loopback in a
+container, behind a token-checked HTTP endpoint, because clamd has no
+authentication and Vercel's egress is not an allowlistable set of addresses
+(ADR 0018). `docker compose up -d clamd` is the laptop equivalent.
+`packages/ingest/test/scan-service.test.ts` spawns the real service against a
+fake clamd and checks the token, both size ceilings, INSTREAM chunking and the
+JSON contract — the service reimplements `interpretClamdReply` rather than
+importing it, so that test is what keeps the two from drifting.
 
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged

@@ -1,0 +1,30 @@
+# Fly.io is one option; anything that runs a container and gives it HTTPS works
+# (Railway, Render, Cloud Run with min-instances 1, a VM). The constraints are
+# the same everywhere: ~1 GB of RAM for the signature database, and no scale to
+# zero — a cold start reloads ~1 GB and takes 30-60s (ADR 0018).
+app = "recouple-clamav"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.http_options.response]
+    pristine = true
+
+[[http_service.checks]]
+  grace_period = "180s"
+  interval = "30s"
+  method = "GET"
+  timeout = "10s"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"

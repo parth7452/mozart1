@@ -38,6 +38,8 @@ afterEach(() => {
 describe('an unconfigured environment', () => {
   it('refuses to read a file when no malware scanner is configured', async () => {
     delete process.env.CLAMAV_HOST;
+    delete process.env.CLAMAV_SCAN_URL;
+    delete process.env.CLAMAV_SCAN_TOKEN;
     const store = new InMemoryStore();
     const deps = pipelineDepsFor(store);
     expect(deps.scanner.name).toBe('none');
@@ -61,8 +63,33 @@ describe('an unconfigured environment', () => {
   });
 
   it('uses clamd when it is configured', () => {
+    delete process.env.CLAMAV_SCAN_URL;
     process.env.CLAMAV_HOST = 'clamd.internal';
     expect(pipelineDepsFor(new InMemoryStore()).scanner.name).toBe('clamav');
+  });
+
+  it('uses the hosted scanner when the deployment has one', () => {
+    process.env.CLAMAV_SCAN_URL = 'https://scan.example/scan';
+    process.env.CLAMAV_SCAN_TOKEN = 'token';
+    expect(pipelineDepsFor(new InMemoryStore()).scanner.name).toBe('clamav-http');
+  });
+
+  it('refuses to read a file when the hosted scanner has a URL but no token', async () => {
+    // Half-configured is not configured. The alternative — calling an
+    // authenticated service without authenticating — is a slower way of not
+    // scanning, and one that looks like a scanner in the logs (ADR 0018).
+    process.env.CLAMAV_SCAN_URL = 'https://scan.example/scan';
+    delete process.env.CLAMAV_SCAN_TOKEN;
+    delete process.env.CLAMAV_HOST;
+
+    const store = new InMemoryStore();
+    const deps = pipelineDepsFor(store);
+    expect(deps.scanner.name).toBe('none');
+
+    const result = await processUpload(upload, deps);
+    expect(result.haltedBecause).toMatch(/not scanned clean/);
+    expect(result.extraction).toBeUndefined();
+    expect(store.modelCalls).toEqual([]);
   });
 
   it('still reads a file once something declares it clean', async () => {

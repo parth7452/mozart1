@@ -138,8 +138,130 @@ export function interpretClamdReply(reply: string, scanner: string): ScanVerdict
   return { status: 'error', scanner, detail: text === '' ? 'empty reply from clamd' : text };
 }
 
-/** Builds the scanner an environment is configured for, or the fail-closed one. */
+export interface HttpScannerConfig {
+  readonly url: string;
+  readonly token: string;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * A scan service over HTTPS.
+ *
+ * clamd has no authentication of any kind, so it is never the thing we talk to
+ * across a network we do not own. `services/clamav-scan` runs clamd bound to
+ * loopback and puts a token-checked HTTP endpoint in front of it; this is the
+ * client for that endpoint (ADR 0018).
+ *
+ * Fail closed, deliberately and in every direction: `clean` is returned only
+ * for a 2xx carrying JSON that says exactly `"clean"`. A non-2xx, a body that
+ * is not JSON, a status word we do not recognise, a timeout and a DNS failure
+ * are all `error`, and the gate treats every one of them as "do not read this".
+ */
+export class HttpScanner implements MalwareScanner {
+  readonly name = 'clamav-http';
+
+  constructor(private readonly config: HttpScannerConfig) {}
+
+  async scan(bytes: Uint8Array): Promise<ScanVerdict> {
+    const timeoutMs = this.config.timeoutMs ?? 60_000;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(this.config.url, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.config.token}`,
+          'content-type': 'application/octet-stream',
+        },
+        // A fresh copy: `fetch` wants an ArrayBuffer it owns, and `bytes` may be
+        // a view onto a larger buffer.
+        body: bytes.slice().buffer as ArrayBuffer,
+        signal: abort.signal,
+      });
+
+      const text = await response.text();
+      if (!response.ok) {
+        return {
+          status: 'error',
+          scanner: this.name,
+          detail: `scan service answered ${response.status}: ${summarise(text)}`,
+        };
+      }
+      return interpretScanServiceReply(text, this.name);
+    } catch (error) {
+      const detail =
+        error instanceof Error && error.name === 'AbortError'
+          ? `scan service did not answer within ${timeoutMs}ms`
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      return { status: 'error', scanner: this.name, detail };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** Keeps a failing service's response body out of the logs at full length. */
+function summarise(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+}
+
+/**
+ * Reads the scan service's JSON. Anything that is not an explicit, recognised
+ * verdict is an error — including a body that parses but says something else,
+ * which is the shape a misrouted request or a helpful proxy takes.
+ */
+export function interpretScanServiceReply(body: string, scanner: string): ScanVerdict {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return {
+      status: 'error',
+      scanner,
+      detail: `scan service did not answer with JSON: ${summarise(body)}`,
+    };
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return { status: 'error', scanner, detail: `unexpected scan reply: ${summarise(body)}` };
+  }
+
+  const { status, detail } = parsed as { status?: unknown; detail?: unknown };
+  const said = typeof detail === 'string' ? detail : undefined;
+
+  if (status === 'clean') return { status: 'clean', scanner, ...(said !== undefined && { detail: said }) };
+  if (status === 'infected') {
+    return { status: 'infected', scanner, detail: said ?? 'signature not named' };
+  }
+  if (status === 'error') {
+    return { status: 'error', scanner, detail: said ?? 'scan service reported an error' };
+  }
+  return { status: 'error', scanner, detail: `unrecognised scan status ${JSON.stringify(status)}` };
+}
+
+/**
+ * Builds the scanner an environment is configured for, or the fail-closed one.
+ *
+ * This is the only place the choice is made — `pipelineDepsFor` calls it rather
+ * than repeating it, so there is one answer to "what scans in production"
+ * (ADR 0018).
+ *
+ * A half-configured scanner counts as none. A URL with no token would otherwise
+ * become an unauthenticated call to a service that is going to reject it, which
+ * is a slower way of not scanning.
+ */
 export function scannerFromEnv(env: NodeJS.ProcessEnv = process.env): MalwareScanner {
+  const url = env.CLAMAV_SCAN_URL;
+  const token = env.CLAMAV_SCAN_TOKEN;
+  if (url !== undefined && url !== '') {
+    if (token === undefined || token === '') return new NullScanner();
+    return new HttpScanner({ url, token });
+  }
+
   const host = env.CLAMAV_HOST;
   const port = Number(env.CLAMAV_PORT ?? '3310');
   if (host === undefined || host === '' || !Number.isFinite(port)) return new NullScanner();
