@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession, storeFor } from '../../../lib/session';
+import { mayWrite } from '../../../lib/pipeline';
 import { CaseReview } from '../../../components/case-review';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +13,17 @@ export const dynamic = 'force-dynamic';
  * throw, because a review page must not be able to spend money or call a model —
  * looking at a case is not a reason to read a document again.
  */
-export default async function CasePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CasePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  // Both actions redirect back here with what happened, so the outcome survives
+  // the POST rather than being lost to a full page load.
+  searchParams: Promise<{ decline?: string; upload?: string }>;
+}) {
   const { id } = await params;
+  const { decline, upload } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const session = await requireSession();
@@ -57,6 +67,8 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
         reconciliation={reconciliation}
         costMicros={costMicros}
         today={new Date()}
+        mayAct={mayWrite(session.org.role)}
+        notice={decline ?? upload}
       />
     );
   } finally {
