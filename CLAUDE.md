@@ -198,6 +198,22 @@ fake clamd and checks the token, both size ceilings, INSTREAM chunking and the
 JSON contract — the service reimplements `interpretClamdReply` rather than
 importing it, so that test is what keeps the two from drifting.
 
+The upload path is live and verified in production (2026-09-19). The scan
+service runs on Fly as `recouple-clamav`; `CLAMAV_SCAN_URL` and
+`CLAMAV_SCAN_TOKEN` are set on the Vercel project alongside `ANTHROPIC_API_KEY`
+and `REDUCTO_API_KEY`. A scanned Walmart APDP notice uploaded through the
+signed-in app came back as a case with every field quote-verified against the
+OCR text layer — so scan, classify, OCR and extract all work against the real
+vendors, not only against cassettes.
+
+One gap that verification exposed: `openCase` accepts a `retailerName` and
+never persists it, and takes no dates at all, so every case the pipeline opens
+reads "Retailer unknown" with no dispute deadline — the two fields a reviewer
+triages on. The values are extracted and stored on the document; they just do
+not reach the case row. `deductions.debtor_id` is a FK to `debtors`, so fixing
+it means deciding how an extracted name becomes a debtor, which is the same
+seam Phase 2's playbooks key off. Not yet done.
+
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged
 cells, and EDI-derived portal exports. Real customer documents would be worth
