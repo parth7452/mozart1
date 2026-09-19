@@ -34,11 +34,23 @@ Any host that runs a container and terminates HTTPS works. Pick one:
 
 ```sh
 cd services/clamav-scan
-fly launch --no-deploy --name recouple-clamav      # fly.toml is already here
-fly secrets set SCAN_TOKEN="$(openssl rand -hex 32)"
+fly launch --no-deploy --name recouple-clamav
+
+# Generate the token where you can SEE it. `fly secrets` never shows a value
+# again — only a digest — and the identical string has to go on Vercel, so a
+# token that only ever existed inside $(...) is a token you have already lost.
+TOKEN=$(openssl rand -hex 32)
+echo $TOKEN
+
+fly secrets set SCAN_TOKEN=$TOKEN -a recouple-clamav
 fly deploy
-fly logs                                            # wait for the first freshclam
+fly logs                                  # wait for the first freshclam to finish
 ```
+
+If `fly launch` rewrote `fly.toml`, check that `auto_stop_machines = false` and
+`min_machines_running = 1` survived. A machine that idles out reloads ~1 GB of
+signatures on the next upload, which is the difference between uploads working
+and uploads working sometimes.
 
 ### Railway / Render
 
@@ -51,8 +63,9 @@ mid-signature-load.
 
 ```sh
 docker build -t recouple-clamav services/clamav-scan
+TOKEN=$(openssl rand -hex 32) && echo $TOKEN
 docker run -d --name clamav-scan -p 8080:8080 \
-  -e SCAN_TOKEN="$(openssl rand -hex 32)" recouple-clamav
+  -e SCAN_TOKEN=$TOKEN recouple-clamav
 ```
 
 It refuses to start without `SCAN_TOKEN`. An unauthenticated clamd relay is
