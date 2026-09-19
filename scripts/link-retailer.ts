@@ -40,7 +40,9 @@ function usage(problem: string): never {
   pnpm link:retailer --org <slug> --as <member email> --backfill-only
 
 Options:
-  --dry-run   report what would change, write nothing
+  --from-extraction  also repair cases opened before ADR 0019, reading the
+                     retailer and both dates back out of extraction_results
+  --dry-run          report what would change, write nothing
 `);
   process.exit(2);
 }
@@ -51,6 +53,7 @@ if (connectionString === undefined) usage('set DATABASE_URL');
 const slug = flag('org') ?? usage('--org is required');
 const actorEmail = flag('as') ?? usage('--as <member email> is required: a change has an author');
 const backfillOnly = has('backfill-only');
+const fromExtraction = has('from-extraction');
 const dryRun = has('dry-run');
 const retailerKey = backfillOnly ? undefined : flag('retailer');
 const alias = backfillOnly ? undefined : flag('alias');
@@ -127,6 +130,31 @@ async function main(): Promise<void> {
       );
       console.log(`${pending.rows[0]?.n ?? 0} unmatched case(s) would be re-checked`);
       return;
+    }
+
+    if (fromExtraction) {
+      // First, because a case with no printed name has nothing for the alias
+      // lookup to match on. This puts the name (and the dates) on the row from
+      // what extraction already read, then the pass below resolves the debtor.
+      const repair = await store.backfillFromExtraction();
+      for (const row of repair.filled) {
+        const columns = Object.entries(row)
+          .filter(([key]) => key !== 'deductionId')
+          .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+          .join(' ');
+        console.log(`repaired ${row.deductionId}  ${columns}`);
+      }
+      for (const row of repair.unread) {
+        console.warn(`UNREAD   ${row.deductionId}  ${row.field}: ${row.problem}`);
+      }
+      for (const row of repair.blocked) {
+        console.warn(`BLOCKED  ${row.deductionId}  ${row.name}: ${row.reason}`);
+      }
+      console.log(
+        `${repair.filled.length} repaired from extraction, ` +
+          `${repair.blocked.length} blocked, ${repair.unchanged} already complete`,
+      );
+      if (repair.blocked.length > 0) process.exitCode = 1;
     }
 
     const backfill = await store.resolveUnmatchedCases();

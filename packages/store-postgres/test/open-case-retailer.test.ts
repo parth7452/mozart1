@@ -379,6 +379,103 @@ describeDb('openCase: the retailer as printed, and the debtor only when sure', (
     }
   });
 
+  it('repairs a case opened before ADR 0019 from what extraction already read', async () => {
+    // Exactly the production case: a row with no printed name, no dates and no
+    // debtor, whose values are sitting in extraction_results with their quotes.
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
+       values ($1, $2, 312000, 'classified') returning id`,
+      [orgId, `APDP-${suffix}-legacy`],
+    );
+    const legacyId = rows[0]?.id as string;
+    const doc = await admin.query<{ id: string }>(
+      `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+       values ($1, $2, 10, 'application/pdf', 'test') returning id`,
+      [orgId, Buffer.from(randomUUID().replace(/-/g, ''), 'hex')],
+    );
+    const documentId = doc.rows[0]?.id as string;
+    for (const [path, value, quote] of [
+      ['retailer_name', 'WALMART STORES, INC.', 'WALMART STORES, INC.'],
+      ['deduction_date', '08/14/2026', 'Deduction Date: 08/14/2026'],
+      ['dispute_deadline', '60 days of deduction date', 'Dispute Deadline: 60 days'],
+    ] as const) {
+      await admin.query(
+        `insert into extraction_results
+           (org_id, document_id, deduction_id, field_path, value_json, confidence,
+            source_page, source_quote, quote_verified, extractor, schema_version, model_version)
+         values ($1,$2,$3,$4,$5::jsonb,0.98,1,$6,true,'test','1','test')`,
+        [orgId, documentId, legacyId, path, JSON.stringify(value), quote],
+      );
+    }
+
+    const repair = await store.backfillFromExtraction();
+    const mine = repair.filled.find((f) => f.deductionId === legacyId);
+
+    // The name is stored as printed, and the debtor resolves through the alias
+    // the tenant already has — the same two steps a new case would take.
+    expect(mine?.retailerNameAsPrinted).toBe('WALMART STORES, INC.');
+    expect(mine?.debtorId).toBe(walmartId);
+    expect(mine?.deductionDate).toBe('2026-08-14');
+
+    // The relative window is not a date, so the column stays null and the
+    // reason is reported rather than swallowed — same rule as the pipeline.
+    expect(mine?.disputeDeadline).toBeUndefined();
+    expect(
+      repair.unread.find((u) => u.deductionId === legacyId && u.field === 'dispute_deadline')
+        ?.problem,
+    ).toMatch(/60 days of deduction date/);
+
+    const row = await readBack(legacyId);
+    expect(row.retailer_name_as_printed).toBe('WALMART STORES, INC.');
+    expect(row.debtor_id).toBe(walmartId);
+    expect(iso(row.deduction_date)).toBe('2026-08-14');
+    expect(row.dispute_deadline).toBeNull();
+
+    // The repair is in the stream, not only in the projection.
+    const events = await admin.query<{ n: string }>(
+      `select count(*) as n from deduction_events
+        where deduction_id = $1 and event_type = 'case.backfilled_from_extraction'`,
+      [legacyId],
+    );
+    expect(events.rows[0]?.n).toBe('1');
+  });
+
+  it('never overwrites a value the pipeline or a person already put on the case', async () => {
+    const opened = await store.openCase({
+      orgId,
+      claimId: `APDP-${suffix}-keep`,
+      retailerName: 'Walmart (APDP)',
+      deductionAmountCents: 100,
+      deductionDate: '2026-01-02',
+    });
+    const doc = await admin.query<{ id: string }>(
+      `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+       values ($1, $2, 10, 'application/pdf', 'test') returning id`,
+      [orgId, Buffer.from(randomUUID().replace(/-/g, ''), 'hex')],
+    );
+    // Extraction that disagrees with what is already on the row.
+    await admin.query(
+      `insert into extraction_results
+         (org_id, document_id, deduction_id, field_path, value_json, confidence,
+          source_page, source_quote, quote_verified, extractor, schema_version, model_version)
+       values ($1,$2,$3,'deduction_date','"09/09/2026"'::jsonb,0.98,1,'x',true,'test','1','test'),
+              ($1,$2,$3,'retailer_name','"Something Else"'::jsonb,0.98,1,'x',true,'test','1','test')`,
+      [orgId, doc.rows[0]?.id, opened.deductionId],
+    );
+
+    await store.backfillFromExtraction();
+    const row = await readBack(opened.deductionId);
+    expect(iso(row.deduction_date)).toBe('2026-01-02');
+    expect(row.retailer_name_as_printed).toBe('Walmart (APDP)');
+  });
+
+  it('is a no-op the second time', async () => {
+    const first = await store.backfillFromExtraction();
+    const second = await store.backfillFromExtraction();
+    expect(second.filled).toHaveLength(0);
+    expect(second.unchanged).toBeGreaterThanOrEqual(first.unchanged);
+  });
+
   it('reads the printed name back onto the case list', async () => {
     const cases = await store.listCases(200);
     const unmatched = cases.find((c) => c.claimId === `APDP-${suffix}-3`);

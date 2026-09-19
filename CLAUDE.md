@@ -239,6 +239,18 @@ reports (with a non-zero exit) rather than resolving a case whose claim is
 already open against that debtor — that is two cases for one claim, and merging
 them is identity resolution's job.
 
+`--from-extraction` repairs the cases opened *before* ADR 0019, whose rows have
+none of this on them. Nothing was lost: `extraction_results` still holds the
+retailer and both dates with their quotes, so the repair reads them back through
+the same `parsePrintedDate` and `resolveDebtorId` the pipeline uses, and a
+repaired case says what a case uploaded today would. It fills only columns that
+are null, never overwrites what the pipeline or a person put there, records a
+`case.backfilled_from_extraction` event for each row it changes, and reports an
+unreadable date instead of guessing. Running it twice is a no-op.
+
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0015 as
+of 2026-09-19.
+
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged
 cells, and EDI-derived portal exports. Real customer documents would be worth
