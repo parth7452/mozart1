@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import { resolveDebtorId } from '@recouple/core-domain';
+import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
 import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
@@ -96,6 +96,26 @@ export async function closeAllPools(): Promise<void> {
   const open = [...pools.values()];
   pools.clear();
   await Promise.all(open.map((pool) => pool.end().catch(() => undefined)));
+}
+
+/** One case a backfill repaired, and which columns it filled. */
+export interface FilledCase {
+  readonly deductionId: string;
+  readonly retailerNameAsPrinted?: string;
+  readonly debtorId?: string;
+  readonly deductionDate?: string;
+  readonly disputeDeadline?: string;
+}
+
+/** What a repair from `extraction_results` changed, and what it could not. */
+export interface ExtractionBackfill {
+  readonly filled: readonly FilledCase[];
+  /** Matched, but the row would not take it — a duplicate claim, or too long. */
+  readonly blocked: readonly { deductionId: string; name: string; reason: string }[];
+  /** A printed date that is not a date. The column stays null, as it would on a new case. */
+  readonly unread: readonly { deductionId: string; field: string; problem: string }[];
+  /** Cases with nothing left to fill, so running it twice is a no-op. */
+  readonly unchanged: number;
 }
 
 /** What a backfill changed, and what it deliberately did not. */
@@ -877,6 +897,153 @@ export class PostgresStore implements PipelineStore {
    * than as a swallowed unique violation: that is two cases for one claim, and
    * merging them is identity resolution's job, not a backfill's.
    */
+  /**
+   * Fills a case's retailer and dates from what extraction already read.
+   *
+   * A case opened before ADR 0019 has none of them on its row, but the values
+   * were never lost: `extraction_results` holds them with their quotes and their
+   * verification. This reads them back through exactly the code `openCase` uses
+   * — `parsePrintedDate` and `resolveDebtorId` — so a repaired case says the
+   * same thing a case uploaded today would, rather than something a second
+   * implementation decided.
+   *
+   * It only ever fills a column that is null. Anything already on the row was
+   * put there by the pipeline or by a person, and neither is this function's to
+   * overwrite. A case with nothing to fill is counted and left alone, so running
+   * it twice is a no-op.
+   */
+  async backfillFromExtraction(): Promise<ExtractionBackfill> {
+    return this.withTenant(async (client) => {
+      const candidates = await this.debtorCandidates(client);
+      // The latest reading of each field, so a re-extraction wins over the
+      // first one — the same ordering `latestExtraction` uses.
+      const { rows } = await client.query<{
+        id: string;
+        claim_id: string | null;
+        has_name: boolean;
+        has_debtor: boolean;
+        has_deduction_date: boolean;
+        has_deadline: boolean;
+        printed_name: string | null;
+        printed_deduction_date: string | null;
+        printed_deadline: string | null;
+      }>(
+        `select d.id, d.claim_id,
+                d.retailer_name_as_printed is not null as has_name,
+                d.debtor_id is not null                as has_debtor,
+                d.deduction_date is not null           as has_deduction_date,
+                d.dispute_deadline is not null         as has_deadline,
+                (select e.value_json #>> '{}' from extraction_results e
+                  where e.deduction_id = d.id and e.field_path = 'retailer_name'
+                  order by e.id desc limit 1) as printed_name,
+                (select e.value_json #>> '{}' from extraction_results e
+                  where e.deduction_id = d.id and e.field_path = 'deduction_date'
+                  order by e.id desc limit 1) as printed_deduction_date,
+                (select e.value_json #>> '{}' from extraction_results e
+                  where e.deduction_id = d.id and e.field_path = 'dispute_deadline'
+                  order by e.id desc limit 1) as printed_deadline
+           from deductions d
+          where d.retailer_name_as_printed is null
+             or d.debtor_id is null
+             or d.deduction_date is null
+             or d.dispute_deadline is null
+          order by d.created_at asc`,
+      );
+
+      const filled: FilledCase[] = [];
+      const blocked: { deductionId: string; name: string; reason: string }[] = [];
+      const unread: { deductionId: string; field: string; problem: string }[] = [];
+      let unchanged = 0;
+
+      for (const row of rows) {
+        const change: {
+          retailerNameAsPrinted?: string;
+          debtorId?: string;
+          deductionDate?: string;
+          disputeDeadline?: string;
+        } = {};
+
+        const name = row.printed_name?.trim();
+        if (name !== undefined && name !== '') {
+          if (!row.has_name) change.retailerNameAsPrinted = name;
+          if (!row.has_debtor) {
+            const debtorId = resolveDebtorId(name, candidates);
+            if (debtorId !== undefined) change.debtorId = debtorId;
+          }
+        }
+
+        for (const [field, printed, already] of [
+          ['deduction_date', row.printed_deduction_date, row.has_deduction_date],
+          ['dispute_deadline', row.printed_deadline, row.has_deadline],
+        ] as const) {
+          if (already) continue;
+          const text = printed?.trim();
+          if (text === undefined || text === '') continue;
+          const parsed = tryParsePrintedDate(text);
+          if ('problem' in parsed) {
+            // Same rule as the pipeline: the column stays null, the case stays,
+            // and the reason is reported rather than swallowed.
+            unread.push({ deductionId: row.id, field, problem: parsed.problem });
+            continue;
+          }
+          if (field === 'deduction_date') change.deductionDate = parsed.date;
+          else change.disputeDeadline = parsed.date;
+        }
+
+        if (Object.keys(change).length === 0) {
+          unchanged += 1;
+          continue;
+        }
+
+        await client.query('savepoint before_backfill');
+        try {
+          await client.query(
+            `update deductions
+                set retailer_name_as_printed = coalesce($2, retailer_name_as_printed),
+                    debtor_id                = coalesce($3, debtor_id),
+                    deduction_date           = coalesce($4::date, deduction_date),
+                    dispute_deadline         = coalesce($5::date, dispute_deadline),
+                    updated_at               = now()
+              where id = $1`,
+            [
+              row.id,
+              change.retailerNameAsPrinted ?? null,
+              change.debtorId ?? null,
+              change.deductionDate ?? null,
+              change.disputeDeadline ?? null,
+            ],
+          );
+          await client.query('release savepoint before_backfill');
+        } catch (error) {
+          await client.query('rollback to savepoint before_backfill');
+          const code = (error as { code?: unknown } | null)?.code;
+          // 23505: that claim is already a case against the debtor we resolved.
+          // 23514: the name is longer than the column allows. Both are findings
+          // about one case, not a reason to abandon the rest.
+          if (code !== '23505' && code !== '23514') throw error;
+          blocked.push({
+            deductionId: row.id,
+            name: name ?? '(none)',
+            reason:
+              code === '23505'
+                ? `claim ${row.claim_id ?? '(none)'} is already open for that debtor`
+                : `the extracted retailer name is too long to store`,
+          });
+          continue;
+        }
+
+        await client.query(
+          `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+           values ($1, $2, 'case.backfilled_from_extraction', $3::jsonb, now())`,
+          [this.tenant.orgId, row.id, JSON.stringify(change)],
+        );
+        filled.push({ deductionId: row.id, ...change });
+      }
+
+      return { filled, blocked, unread, unchanged };
+    });
+  }
+
   async resolveUnmatchedCases(): Promise<DebtorBackfill> {
     return this.withTenant(async (client) => {
       const candidates = await this.debtorCandidates(client);
