@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { cents } from '@recouple/core-domain';
+import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { CaseList, type Viewer } from '../components/case-list';
 import { CaseReview } from '../components/case-review';
@@ -189,7 +190,7 @@ describe('the case list', () => {
 describe('the review page', () => {
   it('shows every field with the page and quote it came from', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field(), field({ fieldPath: 'lines[0].qty_received', value: 25, sourceQuote: 'Qty Received 25' })]}
@@ -242,7 +243,7 @@ describe('the review page', () => {
 
   it('tells a reviewer which kind of check each field got', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[
@@ -264,7 +265,7 @@ describe('the review page', () => {
 
   it('offers no approve button, because approving is not a thing this page can do', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field()]}
@@ -283,7 +284,7 @@ describe('the review page', () => {
     // hole the review prototype had: extracted text reaching a page as markup.
     const attack = '<img src=x onerror="alert(1)">';
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary({
           debtorName: undefined,
@@ -312,7 +313,7 @@ describe('the review page', () => {
     // A notice that arrived in an email body is text. Embedding it as a PDF
     // shows a broken-document icon where the notice should be.
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field({ mimeType: 'text/plain', filename: 'Deduction APDP-99812 (email body).txt' })]}
@@ -327,7 +328,7 @@ describe('the review page', () => {
 
   it('shows what the documents say together, when they disagree', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field()]}
@@ -350,5 +351,66 @@ describe('the review page', () => {
     );
     expect(html).toContain('The signed BOL confirms 25 of 30 cases delivered.');
     expect(html).toContain('supports dispute');
+  });
+});
+
+describe('what a reviewer can do with a case', () => {
+  const props = {
+    viewer,
+    summary: summary(),
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+  };
+
+  it('offers no way to act to a member whose role may not', () => {
+    // The write policies are the enforcement; this is about not showing someone
+    // a button that the database is going to refuse.
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={false} />);
+    expect(html).not.toContain('Attach to this case');
+    expect(html).not.toContain('Record this decline');
+    expect(html).not.toContain('/decline');
+  });
+
+  it('lets a member who may act attach evidence to this case', () => {
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} />);
+    expect(html).toContain('Attach to this case');
+    expect(html).toContain('action="/upload"');
+    // The case travels with the file. Without this the document is read and
+    // then belongs to nothing, which is the thing that sits unread forever.
+    expect(html).toContain(`name="attachToCase" value="${props.summary.deductionId}"`);
+  });
+
+  it('posts a decline to this case, with the reasons the enum allows', () => {
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} />);
+    expect(html).toContain(`action="/cases/${props.summary.deductionId}/decline"`);
+    // Every reason the database will accept is offered, so the UI cannot drift
+    // from the enum and quietly stop offering one.
+    for (const reason of DECLINE_REASONS) {
+      expect(html, reason).toContain(`value="${reason}"`);
+    }
+  });
+
+  it('says a decline is recorded rather than deleted', () => {
+    // If this wording goes, so does the reason anyone would use it instead of
+    // closing the tab: coverage has no numerator without the row.
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} />);
+    expect(html).toMatch(/not a delete/i);
+  });
+
+  it('shows the outcome of an action it was sent back with', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview {...props} mayAct={true} notice="recorded: this case is logged as declined" />,
+    );
+    expect(html).toContain('recorded: this case is logged as declined');
+  });
+
+  it('still has no approve button, whatever the role', () => {
+    // Approving is a recorded act the database gates. A button that only looked
+    // like one would be worse than none.
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} />);
+    expect(html).not.toMatch(/>\s*Approve/);
+    expect(html).toContain('no approve button');
   });
 });

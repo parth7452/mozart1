@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
-import type { CaseSummary, StoredField } from '@recouple/store-postgres';
+import { DECLINE_REASONS, type CaseSummary, type StoredField } from '@recouple/store-postgres';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import type { Viewer } from './case-list';
 
@@ -37,7 +37,44 @@ export interface CaseReviewProps {
   readonly reconciliation: Reconciliation | undefined;
   readonly costMicros: number;
   readonly today: Date;
+  /** Whether this member's role may add documents and decide. */
+  readonly mayAct: boolean;
+  /** The outcome of the action just taken, carried back on the redirect. */
+  readonly notice?: string | undefined;
 }
+
+/**
+ * The reasons a case can be declined, in the words a reviewer uses rather than
+ * the enum's. The values are the enum's — the database is the referee, and an
+ * unknown one is refused there.
+ */
+const DECLINE_LABELS: Readonly<Record<(typeof DECLINE_REASONS)[number], string>> = {
+  below_economic_floor: 'Not worth the work',
+  deadline_passed: 'The dispute window has closed',
+  evidence_unavailable: 'What would prove it cannot be got',
+  deduction_valid: 'They were right — nothing to recover',
+  duplicate_of_other: 'Same deduction, already handled',
+  below_confidence_floor: 'We could not read it well enough to act',
+  tenant_declined: 'The customer said not to',
+  other: 'Something else',
+};
+
+/**
+ * Evidence a reviewer can say was missing. These are canonical types rather
+ * than free text, because the point of recording them is to add them up later —
+ * "no POD" has to be one thing across a thousand declines, not a hundred
+ * spellings. `detail` is where the prose goes.
+ */
+const MISSING_EVIDENCE: readonly { value: string; label: string }[] = [
+  { value: 'proof_of_delivery', label: 'Proof of delivery' },
+  { value: 'bill_of_lading', label: 'Bill of lading' },
+  { value: 'invoice', label: 'Invoice' },
+  { value: 'purchase_order', label: 'Purchase order' },
+  { value: 'receiving_report', label: 'Receiving report' },
+  { value: 'timesheet', label: 'Timesheet' },
+  { value: 'rate_agreement', label: 'Rate or pricing agreement' },
+  { value: 'correspondence', label: 'Correspondence with the customer' },
+];
 
 /**
  * A reviewer's workspace for one case.
@@ -55,6 +92,8 @@ export function CaseReview({
   reconciliation,
   costMicros,
   today,
+  mayAct,
+  notice,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -160,6 +199,72 @@ export function CaseReview({
                 </dl>
               </div>
             ))}
+
+            {notice !== undefined ? <p className="notice">{notice}</p> : null}
+
+            {mayAct ? (
+              <div className="card" style={{ marginTop: 18 }}>
+                <h2 className="section" style={{ marginTop: 0 }}>
+                  Add evidence
+                </h2>
+                <p className="hint">
+                  What would prove this deduction wrong — the delivery receipt, the signed
+                  agreement, the invoice they short-paid. It is read the same way the notice was,
+                  and attached to this case.
+                </p>
+                <form action="/upload" method="post" encType="multipart/form-data">
+                  {/* The case this belongs to travels with the file rather than
+                      being inferred later: a document with no case is the thing
+                      that sits unread forever. */}
+                  <input type="hidden" name="attachToCase" value={summary.deductionId} />
+                  <input type="file" name="file" required />
+                  <button className="primary" type="submit">
+                    Attach to this case
+                  </button>
+                </form>
+              </div>
+            ) : null}
+
+            {mayAct ? (
+              <div className="card decline" style={{ marginTop: 18 }}>
+                <h2 className="section" style={{ marginTop: 0 }}>
+                  Not worth fighting?
+                </h2>
+                <p className="hint">
+                  Recording a decline keeps the case and writes down what it was worth and what was
+                  missing. It is not a delete — coverage is a ratio of dollars, and discarding the
+                  ones we lost is how that ratio gets flattered.
+                </p>
+                <form action={`/cases/${summary.deductionId}/decline`} method="post">
+                  <label htmlFor="reason">Why</label>
+                  <select id="reason" name="reason" required defaultValue="">
+                    <option value="" disabled>
+                      Choose a reason…
+                    </option>
+                    {DECLINE_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {DECLINE_LABELS[reason]}
+                      </option>
+                    ))}
+                  </select>
+
+                  <fieldset>
+                    <legend>What was missing, if anything</legend>
+                    {MISSING_EVIDENCE.map((item) => (
+                      <label key={item.value} className="check">
+                        <input type="checkbox" name="missing" value={item.value} />
+                        {item.label}
+                      </label>
+                    ))}
+                  </fieldset>
+
+                  <label htmlFor="detail">Anything a later reader would need</label>
+                  <textarea id="detail" name="detail" rows={3} maxLength={2000} />
+
+                  <button type="submit">Record this decline</button>
+                </form>
+              </div>
+            ) : null}
 
             <div className="gate">
               Nothing has been sent anywhere. Approving a case is a separate, recorded act by a
