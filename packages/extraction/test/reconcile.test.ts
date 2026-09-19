@@ -6,7 +6,13 @@ import {
   WALMART_CODE_24,
 } from '@recouple/fixtures';
 import { blockingFindings, disputeSupport, reconcileNotice } from '../src/reconcile';
-import type { DeductionNotice, Invoice, PurchaseOrder, ShipmentDocument } from '../src/schemas';
+import type {
+  Correspondence,
+  DeductionNotice,
+  Invoice,
+  PurchaseOrder,
+  ShipmentDocument,
+} from '../src/schemas';
 
 const expected = <T>(key: string): T => EXPECTED_EXTRACTIONS[key] as T;
 
@@ -147,5 +153,172 @@ describe('arithmetic the notice gets wrong', () => {
       invoice: expected<Invoice>('harborline-invoice'),
     });
     expect(codes(disputeSupport(result))).toContain('item_not_on_invoice');
+  });
+});
+
+/**
+ * The logistics case: a $600 late-delivery fee assessed against an appointment
+ * the customer had already replaced in writing.
+ *
+ * Built from the LOG-001 dispute pack. The whole argument is two timestamps and
+ * a message — nothing a model should be asked to decide, and all of it checkable
+ * here. Fields carry only what these rules read; the extraction schemas are
+ * tested separately.
+ */
+describe('a late-delivery fee against a superseded appointment', () => {
+  const f = <T>(value: T) => ({ value, source_page: 1, source_quote: 'x' }) as never;
+
+  const lateFeeNotice = {
+    retailer_name: f('Brookfield Supply Co.'),
+    vendor_number: f(null),
+    claim_id: f('CB-BSC-441'),
+    invoice_number: f('INV-AFS-260814'),
+    po_number: f('PO-BSC-8841'),
+    store_or_dc: f(null),
+    gln: f(null),
+    asn_number: f(null),
+    lines: [
+      {
+        sku_upc: f(null),
+        description: f('Flat late-delivery fee'),
+        qty_invoiced: f(null),
+        qty_received: f(null),
+        unit_cost: f(null),
+        deduction_amount: f('$600.00'),
+        reason_code: f('LATE-DEL'),
+        reason_description: f('Delivery after original appointment'),
+      },
+    ],
+    deduction_total: f('$600.00'),
+    deduction_date: f('September 18, 2026'),
+    dispute_deadline: f('October 18, 2026'),
+    remittance_or_check: f('REM-BSC-0918-44'),
+  } as unknown as DeductionNotice;
+
+  const pod = {
+    document_number: f('POD-771'),
+    ship_date: f('August 13, 2026'),
+    carrier_name: f('Alder Freight Services LLC'),
+    po_number: f('PO-BSC-8841'),
+    ship_from: f(null),
+    ship_to: f(null),
+    appointment_at: f('August 13, 2026, 2:00 PM Eastern'),
+    gate_check_in_at: f('August 13, 2026, 1:42 PM Eastern'),
+    appointment_reference: f('AP-BSC-771 revision 2'),
+    total_cartons_shipped: f(24),
+    total_cartons_received: f(24),
+    signed_by: f('Jordan Ellis'),
+    signature_present: f(true),
+    lines: [],
+  } as unknown as ShipmentDocument;
+
+  const approvedReschedule = {
+    message_reference: f('MSG-BSC-0811-338'),
+    sent_at: f('August 11, 2026, 2:05 PM Eastern'),
+    sender: f('Maya Chen <transport@brookfieldsupply.example>'),
+    sender_organisation: f('Brookfield Supply Co.'),
+    recipient: f('Evan Brooks <dispatch@alderfreight.example>'),
+    subject: f('Approved reschedule - LD-260812-77 / AP-BSC-771'),
+    references: [{ label: f('Load'), value: f('LD-260812-77') }],
+    commitments: [
+      {
+        commitment_text: f(
+          'Appointment AP-BSC-771 revision 2 replaces revision 1. No carrier late-delivery charge applies for moving delivery to this revised appointment.',
+        ),
+        effective_at: f('August 13, 2026, 2:00 PM Eastern'),
+        supersedes: f('AP-BSC-771 revision 1'),
+        establishes: f('AP-BSC-771 revision 2'),
+        waives_charge: f(true),
+        attributed_to: f('customer-requested'),
+      },
+    ],
+  } as unknown as Correspondence;
+
+  it('finds the carrier arrived before the appointment that was in force', () => {
+    const result = reconcileNotice({ notice: lateFeeNotice, shipment: pod });
+    expect(codes(disputeSupport(result))).toContain('arrived_before_appointment');
+    // 13:42 against 14:00. The whole $600 turns on these eighteen minutes.
+    expect(result.findings.find((x) => x.code === 'arrived_before_appointment')?.message).toMatch(
+      /18 minutes before/,
+    );
+  });
+
+  it('finds the appointment it was charged against had been replaced in writing', () => {
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: pod,
+      correspondence: [approvedReschedule],
+    });
+    const supporting = codes(disputeSupport(result));
+    expect(supporting).toContain('appointment_superseded');
+    expect(supporting).toContain('charge_waived_in_writing');
+  });
+
+  it('quotes the customer rather than paraphrasing them', () => {
+    // A packet argues with the customer's own words. A summary of them is worth
+    // much less, and we cannot check it.
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: pod,
+      correspondence: [approvedReschedule],
+    });
+    expect(result.findings.find((x) => x.code === 'charge_waived_in_writing')?.message).toContain(
+      'No carrier late-delivery charge applies',
+    );
+  });
+
+  it('does not read a plain reschedule as a waiver', () => {
+    // Moving an appointment is not the same as promising not to charge. Reading
+    // one as the other would invent the strongest part of the case.
+    const rescheduleOnly = structuredClone(approvedReschedule) as unknown as {
+      commitments: { waives_charge: { value: boolean } }[];
+    };
+    rescheduleOnly.commitments[0]!.waives_charge.value = false;
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: pod,
+      correspondence: [rescheduleOnly as unknown as Correspondence],
+    });
+    const supporting = codes(disputeSupport(result));
+    expect(supporting).toContain('appointment_superseded');
+    expect(supporting).not.toContain('charge_waived_in_writing');
+  });
+
+  it('says it could not check rather than comparing across zones', () => {
+    const mixed = structuredClone(pod) as unknown as {
+      gate_check_in_at: { value: string };
+    };
+    mixed.gate_check_in_at.value = 'August 13, 2026, 1:42 PM UTC';
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: mixed as unknown as ShipmentDocument,
+    });
+    expect(codes(result.findings)).toContain('appointment_times_not_comparable');
+    expect(codes(disputeSupport(result))).not.toContain('arrived_before_appointment');
+  });
+
+  it('warns rather than supports when the carrier really was late', () => {
+    const late = structuredClone(pod) as unknown as { gate_check_in_at: { value: string } };
+    late.gate_check_in_at.value = 'August 13, 2026, 3:05 PM Eastern';
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: late as unknown as ShipmentDocument,
+    });
+    expect(codes(result.findings)).toContain('arrived_after_appointment');
+    expect(codes(disputeSupport(result))).not.toContain('arrived_before_appointment');
+  });
+
+  it('checks nothing at all when the delivery record has no timestamps', () => {
+    const bare = structuredClone(pod) as unknown as {
+      gate_check_in_at: { value: string | null };
+    };
+    bare.gate_check_in_at.value = null;
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: bare as unknown as ShipmentDocument,
+    });
+    for (const code of ['arrived_before_appointment', 'arrived_after_appointment']) {
+      expect(codes(result.findings)).not.toContain(code);
+    }
   });
 });

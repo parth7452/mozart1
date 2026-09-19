@@ -13,6 +13,10 @@ export const DOC_TYPES = [
   'bol',
   'pod',
   'asn',
+  // A message that changes or waives something: an approved reschedule, a
+  // written exception, a confirmation. Often the document that decides a
+  // dispute, because it is where the customer commits to something.
+  'correspondence',
   'promo_agreement',
   'price_agreement',
   'routing_guide',

@@ -98,6 +98,18 @@ export const ShipmentDocumentSchema = z.object({
   po_number: OptionalField(z.string(), 'Referenced purchase order.'),
   ship_from: OptionalField(z.string(), 'Origin.'),
   ship_to: OptionalField(z.string(), 'Destination store or DC.'),
+  appointment_at: OptionalField(
+    z.string(),
+    'The confirmed delivery or pickup appointment date and time, as printed, including any time zone shown (do not reformat).',
+  ),
+  gate_check_in_at: OptionalField(
+    z.string(),
+    'When the carrier checked in at the gate, as printed, including any time zone shown. This is the timestamp late-delivery terms are usually measured against — not unloading or departure (do not reformat).',
+  ),
+  appointment_reference: OptionalField(
+    z.string(),
+    'The appointment number and any revision, exactly as printed (for example "AP-771 revision 2").',
+  ),
   total_cartons_shipped: OptionalField(Qty(), 'Cartons or cases shipped.'),
   total_cartons_received: OptionalField(Qty(), 'Cartons or cases signed for at delivery.'),
   signed_by: OptionalField(z.string(), 'Name or mark of whoever signed for the delivery.'),
@@ -143,6 +155,61 @@ export const AgreementSchema = z.object({
 });
 
 /**
+ * A message that commits the sender to something.
+ *
+ * An approved reschedule, a written exception, a waiver — these decide disputes
+ * far more often than the notice does, because they are where the customer said
+ * something in writing that contradicts what they later charged for. Read as
+ * commitments rather than prose so deterministic code can act on them.
+ */
+export const CorrespondenceSchema = z.object({
+  message_reference: Field(z.string(), 'Message ID, export or thread reference as printed.'),
+  sent_at: Field(z.string(), 'When it was sent, as printed, with any time zone (do not reformat).'),
+  sender: Field(z.string(), 'Who sent it, as printed — name and address if both are shown.'),
+  sender_organisation: OptionalField(z.string(), 'The organisation the sender belongs to.'),
+  recipient: OptionalField(z.string(), 'Who it was sent to, as printed.'),
+  subject: OptionalField(z.string(), 'The subject line as printed.'),
+  references: z
+    .array(
+      z.object({
+        label: Field(z.string(), 'What this identifier refers to, in the document’s own words.'),
+        value: Field(z.string(), 'The identifier exactly as printed.'),
+      }),
+    )
+    .describe('Loads, purchase orders, invoices, appointments or agreements the message names.'),
+  commitments: z
+    .array(
+      z.object({
+        commitment_text: Field(
+          z.string(),
+          'The sentence that commits to something, quoted exactly as printed.',
+        ),
+        effective_at: OptionalField(
+          z.string(),
+          'Any date and time this commitment sets, as printed, with any time zone.',
+        ),
+        supersedes: OptionalField(
+          z.string(),
+          'What this replaces, exactly as printed (for example "AP-771 revision 1").',
+        ),
+        establishes: OptionalField(
+          z.string(),
+          'What it puts in place, exactly as printed (for example "AP-771 revision 2").',
+        ),
+        waives_charge: Field(
+          z.boolean(),
+          'Does the message state that a charge, fee or penalty will not apply? True only when the document says so; do not infer it from a reschedule alone.',
+        ),
+        attributed_to: OptionalField(
+          z.string(),
+          'Who the document says caused or requested this, as printed (for example "customer-requested").',
+        ),
+      }),
+    )
+    .describe('One entry per thing the message commits to. Empty if it commits to nothing.'),
+});
+
+/**
  * Documents we accept but do not yet have a typed schema for. Captured as facts
  * so the case still shows what was uploaded, rather than dropping the file.
  */
@@ -164,6 +231,7 @@ export const EXTRACTION_SCHEMAS = {
   bol: ShipmentDocumentSchema,
   pod: ShipmentDocumentSchema,
   asn: AsnSchema,
+  correspondence: CorrespondenceSchema,
   promo_agreement: AgreementSchema,
   price_agreement: AgreementSchema,
   routing_guide: GenericDocumentSchema,
@@ -174,6 +242,7 @@ export function schemaFor(docType: DocType): z.ZodType {
   return EXTRACTION_SCHEMAS[docType];
 }
 
+export type Correspondence = z.infer<typeof CorrespondenceSchema>;
 export type DeductionNotice = z.infer<typeof DeductionNoticeSchema>;
 export type RemittanceAdvice = z.infer<typeof RemittanceAdviceSchema>;
 export type Invoice = z.infer<typeof InvoiceSchema>;
