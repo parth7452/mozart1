@@ -6,7 +6,7 @@
  * which is what makes the whole chain safe to retry.
  */
 
-import { applyTransition, parseMoneyToCents } from '@recouple/core-domain';
+import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
 import {
   locateQuote,
   OcrError,
@@ -402,6 +402,25 @@ function deductionTotalCents(document: unknown): number | undefined {
   }
 }
 
+/**
+ * A date field off a notice: the day, or why we would not guess at one.
+ *
+ * Both halves can be empty — a notice that prints no deadline is not a problem,
+ * it is a notice with no deadline. A notice that prints something we cannot read
+ * *is* a problem, and it is recorded on `case.discovered` rather than swallowed
+ * (CLAUDE.md: fail loud; a silently dropped deadline is how a filing window gets
+ * missed).
+ */
+function printedDate(
+  document: unknown,
+  field: 'deduction_date' | 'dispute_deadline',
+): { date?: string; problem?: string } {
+  const text = fieldValue(document, [field, 'value']);
+  if (typeof text !== 'string' || text.trim() === '') return {};
+  const parsed = tryParsePrintedDate(text);
+  return 'date' in parsed ? { date: parsed.date } : { problem: parsed.problem };
+}
+
 function fieldValue(document: unknown, path: readonly string[]): unknown {
   let node: unknown = document;
   for (const key of path) {
@@ -430,12 +449,20 @@ export async function openCaseFromNotice(
   // the reason a wrong reading shows up as an unparseable amount rather than as
   // a plausible wrong number.
   const total = deductionTotalCents(extraction.document);
+  // Dates get the same treatment, for the same reason. A window we cannot read
+  // ("60 days of deduction date" is a retailer's rule, not a date) leaves the
+  // column null and the case still opens — better a case with no deadline than
+  // no case — but the reason goes on the event rather than on the floor.
+  const deductionDate = printedDate(extraction.document, 'deduction_date');
+  const disputeDeadline = printedDate(extraction.document, 'dispute_deadline');
 
   const opened = await deps.store.openCase({
     orgId: document.orgId,
     ...(typeof claimId === 'string' ? { claimId } : {}),
     ...(typeof retailer === 'string' ? { retailerName: retailer } : {}),
     ...(total !== undefined ? { deductionAmountCents: total } : {}),
+    ...(deductionDate.date !== undefined ? { deductionDate: deductionDate.date } : {}),
+    ...(disputeDeadline.date !== undefined ? { disputeDeadline: disputeDeadline.date } : {}),
   });
 
   await deps.store.linkDocument(opened.deductionId, document.documentId, 'notice');
@@ -447,6 +474,17 @@ export async function openCaseFromNotice(
       document_id: document.documentId,
       claim_id: typeof claimId === 'string' ? claimId : null,
       retailer_name: typeof retailer === 'string' ? retailer : null,
+      // Null, not absent, when no debtor matched: the projection is rebuildable
+      // from the events, and "nobody matched" is itself the fact (ADR 0019 §8).
+      debtor_id: opened.debtorId ?? null,
+      deduction_date: deductionDate.date ?? null,
+      dispute_deadline: disputeDeadline.date ?? null,
+      ...(deductionDate.problem !== undefined
+        ? { deduction_date_unread: deductionDate.problem }
+        : {}),
+      ...(disputeDeadline.problem !== undefined
+        ? { dispute_deadline_unread: disputeDeadline.problem }
+        : {}),
     },
   });
 

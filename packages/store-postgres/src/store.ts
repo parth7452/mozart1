@@ -13,10 +13,28 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import type { CaseState } from '@recouple/core-domain';
+import { resolveDebtorId } from '@recouple/core-domain';
+import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeline';
+
+/**
+ * The same claim, for the same debtor, is already a case.
+ *
+ * Carries the existing case so a caller can point at it instead of reporting a
+ * unique-violation at the reviewer.
+ */
+export class DuplicateCaseError extends Error {
+  constructor(
+    message: string,
+    readonly existingDeductionId: string,
+    readonly claimId: string,
+  ) {
+    super(message);
+    this.name = 'DuplicateCaseError';
+  }
+}
 
 export interface TenantContext {
   readonly orgId: string;
@@ -90,6 +108,13 @@ export interface CaseSummary {
   readonly disputeDeadline?: string;
   readonly debtorName?: string;
   readonly retailerKey?: string;
+  /**
+   * The retailer as the notice printed it. Present whenever extraction read a
+   * name; `debtorName` is present only when exactly one debtor matched it, so a
+   * view that has this and not that is looking at a name nobody has claimed yet
+   * (ADR 0019).
+   */
+  readonly retailerNameAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
 }
@@ -127,6 +152,7 @@ interface CaseSummaryRow {
   created_at: Date | string;
   debtor_name: string | null;
   retailer_key: string | null;
+  retailer_name_as_printed: string | null;
   document_count: number;
 }
 
@@ -545,19 +571,74 @@ export class PostgresStore implements PipelineStore {
     });
   }
 
+  /**
+   * Every spelling the tenant's debtors answer to.
+   *
+   * Read through RLS in the caller's transaction, so it can only ever see this
+   * tenant's debtors (invariant 6). A tenant has tens of debtors, not millions,
+   * so reading them and folding in TypeScript is cheap — and it keeps one
+   * implementation of the fold rather than a second one written in SQL that
+   * would drift from it (ADR 0019 §4).
+   */
+  private async debtorCandidates(client: PoolClient): Promise<DebtorCandidate[]> {
+    const { rows } = await client.query<{ id: string; names: string[] }>(
+      `select b.id,
+              array_remove(
+                array[b.display_name, b.retailer_key] ||
+                coalesce(array_agg(a.alias) filter (where a.alias is not null), '{}'),
+                null
+              ) as names
+         from debtors b
+         left join debtor_aliases a on a.debtor_id = b.id
+        group by b.id, b.display_name, b.retailer_key`,
+    );
+    return rows.map((row) => ({ debtorId: row.id, names: row.names }));
+  }
+
   async openCase(input: {
     orgId: string;
     claimId?: string;
     retailerName?: string;
     deductionAmountCents?: number;
+    deductionDate?: string;
+    disputeDeadline?: string;
   }): Promise<CaseRecord> {
     return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ id: string; state: CaseState }>(
-        `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
-         values ($1, $2, $3, 'discovered')
-         returning id, state`,
-        [input.orgId, input.claimId ?? null, input.deductionAmountCents ?? 1],
-      );
+      // The name goes on the case as printed, always. Whether it also names a
+      // debtor is a separate question, and the answer is usually no: a debtor
+      // is master data a human created, and untrusted document text may select
+      // one but never mint one (invariant 4, ADR 0019).
+      const debtorId =
+        input.retailerName === undefined
+          ? undefined
+          : resolveDebtorId(input.retailerName, await this.debtorCandidates(client));
+
+      // A failed statement aborts the whole transaction, and the lookup that
+      // explains the failure is itself a statement. The savepoint is what lets
+      // us ask the question rather than hand back a bare driver error.
+      await client.query('savepoint before_open_case');
+      let rows: { id: string; state: CaseState }[];
+      try {
+        ({ rows } = await client.query<{ id: string; state: CaseState }>(
+          `insert into deductions (org_id, debtor_id, claim_id, retailer_name_as_printed,
+                                   deduction_amount_cents, deduction_date, dispute_deadline, state)
+           values ($1, $2, $3, $4, $5, $6, $7, 'discovered')
+           returning id, state`,
+          [
+            input.orgId,
+            debtorId ?? null,
+            input.claimId ?? null,
+            input.retailerName ?? null,
+            input.deductionAmountCents ?? 1,
+            input.deductionDate ?? null,
+            input.disputeDeadline ?? null,
+          ],
+        ));
+      } catch (error) {
+        await client.query('rollback to savepoint before_open_case');
+        throw await this.explainDuplicateCase(client, error, input.claimId, debtorId);
+      }
+      await client.query('release savepoint before_open_case');
       const row = rows[0];
       if (row === undefined) throw new Error('insert into deductions returned no row');
       return {
@@ -566,11 +647,48 @@ export class PostgresStore implements PipelineStore {
         state: row.state,
         ...(input.claimId !== undefined ? { claimId: input.claimId } : {}),
         ...(input.retailerName !== undefined ? { retailerName: input.retailerName } : {}),
+        ...(debtorId !== undefined ? { debtorId } : {}),
         ...(input.deductionAmountCents !== undefined
           ? { deductionAmountCents: input.deductionAmountCents }
           : {}),
+        ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
+        ...(input.disputeDeadline !== undefined
+          ? { disputeDeadline: input.disputeDeadline }
+          : {}),
       };
     });
+  }
+
+  /**
+   * Turns `unique (org_id, debtor_id, claim_id)` into an error that says which
+   * case already holds the claim.
+   *
+   * The constraint never fired while `debtor_id` was always null — Postgres does
+   * not compare nulls — so the same claim arriving twice, once as a PDF and once
+   * as a scan, silently opened two cases. Now that a debtor can resolve, the
+   * second insert is rejected, and a reviewer needs to be told *which* case to
+   * look at rather than handed a driver error. Merging the two into one case is
+   * the identity-resolution layer of STRATEGY §5.2 and is not done here.
+   */
+  private async explainDuplicateCase(
+    client: PoolClient,
+    error: unknown,
+    claimId: string | undefined,
+    debtorId: string | undefined,
+  ): Promise<unknown> {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code !== '23505' || claimId === undefined || debtorId === undefined) return error;
+    const { rows } = await client.query<{ id: string }>(
+      `select id from deductions where debtor_id = $1 and claim_id = $2 limit 1`,
+      [debtorId, claimId],
+    );
+    const existing = rows[0]?.id;
+    if (existing === undefined) return error;
+    return new DuplicateCaseError(
+      `claim ${claimId} is already open for this debtor as case ${existing}`,
+      existing,
+      claimId,
+    );
   }
 
   async linkDocument(
@@ -714,6 +832,7 @@ export class PostgresStore implements PipelineStore {
       const { rows } = await client.query<CaseSummaryRow>(
         `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
                 d.deduction_date, d.dispute_deadline, d.created_at,
+                d.retailer_name_as_printed,
                 b.display_name as debtor_name, b.retailer_key,
                 (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
                   ::int as document_count
@@ -735,6 +854,9 @@ export class PostgresStore implements PipelineStore {
           ...(disputeDeadline !== undefined ? { disputeDeadline } : {}),
           ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
           ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
+          ...(row.retailer_name_as_printed !== null
+            ? { retailerNameAsPrinted: row.retailer_name_as_printed }
+            : {}),
           documentCount: row.document_count,
           createdAt: isoDate(row.created_at) ?? '',
         };

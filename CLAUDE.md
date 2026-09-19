@@ -206,13 +206,27 @@ signed-in app came back as a case with every field quote-verified against the
 OCR text layer — so scan, classify, OCR and extract all work against the real
 vendors, not only against cassettes.
 
-One gap that verification exposed: `openCase` accepts a `retailerName` and
-never persists it, and takes no dates at all, so every case the pipeline opens
-reads "Retailer unknown" with no dispute deadline — the two fields a reviewer
-triages on. The values are extracted and stored on the document; they just do
-not reach the case row. `deductions.debtor_id` is a FK to `debtors`, so fixing
-it means deciding how an extracted name becomes a debtor, which is the same
-seam Phase 2's playbooks key off. Not yet done.
+The gap that verification exposed — `openCase` took a `retailerName` it never
+wrote and no dates at all, so every case read "Retailer unknown" with no dispute
+deadline — is closed (ADR 0019, migration 0015). A case now keeps
+`retailer_name_as_printed` exactly as extraction reported it, and `openCase`
+*looks up* a debtor, setting `debtor_id` only when exactly one of the tenant's
+debtors matches. It never creates one: document text is untrusted, so it may
+select master data through an alias a human added but not mint it, and two
+matches count as none. Dates go through `parsePrintedDate` in `core-domain`,
+month-first and deterministic, the way `parseMoneyToCents` handles money; a
+window it will not guess at ("60 days of deduction date" is a retailer rule,
+Phase 2's job) leaves the column null, opens the case anyway, and records why on
+`case.discovered`. The views show the debtor, else the printed name marked as
+unmatched, and only then "Retailer unknown".
+
+Two things that fixing it surfaced: `unique (org_id, debtor_id, claim_id)` never
+fired while `debtor_id` was always null, so the same claim uploaded twice opened
+two cases silently — it now raises `DuplicateCaseError` naming the existing case,
+and merging the two is still identity resolution's job (STRATEGY §5.2). And
+`retailerMatchKey` folds "WALMART STORES, INC." to `walmart stores`, which does
+*not* match `walmart` on purpose: whether those are one retailer is data, not
+code.
 
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged

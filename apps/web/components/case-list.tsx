@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { CaseSummary } from '@recouple/store-postgres';
-import { deadline, money } from '../lib/format';
+import { deadline, money, retailer } from '../lib/format';
 
 export interface Viewer {
   readonly email: string;
@@ -88,6 +88,9 @@ export function CaseList({
               <tbody>
                 {cases.map((row) => {
                   const due = deadline(row.disputeDeadline, today);
+                  // '—' when nothing was read; the printed name, flagged, when
+                  // extraction read one but no debtor answers to it (ADR 0019).
+                  const who = retailer(row, '—');
                   return (
                     <tr key={row.deductionId}>
                       <td>
@@ -95,7 +98,10 @@ export function CaseList({
                           {row.claimId ?? row.deductionId.slice(0, 8)}
                         </Link>
                       </td>
-                      <td>{row.debtorName ?? '—'}</td>
+                      <td>
+                        {who.name}
+                        {who.matched ? null : <span className="unmatched">not matched</span>}
+                      </td>
                       <td className="money">{money(row.deductionAmountCents)}</td>
                       <td>
                         <span className="pill">{row.state.replace(/_/g, ' ')}</span>
