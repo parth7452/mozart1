@@ -98,6 +98,15 @@ export async function closeAllPools(): Promise<void> {
   await Promise.all(open.map((pool) => pool.end().catch(() => undefined)));
 }
 
+/** What a backfill changed, and what it deliberately did not. */
+export interface DebtorBackfill {
+  readonly resolved: readonly { deductionId: string; debtorId: string; name: string }[];
+  /** Matched a debtor, but that claim is already a case against it. */
+  readonly blocked: readonly { deductionId: string; name: string; reason: string }[];
+  /** Still nobody's: no debtor answers to the name, or more than one does. */
+  readonly stillUnmatched: number;
+}
+
 /** A case as the list route shows it. */
 export interface CaseSummary {
   readonly deductionId: string;
@@ -816,6 +825,127 @@ export class PostgresStore implements PipelineStore {
       );
       const row = rows[0];
       return row === undefined ? undefined : { orgId: row.id, slug: row.slug };
+    });
+  }
+
+  /**
+   * Records that a debtor answers to another spelling of its name.
+   *
+   * This is the human half of ADR 0019, and the only way "WALMART STORES, INC."
+   * ever becomes Walmart. It is deliberately not something document text can
+   * do: a person decides that two names are one retailer, and from then on the
+   * lookup in `openCase` resolves that spelling by itself.
+   *
+   * Idempotent, so running it twice is not an error. The debtor is checked
+   * through RLS first, so an alias cannot be hung off another tenant's row.
+   */
+  async addDebtorAlias(debtorId: string, alias: string): Promise<void> {
+    const trimmed = alias.trim();
+    if (trimmed === '') throw new Error('an alias cannot be blank');
+    await this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `select id from debtors where id = $1`,
+        [debtorId],
+      );
+      if (rows[0] === undefined) {
+        throw new Error(`no debtor ${debtorId} in this tenant`);
+      }
+      await client.query(
+        `insert into debtor_aliases (org_id, debtor_id, alias)
+         select $1, $2, $3
+          where not exists (
+            select 1 from debtor_aliases
+             where debtor_id = $2 and lower(alias) = lower($3)
+          )`,
+        [this.tenant.orgId, debtorId, trimmed],
+      );
+    });
+  }
+
+  /**
+   * Resolves cases whose retailer name now matches a debtor, and leaves the
+   * rest alone.
+   *
+   * Adding an alias does not reach back through history on its own — ADR 0019
+   * says so on purpose, because a silent rewrite of old cases is not something
+   * anyone asked for. This is the deliberate step that does it, and it records
+   * a `case.debtor_resolved` event for each one so the change is in the stream
+   * rather than only in the projection.
+   *
+   * A case it cannot resolve is reported, never guessed at, and a case whose
+   * claim is already open against that debtor comes back as `blocked` rather
+   * than as a swallowed unique violation: that is two cases for one claim, and
+   * merging them is identity resolution's job, not a backfill's.
+   */
+  async resolveUnmatchedCases(): Promise<DebtorBackfill> {
+    return this.withTenant(async (client) => {
+      const candidates = await this.debtorCandidates(client);
+      const { rows } = await client.query<{
+        id: string;
+        claim_id: string | null;
+        retailer_name_as_printed: string;
+      }>(
+        `select id, claim_id, retailer_name_as_printed
+           from deductions
+          where debtor_id is null and retailer_name_as_printed is not null
+          order by created_at asc`,
+      );
+
+      const resolved: { deductionId: string; debtorId: string; name: string }[] = [];
+      const blocked: { deductionId: string; name: string; reason: string }[] = [];
+      let stillUnmatched = 0;
+
+      for (const row of rows) {
+        const debtorId = resolveDebtorId(row.retailer_name_as_printed, candidates);
+        if (debtorId === undefined) {
+          stillUnmatched += 1;
+          continue;
+        }
+        await client.query('savepoint before_resolve');
+        try {
+          await client.query(
+            `update deductions set debtor_id = $1, updated_at = now() where id = $2`,
+            [debtorId, row.id],
+          );
+          await client.query('release savepoint before_resolve');
+        } catch (error) {
+          await client.query('rollback to savepoint before_resolve');
+          if ((error as { code?: unknown } | null)?.code !== '23505') throw error;
+          const existing = await client.query<{ id: string }>(
+            `select id from deductions
+              where debtor_id = $1 and claim_id = $2 and id <> $3 limit 1`,
+            [debtorId, row.claim_id, row.id],
+          );
+          blocked.push({
+            deductionId: row.id,
+            name: row.retailer_name_as_printed,
+            reason: `claim ${row.claim_id ?? '(none)'} is already open for that debtor as case ${
+              existing.rows[0]?.id ?? 'unknown'
+            }`,
+          });
+          continue;
+        }
+        await client.query(
+          `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+           values ($1, $2, 'case.debtor_resolved', $3::jsonb, now())`,
+          [
+            this.tenant.orgId,
+            row.id,
+            JSON.stringify({
+              debtor_id: debtorId,
+              retailer_name_as_printed: row.retailer_name_as_printed,
+              resolved_by: 'backfill',
+            }),
+          ],
+        );
+        resolved.push({
+          deductionId: row.id,
+          debtorId,
+          name: row.retailer_name_as_printed,
+        });
+      }
+
+      return { resolved, blocked, stillUnmatched };
     });
   }
 
