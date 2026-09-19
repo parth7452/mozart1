@@ -2,13 +2,22 @@
 # bound to loopback and never routed (ADR 0018).
 FROM clamav/clamav:1.4
 
-# Node for the front door. The base is Alpine; this is the only addition, and
-# the service itself has no npm dependencies.
-RUN apk add --no-cache nodejs
+# Node for the front door, and su-exec to drop it out of root. The base is
+# Alpine (`clamav/clamav:1.4` is the Alpine variant; `-debian` is the suffixed
+# one), and the service itself has no npm dependencies.
+RUN apk add --no-cache nodejs su-exec
 
-# Bind clamd to loopback and cap what it will accept. The base image already
-# sets TCPSocket and Foreground, so these are edits rather than appends —
-# a duplicated scalar option makes clamd complain on startup.
+# Bind clamd to loopback and cap what it will accept.
+#
+# The shipped conf sets `TCPSocket 3310` and nothing else that matters here —
+# no TCPAddr, so clamd would otherwise listen on every interface, which is the
+# one line in this file that has to be right. The size options are unset and
+# default to 25M, one megabyte under the 25 MB the upload route allows, so a
+# file at the limit would be refused by the scanner rather than scanned.
+#
+# The deletes are belt-and-braces for a future base image that starts setting
+# these: clamd takes the last value, so an append alone would still win, but
+# only the delete makes that obvious to someone reading the resulting file.
 RUN sed -i \
       -e '/^TCPAddr /d' -e '/^StreamMaxLength /d' \
       -e '/^MaxFileSize /d' -e '/^MaxScanSize /d' \

@@ -10,7 +10,10 @@ set -eu
 /init &
 CLAMD_PID=$!
 
-node /srv/server.mjs &
+# The front door is the only process reachable from outside, so it does not run
+# as root. clamd's own `/init` still needs root to manage /var/lib/clamav, and
+# drops clamd itself to the clamav user via its config.
+su-exec clamav node /srv/server.mjs &
 HTTP_PID=$!
 
 term() {
