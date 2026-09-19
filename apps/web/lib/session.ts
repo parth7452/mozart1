@@ -41,8 +41,8 @@ export async function requireSession(): Promise<Session> {
       email: user.email,
     });
   } catch (cause) {
-    // No invitation, or an address already linked to another identity. Both are
-    // refusals rather than bugs, and both say the same thing to the person.
+    // A refusal the person can act on, or a fault somebody has to fix.
+    // `messageFor` decides which, and records the ones that are ours.
     redirect(`/login?denied=${encodeURIComponent(messageFor(cause))}`);
   }
 
@@ -58,15 +58,41 @@ export async function requireSession(): Promise<Session> {
   return { userId: resolved.userId, email: user.email, org, orgs: resolved.orgs };
 }
 
+/**
+ * What to show someone whose sign-in failed, and what to record about it.
+ *
+ * Two of these are answers: the address was never invited, or it belongs to a
+ * different sign-in. Both are refusals the person can act on, and both are safe
+ * to state because reaching this point already required a verified session.
+ *
+ * Everything else is a fault — the database unreachable, credentials wrong, a
+ * role that cannot become `app_rw`. Those are not the person's problem to read
+ * about, but they are somebody's, and the previous version of this function
+ * turned every one of them into "sign-in could not be completed" and logged
+ * nothing at all. An operator looking at the request log saw a 307 to /login and
+ * no error anywhere, which is indistinguishable from the app working.
+ *
+ * So a fault is logged with its real message and shown with a short code the
+ * person can quote. The code is the timestamp, which is enough to find the log
+ * line and costs nothing to say out loud.
+ */
 function messageFor(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : String(cause);
+
   if (message.includes('no invitation')) {
     return 'that address has not been invited to a workspace';
   }
   if (message.includes('already linked')) {
     return 'that address is already linked to another sign-in';
   }
-  return 'sign-in could not be completed';
+
+  const reference = new Date().toISOString();
+  console.error(
+    `[sign-in failed] ${reference} — resolveSession could not complete. ` +
+      `This is a configuration or connectivity fault, not a refusal. ${message}`,
+    cause,
+  );
+  return `sign-in could not be completed (reference ${reference})`;
 }
 
 /**
