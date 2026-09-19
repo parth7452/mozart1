@@ -228,6 +228,17 @@ and merging the two is still identity resolution's job (STRATEGY §5.2). And
 *not* match `walmart` on purpose: whether those are one retailer is data, not
 code.
 
+`pnpm link:retailer` is how a person supplies that data. It adds a
+`debtor_aliases` row for a tenant and then resolves the cases that were waiting
+on it, writing through `PostgresStore` as `app_rw` like everything else. The two
+halves are one command but not one act: adding an alias fixes every later case
+by itself, and the backfill is what reaches back through the ones already open —
+deliberate, because a silent rewrite of old cases is not something anyone asked
+for. It never creates a debtor, refuses an alias on another tenant's debtor, and
+reports (with a non-zero exit) rather than resolving a case whose claim is
+already open against that debtor — that is two cases for one claim, and merging
+them is identity resolution's job.
+
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged
 cells, and EDI-derived portal exports. Real customer documents would be worth

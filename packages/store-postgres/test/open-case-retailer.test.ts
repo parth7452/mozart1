@@ -250,6 +250,135 @@ describeDb('openCase: the retailer as printed, and the debtor only when sure', (
     expect(second.deductionId).not.toBe(first.deductionId);
   });
 
+  it('adds an alias, and only then does the name resolve', async () => {
+    // Before: a spelling nobody has claimed opens an unmatched case.
+    const before = await store.openCase({
+      orgId,
+      claimId: `APDP-${suffix}-alias-1`,
+      retailerName: 'Wal-Mart Stores',
+      deductionAmountCents: 100,
+    });
+    expect(before.debtorId).toBeUndefined();
+
+    await store.addDebtorAlias(walmartId, 'Wal-Mart Stores');
+
+    // After: every later case with that spelling resolves by itself.
+    const after = await store.openCase({
+      orgId,
+      claimId: `APDP-${suffix}-alias-2`,
+      retailerName: 'WAL-MART STORES, INC.',
+      deductionAmountCents: 100,
+    });
+    expect(after.debtorId).toBe(walmartId);
+
+    // And the case opened before the alias existed is untouched until someone
+    // asks for it: adding an alias does not silently rewrite history.
+    expect((await readBack(before.deductionId)).debtor_id).toBeNull();
+  });
+
+  it('adding the same alias twice is not an error', async () => {
+    await store.addDebtorAlias(walmartId, 'Wal-Mart Stores');
+    await store.addDebtorAlias(walmartId, 'wal-mart stores');
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*) as n from debtor_aliases where debtor_id = $1 and alias ilike 'wal-mart%'`,
+      [walmartId],
+    );
+    expect(rows[0]?.n).toBe('1');
+  });
+
+  it('refuses to hang an alias off another tenant’s debtor', async () => {
+    const { rows } = await admin.query<{ id: string }>(
+      `select id from debtors where org_id = $1 limit 1`,
+      [otherOrgId],
+    );
+    await expect(store.addDebtorAlias(rows[0]?.id as string, 'Anything')).rejects.toThrow(
+      /no debtor/,
+    );
+  });
+
+  it('backfills the cases an alias reaches back to, and records why', async () => {
+    const claimId = `APDP-${suffix}-backfill`;
+    const opened = await store.openCase({
+      orgId,
+      claimId,
+      retailerName: 'Shipmart Supply',
+      deductionAmountCents: 100,
+    });
+    expect(opened.debtorId).toBeUndefined();
+
+    const debtorId = randomUUID();
+    await admin.query(
+      `insert into debtors (id, org_id, retailer_key, display_name)
+       values ($1, $2, 'shipmart', 'Shipmart')`,
+      [debtorId, orgId],
+    );
+    try {
+      await store.addDebtorAlias(debtorId, 'Shipmart Supply');
+      const result = await store.resolveUnmatchedCases();
+
+      expect(result.resolved.map((r) => r.deductionId)).toContain(opened.deductionId);
+      expect((await readBack(opened.deductionId)).debtor_id).toBe(debtorId);
+
+      // The projection changed, so the stream says so.
+      const events = await admin.query<{ payload: { debtor_id: string } }>(
+        `select payload from deduction_events
+          where deduction_id = $1 and event_type = 'case.debtor_resolved'`,
+        [opened.deductionId],
+      );
+      expect(events.rows[0]?.payload.debtor_id).toBe(debtorId);
+
+      // The names nobody claimed are still nobody's, and were not guessed at.
+      expect(result.stillUnmatched).toBeGreaterThan(0);
+      // Running it again changes nothing.
+      const again = await store.resolveUnmatchedCases();
+      expect(again.resolved).toHaveLength(0);
+    } finally {
+      await admin.query(`update deductions set debtor_id = null where debtor_id = $1`, [debtorId]);
+      await admin.query(`delete from debtor_aliases where debtor_id = $1`, [debtorId]);
+      await admin.query(`delete from debtors where id = $1`, [debtorId]);
+    }
+  });
+
+  it('reports a backfill that would make two cases of one claim, rather than doing it', async () => {
+    // Two cases opened while the retailer was unmatched, same claim. Once a
+    // debtor resolves they cannot both point at it — that is the constraint
+    // doing its job, and a backfill must not pretend otherwise.
+    const claimId = `APDP-${suffix}-collide`;
+    const first = await store.openCase({
+      orgId,
+      claimId,
+      retailerName: 'Northvale Grocers',
+      deductionAmountCents: 100,
+    });
+    const second = await store.openCase({
+      orgId,
+      claimId,
+      retailerName: 'Northvale Grocers',
+      deductionAmountCents: 100,
+    });
+
+    const debtorId = randomUUID();
+    await admin.query(
+      `insert into debtors (id, org_id, retailer_key, display_name)
+       values ($1, $2, 'northvale', 'Northvale Grocers')`,
+      [debtorId, orgId],
+    );
+    try {
+      const result = await store.resolveUnmatchedCases();
+      const resolvedIds = result.resolved.map((r) => r.deductionId);
+      const blockedIds = result.blocked.map((r) => r.deductionId);
+
+      // Exactly one of the pair went through; the other is reported by id.
+      expect(resolvedIds).toContain(first.deductionId);
+      expect(blockedIds).toContain(second.deductionId);
+      expect(result.blocked[0]?.reason).toMatch(new RegExp(first.deductionId));
+      expect((await readBack(second.deductionId)).debtor_id).toBeNull();
+    } finally {
+      await admin.query(`update deductions set debtor_id = null where debtor_id = $1`, [debtorId]);
+      await admin.query(`delete from debtors where id = $1`, [debtorId]);
+    }
+  });
+
   it('reads the printed name back onto the case list', async () => {
     const cases = await store.listCases(200);
     const unmatched = cases.find((c) => c.claimId === `APDP-${suffix}-3`);
