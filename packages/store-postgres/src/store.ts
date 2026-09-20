@@ -1,5 +1,6 @@
 /**
- * The PipelineStore, backed by Postgres.
+ * The PipelineStore — and, since ADR 0020, the CaseWorkflowStore — backed by
+ * Postgres.
  *
  * Every query runs as `app_rw` with the caller's tenant claim set, so the same
  * RLS policies that protect the database in production protect it here. The
@@ -9,16 +10,31 @@
  * It writes through the real constraints — append-only triggers, the approval
  * gate, the tenant policies — which is the point. An in-memory store can only
  * ever prove the pipeline's own logic; this proves the schema supports it.
+ *
+ * The Phase 3 workflow (decide, assemble, approve, submit, record the outcome)
+ * lives next door in `./workflow`, which this class wraps one method at a time
+ * so that every one of them runs inside `withTenant` and nothing else has to
+ * remember to.
  */
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
-import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
+import type { CanonicalReasonCode, CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import { DuplicateCaseError } from '@recouple/pipeline';
-import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeline';
+import type {
+  CaseOutcome,
+  CaseRecord,
+  CaseWorkflow,
+  CaseWorkflowStore,
+  PipelineStore,
+  StoredDocument,
+  WorkflowSubmissionChannel,
+} from '@recouple/pipeline';
+import * as workflow from './workflow';
+import { exactCents } from './workflow';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -417,7 +433,7 @@ export class InMemoryBlobStore implements BlobStore {
   }
 }
 
-export class PostgresStore implements PipelineStore {
+export class PostgresStore implements PipelineStore, CaseWorkflowStore {
   private readonly pool: Pool;
   private readonly role: string;
 
@@ -1663,22 +1679,78 @@ export class PostgresStore implements PipelineStore {
       };
     });
   }
-}
 
-/**
- * A bigint cents column as a JS number, or a loud failure.
- *
- * Money is integer cents in a bigint (invariant 3), and a JS number holds only
- * 2^53 of them exactly. Every conversion is therefore a place where a value can
- * quietly stop being itself, and a rounded cent on a money path is the kind of
- * bug that is only ever found in a reconciliation. This refuses instead.
- */
-function exactCents(text: string, column: string): number {
-  const cents = Number(text);
-  if (!Number.isSafeInteger(cents)) {
-    throw new Error(`${column} is ${text}, which no JS number holds exactly`);
+  // -------------------------------------------------------------------------
+  // CaseWorkflowStore (ADR 0020): a human decides, and the gate is exercised
+  // -------------------------------------------------------------------------
+  //
+  // Every one of these is a single `withTenant` transaction, because each is a
+  // step through the case state machine and a step is three writes that have to
+  // land together: the record, the append-only event, and the `deductions.state`
+  // projection. Two of the three would be a case whose timeline and whose state
+  // disagree, and the projection is supposed to be rebuildable from the stream.
+  //
+  // The work itself lives in `./workflow`, taking the client this transaction
+  // opened — so the role, the tenant claims and the commit stay in one place
+  // (`withTenant`) rather than being repeated five times.
+
+  async recordHumanDecision(input: {
+    readonly deductionId: string;
+    readonly preparedBy: string;
+    readonly reason: CanonicalReasonCode;
+    readonly rationale: string;
+  }): Promise<{ readonly decisionId: string }> {
+    return this.withTenant((client) => workflow.recordHumanDecision(client, this.tenant, input));
   }
-  return cents;
+
+  async assemblePacket(input: {
+    readonly deductionId: string;
+    readonly decisionId: string;
+    readonly assembledBy: string;
+  }): Promise<{
+    readonly packetId: string;
+    readonly contentHash: string;
+    readonly narrative: string;
+    readonly fileDocumentIds: readonly string[];
+  }> {
+    return this.withTenant((client) => workflow.assemblePacket(client, this.tenant, input));
+  }
+
+  async approve(input: {
+    readonly decisionId: string;
+    readonly packetId: string;
+    readonly approverId: string;
+    readonly note?: string;
+  }): Promise<{ readonly approvalId: string }> {
+    return this.withTenant((client) => workflow.approve(client, this.tenant, input));
+  }
+
+  async recordSubmission(input: {
+    readonly decisionId: string;
+    readonly packetId: string;
+    readonly approvalId: string;
+    readonly channel: WorkflowSubmissionChannel;
+    readonly confirmationNumber: string;
+    readonly submittedAt: Date;
+    readonly actorId: string;
+  }): Promise<{ readonly submissionId: string }> {
+    return this.withTenant((client) => workflow.recordSubmission(client, this.tenant, input));
+  }
+
+  async recordOutcome(input: {
+    readonly deductionId: string;
+    readonly outcome: CaseOutcome;
+    readonly recoveredCents: number;
+    readonly recordedBy: string;
+    readonly note?: string;
+  }): Promise<{ readonly eventId: string }> {
+    return this.withTenant((client) => workflow.recordOutcome(client, this.tenant, input));
+  }
+
+  /** Everything the case page shows, in one transaction under one tenant's claims. */
+  async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
+    return this.withTenant((client) => workflow.getWorkflow(client, deductionId));
+  }
 }
 
 /** The SQLSTATE of a driver error, when it carries one. */

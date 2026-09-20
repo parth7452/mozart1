@@ -15,3 +15,7 @@ apps/web/.cache
 apps/web/preview
 apps/web/next-env.d.ts
 apps/web/.env.local
+
+# Worktrees Claude Code opens inside the repository it is working in. They are
+# checkouts, not sources.
+.claude/worktrees/
