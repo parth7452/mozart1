@@ -87,7 +87,7 @@ database invariants: all suites passed
 | 1.5 | ERP (QBO) **read**: discovery, reconciliation, the coverage denominator, and cheap triage over short-pay lines | — |
 | 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, **expected-value gating**, owned calibration; retailer portal **read** | — |
 | 2.5 | EDI 812/820 ingestion where a supplier already has it | — |
-| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | — |
+| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | **in progress, human-decided ([ADR 0020](./docs/adr/0020-a-human-decides-and-the-gate-is-exercised.md))** |
 | 4 | QBO write-back, attribution, Stripe contingency billing, dilution view | — |
 | 5 | Learning loop: override capture, candidate rules, backtest, shadow, promotion | — |
 | 6 | Careful autonomy — only where per-tenant ECE < 0.10 is sustained | — |
