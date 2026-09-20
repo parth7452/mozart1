@@ -323,13 +323,55 @@ function withCase(call: ModelCallRecord, deductionId?: string): ModelCallRecord 
   return deductionId === undefined ? call : { ...call, deductionId };
 }
 
-export interface ProcessedDocument {
-  readonly ingest: IngestResult;
+/**
+ * Everything the read produced: what the document turned out to be, what was on
+ * it, and the case it opened or was filed against.
+ *
+ * Separate from `ProcessedDocument` because a read no longer has to happen in
+ * the same process as the ingest that fed it (ADR 0021). `readDocument` returns
+ * this, `processUpload` returns it with the ingest attached, and the Inngest job
+ * returns a summary of it.
+ */
+export interface DocumentRead {
   readonly classification?: ClassifyResult;
   readonly extraction?: ExtractionResult;
   readonly case?: CaseRecord;
   /** Why the document stopped where it did, when it did not go all the way. */
   readonly haltedBecause?: string;
+}
+
+export interface ProcessedDocument extends DocumentRead {
+  readonly ingest: IngestResult;
+}
+
+export interface ReadOptions {
+  readonly attachToCase?: string;
+  /**
+   * Whether this document may open a new case on its own. False for a document
+   * that arrived by email from a sender we could not authenticate: the file is
+   * still ingested, classified and extracted, but a human decides which case
+   * it belongs to rather than an unauthenticated stranger creating one.
+   */
+  readonly allowCaseOpen?: boolean;
+}
+
+/**
+ * Why a document stopped at the door, as a sentence somebody can act on.
+ *
+ * The detail is the whole message. Without it this reads `error (none)`, which
+ * says a scan did not pass and not one word about why — and the two causes want
+ * opposite responses: `none` is a variable nobody set, and a named signature is
+ * a file nobody should open.
+ *
+ * One function because two paths ask the question now: the request that reads
+ * the document itself, and the request that would otherwise hand the read to a
+ * job. A document that did not scan clean is never handed to anything.
+ */
+export function scanGateHalt(verdict: ScanVerdict): string {
+  return (
+    `not scanned clean: ${verdict.status} (${verdict.scanner})` +
+    (verdict.detail !== undefined ? ` — ${verdict.detail}` : '')
+  );
 }
 
 /**
@@ -338,47 +380,58 @@ export interface ProcessedDocument {
  *
  * A file that is not clean stops here, with a reason. That is the invariant-4
  * gate doing its job, not an error to be worked around.
+ *
+ * Two halves, and since ADR 0021 they can run in two places: `ingestDocument`
+ * stores and scans, `readDocument` reads. This is the one that does both in the
+ * same call, and it is the same two functions the Inngest job runs — there is
+ * one implementation of each, not a synchronous one and a background one that
+ * drift.
  */
 export async function processUpload(
   input: IngestInput,
   deps: PipelineDeps,
-  options: {
-    readonly attachToCase?: string;
-    /**
-     * Whether this upload may open a new case on its own. False for a document
-     * that arrived by email from a sender we could not authenticate: the file is
-     * still ingested, classified and extracted, but a human decides which case
-     * it belongs to rather than an unauthenticated stranger creating one.
-     */
-    readonly allowCaseOpen?: boolean;
-  } = {},
+  options: ReadOptions = {},
 ): Promise<ProcessedDocument> {
   // Before the bytes are touched, and so before anything is read or paid for.
   // A case the tenant cannot resolve ends the request here rather than quietly
   // becoming "no case given" and opening a new one (`CaseNotFoundError`).
-  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
-  let caseRecord: CaseRecord | undefined = attachedCase;
+  // `readDocument` resolves it again, because a read that starts from an id
+  // cannot inherit this one's answer; this call is what makes the refusal
+  // arrive before the document is stored.
+  await resolveAttachTarget(options.attachToCase, deps);
 
   const ingest = await ingestDocument(input, deps);
 
   if (ingest.verdict.status !== 'clean') {
-    // The detail is the whole message. Without it this reads `error (none)`,
-    // which says a scan did not pass and not one word about why — and the two
-    // causes want opposite responses: `none` is a variable nobody set, and a
-    // named signature is a file nobody should open.
-    return {
-      ingest,
-      haltedBecause:
-        `not scanned clean: ${ingest.verdict.status} (${ingest.verdict.scanner})` +
-        (ingest.verdict.detail !== undefined ? ` — ${ingest.verdict.detail}` : ''),
-    };
+    return { ingest, haltedBecause: scanGateHalt(ingest.verdict) };
   }
+
+  return { ingest, ...(await readDocument(ingest.document, deps, options)) };
+}
+
+/**
+ * The read half: classify, extract, and open or attach a case.
+ *
+ * Takes a document that is already stored and already scanned, so it is exactly
+ * what a job can run from an id — and exactly what `processUpload` runs when
+ * there is no job. The scan gate is inside `readablePayload`, and on this path
+ * it throws rather than returning a reason: reaching here with an unclean
+ * verdict is a caller that skipped the gate, which is a fault and not an
+ * answer.
+ */
+export async function readDocument(
+  document: StoredDocument,
+  deps: PipelineDeps,
+  options: ReadOptions = {},
+): Promise<DocumentRead> {
+  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
+  let caseRecord: CaseRecord | undefined = attachedCase;
 
   // Read the document once. Classification and extraction both need the page
   // text, and on a scan that text costs money and carries the boxes a reviewer
   // follows — reading twice would pay twice and, because the second read finds
   // the stored text and so never calls OCR, would arrive with no boxes at all.
-  const readable = await readablePayload(ingest.document, deps);
+  const readable = await readablePayload(document, deps);
 
   const classification = await deps.classifier.classify(readable.payload);
 
@@ -392,11 +445,11 @@ export async function processUpload(
       await deps.store.recordModelCall(withCase(call, deductionId));
     }
     await deps.store.recordClassification(
-      ingest.document.documentId,
+      document.documentId,
       classification.docType,
       classification.confidence,
     );
-    await recordExtraction(ingest.document, extraction, deps, deductionId);
+    await recordExtraction(document, extraction, deps, deductionId);
   };
 
   // The case is opened before anything is recorded, because the notice that
@@ -414,7 +467,7 @@ export async function processUpload(
   const mayOpenCase = options.allowCaseOpen ?? true;
   if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
     try {
-      caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
+      caseRecord = await openCaseFromNotice(document, extraction, deps);
     } catch (error) {
       // If recording also fails the database is the problem, and that error is
       // the louder one — it is not caught here either.
@@ -426,21 +479,25 @@ export async function processUpload(
   await recordTheRead(caseRecord?.deductionId);
 
   if (attachedCase !== undefined) {
-    await deps.store.linkDocument(attachedCase.deductionId, ingest.document.documentId, 'evidence');
+    await deps.store.linkDocument(attachedCase.deductionId, document.documentId, 'evidence');
     await deps.store.appendEvent({
-      orgId: input.orgId,
+      // The document's tenant, not a caller's claim about it. They are the same
+      // on every path that gets here — a document is only ever found or stored
+      // under the org it belongs to — and this is the one the row itself says.
+      orgId: document.orgId,
       deductionId: attachedCase.deductionId,
       eventType: 'evidence.uploaded',
       payload: {
-        document_id: ingest.document.documentId,
+        document_id: document.documentId,
         doc_type: classification.docType,
-        filename: input.filename,
+        // What the document is called, which is what it was uploaded as
+        // (ADR 0011). A job reads this off the row rather than off an event.
+        filename: document.filename,
       },
     });
   }
 
   return {
-    ingest,
     classification,
     extraction,
     ...(caseRecord !== undefined ? { case: caseRecord } : {}),
@@ -456,8 +513,12 @@ export async function processUpload(
  * `undefined` only when no case was named. A named case that does not resolve
  * throws, because `getCase` cannot tell "no such case" from "another tenant's
  * case" and neither of those is a reason to open a new one.
+ *
+ * Exported because the check has to happen before the bytes are stored on every
+ * path, including the one where the read happens later in a job and this is the
+ * only part of it the reviewer is still around to be told about (ADR 0021).
  */
-async function resolveAttachTarget(
+export async function resolveAttachTarget(
   attachToCase: string | undefined,
   deps: PipelineDeps,
 ): Promise<CaseRecord | undefined> {
