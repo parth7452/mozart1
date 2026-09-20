@@ -15,6 +15,12 @@
   (0017 went to the repository extraction, which this document's §9 "Now" row
   did not anticipate and which had to happen before anything could deploy.)
 
+  That mapping is a plan, not a record, and it has drifted: 0018 went to the
+  hosted scanner, 0019 to the retailer as printed, and 0020 to the Phase 3
+  reorder this document's §9 now carries. The addendum's own items take the next
+  free numbers when they are written. Where §9 below says "ADR 0020
+  agent-facing decision tool", it means that item, not ADR 0020.
+
   Where this document and CLAUDE.md disagree about build order, this document
   wins and CLAUDE.md is updated to match; where they disagree about an invariant,
   neither does — §0 and §8 are explicit that the seven invariants stand.
@@ -420,6 +426,7 @@ Preconditions before any policy-derived approval ships:
 | **2** | Phase 2 decision layer with **EV gating** (CH-1) and **owned calibration** (CH-2); ADR 0020 agent-facing decision tool; **ADD-8 enumerate-then-choose evidence planning**; portal credentialed read | ECE measurable per tenant; coverage rate computable |
 | **2.5** | EDI 812/820 ingestion where available | — |
 | **3** | Packet + approval + manual submission + outcomes; ADD-5 denial/re-file | Recovery rate measurable end to end |
+| **Reordered** | Per **ADR 0020**, stage 3 is built *before* 1.5 and 2, with the dispute decision made by a human instead of Jev. The gate, the append-only tables and RLS are unchanged; the gate is exercised for the first time. 1.5 and 2 follow in this order | This row's own go/no-go, reached sooner: recovery rate measurable end to end |
 | **4** | QBO write-back, attribution, contingency billing, ADD-4 dilution view | Collection rate closed |
 | **5** | Learning loop; policy approvals in **shadow only** (§8) | Shadow policy precision ≥ human approval precision |
 | **6** | Careful autonomy where calibration sustains it; `portal_agent` built as a typed action space over a DOM index, not screenshots (§6.8) | Per-tenant ECE < 0.10 sustained |

@@ -65,10 +65,18 @@ the connecting role.
 
 ## Build order (do not reorder)
 
-Phase 0 foundations → 1 ingest+classify → **1.5 ERP read + triage** → 2
-evidence+decision (EV-gated) + portal **read** → **2.5 EDI 812/820** → 3
-packet+approval+manual submission+outcomes → 4 QBO write-back + contingency
-billing → 5 learning loop → 6 careful autonomy.
+Phase 0 foundations → 1 ingest+classify → **3 packet+approval+manual
+submission+outcomes, human-decided (ADR 0020)** → **1.5 ERP read + triage** → 2
+evidence+decision (EV-gated) + portal **read** → **2.5 EDI 812/820** → 4 QBO
+write-back + contingency billing → 5 learning loop → 6 careful autonomy.
+
+Phase 3 moved ahead of 1.5 and 2 per ADR 0020, with the dispute decision made
+by a human rather than by Jev, so a customer can run one case end to end and a
+recovery rate becomes measurable — STRATEGY §9's own go/no-go for that stage.
+A human decision is an ordinary `decisions` row with `provider = 'human'` and a
+non-null `prepared_by`, so separation of duties applies to it unchanged and the
+gate is exercised rather than routed around. Phases 1.5 and 2 follow,
+unchanged; Phase 2's model decision lands in the slot Phase 3 has already used.
 
 Phases 1.5, 2's portal read and 2.5 are new, from `docs/STRATEGY.md` §5.4. The
 reason is one sentence: a deduction could only enter the system if the supplier
