@@ -55,6 +55,28 @@ export class DuplicateCaseError extends Error {
   }
 }
 
+/**
+ * A caller named a case to attach this document to, and that case is not one
+ * this tenant can see.
+ *
+ * `getCase` answers `undefined` for a case that does not exist and for one
+ * belonging to another tenant — deliberately, because telling the two apart
+ * would leak the existence of another tenant's case. That made the two
+ * indistinguishable *here* too, and the pipeline used to treat both as "no case
+ * given": it would open a brand new case from the notice, or file the evidence
+ * against nothing at all. Either way the reviewer's document went somewhere they
+ * did not ask for and nothing said so.
+ *
+ * So it is an error, and it is raised before the document is read, because a
+ * read costs money and a case we cannot resolve is not one worth spending on.
+ */
+export class CaseNotFoundError extends Error {
+  constructor(readonly deductionId: string) {
+    super(`case ${deductionId} is not one this tenant can attach a document to`);
+    this.name = 'CaseNotFoundError';
+  }
+}
+
 export interface IngestInput {
   readonly orgId: string;
   readonly filename: string;
@@ -331,6 +353,12 @@ export async function processUpload(
     readonly allowCaseOpen?: boolean;
   } = {},
 ): Promise<ProcessedDocument> {
+  // Before the bytes are touched, and so before anything is read or paid for.
+  // A case the tenant cannot resolve ends the request here rather than quietly
+  // becoming "no case given" and opening a new one (`CaseNotFoundError`).
+  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
+  let caseRecord: CaseRecord | undefined = attachedCase;
+
   const ingest = await ingestDocument(input, deps);
 
   if (ingest.verdict.status !== 'clean') {
@@ -353,11 +381,6 @@ export async function processUpload(
   const readable = await readablePayload(ingest.document, deps);
 
   const classification = await deps.classifier.classify(readable.payload);
-
-  let caseRecord: CaseRecord | undefined;
-  if (options.attachToCase !== undefined) {
-    caseRecord = await deps.store.getCase(options.attachToCase);
-  }
 
   const extraction = await readExtraction(readable, classification.docType, deps);
 
@@ -402,11 +425,11 @@ export async function processUpload(
 
   await recordTheRead(caseRecord?.deductionId);
 
-  if (options.attachToCase !== undefined && caseRecord !== undefined) {
-    await deps.store.linkDocument(caseRecord.deductionId, ingest.document.documentId, 'evidence');
+  if (attachedCase !== undefined) {
+    await deps.store.linkDocument(attachedCase.deductionId, ingest.document.documentId, 'evidence');
     await deps.store.appendEvent({
       orgId: input.orgId,
-      deductionId: caseRecord.deductionId,
+      deductionId: attachedCase.deductionId,
       eventType: 'evidence.uploaded',
       payload: {
         document_id: ingest.document.documentId,
@@ -425,6 +448,23 @@ export async function processUpload(
       ? { haltedBecause: 'a notice from an unauthenticated sender: filed for a human to attach' }
       : {}),
   };
+}
+
+/**
+ * The case a document is being attached to, resolved before anything is read.
+ *
+ * `undefined` only when no case was named. A named case that does not resolve
+ * throws, because `getCase` cannot tell "no such case" from "another tenant's
+ * case" and neither of those is a reason to open a new one.
+ */
+async function resolveAttachTarget(
+  attachToCase: string | undefined,
+  deps: PipelineDeps,
+): Promise<CaseRecord | undefined> {
+  if (attachToCase === undefined) return undefined;
+  const found = await deps.store.getCase(attachToCase);
+  if (found === undefined) throw new CaseNotFoundError(attachToCase);
+  return found;
 }
 
 /**

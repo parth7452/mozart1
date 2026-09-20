@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { AlreadyDeclinedError, isDeclineReason, isMissingEvidence } from '@recouple/store-postgres';
 import { requireSession, storeFor } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
+import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
 
 /**
  * Records a decision not to fight a case.
@@ -19,6 +20,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  // First, before the session is even looked up. This handler writes to the
+  // counterfactual log, and a write another site can trigger is one nobody
+  // asked for. `SameSite=Lax` on the session cookie stops it too; this does not
+  // depend on that being true in a file it does not own.
+  if (isCrossSite(request)) return refuseCrossSite();
+
   const { id } = await params;
   const session = await requireSession();
   const back = new URL(`/cases/${id}`, request.url);
@@ -26,7 +33,7 @@ export async function POST(
   // A real UUID, not 36 characters that look like one: an id that is the right
   // shape but not a UUID reaches Postgres and comes back as a 500, losing
   // whatever the reviewer typed into the form.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+  if (!isUuid(id)) {
     return NextResponse.redirect(new URL('/', request.url), { status: 303 });
   }
   if (!mayWrite(session.org.role)) {

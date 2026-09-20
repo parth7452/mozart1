@@ -19,6 +19,7 @@ import {
   type FixtureDocument,
 } from '@recouple/fixtures';
 import {
+  CaseNotFoundError,
   DuplicateCaseError,
   RejectedUploadError,
   classifyDocument,
@@ -390,6 +391,46 @@ describe('a notice becomes a case', () => {
     expect(store.events.filter((e) => e.eventType === 'evidence.uploaded')).toHaveLength(3);
     // One case, not four: evidence does not open cases of its own.
     expect(store.cases.size).toBe(1);
+  });
+
+  it('refuses a case it cannot resolve, before it reads or spends anything', async () => {
+    // `getCase` answers `undefined` both for a case that does not exist and for
+    // one belonging to another tenant — it must, or it would leak the second.
+    // The pipeline used to read that as "no case was named": a notice would
+    // open a *new* case, and evidence would be filed against nothing, and the
+    // reviewer was told neither. Now it says so.
+    const { store, classifier, extractor, deps } = harness();
+    const stranger = '99999999-9999-9999-9999-999999999999';
+
+    await expect(
+      processUpload(upload(fixtureFor('walmart-po.pdf')), deps, { attachToCase: stranger }),
+    ).rejects.toThrow(CaseNotFoundError);
+
+    // Before anything was read, which is the part that costs money: not a
+    // classify, not an extract, not a micro-dollar.
+    expect(classifier.calls).toBe(0);
+    expect(extractor.calls).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.totalCostMicros()).toBe(0);
+    // And before anything was stored, so a refused attachment leaves no trace.
+    expect(store.documents.size).toBe(0);
+    expect(store.cases.size).toBe(0);
+    expect(store.extractions).toHaveLength(0);
+  });
+
+  it('does not open a second case when the notice names a case it cannot see', async () => {
+    // The worst version of the old behaviour: a *notice* attached to an
+    // unresolvable case fell through to `openCaseFromNotice` and opened one, so
+    // a typo in a case id silently created a case instead of failing.
+    const { store, deps } = harness();
+
+    await expect(
+      processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps, {
+        attachToCase: '99999999-9999-9999-9999-999999999999',
+      }),
+    ).rejects.toThrow(CaseNotFoundError);
+
+    expect(store.cases.size).toBe(0);
   });
 
   it('reconciles the whole case once its evidence is in', async () => {

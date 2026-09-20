@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession, storeFor } from '../../../lib/session';
 import { mayWrite } from '../../../lib/pipeline';
+import { isUuid } from '../../../lib/request';
 import { CaseReview } from '../../../components/case-review';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,10 @@ export default async function CasePage({
 }) {
   const { id } = await params;
   const { decline, upload } = await searchParams;
-  if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  // The strict pattern, the same one the decline route and the upload route
+  // use. `[0-9a-f-]{36}` accepts `------------------------------------`, which
+  // is not a UUID and reaches Postgres as a 500 rather than a 404.
+  if (!isUuid(id)) notFound();
 
   const session = await requireSession();
   const store = storeFor(session);

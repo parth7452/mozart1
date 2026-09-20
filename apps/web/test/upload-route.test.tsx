@@ -47,15 +47,20 @@ const harness = vi.hoisted(() => ({
   store: undefined as RouteTestStore | undefined,
   deps: undefined as PipelineDeps | undefined,
   role: 'analyst' as string,
+  /** How many times the session was resolved, so ordering can be asserted. */
+  sessions: 0,
 }));
 
 vi.mock('../lib/session', () => ({
-  requireSession: async () => ({
-    userId: '22222222-2222-2222-2222-222222222222',
-    email: 'reviewer@example.test',
-    org: { orgId: ORG_ID, slug: 'acme', name: 'Acme', role: harness.role },
-    orgs: [],
-  }),
+  requireSession: async () => {
+    harness.sessions += 1;
+    return {
+      userId: '22222222-2222-2222-2222-222222222222',
+      email: 'reviewer@example.test',
+      org: { orgId: ORG_ID, slug: 'acme', name: 'Acme', role: harness.role },
+      orgs: [],
+    };
+  },
   storeFor: () => harness.store as unknown as PostgresStore,
 }));
 
@@ -112,18 +117,30 @@ function stubbedDeps(store: RouteTestStore): PipelineDeps {
 }
 
 /** A POST the route can read: one file, no content-length to argue about. */
-function uploadRequest(bytes: Uint8Array, filename: string, attachToCase?: string): NextRequest {
+function uploadRequest(
+  bytes: Uint8Array,
+  filename: string,
+  attachToCase?: string,
+  secFetchSite?: string,
+): NextRequest {
   const form = new FormData();
   // `as BlobPart`: the same bytes either way — `Uint8Array<ArrayBufferLike>` and
   // the DOM lib's `ArrayBufferView<ArrayBuffer>` disagree on paper, not at run time.
   form.set('file', new File([bytes as BlobPart], filename, { type: 'application/pdf' }));
   if (attachToCase !== undefined) form.set('attachToCase', attachToCase);
-  return new NextRequest('https://app.example.test/upload', { method: 'POST', body: form });
+  const headers = new Headers();
+  if (secFetchSite !== undefined) headers.set('sec-fetch-site', secFetchSite);
+  return new NextRequest('https://app.example.test/upload', {
+    method: 'POST',
+    body: form,
+    headers,
+  });
 }
 
 describe('uploading a notice whose claim is already a case', () => {
   beforeEach(() => {
     harness.role = 'analyst';
+    harness.sessions = 0;
     harness.store = new RouteTestStore();
     harness.deps = stubbedDeps(harness.store);
   });
@@ -184,6 +201,54 @@ describe('uploading a notice whose claim is already a case', () => {
     const location = new URL(response.headers.get('location') as string);
     expect(location.pathname).toBe(`/cases/${caseId}`);
     expect(location.searchParams.get('upload')).toBe('choose a file first');
+  });
+
+  it('refuses a cross-site POST with a 403, before the session is resolved', async () => {
+    // Reading a document costs money and stores bytes. Neither should be
+    // reachable from another site's page. `SameSite=Lax` on the session cookie
+    // stops it too, but that is a setting in a file this route does not own.
+    const store = harness.store as RouteTestStore;
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, undefined, 'cross-site'));
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get('location')).toBeNull();
+    expect(harness.sessions).toBe(0);
+    expect(store.documents.size).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+  });
+
+  it('lets a same-origin POST through, and one with no such header at all', async () => {
+    for (const site of ['same-origin', 'none', undefined]) {
+      harness.store = new RouteTestStore();
+      harness.deps = stubbedDeps(harness.store);
+      const response = await POST(uploadRequest(notice.bytes, notice.filename, undefined, site));
+      expect(response.status).toBe(303);
+      expect((harness.store as RouteTestStore).cases.size).toBe(1);
+    }
+  });
+
+  it('refuses a case it cannot resolve instead of opening a second one', async () => {
+    // A well-formed case id that is not a case this tenant can see: stale,
+    // mistyped, or another tenant's. `getCase` cannot tell those apart, and the
+    // pipeline used to read all of them as "no case named" — so a notice
+    // attached to a wrong id opened a brand new case and said nothing.
+    const store = harness.store as RouteTestStore;
+    const stranger = '44444444-4444-4444-4444-444444444444';
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, stranger));
+
+    expect(response.status).toBe(303);
+    const to = new URL(response.headers.get('location') as string);
+    // Back to the list: the case page they came from is not theirs to return to.
+    expect(to.pathname).toBe('/');
+    expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
+
+    // Nothing read, nothing spent, nothing stored — the refusal is before all
+    // of it, and it is not swallowed into a page that looks like it worked.
+    expect(store.cases.size).toBe(0);
+    expect(store.documents.size).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.totalCostMicros()).toBe(0);
+    expect(store.closed).toBe(1);
   });
 
   it('refuses a reader who may not add documents, before anything is read', async () => {
