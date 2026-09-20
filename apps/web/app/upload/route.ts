@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { RejectedUploadError, processUpload } from '@recouple/pipeline';
+import { DuplicateCaseError, RejectedUploadError, processUpload } from '@recouple/pipeline';
 import { requireSession, storeFor } from '../../lib/session';
 import { mayWrite, pipelineDepsFor } from '../../lib/pipeline';
 
@@ -87,6 +87,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // are not what the name claims. Nothing was stored.
       back.searchParams.set('upload', cause.message);
       return NextResponse.redirect(back, { status: 303 });
+    }
+    if (cause instanceof DuplicateCaseError) {
+      // The same claim, already a case. Not an error the reviewer can act on and
+      // not a fault either: the notice arrived twice — as a PDF and then as a
+      // scan, say, which are different bytes and so are not deduplicated by
+      // hash — and the second one was read before the database said so.
+      //
+      // The document and everything read from it are stored; the case is the
+      // one that already exists, so that is where the reviewer is sent, told
+      // why. Merging the two readings into one case is identity resolution's
+      // job (ADR 0019, STRATEGY §5.2), not this handler's.
+      const existing = new URL(`/cases/${cause.existingDeductionId}`, request.url);
+      existing.searchParams.set(
+        'upload',
+        `claim ${cause.claimId} is already this case; the document was read but no second case was opened`,
+      );
+      return NextResponse.redirect(existing, { status: 303 });
     }
     throw cause;
   } finally {

@@ -17,24 +17,17 @@ import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
 import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
+import { DuplicateCaseError } from '@recouple/pipeline';
 import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeline';
 
 /**
  * The same claim, for the same debtor, is already a case.
  *
- * Carries the existing case so a caller can point at it instead of reporting a
- * unique-violation at the reviewer.
+ * Defined with the pipeline's steps, not here, so that the in-memory store and
+ * this one refuse a duplicate with the same class — a caller cannot be right
+ * about one store and wrong about the other.
  */
-export class DuplicateCaseError extends Error {
-  constructor(
-    message: string,
-    readonly existingDeductionId: string,
-    readonly claimId: string,
-  ) {
-    super(message);
-    this.name = 'DuplicateCaseError';
-  }
-}
+export { DuplicateCaseError };
 
 export interface TenantContext {
   readonly orgId: string;
@@ -96,6 +89,19 @@ export async function closeAllPools(): Promise<void> {
   const open = [...pools.values()];
   pools.clear();
   await Promise.all(open.map((pool) => pool.end().catch(() => undefined)));
+}
+
+/**
+ * The columns a backfill may fill, each only ever from null.
+ *
+ * Mutable and internal: it is a builder the repair fills in as it reads, and
+ * `FilledCase` is what a caller is handed once it has been written.
+ */
+interface CaseFill {
+  retailerNameAsPrinted?: string;
+  debtorId?: string;
+  deductionDate?: string;
+  disputeDeadline?: string;
 }
 
 /** One case a backfill repaired, and which columns it filled. */
@@ -883,21 +889,6 @@ export class PostgresStore implements PipelineStore {
   }
 
   /**
-   * Resolves cases whose retailer name now matches a debtor, and leaves the
-   * rest alone.
-   *
-   * Adding an alias does not reach back through history on its own — ADR 0019
-   * says so on purpose, because a silent rewrite of old cases is not something
-   * anyone asked for. This is the deliberate step that does it, and it records
-   * a `case.debtor_resolved` event for each one so the change is in the stream
-   * rather than only in the projection.
-   *
-   * A case it cannot resolve is reported, never guessed at, and a case whose
-   * claim is already open against that debtor comes back as `blocked` rather
-   * than as a swallowed unique violation: that is two cases for one claim, and
-   * merging them is identity resolution's job, not a backfill's.
-   */
-  /**
    * Fills a case's retailer and dates from what extraction already read.
    *
    * A case opened before ADR 0019 has none of them on its row, but the values
@@ -956,12 +947,7 @@ export class PostgresStore implements PipelineStore {
       let unchanged = 0;
 
       for (const row of rows) {
-        const change: {
-          retailerNameAsPrinted?: string;
-          debtorId?: string;
-          deductionDate?: string;
-          disputeDeadline?: string;
-        } = {};
+        const change: CaseFill = {};
 
         const name = row.printed_name?.trim();
         if (name !== undefined && name !== '') {
@@ -995,55 +981,208 @@ export class PostgresStore implements PipelineStore {
           continue;
         }
 
-        await client.query('savepoint before_backfill');
-        try {
-          await client.query(
-            `update deductions
-                set retailer_name_as_printed = coalesce($2, retailer_name_as_printed),
-                    debtor_id                = coalesce($3, debtor_id),
-                    deduction_date           = coalesce($4::date, deduction_date),
-                    dispute_deadline         = coalesce($5::date, dispute_deadline),
-                    updated_at               = now()
-              where id = $1`,
-            [
-              row.id,
-              change.retailerNameAsPrinted ?? null,
-              change.debtorId ?? null,
-              change.deductionDate ?? null,
-              change.disputeDeadline ?? null,
-            ],
-          );
-          await client.query('release savepoint before_backfill');
-        } catch (error) {
-          await client.query('rollback to savepoint before_backfill');
-          const code = (error as { code?: unknown } | null)?.code;
-          // 23505: that claim is already a case against the debtor we resolved.
-          // 23514: the name is longer than the column allows. Both are findings
-          // about one case, not a reason to abandon the rest.
-          if (code !== '23505' && code !== '23514') throw error;
-          blocked.push({
-            deductionId: row.id,
-            name: name ?? '(none)',
-            reason:
-              code === '23505'
-                ? `claim ${row.claim_id ?? '(none)'} is already open for that debtor`
-                : `the extracted retailer name is too long to store`,
-          });
+        const outcome = await this.fillNullColumns(client, row.id, row.claim_id, change);
+        if (outcome.blocked !== undefined) {
+          blocked.push({ deductionId: row.id, name: name ?? '(none)', reason: outcome.blocked });
+        }
+        if (outcome.landed === undefined) {
+          // Nothing reached the row: either every column was refused, or another
+          // writer filled them between the select and the update. Neither is a
+          // change, so neither gets an event.
+          if (outcome.blocked === undefined) unchanged += 1;
           continue;
         }
 
         await client.query(
           `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
            values ($1, $2, 'case.backfilled_from_extraction', $3::jsonb, now())`,
-          [this.tenant.orgId, row.id, JSON.stringify(change)],
+          [this.tenant.orgId, row.id, JSON.stringify(outcome.landed)],
         );
-        filled.push({ deductionId: row.id, ...change });
+        filled.push({ deductionId: row.id, ...outcome.landed });
       }
 
       return { filled, blocked, unread, unchanged };
     });
   }
 
+  /**
+   * Writes one case's repair, and reports the part of it the row refused.
+   *
+   * Two halves, deliberately. The printed name and the two dates are what a
+   * reviewer triages on, and nothing can refuse them but the length check. The
+   * debtor link is identity, and `unique (org_id, debtor_id, claim_id)` refuses
+   * it when that claim is already a case against the debtor we resolved.
+   *
+   * Writing all four in one statement let one refused column veto the other
+   * three: the savepoint rolled back, the row kept its null name, and
+   * `resolveUnmatchedCases` — which only ever looks at rows that already carry a
+   * printed name — could never reach it again. That made the row unrepairable
+   * for good.
+   *
+   * So a refusal drops the column it was about and the rest is written: a
+   * refused link leaves `debtor_id` null and lands the name and the dates, a
+   * name past the column's cap leaves that null and lands the dates. Nothing is
+   * truncated to fit, every refusal is reported — the duplicate by the id of the
+   * case that holds the claim — and an error about anything else is raised, not
+   * retried. Merging two cases of one claim is still identity resolution's job
+   * (STRATEGY §5.2), not a backfill's.
+   */
+  private async fillNullColumns(
+    client: PoolClient,
+    deductionId: string,
+    claimId: string | null,
+    change: CaseFill,
+  ): Promise<{ landed?: CaseFill; blocked?: string }> {
+    const refusals: string[] = [];
+    const attempt: CaseFill = { ...change };
+
+    // Terminates: every pass either returns, raises, or removes one of the four
+    // columns from the attempt.
+    for (;;) {
+      try {
+        const landed = await this.writeCaseFill(client, deductionId, attempt);
+        return {
+          ...(landed !== undefined ? { landed } : {}),
+          ...(refusals.length > 0 ? { blocked: refusals.join('; ') } : {}),
+        };
+      } catch (error) {
+        const code = sqlState(error);
+        // 23505: that claim is already a case against the debtor we resolved.
+        if (code === '23505' && attempt.debtorId !== undefined) {
+          refusals.push(
+            await this.duplicateClaimReason(client, deductionId, claimId, attempt.debtorId),
+          );
+          delete attempt.debtorId;
+        } else if (code === '23514' && attempt.retailerNameAsPrinted !== undefined) {
+          // The name is longer than the column allows, and half a name is not
+          // what the page said, so none of it is stored.
+          refusals.push('the extracted retailer name is too long to store');
+          delete attempt.retailerNameAsPrinted;
+        } else {
+          // Anything else, or a violation about a column we are not writing, is
+          // not ours to interpret.
+          throw error;
+        }
+      }
+      if (Object.keys(attempt).length === 0) return { blocked: refusals.join('; ') };
+    }
+  }
+
+  /**
+   * The update itself: each column takes the new value only if it is still null.
+   *
+   * `coalesce(col, $n)`, not `coalesce($n, col)` — the column wins, so "fills
+   * only null columns" is a property of the statement rather than of the
+   * TypeScript flags that built its parameters. The `is null` guards mean a row
+   * another writer filled between the select and here is not touched at all, so
+   * it is neither stamped with `updated_at` nor reported as a change.
+   *
+   * Returns exactly what landed, read back from the row, or undefined when
+   * nothing did. It runs inside a savepoint so a constraint violation is a
+   * question the caller can ask about rather than an aborted transaction.
+   */
+  private async writeCaseFill(
+    client: PoolClient,
+    deductionId: string,
+    change: CaseFill,
+  ): Promise<CaseFill | undefined> {
+    await client.query('savepoint before_backfill');
+    let row: {
+      retailer_name_as_printed: string | null;
+      debtor_id: string | null;
+      deduction_date: Date | string | null;
+      dispute_deadline: Date | string | null;
+    } | undefined;
+    try {
+      const result = await client.query<NonNullable<typeof row>>(
+        `update deductions
+            set retailer_name_as_printed = coalesce(retailer_name_as_printed, $2),
+                debtor_id                = coalesce(debtor_id, $3::uuid),
+                deduction_date           = coalesce(deduction_date, $4::date),
+                dispute_deadline         = coalesce(dispute_deadline, $5::date),
+                updated_at               = now()
+          where id = $1
+            and (($2::text is not null and retailer_name_as_printed is null)
+              or ($3::uuid is not null and debtor_id is null)
+              or ($4::date is not null and deduction_date is null)
+              or ($5::date is not null and dispute_deadline is null))
+      returning retailer_name_as_printed, debtor_id, deduction_date, dispute_deadline`,
+        [
+          deductionId,
+          change.retailerNameAsPrinted ?? null,
+          change.debtorId ?? null,
+          change.deductionDate ?? null,
+          change.disputeDeadline ?? null,
+        ],
+      );
+      row = result.rows[0];
+      await client.query('release savepoint before_backfill');
+    } catch (error) {
+      await client.query('rollback to savepoint before_backfill');
+      throw error;
+    }
+    if (row === undefined) return undefined;
+
+    // What we asked for is not what landed — another writer may have filled a
+    // column first. The event records the row, not the intent.
+    const landed: CaseFill = {};
+    if (
+      change.retailerNameAsPrinted !== undefined &&
+      row.retailer_name_as_printed === change.retailerNameAsPrinted
+    ) {
+      landed.retailerNameAsPrinted = change.retailerNameAsPrinted;
+    }
+    if (change.debtorId !== undefined && row.debtor_id === change.debtorId) {
+      landed.debtorId = change.debtorId;
+    }
+    if (change.deductionDate !== undefined && isoDate(row.deduction_date) === change.deductionDate) {
+      landed.deductionDate = change.deductionDate;
+    }
+    if (
+      change.disputeDeadline !== undefined &&
+      isoDate(row.dispute_deadline) === change.disputeDeadline
+    ) {
+      landed.disputeDeadline = change.disputeDeadline;
+    }
+    return Object.keys(landed).length === 0 ? undefined : landed;
+  }
+
+  /** Which case already holds this claim for that debtor, named rather than guessed at. */
+  private async duplicateClaimReason(
+    client: PoolClient,
+    deductionId: string,
+    claimId: string | null,
+    debtorId: string | undefined,
+  ): Promise<string> {
+    const { rows } = await client.query<{ id: string }>(
+      `select id from deductions
+        where debtor_id = $1 and claim_id = $2 and id <> $3 limit 1`,
+      [debtorId ?? null, claimId, deductionId],
+    );
+    return `claim ${claimId ?? '(none)'} is already open for that debtor as case ${
+      rows[0]?.id ?? 'unknown'
+    }`;
+  }
+
+  /**
+   * Resolves cases whose retailer name now matches a debtor, and leaves the
+   * rest alone.
+   *
+   * Adding an alias does not reach back through history on its own — ADR 0019
+   * says so on purpose, because a silent rewrite of old cases is not something
+   * anyone asked for. This is the deliberate step that does it, and it records
+   * a `case.debtor_resolved` event for each one so the change is in the stream
+   * rather than only in the projection.
+   *
+   * A case it cannot resolve is reported, never guessed at, and a case whose
+   * claim is already open against that debtor comes back as `blocked` rather
+   * than as a swallowed unique violation: that is two cases for one claim, and
+   * merging them is identity resolution's job, not a backfill's.
+   *
+   * It only ever looks at rows that already carry a printed name, which is why
+   * `backfillFromExtraction` must land that name even when the debtor link is
+   * refused: a row with no name is a row this function can never reach.
+   */
   async resolveUnmatchedCases(): Promise<DebtorBackfill> {
     return this.withTenant(async (client) => {
       const candidates = await this.debtorCandidates(client);
@@ -1069,29 +1208,30 @@ export class PostgresStore implements PipelineStore {
           continue;
         }
         await client.query('savepoint before_resolve');
+        let linked: number;
         try {
-          await client.query(
-            `update deductions set debtor_id = $1, updated_at = now() where id = $2`,
+          // `debtor_id is null` again here, not only in the select above: a
+          // resolution that happened in between is somebody else's answer, and
+          // this one must not overwrite it.
+          const result = await client.query(
+            `update deductions set debtor_id = $1, updated_at = now()
+              where id = $2 and debtor_id is null`,
             [debtorId, row.id],
           );
+          linked = result.rowCount ?? 0;
           await client.query('release savepoint before_resolve');
         } catch (error) {
           await client.query('rollback to savepoint before_resolve');
-          if ((error as { code?: unknown } | null)?.code !== '23505') throw error;
-          const existing = await client.query<{ id: string }>(
-            `select id from deductions
-              where debtor_id = $1 and claim_id = $2 and id <> $3 limit 1`,
-            [debtorId, row.claim_id, row.id],
-          );
+          if (sqlState(error) !== '23505') throw error;
           blocked.push({
             deductionId: row.id,
             name: row.retailer_name_as_printed,
-            reason: `claim ${row.claim_id ?? '(none)'} is already open for that debtor as case ${
-              existing.rows[0]?.id ?? 'unknown'
-            }`,
+            reason: await this.duplicateClaimReason(client, row.id, row.claim_id, debtorId),
           });
           continue;
         }
+        // Nothing changed, so nothing is claimed and no event is appended.
+        if (linked === 0) continue;
         await client.query(
           `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
            values ($1, $2, 'case.debtor_resolved', $3::jsonb, now())`,
@@ -1224,6 +1364,12 @@ export class PostgresStore implements PipelineStore {
       return Number(rows[0]?.total ?? 0);
     });
   }
+}
+
+/** The SQLSTATE of a driver error, when it carries one. */
+function sqlState(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 /**

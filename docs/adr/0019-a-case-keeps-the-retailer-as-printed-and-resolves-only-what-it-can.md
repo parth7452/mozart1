@@ -43,6 +43,13 @@ and `debtor_aliases` already exists to say that "WALMART STORES, INC." and
 
 1. `deductions` gains `retailer_name_as_printed text` — the name exactly as the
    extraction reported it, never rewritten. It is display, not identity.
+   "Exactly as reported" has two edges, and both behave like §7 rather than like
+   a rewrite: surrounding whitespace is trimmed, because padding is a property
+   of a layout and not of a name, and a reading that is only whitespace is
+   absence, not a blank name. A reading longer than the column's cap is stored
+   as null with the reason on `case.discovered`, never truncated — half a name
+   is not what the page said, and a paragraph cut down to "WALMART STORES" would
+   go on to select a debtor the page never named.
 2. `openCase` **looks up** an existing debtor for the tenant and sets `debtor_id`
    only when exactly one debtor matches. It never creates a debtor. Matching
    compares `retailerMatchKey(name)` against the same key of each debtor's

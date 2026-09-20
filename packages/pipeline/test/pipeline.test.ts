@@ -19,6 +19,7 @@ import {
   type FixtureDocument,
 } from '@recouple/fixtures';
 import {
+  DuplicateCaseError,
   RejectedUploadError,
   classifyDocument,
   ingestDocument,
@@ -232,6 +233,136 @@ describe('a notice becomes a case', () => {
     // The name still reaches the case; it is display, not identity.
     expect(result.case?.retailerName).toBe('Walmart');
     expect(store.debtors).toHaveLength(1);
+  });
+
+  it('reads a blank retailer name as a notice that named nobody', async () => {
+    // A whitespace reading is absence, not a value. Stored as one it becomes a
+    // blank cell on the case list, which says the notice named a retailer whose
+    // name is nothing — and it is not unreadable either, so nothing is reported.
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: '   ',
+          confidence: 0.4,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.retailerName).toBeUndefined();
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.retailer_name).toBeNull();
+    expect(discovered?.payload.retailer_name_unread).toBeUndefined();
+  });
+
+  it('trims the padding a layout put around a name', async () => {
+    const { deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: '  Walmart  ',
+          confidence: 0.98,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+    expect(result.case?.retailerName).toBe('Walmart');
+  });
+
+  it('refuses a retailer name longer than a case can hold, and never truncates it', async () => {
+    // The column is capped at 500 characters (migration 0015), so a reading that
+    // swallowed a paragraph used to come back as a raw constraint violation out
+    // of the store. Truncating it would be worse than refusing it: half a name
+    // is not what the page said, and it would go on to select a debtor the page
+    // never named.
+    const { store, deps } = harness();
+    const swallowedParagraph = 'Walmart Stores of the United States, '.repeat(20).trim();
+    expect(swallowedParagraph.length).toBeGreaterThan(500);
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: swallowedParagraph,
+          confidence: 0.6,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+
+    // Better a case with no retailer than no case — the same rule the dates get.
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.retailerName).toBeUndefined();
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.retailer_name).toBeNull();
+    expect(discovered?.payload.retailer_name_unread).toMatch(/longer than the 500/);
+    // Nothing shortened was stored anywhere on the way past.
+    expect([...store.cases.values()].every((c) => c.retailerName === undefined)).toBe(true);
+  });
+
+  it('names the existing case when the same claim arrives twice for one debtor', async () => {
+    // The in-memory store models `unique (org_id, debtor_id, claim_id)` the way
+    // Postgres applies it, nulls and all, so the duplicate path is the same
+    // answer here and there rather than a behaviour only the database has.
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+
+    const first = await processUpload(upload(notice), deps);
+    expect(first.case?.debtorId).toBe('debtor-walmart');
+
+    // A scan of the same notice: different bytes, so the hash does not dedupe
+    // it, and it is read before the store can say the claim is already a case.
+    const rescan = { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) };
+    const again = processUpload(rescan, deps);
+    await expect(again).rejects.toThrow(DuplicateCaseError);
+    await expect(again).rejects.toMatchObject({
+      existingDeductionId: first.case?.deductionId,
+      claimId: 'APDP-99812',
+    });
+
+    expect(store.cases.size).toBe(1);
+  });
+
+  it('records what the read cost even when the case cannot be opened', async () => {
+    // The document was read, and reading it spent money and produced fields we
+    // can check against the page. `openCase` failing afterwards is a fact about
+    // the case, not about the read: losing the model call would understate spend
+    // and losing the extraction would throw away a page we paid for.
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+
+    await processUpload(upload(notice), deps);
+    const afterFirst = store.totalCostMicros();
+    expect(afterFirst).toBe(14_000);
+
+    const rescan = { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) };
+    await expect(processUpload(rescan, deps)).rejects.toThrow(DuplicateCaseError);
+
+    expect(store.modelCalls.map((c) => c.purpose)).toEqual([
+      'classify',
+      'extract',
+      'classify',
+      'extract',
+    ]);
+    expect(store.totalCostMicros()).toBe(afterFirst * 2);
+    expect(store.extractions).toHaveLength(2);
+    expect(store.classifications).toHaveLength(2);
+    // Recorded against no case, because there is no case they belong to: the
+    // second reading is not evidence for the first one until a person says so.
+    expect(store.modelCalls.slice(2).every((c) => c.deductionId === undefined)).toBe(true);
+    expect(store.extractions[1]?.deductionId).toBeUndefined();
+    // And the failure was not swallowed to make room for the recording.
+    expect(store.cases.size).toBe(1);
   });
 
   it('walks the case through the state machine rather than assigning a state', async () => {

@@ -87,8 +87,21 @@ describeDb('openCase: the retailer as printed, and the debtor only when sure', (
     return row;
   }
 
+  /**
+   * The calendar day a `date` column holds, read the way `isoDate` in the store
+   * reads it.
+   *
+   * `pg` materialises a `date` at *local* midnight, so `toISOString()` on one
+   * names the previous day everywhere east of UTC — this test passed in UTC and
+   * failed in Berlin. A dispute deadline is a day, not an instant, so the local
+   * Y-M-D is the right reading of it.
+   */
   function iso(value: Date | null): string | undefined {
-    return value === null ? undefined : value.toISOString().slice(0, 10);
+    if (value === null) return undefined;
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   it('keeps the retailer and both dates, which is the bug this fixes', async () => {
@@ -467,6 +480,196 @@ describeDb('openCase: the retailer as printed, and the debtor only when sure', (
     const row = await readBack(opened.deductionId);
     expect(iso(row.deduction_date)).toBe('2026-01-02');
     expect(row.retailer_name_as_printed).toBe('Walmart (APDP)');
+  });
+
+  it('still lands the name and the dates when only the debtor link is refused', async () => {
+    // Two pre-0019 rows for one claim, both blank, both with the same full
+    // extraction behind them. Exactly one of them can take the debtor link —
+    // `unique (org_id, debtor_id, claim_id)` is the whole point of the
+    // constraint — and the other used to lose the name and both dates with it,
+    // because all four were written in one statement inside one savepoint. That
+    // left it unrepairable for good: `resolveUnmatchedCases` only ever looks at
+    // rows that already carry a printed name.
+    const claimId = `APDP-${suffix}-pair`;
+    const ids: string[] = [];
+    for (const minute of [1, 2]) {
+      const inserted = await admin.query<{ id: string }>(
+        `insert into deductions (org_id, claim_id, deduction_amount_cents, state, created_at)
+         values ($1, $2, 312000, 'classified', timestamptz '2026-01-01 00:00:00+00' + ($3 || ' minutes')::interval)
+         returning id`,
+        [orgId, claimId, String(minute)],
+      );
+      const deductionId = inserted.rows[0]?.id as string;
+      ids.push(deductionId);
+
+      const doc = await admin.query<{ id: string }>(
+        `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+         values ($1, $2, 10, 'application/pdf', 'test') returning id`,
+        [orgId, Buffer.from(randomUUID().replace(/-/g, ''), 'hex')],
+      );
+      for (const [path, value] of [
+        ['retailer_name', 'WALMART STORES, INC.'],
+        ['deduction_date', '08/14/2026'],
+        ['dispute_deadline', '11/12/2026'],
+      ] as const) {
+        await admin.query(
+          `insert into extraction_results
+             (org_id, document_id, deduction_id, field_path, value_json, confidence,
+              source_page, source_quote, quote_verified, extractor, schema_version, model_version)
+           values ($1,$2,$3,$4,$5::jsonb,0.98,1,$6,true,'test','1','test')`,
+          [orgId, doc.rows[0]?.id, deductionId, path, JSON.stringify(value), value],
+        );
+      }
+    }
+    const [firstId, secondId] = ids as [string, string];
+
+    const repair = await store.backfillFromExtraction();
+
+    // The older row takes the link, as the backfill reads oldest-first.
+    expect(repair.filled.find((f) => f.deductionId === firstId)?.debtorId).toBe(walmartId);
+
+    // The younger one keeps everything the link did not block. These two dates
+    // and the printed name are what a reviewer triages on, and none of them has
+    // anything to do with which debtor the claim belongs to.
+    const second = await readBack(secondId);
+    expect(second.retailer_name_as_printed).toBe('WALMART STORES, INC.');
+    expect(iso(second.deduction_date)).toBe('2026-08-14');
+    expect(iso(second.dispute_deadline)).toBe('2026-11-12');
+    expect(second.debtor_id).toBeNull();
+
+    // And the part that was refused is reported, naming the case that holds the
+    // claim rather than leaving someone to find it.
+    const blocked = repair.blocked.find((b) => b.deductionId === secondId);
+    expect(blocked?.reason).toMatch(new RegExp(firstId));
+    expect(blocked?.reason).toMatch(/already open for that debtor/);
+
+    // The row it repaired is in the stream once.
+    const eventsAfterFirstRun = await admin.query<{ n: string }>(
+      `select count(*) as n from deduction_events
+        where deduction_id = $1 and event_type = 'case.backfilled_from_extraction'`,
+      [secondId],
+    );
+    expect(eventsAfterFirstRun.rows[0]?.n).toBe('1');
+
+    // Running it again changes nothing and says nothing new: the name and the
+    // dates are already there, and the link is still impossible.
+    const again = await store.backfillFromExtraction();
+    expect(again.filled.find((f) => f.deductionId === secondId)).toBeUndefined();
+    expect(again.blocked.find((b) => b.deductionId === secondId)?.reason).toMatch(
+      new RegExp(firstId),
+    );
+    const afterSecondRun = await readBack(secondId);
+    expect(afterSecondRun).toEqual(second);
+    const eventsAfterSecondRun = await admin.query<{ n: string }>(
+      `select count(*) as n from deduction_events
+        where deduction_id = $1 and event_type = 'case.backfilled_from_extraction'`,
+      [secondId],
+    );
+    expect(eventsAfterSecondRun.rows[0]?.n).toBe('1');
+  });
+
+  it('still lands the dates when the printed name is too long for the column', async () => {
+    // Same shape of bug, other constraint: an extraction that swallowed a
+    // paragraph fails the 500-character check (migration 0015), and that must
+    // not take the two dates down with it. Nothing is truncated to make it fit.
+    const inserted = await admin.query<{ id: string }>(
+      `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
+       values ($1, $2, 312000, 'classified') returning id`,
+      [orgId, `APDP-${suffix}-toolong`],
+    );
+    const deductionId = inserted.rows[0]?.id as string;
+    const doc = await admin.query<{ id: string }>(
+      `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+       values ($1, $2, 10, 'application/pdf', 'test') returning id`,
+      [orgId, Buffer.from(randomUUID().replace(/-/g, ''), 'hex')],
+    );
+    const swallowedParagraph = 'Walmart Stores of the United States, '.repeat(20).trim();
+    expect(swallowedParagraph.length).toBeGreaterThan(500);
+    for (const [path, value] of [
+      ['retailer_name', swallowedParagraph],
+      ['deduction_date', '08/14/2026'],
+      ['dispute_deadline', '11/12/2026'],
+    ] as const) {
+      await admin.query(
+        `insert into extraction_results
+           (org_id, document_id, deduction_id, field_path, value_json, confidence,
+            source_page, source_quote, quote_verified, extractor, schema_version, model_version)
+         values ($1,$2,$3,$4,$5::jsonb,0.98,1,'x',true,'test','1','test')`,
+        [orgId, doc.rows[0]?.id, deductionId, path, JSON.stringify(value)],
+      );
+    }
+
+    const repair = await store.backfillFromExtraction();
+
+    const row = await readBack(deductionId);
+    expect(row.retailer_name_as_printed).toBeNull();
+    expect(iso(row.deduction_date)).toBe('2026-08-14');
+    expect(iso(row.dispute_deadline)).toBe('2026-11-12');
+
+    expect(repair.filled.find((f) => f.deductionId === deductionId)?.deductionDate).toBe(
+      '2026-08-14',
+    );
+    expect(repair.blocked.find((b) => b.deductionId === deductionId)?.reason).toMatch(
+      /too long to store/,
+    );
+  });
+
+  it('takes the spend and the fields of a read that opened no case', async () => {
+    // What the pipeline now does when `openCase` refuses a duplicate claim: the
+    // document was read, and that read cost money and produced fields, so both
+    // are written against no case rather than lost. The in-memory store cannot
+    // prove this — `model_calls.deduction_id` and `extraction_results
+    // .deduction_id` being nullable is a fact about the schema and the policies,
+    // which is what this asserts.
+    const doc = await admin.query<{ id: string }>(
+      `insert into documents (org_id, sha256, byte_size, mime_type, storage_ref)
+       values ($1, $2, 10, 'application/pdf', 'test') returning id`,
+      [orgId, Buffer.from(randomUUID().replace(/-/g, ''), 'hex')],
+    );
+    const documentId = doc.rows[0]?.id as string;
+
+    await store.recordModelCall({
+      purpose: 'extract',
+      provider: 'anthropic',
+      modelVersion: 'test',
+      documentId,
+      costMicros: 12_700,
+      latencyMs: 1,
+      outcome: 'ok',
+    });
+    await store.recordExtraction({
+      documentId,
+      docType: 'deduction_notice',
+      extractor: 'test',
+      schemaVersion: '1',
+      fields: [
+        {
+          fieldPath: 'claim_id',
+          value: 'APDP-99812',
+          confidence: 0.98,
+          sourcePage: 1,
+          sourceQuote: 'Claim ID: APDP-99812',
+          sourceBbox: null,
+          quoteVerified: true,
+        },
+      ],
+      document: { claim_id: { value: 'APDP-99812' } },
+    });
+
+    const spend = await admin.query<{ n: string; micros: string }>(
+      `select count(*) as n, coalesce(sum(cost_micros),0)::text as micros
+         from model_calls where document_id = $1 and deduction_id is null`,
+      [documentId],
+    );
+    expect(spend.rows[0]?.n).toBe('1');
+    expect(spend.rows[0]?.micros).toBe('12700');
+
+    const fields = await admin.query<{ n: string }>(
+      `select count(*) as n from extraction_results
+        where document_id = $1 and deduction_id is null`,
+      [documentId],
+    );
+    expect(fields.rows[0]?.n).toBe('1');
   });
 
   it('is a no-op the second time', async () => {
