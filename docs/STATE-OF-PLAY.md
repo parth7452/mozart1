@@ -54,11 +54,22 @@ Against the build order in `CLAUDE.md`:
   chains, RLS, the SQL invariant suite, money maths, the case state machine.
 - **Phase 1 — ingest + classify.** Substantially done and live. Remaining: the
   Inngest binding, and fixtures for formats still missing.
-- **Phase 1.5 — ERP read + triage.** Not started.
+- **Phase 3 — packet, approval, submission, outcomes.** In progress, and now
+  **before** 1.5 and 2 (ADR 0020), with the dispute decision made by a human
+  instead of by Jev. This is where the approve button finally appears and where
+  money first moves, and it is the only phase that depends on nothing we do not
+  already have. Landed so far: migration 0016 (a human `decisions` row, the
+  append-only `packets` table, an approval that names the packet it approved),
+  the state-machine edges for the human path, and `CaseWorkflowStore` as a
+  contract. Still to come: the store implementation, the route and the button.
+- **Phase 1.5 — ERP read + triage.** Not started, and moved out by the length
+  of Phase 3. That is the trade ADR 0020 takes deliberately: coverage is the
+  thesis, but a coverage number with no recovery rate behind it is a claim
+  about finding things.
 - **Phase 2 — evidence + decision.** Not started, though today's appointment
-  reconciliation is the shape of what belongs in it.
-- **Phase 3 — packet, approval, submission, outcomes.** Not started. This is
-  where the approve button finally appears and where money first moves.
+  reconciliation is the shape of what belongs in it. Phase 2's model decision
+  lands in the slot Phase 3 has already used, with a corpus of human decisions
+  in the same `schema_id` to score against.
 
 The case state machine has 14 states. Cases reach state 2.
 

@@ -146,12 +146,20 @@ export interface PipelineDeps {
 
 /**
  * How a dispute was filed: the subset of `ChannelKind` (`@recouple/adapters`)
- * that Phase 3 offers. `portal_agent` is Phase 6 and is deliberately absent, so
- * a value of this type cannot name a channel that does not exist yet. Named
- * apart from the adapters' `SubmissionChannel`, which is the port that *does*
- * the filing rather than the name of how it was done.
+ * that Phase 3 offers. Named apart from the adapters' `SubmissionChannel`,
+ * which is the port that *does* the filing rather than the name of how it was
+ * done.
+ *
+ * One member, on purpose. `manual_portal` is the only channel that exists: a
+ * person files on the retailer's portal and records the confirmation number.
+ * `email` is named in ADR 0020 §3 as what follows, and `portal_agent` is Phase
+ * 6 — but a union member is a promise the type makes to every caller, and a
+ * caller that passes `'email'` today would be refused by a store that has no
+ * way to send one. Widening the type is the one-line change that lands with
+ * the channel, so a value of this type can never name a way of filing we
+ * cannot do.
  */
-export type WorkflowSubmissionChannel = 'manual_portal' | 'email';
+export type WorkflowSubmissionChannel = 'manual_portal';
 
 /** What came back. `recoveredCents` is 0 for `lost`. */
 export type CaseOutcome = 'won' | 'partial' | 'lost';
@@ -313,7 +321,7 @@ export interface CaseWorkflowStore {
     readonly decisionId: string;
     readonly packetId: string;
     readonly approvalId: string;
-    readonly channel: 'manual_portal';
+    readonly channel: WorkflowSubmissionChannel;
     readonly confirmationNumber: string;
     readonly submittedAt: Date;
     readonly actorId: string;
@@ -326,7 +334,9 @@ export interface CaseWorkflowStore {
    * attributable recoveries are read from this event stream.
    *
    * @throws {WrongCaseStateError} the case was never submitted
-   * @throws {RangeError} `recoveredCents` contradicts `outcome` or is not an integer
+   * @throws {InvalidRecoveryAmountError} `recoveredCents` contradicts `outcome`,
+   *   is not an integer, or is not a number of cents this case could have
+   *   recovered
    */
   recordOutcome(input: {
     readonly deductionId: string;
@@ -401,6 +411,34 @@ export class WrongCaseStateError extends CaseWorkflowError {
       `${action} refused: case ${deductionId} is ${state}, expected ${expected.join(' or ')}`,
     );
     this.name = 'WrongCaseStateError';
+  }
+}
+
+/**
+ * The recovered amount is not one this outcome could have produced: a
+ * non-integer, a negative, anything but 0 for `lost`, or a `partial` that is
+ * not strictly between 0 and the deduction.
+ *
+ * A `CaseWorkflowError` and not a `RangeError`, which is what this was.
+ * `RangeError` is thrown by the language — `toFixed(101)`, an out-of-range
+ * array length — so a caller that catches it cannot tell a refusal on a money
+ * path from a bug in the arithmetic above it, and `instanceof CaseWorkflowError`
+ * (the one check a caller needs to sort rules from bugs) would miss it
+ * entirely. Invariant 3 is the reason this refusal exists; it gets a name that
+ * says so, and the cents that were offered are carried on the error rather
+ * than only interpolated into the message.
+ */
+export class InvalidRecoveryAmountError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly outcome: CaseOutcome,
+    readonly recoveredCents: number,
+    readonly reason: string,
+  ) {
+    super(
+      `outcome refused for case ${deductionId}: ${outcome} with ${recoveredCents} cents — ${reason}`,
+    );
+    this.name = 'InvalidRecoveryAmountError';
   }
 }
 

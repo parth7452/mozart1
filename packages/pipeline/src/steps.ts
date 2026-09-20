@@ -615,8 +615,10 @@ export async function openCaseFromNotice(
     },
   });
 
-  // The guard is doc_type_known; the classifier has just answered it.
-  applyTransition(opened.state, 'classified', { doc_type_known: true });
+  // The guard is doc_type_known; the classifier has just answered it. The
+  // trigger is named because the table is keyed by (from, to, trigger) — this
+  // edge is crossed by `document.classified` and by nothing else.
+  applyTransition(opened.state, 'classified', 'document.classified', { doc_type_known: true });
   const classified = await deps.store.transitionCase(opened.deductionId, 'classified');
   await deps.store.appendEvent({
     orgId: document.orgId,

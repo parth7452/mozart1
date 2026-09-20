@@ -74,14 +74,41 @@ tasks that follow it.
 | `latency_ms` | `0` | |
 | `prepared_by` | the analyst's user id | **Not null for a human row** |
 
-`prepared_by` is the one of these the database enforces, via
-`check (provider <> 'human' or prepared_by is not null)`. It is enforced there
-and not in the store because
-`app.enforce_separation_of_duties()` reads exactly that column: a human decision
-with a null `prepared_by` would pass the SoD trigger silently, and the person
-who decided could then approve their own decision. The other columns in the
-table above are conventions the store applies and the tests assert; none of them
-is read by a trigger, so none of them belongs in a constraint.
+`prepared_by` is the one of these the database enforces, and it enforces two
+separate things about it:
+
+- **It is there.** `check (provider <> 'human' or prepared_by is not null)`.
+  `app.enforce_separation_of_duties()` reads exactly that column, so a human
+  decision with a null `prepared_by` would pass the SoD trigger silently and the
+  person who decided could then approve their own decision.
+- **It is the caller.** `app.human_decision_names_its_author()`, a before-insert
+  trigger on `decisions`, refuses a `provider = 'human'` row whose `prepared_by`
+  is anyone but `app.current_user_id()` — the same `sub` claim every RLS policy
+  and `app.member_may_write()` already key on.
+
+The second is not a refinement of the first; it closes a different hole. A
+not-null column that anyone may fill with anyone's id is a forged authorship in
+precisely the column the gate reads. Name the approver as preparer and they are
+locked out of a case they never touched; name a colleague and the real author is
+then free to approve their own decision, which is the one thing separation of
+duties exists to prevent. Both are reachable by a store bug as easily as by
+malice, and the store is code on the near side of the gate — the same argument
+that put the approval rule in a trigger in the first place puts this one there
+too. A human decision is written by the person it names, in their own session,
+or it is not written.
+
+A *null* `prepared_by` is deliberately left to the check constraint rather than
+also raised by the trigger: row-level before triggers run ahead of check
+constraints, so raising there would take that constraint's own refusal away from
+it and leave the not-null rule proved only indirectly. Each rule keeps its own
+name in the error a caller sees, and `11_a_human_decides.sql` asserts both. The
+trigger is scoped to human rows: a model decision made by a scheduled job has no
+caller to match, and pinning one would break every provider row that is not a
+person.
+
+The other columns in the table above are conventions the store applies and the
+tests assert; none of them is read by a trigger, so none of them belongs in a
+constraint.
 
 Separation of duties then applies unchanged, and for the first time it applies to
 a real human on both ends: the analyst who prepared the decision cannot approve
@@ -136,6 +163,52 @@ packet it approved. Nullable because a `writeoff` or `writeback` approval has no
 packet, and because approvals already exist. `submissions.packet_hash` has
 existed since migration 0005.
 
+**The approval references the packet by `(decision_id, content_hash)` as a
+foreign key** (`approvals_packet_is_a_real_packet`), not by packet id. A hash
+column on its own says only "32 bytes"; without the constraint an approval could
+name a hash nothing was ever assembled under, and would read as a record of a
+human authorising a packet that does not exist. The composite key is the point:
+the approval must name a packet assembled *for that decision*, so a hash
+borrowed from another case is refused too. It is `MATCH SIMPLE`, the default,
+which is what keeps a null `packet_hash` valid — with any column of the key
+null the constraint is satisfied without a lookup, so a `writeoff` or
+`writeback` approval and every approval written before this migration stay
+valid, and `MATCH FULL` would have broken exactly those.
+
+Not by packet id, for two reasons. The hash is the value that already travels:
+`submissions.packet_hash` has held it since 0005, the store's equality check
+compares hashes, and adding a `packet_id` beside `packet_hash` would be two
+columns naming one packet with nothing holding them in agreement — a second
+place for the same fact to disagree with itself. And the hash is the *contents*,
+where an id is only a row: an approval that names a hash says what was approved,
+which is the question a reviewer asks a year later. `unique (decision_id,
+content_hash)` already exists for the idempotence argument above, so the
+reference costs no new index.
+
+This is not the gate and does not touch it. `app.require_approval()` is
+unchanged, still reads `(decision_id, action_type, org_id)` and still carries
+one rule. Declarative referential integrity on the row the gate looks for is the
+opposite of widening the function.
+
+`packets` carries one more before-insert trigger,
+`app.packet_matches_its_decision()`. The table's three foreign keys say the org,
+the deduction and the decision each exist; none of them says they are the same
+case, and RLS asks whether `org_id` is mine, not whether `decision_id` is. A row
+naming this tenant's org and deduction beside another tenant's decision
+satisfies all three and RLS both. `app.enforce_separation_of_duties()` would
+still refuse the approval that followed, so this is not a route through the
+gate — it is a stored record of "what a human was shown" attached to a decision
+another tenant made, and a defence that rests entirely on the *next* trigger is
+one trigger deep. The same check the SoD trigger makes for an approval is made
+here for a packet, plus the case: a packet is assembled for one decision on one
+deduction, and the decision's own `deduction_id` is the referee. It is `security definer` where the SoD trigger is not, deliberately:
+RLS would hide another tenant's decision from the lookup, an invisible row reads
+identically to a deleted one, and the trigger would answer "no such decision" to
+a cross-tenant reference and to a plain RLS violation alike. Reading the two
+columns as definer lets each rule give its own answer — this trigger refuses a
+cross-tenant *reference*, RLS still refuses a cross-tenant *write* on its own
+terms, and the suite asserts both separately.
+
 **The equality check — a submission's packet hash must match its approval's —
 lives in the store, not in the trigger.** The trigger's job is the one-way door:
 no submission without an approval for that exact decision. Widening it to also
@@ -169,6 +242,17 @@ The existing `outcome.detected` edges stay. A detected outcome — Phase 5 readi
 a remittance and noticing the money came back — is a different fact from a human
 typing it in, and the trigger on the edge is what tells them apart.
 
+**`written_off` is reachable in the state machine and `CaseWorkflowStore` has no
+write-off method, on purpose.** The edge `awaiting_approval → written_off` has
+existed since Phase 0 and is not being removed; what is missing is the port
+method, because a write-off is an approval action of its own
+(`app.require_approval('writeoff')`, `writeoffs`) and it lands with that action
+rather than being bolted onto a method that files disputes. The MVP is a case we
+fight; a case we decline already has a `declined_candidates` row, which is where
+the coverage numerator comes from (`STRATEGY.md`, ADD-1). A port method that
+wrote off a case without the writeoff approval would be a second way through the
+gate, so the honest MVP has no method at all rather than a partial one.
+
 ### 4. The MVP path through the state machine
 
 `packages/core-domain/src/state-machine.ts` carries the human path **without
@@ -190,9 +274,17 @@ what Phase 2 will use.
 
 Two edges may now share a `(from, to)` pair and differ only in their trigger —
 `submitted → won` is reachable by `outcome.detected` and by `outcome.recorded`.
-So the table's key becomes `(from, to, trigger)`, and `applyTransition` takes any
-candidate edge whose guards are met rather than the first one it finds. The
-invariant the file exists to prove is unaffected and still asserted: no path
+So the table's key becomes `(from, to, trigger)`, and **`trigger` becomes a
+required argument to `applyTransition`.** Required, not optional: with the pair
+alone, `submitted → won` matches both edges and whichever guard happened to be
+set would decide for the other, so a caller holding `outcome_detected` would
+move a case no human ever recorded an outcome for and the resulting state would
+no longer say which fact moved it. Naming the event is what makes the answer a
+function of what actually happened. Two edges sharing `(from, to, trigger)` with
+both guards satisfied is a bug in the table rather than a choice to make at
+runtime, so it throws instead of picking one.
+
+The invariant the file exists to prove is unaffected and still asserted: no path
 reaches `submitted` or `written_off` without passing through
 `awaiting_approval`.
 
@@ -211,8 +303,11 @@ places.
 | Only `owner`, `approver` or `analyst` may write anything | **Database** — `app.member_may_write()` in every `tenant_insert` policy (ADR 0012) |
 | Only `owner` or `approver` may approve | **Database** — `app.enforce_separation_of_duties()`, migration 0005 |
 | The preparer may not approve their own decision | **Database** — the same trigger, which is why `prepared_by` is `not null` on a human row |
+| A human decision names its *author* as preparer, not merely someone | **Database** — `app.human_decision_names_its_author()`, a before-insert trigger on `decisions` comparing `prepared_by` to `app.current_user_id()`. Not-null alone would let a store write anyone's id into the column the SoD trigger reads (§1) |
 | No submission without an approval for that exact decision on that exact deduction | **Database** — `app.require_approval('submit')`, on INSERT and UPDATE (ADR 0012) |
-| A submission's packet hash equals its approval's | **Store** — §2 above |
+| An approval's packet hash names a packet that was really assembled for that decision | **Database** — the `approvals_packet_is_a_real_packet` foreign key onto `packets (decision_id, content_hash)`, `MATCH SIMPLE` so a null stays valid (§2) |
+| A packet's decision is the same tenant's and the same case's | **Database** — `app.packet_matches_its_decision()`, a before-insert trigger on `packets`; the foreign keys say each id exists, not that they are one case (§2) |
+| A submission's packet hash equals its approval's | **Store** — §2 above. The database deliberately permits the mismatch, and `11_a_human_decides.sql` asserts that it does, so nobody closes it in the gate's trigger by accident |
 | An analyst or owner may decide and assemble | **Store** — the database sees both as ordinary writes by a writer, which is correct: a `decisions` row is not an outbound act |
 | Any writer may record a submission and an outcome | **Store**, on top of the database's writer check |
 | A case is in the right state for the action | **Store** — the state machine is the spec; the database checks only the value |
@@ -231,6 +326,22 @@ different lifetimes — the pipeline runs unattended, this one runs behind a
 person. All cents are integer `number` (invariant 3). Typed errors for every
 refusal the gate or the store can produce, because a money path that swallows a
 refusal is the failure mode `CLAUDE.md` names first.
+
+Two consequences of "every refusal has a name":
+
+- A bad `recoveredCents` raises `InvalidRecoveryAmountError`, a
+  `CaseWorkflowError`, and not `RangeError`. `RangeError` is thrown by the
+  language itself, so a caller catching it cannot tell a refusal on a money path
+  from a bug in the arithmetic above it, and `instanceof CaseWorkflowError` —
+  the one check that sorts rules from bugs — would miss it entirely. Invariant 3
+  is the reason the refusal exists; it gets a name that says so.
+- `WorkflowSubmissionChannel` is `'manual_portal'` and nothing else. `email` is
+  what follows (§3) and `portal_agent` is Phase 6, but a union member is a
+  promise to every caller, and a caller passing `'email'` today would be refused
+  by a store with no way to send one. Widening the type is the one-line change
+  that lands with the channel, so a value of this type can never name a way of
+  filing we cannot do. `recordSubmission` takes the alias rather than repeating
+  the literal, so there is one place to widen.
 
 ## Consequences
 
@@ -261,14 +372,26 @@ deductions analyst does today, and is the baseline the model has to beat.
   may sit on the *near* side of the gate, not what may cross it. Enforcement:
   `app.require_approval()` in migration 0005, on INSERT and UPDATE since 0010;
   tested in `02_approval_invariant.sql` and again for a human decision in
-  `11_a_human_decides.sql`.
+  `11_a_human_decides.sql`. Two constraints are added *around* it — an
+  approval's packet hash must name a real packet, and a human decision must name
+  its own author — and neither is inside the function. The gate stays one rule.
+  `11_a_human_decides.sql` also asserts that the database still permits a
+  submission whose packet hash differs from its approval's, so the store's half
+  cannot migrate into the trigger without someone deleting a test that says it
+  was deliberate.
 - **2 (append-only).** Extended to one more table. `packets` gets the same
   `no_update_delete` / `no_truncate` triggers and the same revoked grants as
   `declined_candidates` (migration 0014). No UPDATE or DELETE grant is added
-  anywhere. `approvals` gains a nullable column, which is DDL and changes no
-  grant and fires no row trigger.
+  anywhere. `approvals` gains a nullable column and a foreign key, both DDL,
+  changing no grant and firing no row trigger. The foreign key makes `packets`
+  a referenced table, so `truncate packets` on its own is now refused by
+  Postgres before the trigger is even reached — a second wall, and the suite
+  asserts both it and the trigger.
 - **3 (money is integer cents).** `recovered_cents` is a bigint in the event
-  payload and an integer `number` at the port. No new float reaches a money path.
+  payload and an integer `number` at the port. No new float reaches a money
+  path, and a `recoveredCents` that is not an integer is refused by name
+  (`InvalidRecoveryAmountError`, §6) rather than by a `RangeError` a caller
+  cannot tell from a bug.
 - **4 (document content is untrusted).** Strengthened by omission: the packet
   narrative is built by our code from already-extracted, already-quote-verified
   fields. No model reads a document here, so there is no call to construct
@@ -280,7 +403,11 @@ deductions analyst does today, and is the baseline the model has to beat.
 - **6 (RLS on every table).** `packets` carries the four-policy-per-command
   pattern from ADR 0012, keyed on `org_id`, with `app.member_may_write()` on
   every write. Grants are `insert, select` to `app_rw` and `select` to `app_ro`.
-  The service role appears nowhere. Tested: another tenant sees no packets.
+  The service role appears nowhere. Tested: another tenant sees no packets, a
+  `read_only` member cannot assemble one, `app_ro` may read them and holds no
+  INSERT. `app.packet_matches_its_decision()` is `security definer` and reads
+  two columns of one decision the caller already named, which is what lets RLS
+  keep answering a cross-tenant *write* in its own words (§2).
 - **7 (thresholds auto-tighten only).** Untouched. A human decision is not a
   threshold, and nothing here reads or writes `org_settings`.
 
@@ -290,8 +417,11 @@ Reverting the sequencing is a docs change: restore the build order in
 `CLAUDE.md`, the README phase table and the `STRATEGY.md` §9 row.
 
 Reverting the schema is a new migration (never an edit to 0016, which is merged
-by the time this matters): drop the `packets` table, drop
-`approvals.packet_hash`, and narrow `decisions_provider_check` back to
+by the time this matters): drop the `approvals_packet_is_a_real_packet` foreign
+key, drop `approvals.packet_hash`, drop the `packets` table with its
+`app.packet_matches_its_decision()` trigger and function, drop the
+`human_decision_names_its_author` trigger and function, and narrow
+`decisions_provider_check` back to
 `('jev', 'claude-structured')`. Narrowing the provider check fails while any
 human decision exists, which is correct — those rows are the record of a person
 authorising a dispute, and a migration that would have to delete them to proceed
