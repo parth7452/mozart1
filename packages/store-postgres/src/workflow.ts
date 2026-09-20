@@ -36,17 +36,34 @@ import {
   applyTransition,
   buildPacketNarrative,
   isCanonicalReasonCode,
+  MAX_RATIONALE_LENGTH,
   packetContentHash,
+  PacketError,
   type CanonicalReasonCode,
   type CaseState,
   type PacketDocument,
 } from '@recouple/core-domain';
 import {
+  ActorIsNotTheSessionError,
+  CaseAlreadyDeclinedError,
+  CaseNotVisibleError,
   CaseWorkflowError,
+  ConfirmationNumberRequiredError,
+  DecisionNotForCaseError,
+  DecisionNotFoundError,
+  DuplicateApprovalError,
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
+  NoApprovalForSubmissionError,
+  NotACanonicalReasonError,
+  NothingToSendError,
+  PacketAfterApprovalError,
   PacketHashMismatchError,
+  PacketNotBuildableError,
+  PacketNotForDecisionError,
   PreparerCannotApproveError,
+  RationaleRequiredError,
+  RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
   type ApprovalRecord,
@@ -82,53 +99,77 @@ const WRITER_ROLES = ['owner', 'approver', 'analyst'] as const;
 const APPROVER_ROLES = ['owner', 'approver'] as const;
 
 // ---------------------------------------------------------------------------
-// Two refusals that have no home in ports.ts yet
+// Refusals only this store can reach
 // ---------------------------------------------------------------------------
+//
+// `DuplicateApprovalError`, `CaseAlreadyDeclinedError` and the rest of the
+// workflow's named refusals live in `@recouple/pipeline`'s `ports.ts`, where
+// both stores get the same class and a caller's `instanceof` holds whichever
+// one it was handed. What stays here is what only a database can refuse: the
+// translations of three triggers and a foreign key. Each is still a
+// `CaseWorkflowError` with its own name — never the bare base, which a caller
+// cannot tell one rule from another by.
 
 /**
- * A second approval for the same decision and action.
+ * A human decision that does not name its own author.
  *
- * `unique (decision_id, action_type)` on `approvals` (migration 0005): batch
- * approval in the UI writes one row each, never a blanket approval, and a
- * double-clicked approve button is not a second authorisation.
- *
- * Declared here *and* in `@recouple/pipeline/testing`, identically, because
- * `ports.ts` is frozen while the UI is being built against it. Both are
- * `CaseWorkflowError`s with the same `name`, which is what a caller sorts on
- * and what the contract suite asserts; when `ports.ts` reopens this class moves
- * there and both copies go.
+ * `app.human_decision_names_its_author()` (migration 0016) compares
+ * `prepared_by` to `app.current_user_id()`, and
+ * `decisions_human_names_its_preparer` makes the column not-null for a human
+ * row. `requireCaller` should have caught this first; when it did not, the
+ * database is the referee and its words are carried rather than replaced.
  */
-export class DuplicateApprovalError extends CaseWorkflowError {
-  constructor(
-    readonly decisionId: string,
-    readonly existingApprovalId: string,
-  ) {
-    super(
-      `approval refused: decision ${decisionId} was already approved for submission ` +
-        `as ${existingApprovalId}`,
-    );
-    this.name = 'DuplicateApprovalError';
+export class HumanDecisionAuthorError extends CaseWorkflowError {
+  constructor(readonly detail: string) {
+    super(`decide refused: a human decision is written by the person it names (${detail})`);
+    this.name = 'HumanDecisionAuthorError';
   }
 }
 
 /**
- * A case we already decided not to fight cannot then be disputed.
+ * An approval naming a hash no packet was assembled under.
  *
- * `declined_candidates` is the coverage denominator (STRATEGY ADD-1): a case
- * that is both declined and disputed is counted as given up on *and* acted on,
- * and the one number the counterfactual log exists to produce moves. The
- * decline stands; reversing it is a decision of its own and does not exist yet.
+ * The `approvals_packet_is_a_real_packet` foreign key onto
+ * `packets (decision_id, content_hash)` — without it, 32 arbitrary bytes would
+ * read as a human authorising a packet nobody built (ADR 0020 §2).
  */
-export class CaseAlreadyDeclinedError extends CaseWorkflowError {
-  constructor(
-    readonly deductionId: string,
-    readonly declinedCandidateId: string,
-  ) {
+export class ApprovedPacketMissingError extends CaseWorkflowError {
+  constructor(readonly decisionId: string) {
     super(
-      `decide refused: case ${deductionId} was declined (${declinedCandidateId}) and cannot ` +
-        'now be disputed',
+      `approve refused: no packet with that hash was assembled for decision ${decisionId}`,
     );
-    this.name = 'CaseAlreadyDeclinedError';
+    this.name = 'ApprovedPacketMissingError';
+  }
+}
+
+/**
+ * An approval that named no packet at all.
+ *
+ * `approvals.packet_hash` is nullable because `writeoff` and `writeback` have
+ * no packet (ADR 0020 §2), and the foreign key is `MATCH SIMPLE`, so the
+ * database accepts a null here. A `submit` approval naming nothing authorises
+ * nothing in particular, and this store refuses to file against one.
+ */
+export class ApprovalNamesNoPacketError extends CaseWorkflowError {
+  constructor(readonly approvalId: string) {
+    super(
+      `submit refused: approval ${approvalId} named no packet, so there is nothing to file`,
+    );
+    this.name = 'ApprovalNamesNoPacketError';
+  }
+}
+
+/**
+ * The gate itself refused (invariant 1).
+ *
+ * `app.require_approval('submit')` is a trigger, not a check in TypeScript, and
+ * it is the last word. Its own words are kept inside the message: never
+ * swallowed, never reworded into something softer.
+ */
+export class ApprovalGateRefusedError extends CaseWorkflowError {
+  constructor(readonly detail: string) {
+    super(`submit refused by the approval gate: ${detail}`);
+    this.name = 'ApprovalGateRefusedError';
   }
 }
 
@@ -267,7 +308,9 @@ async function lockCase(
       [deductionId],
     );
     if (readable.length > 0) throw new WrongRoleError(actorId, action, roles);
-    throw new Error(`case ${deductionId} is not visible to this tenant`);
+    // A named refusal, not a bare `Error`: a route renders a case this tenant
+    // may not see as a 404, and an unclassified throw as a 500.
+    throw new CaseNotVisibleError(deductionId);
   }
   return {
     deductionId: row.id,
@@ -293,9 +336,7 @@ async function lockCase(
  */
 function requireCaller(actorId: string, callerId: string, action: string): void {
   if (actorId !== callerId) {
-    throw new CaseWorkflowError(
-      `${action} refused: this session is ${callerId}, so it cannot act as ${actorId}`,
-    );
+    throw new ActorIsNotTheSessionError(actorId, callerId, action);
   }
 }
 
@@ -370,6 +411,35 @@ async function packetDocuments(
   };
 }
 
+/**
+ * Builds the cover narrative, turning `core-domain`'s own refusal into one of
+ * the workflow's.
+ *
+ * `buildPacketNarrative` raises `PacketError`, which is not a
+ * `CaseWorkflowError`: it belongs to a module that knows about cents and
+ * templates and nothing about cases, callers or routes. Out raw it would reach
+ * a route as an unclassified throw and be rendered as a fault, when it is in
+ * fact a refusal a person can act on — usually the rationale, which
+ * `recordHumanDecision` caps first so this is the residue: an unbounded claim
+ * id, a debtor display name nobody limited, or more documents than the budget
+ * allows. Nothing is swallowed: the original is the `cause` and its words are
+ * in the message.
+ */
+function buildNarrativeOrRefuse(
+  deductionId: string,
+  decisionId: string,
+  build: () => string,
+): string {
+  try {
+    return build();
+  } catch (error) {
+    if (error instanceof PacketError) {
+      throw new PacketNotBuildableError(deductionId, decisionId, error.message, { cause: error });
+    }
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 1. A human decides
 // ---------------------------------------------------------------------------
@@ -410,15 +480,22 @@ export async function recordHumanDecision(
   }
   const rationale = input.rationale.trim();
   if (rationale === '') {
-    throw new CaseWorkflowError('decide refused: a dispute decision needs a rationale');
+    throw new RationaleRequiredError(input.deductionId);
+  }
+  // Before the insert, which is the only moment this can still be asked.
+  // `decisions` is append-only and the packet is assembled later, so a rationale
+  // that only `packets.narrative` would refuse gets the case to
+  // `analyst_review` and then wedges it: the decision cannot be amended and no
+  // packet can ever be built from it. The cap is `MAX_NARRATIVE_LENGTH` minus
+  // what the rest of the cover page spends (core-domain/src/packet.ts).
+  if (rationale.length > MAX_RATIONALE_LENGTH) {
+    throw new RationaleTooLongError(input.deductionId, rationale.length, MAX_RATIONALE_LENGTH);
   }
   // The type says this is canonical; a form post is a string until something
   // checks. A reason nothing can map to a family is a decision Phase 5 cannot
   // count and a packet that names a code no playbook has.
   if (!isCanonicalReasonCode(input.reason)) {
-    throw new CaseWorkflowError(
-      `decide refused: ${input.reason} is not a canonical reason code`,
-    );
+    throw new NotACanonicalReasonError(input.deductionId, input.reason);
   }
   // The table is the spec, and naming the trigger is what makes the move a
   // function of the fact that caused it (ADR 0020 §4).
@@ -466,14 +543,15 @@ export async function recordHumanDecision(
       // its refusal is reported rather than swallowed.
       // 23001 is `restrict_violation`, which is what every guard trigger in
       // this schema raises with.
+      // The substring is pinned by supabase/tests/11_a_human_decides.sql:75 and
+      // :85 ("is not the caller"), which is what keeps this match and the
+      // trigger's wording from drifting apart.
       if (sqlState(error) === '23001' && /is not the caller/.test(errorText(error))) {
-        return new CaseWorkflowError(
-          `decide refused: a human decision is written by the person it names (${errorText(error)})`,
-        );
+        return new HumanDecisionAuthorError(errorText(error));
       }
       if (/decisions_human_names_its_preparer/.test(errorText(error))) {
-        return new CaseWorkflowError(
-          'decide refused: a human decision must name the analyst who prepared it',
+        return new HumanDecisionAuthorError(
+          'a human decision must name the analyst who prepared it',
         );
       }
       return error;
@@ -522,30 +600,30 @@ export async function assemblePacket(
 
   const decision = await readHumanDecision(client, input.decisionId);
   if (decision === undefined || decision.deductionId !== input.deductionId) {
-    throw new CaseWorkflowError(
-      `assemble refused: decision ${input.decisionId} is not a decision on case ${input.deductionId}`,
-    );
+    throw new DecisionNotForCaseError(input.decisionId, input.deductionId);
   }
 
   const { ids, lines } = await packetDocuments(client, input.deductionId);
   if (ids.length === 0) {
-    throw new CaseWorkflowError(
-      `assemble refused: case ${input.deductionId} has no notice to send`,
-    );
+    throw new NothingToSendError(input.deductionId);
   }
 
-  const narrative = buildPacketNarrative({
-    ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
-    ...(existing.retailer !== undefined ? { retailer: existing.retailer } : {}),
-    deductionAmountCents: exactCents(existing.amountText, 'deduction_amount_cents'),
-    ...(existing.deductionDate !== undefined ? { deductionDate: existing.deductionDate } : {}),
-    ...(existing.disputeDeadline !== undefined
-      ? { disputeDeadline: existing.disputeDeadline }
-      : {}),
-    reason: decision.reason,
-    rationale: decision.rationale,
-    documents: lines,
-  });
+  const narrative = buildNarrativeOrRefuse(input.deductionId, input.decisionId, () =>
+    buildPacketNarrative({
+      ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
+      ...(existing.retailer !== undefined ? { retailer: existing.retailer } : {}),
+      deductionAmountCents: exactCents(existing.amountText, 'deduction_amount_cents'),
+      ...(existing.deductionDate !== undefined
+        ? { deductionDate: existing.deductionDate }
+        : {}),
+      ...(existing.disputeDeadline !== undefined
+        ? { disputeDeadline: existing.disputeDeadline }
+        : {}),
+      reason: decision.reason,
+      rationale: decision.rationale,
+      documents: lines,
+    }),
+  );
   const contentHash = packetContentHash({
     decisionId: input.decisionId,
     narrative,
@@ -584,10 +662,7 @@ export async function assemblePacket(
       ? await readApproval(client, input.decisionId)
       : undefined;
   if (alreadyApproved !== undefined) {
-    throw new CaseWorkflowError(
-      `assemble refused: decision ${input.decisionId} was already approved as packet ` +
-        `${alreadyApproved.packetHash} — a packet assembled now could never be approved`,
-    );
+    throw new PacketAfterApprovalError(input.decisionId, alreadyApproved.packetHash);
   }
   if (existing.state === 'analyst_review') {
     applyTransition('analyst_review', 'awaiting_approval', 'packet.assembled', {
@@ -649,9 +724,7 @@ export async function approve(
   requireCaller(input.approverId, tenant.userId, 'approve');
   const packet = await readPacketBy(client, 'id', input.packetId);
   if (packet === undefined || packet.decisionId !== input.decisionId) {
-    throw new CaseWorkflowError(
-      `approve refused: packet ${input.packetId} was not assembled for decision ${input.decisionId}`,
-    );
+    throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'approve');
   }
   const existing = await lockCase(
     client,
@@ -695,9 +768,13 @@ export async function approve(
       // the trigger, and a refusal this does not recognise reaches the caller
       // as itself rather than as the nearest rule.
       const refused = sqlState(error) === '23001';
+      // Pinned by supabase/tests/11_a_human_decides.sql:205 and
+      // supabase/tests/03_separation_of_duties.sql:21.
       if (refused && /cannot approve their own decision/.test(text)) {
         return new PreparerCannotApproveError(input.decisionId, input.approverId);
       }
+      // Pinned by supabase/tests/11_a_human_decides.sql:214 and, as the shorter
+      // "is not an approver", supabase/tests/03_separation_of_duties.sql:27.
       if (refused && /is not an approver in org/.test(text)) {
         return new WrongRoleError(input.approverId, 'approve', APPROVER_ROLES);
       }
@@ -709,12 +786,12 @@ export async function approve(
         return new DuplicateApprovalError(input.decisionId, rows[0]?.id ?? 'unknown');
       }
       if (constraintName(error) === 'approvals_packet_is_a_real_packet') {
-        return new CaseWorkflowError(
-          `approve refused: no packet with that hash was assembled for decision ${input.decisionId}`,
-        );
+        return new ApprovedPacketMissingError(input.decisionId);
       }
+      // Pinned by supabase/tests/11_a_human_decides.sql:186 ("does not exist")
+      // and :396 ("belongs to another org").
       if (refused && /decision .* (does not exist|belongs to another org)/.test(text)) {
-        return new CaseWorkflowError(`approve refused: ${text}`);
+        return new DecisionNotFoundError(input.decisionId, 'approve', text);
       }
       return error;
     },
@@ -753,9 +830,7 @@ export async function recordSubmission(
   requireCaller(input.actorId, tenant.userId, 'submit');
   const packet = await readPacketBy(client, 'id', input.packetId);
   if (packet === undefined || packet.decisionId !== input.decisionId) {
-    throw new CaseWorkflowError(
-      `submit refused: packet ${input.packetId} was not assembled for decision ${input.decisionId}`,
-    );
+    throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'submit');
   }
   const { rows: approvalRows } = await client.query<{
     id: string;
@@ -770,14 +845,13 @@ export async function recordSubmission(
   if (approval === undefined || approval.decision_id !== input.decisionId) {
     // The gate says this too, and says it last: `app.require_approval('submit')`
     // refuses the insert whatever this store believes (migration 0005).
-    throw new CaseWorkflowError(
-      `submit refused: no submit approval row for decision ${input.decisionId}`,
-    );
+    throw new NoApprovalForSubmissionError(input.decisionId);
   }
   if (approval.packet_hash === null) {
-    throw new CaseWorkflowError(
-      `submit refused: approval ${input.approvalId} named no packet, so there is nothing to file`,
-    );
+    // The foreign key is `MATCH SIMPLE`, so the database accepts a `submit`
+    // approval naming no packet (ADR 0020 §5). Refusing to file against one is
+    // this store's job, not the gate's.
+    throw new ApprovalNamesNoPacketError(input.approvalId);
   }
 
   const existing = await lockCase(
@@ -810,10 +884,13 @@ export async function recordSubmission(
   if (approvedHash !== packet.contentHash) {
     throw new PacketHashMismatchError(input.decisionId, approvedHash, packet.contentHash);
   }
-  if (input.confirmationNumber.trim() === '') {
-    throw new CaseWorkflowError(
-      'submit refused: a manual submission is recorded with the confirmation the portal gave',
-    );
+  // Trimmed once, here, and it is the trimmed value that is both stored and put
+  // on the event: a confirmation number that differs from the portal's by a
+  // trailing space is one nobody can match back to the retailer's record, and
+  // a row and an event that disagree about it are two answers to one question.
+  const confirmationNumber = input.confirmationNumber.trim();
+  if (confirmationNumber === '') {
+    throw new ConfirmationNumberRequiredError(input.decisionId);
   }
   applyTransition('awaiting_approval', 'submitted', 'submission.recorded', {
     approval_row_exists: true,
@@ -835,7 +912,7 @@ export async function recordSubmission(
           input.decisionId,
           input.channel,
           Buffer.from(packet.contentHash, 'hex'),
-          input.confirmationNumber,
+          confirmationNumber,
           input.submittedAt,
         ],
       );
@@ -857,8 +934,10 @@ export async function recordSubmission(
       }
       // The gate. Never swallowed, never reworded into something softer — and
       // it keeps the trigger's own words inside the message it raises.
+      // Pinned by supabase/tests/11_a_human_decides.sql:195 and, for the
+      // model-decided path, supabase/tests/02_approval_invariant.sql:18.
       if (sqlState(error) === '23001' && /no submit approval row/.test(errorText(error))) {
-        return new CaseWorkflowError(`submit refused by the approval gate: ${errorText(error)}`);
+        return new ApprovalGateRefusedError(errorText(error));
       }
       return error;
     },
@@ -869,7 +948,7 @@ export async function recordSubmission(
     decision_id: input.decisionId,
     channel: input.channel,
     packet_hash: packet.contentHash,
-    confirmation_number: input.confirmationNumber,
+    confirmation_number: confirmationNumber,
     submitted_at: input.submittedAt.toISOString(),
     recorded_by: input.actorId,
   });
@@ -894,9 +973,11 @@ export async function recordSubmission(
  * (invariant 3). The offered cents are checked into the safe-integer range
  * first, so the conversion that follows cannot be the lossy one.
  *
- * `@recouple/pipeline/testing` states the same rule against a JS number; one
- * contract suite runs the same cases against both, because `ports.ts` has
- * nowhere for a shared helper to live until it reopens.
+ * `@recouple/pipeline/testing` states the same rule against a JS number, which
+ * is what that store holds. A shared helper would have to take one of the two
+ * representations and convert the other into it, and that conversion is the
+ * one invariant 3 exists to avoid; what keeps the two saying the same thing is
+ * the contract suite, which runs the same cases against both.
  */
 function checkRecoveredCents(
   deductionId: string,

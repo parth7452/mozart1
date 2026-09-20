@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ActorIsNotTheSessionError,
+  CaseAlreadyDeclinedError,
+  CaseNotVisibleError,
   CaseWorkflowError,
+  ConfirmationNumberRequiredError,
+  DecisionNotForCaseError,
+  DecisionNotFoundError,
+  DuplicateApprovalError,
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
+  NoApprovalForSubmissionError,
+  NotACanonicalReasonError,
+  NothingToSendError,
+  PacketAfterApprovalError,
   PacketHashMismatchError,
+  PacketNotBuildableError,
+  PacketNotForDecisionError,
   PreparerCannotApproveError,
+  RationaleRequiredError,
+  RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
   type CaseWorkflow,
@@ -31,6 +46,9 @@ import {
  */
 describe('the Phase 3 workflow refusals', () => {
   it('puts every refusal under one base class, so a caller can sort rules from bugs', () => {
+    // Every class the workflow can refuse with. A bare `CaseWorkflowError` is
+    // not one of them: a caller that catches the base sees only "a rule said
+    // no", and a log line reading `CaseWorkflowError` says nothing about which.
     const refusals = [
       new PreparerCannotApproveError('dec-1', 'user-1'),
       new PacketHashMismatchError('dec-1', 'aaaa', 'bbbb'),
@@ -38,6 +56,21 @@ describe('the Phase 3 workflow refusals', () => {
       new WrongCaseStateError('ded-1', 'submit', 'classified', ['awaiting_approval']),
       new InvalidRecoveryAmountError('ded-1', 'lost', 5, 'a lost case recovered nothing'),
       new DuplicateSubmissionError('dec-1', 'manual_portal', 'sub-1'),
+      new CaseNotVisibleError('ded-1'),
+      new ActorIsNotTheSessionError('user-2', 'user-1', 'approve'),
+      new RationaleRequiredError('ded-1'),
+      new RationaleTooLongError('ded-1', 20_001, 11_520),
+      new NotACanonicalReasonError('ded-1', 'they_were_mean_to_us'),
+      new DecisionNotForCaseError('dec-1', 'ded-1'),
+      new DecisionNotFoundError('dec-1', 'approve'),
+      new NothingToSendError('ded-1'),
+      new PacketAfterApprovalError('dec-1', 'aaaa'),
+      new PacketNotBuildableError('ded-1', 'dec-1', 'a packet with no documents is not a packet'),
+      new PacketNotForDecisionError('pkt-1', 'dec-1', 'submit'),
+      new DuplicateApprovalError('dec-1', 'apr-1'),
+      new CaseAlreadyDeclinedError('ded-1', 'dc-1'),
+      new NoApprovalForSubmissionError('dec-1'),
+      new ConfirmationNumberRequiredError('dec-1'),
     ];
 
     for (const refusal of refusals) {
@@ -118,6 +151,48 @@ describe('the Phase 3 workflow refusals', () => {
     expect(error.existingSubmissionId).toBe('sub-88');
     expect(error.message).toBe(
       'submission refused: decision dec-3 was already submitted on manual_portal as sub-88',
+    );
+  });
+
+  // A case another tenant owns, or one that does not exist, is a 404 and not a
+  // fault. It used to be a bare `Error`, which a route can only render as 500.
+  it('is a workflow refusal, not a bare Error, when a case is not visible', () => {
+    const error = new CaseNotVisibleError('ded-5');
+    expect(error).toBeInstanceOf(CaseWorkflowError);
+    expect(error.deductionId).toBe('ded-5');
+    expect(error.message).toBe('case ded-5 is not visible to this tenant');
+    // It says nothing about whether the case exists somewhere else.
+    expect(error.message).not.toMatch(/another|other tenant|exists/);
+  });
+
+  // The wedge: `decisions` is append-only, so a rationale accepted by the
+  // decision and refused by the packet leaves the case with nowhere to go.
+  it('says how long the rationale was and how long it may be', () => {
+    const error = new RationaleTooLongError('ded-6', 20_500, 11_520);
+    expect(error.length).toBe(20_500);
+    expect(error.maxLength).toBe(11_520);
+    expect(error.message).toBe(
+      'decide refused: the rationale is 20500 characters and the packet narrative holds ' +
+        '11520 — shorten it now rather than after the decision is recorded',
+    );
+  });
+
+  // `PacketError` belongs to core-domain and is not a `CaseWorkflowError`, so
+  // it has to arrive wrapped — with the original kept, not swallowed.
+  it('carries the packet builder\'s own refusal as the cause', () => {
+    const cause = new Error('a packet with no documents is not a packet');
+    const error = new PacketNotBuildableError('ded-7', 'dec-7', cause.message, { cause });
+    expect(error).toBeInstanceOf(CaseWorkflowError);
+    expect(error.cause).toBe(cause);
+    expect(error.message).toContain('a packet with no documents is not a packet');
+    expect(error.message).toContain('ded-7');
+  });
+
+  it('names one class for a second approval, so both stores refuse with it', () => {
+    const error = new DuplicateApprovalError('dec-8', 'apr-8');
+    expect(error.existingApprovalId).toBe('apr-8');
+    expect(error.message).toBe(
+      'approval refused: decision dec-8 was already approved for submission as apr-8',
     );
   });
 });

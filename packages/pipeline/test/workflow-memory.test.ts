@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { buildPacketNarrative, packetContentHash } from '@recouple/core-domain';
+import {
+  buildPacketNarrative,
+  MAX_NARRATIVE_LENGTH,
+  MAX_RATIONALE_LENGTH,
+  packetContentHash,
+} from '@recouple/core-domain';
 import {
   CaseWorkflowError,
+  DuplicateApprovalError,
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
   PacketHashMismatchError,
+  PacketNotBuildableError,
   PreparerCannotApproveError,
+  RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
 } from '../src/ports';
-import { DuplicateApprovalError, InMemoryStore } from '../src/testing/memory-store';
+import { InMemoryStore } from '../src/testing/memory-store';
 
 /**
  * The Phase 3 workflow on the in-memory store.
@@ -192,6 +200,128 @@ describe('the in-memory workflow', () => {
       }),
     ).rejects.toBeInstanceOf(WrongRoleError);
     expect(store.decisions).toHaveLength(0);
+  });
+
+  // The hash covers the document *set*; the narrative covers the *order*. Two
+  // documents with the same role and the same filename produce the same
+  // enclosed list whichever way round they are, and their ids sort the same, so
+  // the contents are the same contents and the packet that exists is handed
+  // back rather than a second one being written.
+  it('hands back the first packet when two identical documents swap places', async () => {
+    const store = freshStore();
+    const deductionId = await newCase(store);
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId,
+      preparedBy: ANALYST,
+      reason: 'shortage_never_received',
+      rationale: 'POD signed for the full quantity.',
+    });
+    // Two evidence documents that differ only in their bytes: same role, same
+    // filename, different ids — a POD scanned twice.
+    for (const sha of ['a'.repeat(64), 'b'.repeat(64)]) {
+      const copy = await store.putDocument({
+        orgId: ORG,
+        sha256: sha,
+        filename: 'pod-signed.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 1024,
+        bytes: new Uint8Array([1]),
+        requiresSplit: false,
+      });
+      await store.linkDocument(deductionId, copy.documentId, 'evidence');
+    }
+    const first = await store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST });
+
+    // Reverse the order the two copies were attached in, which is all
+    // `packetDocuments` reads to build the enclosed list.
+    const copied = store.links.flatMap((link, index) =>
+      link.deductionId === deductionId && link.role === 'evidence' ? [index] : [],
+    );
+    const [penultimate, last] = [copied.at(-2) as number, copied.at(-1) as number];
+    [store.links[penultimate], store.links[last]] = [
+      store.links[last] as (typeof store.links)[number],
+      store.links[penultimate] as (typeof store.links)[number],
+    ];
+
+    const again = await store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST });
+    expect(again.contentHash).toBe(first.contentHash);
+    expect(again.packetId).toBe(first.packetId);
+    // The packet handed back is the one that was written, ordered as it was.
+    expect(again.fileDocumentIds).toEqual(first.fileDocumentIds);
+    expect(store.packets).toHaveLength(1);
+  });
+
+  // `decisions` is append-only and the packet is assembled later, so a
+  // rationale the narrative could not hold would leave the case in
+  // `analyst_review` with nothing able to move it.
+  it('refuses a rationale longer than the packet narrative can hold', async () => {
+    const store = freshStore();
+    const deductionId = await newCase(store);
+    await expect(
+      store.recordHumanDecision({
+        deductionId,
+        preparedBy: ANALYST,
+        reason: 'shortage_never_received',
+        rationale: 'x'.repeat(MAX_RATIONALE_LENGTH + 1),
+      }),
+    ).rejects.toBeInstanceOf(RationaleTooLongError);
+    expect(store.decisions).toHaveLength(0);
+    expect((await store.getCase(deductionId))?.state).toBe('classified');
+
+    // At the cap it is accepted, and the packet built from it fits the column
+    // the cap was derived from.
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId,
+      preparedBy: ANALYST,
+      reason: 'shortage_never_received',
+      rationale: 'x'.repeat(MAX_RATIONALE_LENGTH),
+    });
+    const packet = await store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST });
+    expect(packet.narrative.length).toBeLessThanOrEqual(MAX_NARRATIVE_LENGTH);
+  });
+
+  // The residue the rationale cap cannot cover. `claim_id` is unbounded `text`
+  // and so is a debtor's display name, so a narrative can still come out too
+  // long — and when it does, `core-domain`'s `PacketError` has to arrive as a
+  // `CaseWorkflowError`, or a route renders a refusal a person can act on as a
+  // fault. The Postgres store wraps it identically (`buildNarrativeOrRefuse`).
+  it('surfaces a narrative that will not build as a named refusal, not a PacketError', async () => {
+    const store = freshStore();
+    const opened = await store.openCase({
+      orgId: ORG,
+      // Longer than the whole column, never mind the budget.
+      claimId: 'C'.repeat(MAX_NARRATIVE_LENGTH + 1),
+      retailerName: 'WALMART STORES, INC.',
+      deductionAmountCents: 312_000,
+    });
+    const document = await store.putDocument({
+      orgId: ORG,
+      sha256: 'c'.repeat(64),
+      filename: 'notice.pdf',
+      mimeType: 'application/pdf',
+      byteSize: 1024,
+      bytes: new Uint8Array([1]),
+      requiresSplit: false,
+    });
+    await store.linkDocument(opened.deductionId, document.documentId, 'notice');
+    await store.transitionCase(opened.deductionId, 'classified');
+
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId: opened.deductionId,
+      preparedBy: ANALYST,
+      reason: 'shortage_never_received',
+      rationale: 'POD signed for the full quantity.',
+    });
+    const refusal = store.assemblePacket({
+      deductionId: opened.deductionId,
+      decisionId,
+      assembledBy: ANALYST,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(CaseWorkflowError);
+    await expect(refusal).rejects.toBeInstanceOf(PacketNotBuildableError);
+    // Not swallowed: the builder's own words survive inside the refusal.
+    await expect(refusal).rejects.toThrow(/shorten the rationale/);
+    expect(store.packets).toHaveLength(0);
   });
 
   it('refuses a dispute with no rationale, because the packet quotes it', async () => {
