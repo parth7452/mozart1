@@ -112,11 +112,12 @@ function stubbedDeps(store: RouteTestStore): PipelineDeps {
 }
 
 /** A POST the route can read: one file, no content-length to argue about. */
-function uploadRequest(bytes: Uint8Array, filename: string): NextRequest {
+function uploadRequest(bytes: Uint8Array, filename: string, attachToCase?: string): NextRequest {
   const form = new FormData();
   // `as BlobPart`: the same bytes either way — `Uint8Array<ArrayBufferLike>` and
   // the DOM lib's `ArrayBufferView<ArrayBuffer>` disagree on paper, not at run time.
   form.set('file', new File([bytes as BlobPart], filename, { type: 'application/pdf' }));
+  if (attachToCase !== undefined) form.set('attachToCase', attachToCase);
   return new NextRequest('https://app.example.test/upload', { method: 'POST', body: form });
 }
 
@@ -170,6 +171,19 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(new URL(response.headers.get('location') as string).pathname).toBe(
       `/cases/${opened?.deductionId}`,
     );
+  });
+
+  it('sends a refused attachment back to the case it was being attached to', async () => {
+    // The evidence form lives on the case page. A reviewer whose file is
+    // refused there must land back on that case — not on the list holding a
+    // message telling them to attach it from the case page they just left.
+    const caseId = '33333333-3333-3333-3333-333333333333';
+    const response = await POST(uploadRequest(new Uint8Array(), 'nothing.pdf', caseId));
+
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get('location') as string);
+    expect(location.pathname).toBe(`/cases/${caseId}`);
+    expect(location.searchParams.get('upload')).toBe('choose a file first');
   });
 
   it('refuses a reader who may not add documents, before anything is read', async () => {

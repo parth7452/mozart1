@@ -37,6 +37,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const form = await request.formData();
+
+  // Read before anything can fail on the file: a reviewer who was attaching
+  // evidence to a case is sent back to that case, not to the list. Without this
+  // a rejected file drops them on `/` holding a message telling them to attach
+  // it from the case page they were just on.
+  const attachToCase = form.get('attachToCase');
+  const attachingTo =
+    typeof attachToCase === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attachToCase)
+      ? attachToCase
+      : undefined;
+  if (attachingTo !== undefined) back.pathname = `/cases/${attachingTo}`;
+
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) {
     back.searchParams.set('upload', 'choose a file first');
@@ -49,7 +62,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(back, { status: 303 });
   }
 
-  const attachToCase = form.get('attachToCase');
   const store = storeFor(session);
   try {
     const result = await processUpload(
@@ -61,9 +73,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         source: 'web_upload' as const,
       },
       pipelineDepsFor(store),
-      typeof attachToCase === 'string' && /^[0-9a-f-]{36}$/i.test(attachToCase)
-        ? { attachToCase }
-        : {},
+      attachingTo !== undefined ? { attachToCase: attachingTo } : {},
     );
 
     if (result.case !== undefined) {

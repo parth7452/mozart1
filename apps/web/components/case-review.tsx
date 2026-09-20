@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
-import { DECLINE_REASONS, type CaseSummary, type StoredField } from '@recouple/store-postgres';
+import {
+  DECLINE_REASONS,
+  MISSING_EVIDENCE_TYPES,
+  type CaseSummary,
+  type MissingEvidence,
+  type StoredField,
+} from '@recouple/store-postgres';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import type { Viewer } from './case-list';
 
@@ -60,21 +66,21 @@ const DECLINE_LABELS: Readonly<Record<(typeof DECLINE_REASONS)[number], string>>
 };
 
 /**
- * Evidence a reviewer can say was missing. These are canonical types rather
- * than free text, because the point of recording them is to add them up later —
- * "no POD" has to be one thing across a thousand declines, not a hundred
- * spellings. `detail` is where the prose goes.
+ * Evidence a reviewer can say was missing, in a person's words. The values are
+ * the canonical ones the store will accept — the point of recording them is to
+ * add them up later, so "no POD" has to be one thing across a thousand declines
+ * rather than a hundred spellings. `detail` is where the prose goes.
  */
-const MISSING_EVIDENCE: readonly { value: string; label: string }[] = [
-  { value: 'proof_of_delivery', label: 'Proof of delivery' },
-  { value: 'bill_of_lading', label: 'Bill of lading' },
-  { value: 'invoice', label: 'Invoice' },
-  { value: 'purchase_order', label: 'Purchase order' },
-  { value: 'receiving_report', label: 'Receiving report' },
-  { value: 'timesheet', label: 'Timesheet' },
-  { value: 'rate_agreement', label: 'Rate or pricing agreement' },
-  { value: 'correspondence', label: 'Correspondence with the customer' },
-];
+const MISSING_EVIDENCE_LABELS: Readonly<Record<MissingEvidence, string>> = {
+  proof_of_delivery: 'Proof of delivery',
+  bill_of_lading: 'Bill of lading',
+  invoice: 'Invoice',
+  purchase_order: 'Purchase order',
+  receiving_report: 'Receiving report',
+  timesheet: 'Timesheet',
+  rate_agreement: 'Rate or pricing agreement',
+  correspondence: 'Correspondence with the customer',
+};
 
 /**
  * A reviewer's workspace for one case.
@@ -200,7 +206,11 @@ export function CaseReview({
               </div>
             ))}
 
-            {notice !== undefined ? <p className="notice">{notice}</p> : null}
+            {/* What the last action came back saying — a decline recorded, a
+                duplicate claim the upload route sent us here to explain. Same
+                treatment as the case list's, because it is the same kind of
+                answer. */}
+            {notice !== undefined ? <p className="notice bad">{notice}</p> : null}
 
             {mayAct ? (
               <div className="card" style={{ marginTop: 18 }}>
@@ -250,10 +260,10 @@ export function CaseReview({
 
                   <fieldset>
                     <legend>What was missing, if anything</legend>
-                    {MISSING_EVIDENCE.map((item) => (
-                      <label key={item.value} className="check">
-                        <input type="checkbox" name="missing" value={item.value} />
-                        {item.label}
+                    {MISSING_EVIDENCE_TYPES.map((item) => (
+                      <label key={item} className="check">
+                        <input type="checkbox" name="missing" value={item} />
+                        {MISSING_EVIDENCE_LABELS[item]}
                       </label>
                     ))}
                   </fieldset>

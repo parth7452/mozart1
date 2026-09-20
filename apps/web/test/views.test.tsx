@@ -208,6 +208,7 @@ describe('the review page', () => {
   it('heads the page with the printed retailer when no debtor matched', () => {
     const html = renderToStaticMarkup(
       <CaseReview
+        mayAct={false}
         viewer={viewer}
         summary={summary({
           debtorName: undefined,
@@ -229,6 +230,7 @@ describe('the review page', () => {
     // The old behaviour, now reserved for the one case it was ever true of.
     const html = renderToStaticMarkup(
       <CaseReview
+        mayAct={false}
         viewer={viewer}
         summary={summary({ debtorName: undefined, retailerKey: undefined })}
         fields={[field()]}
@@ -404,6 +406,23 @@ describe('what a reviewer can do with a case', () => {
       <CaseReview {...props} mayAct={true} notice="recorded: this case is logged as declined" />,
     );
     expect(html).toContain('recorded: this case is logged as declined');
+  });
+
+  it('says why an upload landed on a case it did not open, and escapes what it quotes', () => {
+    // The upload route redirects here when a second notice names a claim that
+    // is already a case. The message quotes the claim id, which was read off
+    // somebody else's document, so it is escaped like every other value here.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        mayAct={true}
+        notice={'claim <script>alert(1)</script> is already this case'}
+      />,
+    );
+    expect(html).toContain('class="notice bad"');
+    expect(html).toContain('is already this case');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('still has no approve button, whatever the role', () => {

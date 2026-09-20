@@ -192,6 +192,52 @@ export function isDeclineReason(value: unknown): value is DeclineReason {
 }
 
 /**
+ * The evidence a decline can say was missing.
+ *
+ * Unlike `reason`, `declined_candidates.missing_evidence` is an unconstrained
+ * `text[]` — the database will store whatever it is handed. The point of the
+ * column is that it gets added up, and "no POD" has to be one thing across a
+ * thousand declines rather than a hundred spellings, so the closed set lives
+ * here: this is the lowest place that can refuse one.
+ */
+export const MISSING_EVIDENCE_TYPES = [
+  'proof_of_delivery',
+  'bill_of_lading',
+  'invoice',
+  'purchase_order',
+  'receiving_report',
+  'timesheet',
+  'rate_agreement',
+  'correspondence',
+] as const;
+
+export type MissingEvidence = (typeof MISSING_EVIDENCE_TYPES)[number];
+
+export function isMissingEvidence(value: unknown): value is MissingEvidence {
+  return typeof value === 'string' && (MISSING_EVIDENCE_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * Raised when a case already carries a decline.
+ *
+ * `coverage_by_period` sums `estimated_recoverable_cents` over every declined
+ * row, so a second decline of the same case counts its dollars twice in the
+ * denominator — a double-clicked form would quietly move the one number this
+ * feature exists to produce. The row is refused rather than the number being
+ * wrong, and the first decline stands.
+ */
+export class AlreadyDeclinedError extends Error {
+  constructor(
+    readonly deductionId: string,
+    readonly declinedCandidateId: string,
+    readonly decidedAt: string,
+  ) {
+    super(`case ${deductionId} was already declined at ${decidedAt}`);
+    this.name = 'AlreadyDeclinedError';
+  }
+}
+
+/**
  * What a human decision is stamped with, so a decline made by a person and one
  * made by a future policy are distinguishable when the tail gets evaluated.
  */
@@ -1452,7 +1498,7 @@ export class PostgresStore implements PipelineStore {
      * derivation below takes over with no change here.
      */
     assumedDiscoveredFrom: DiscoveredFrom;
-    missingEvidence?: readonly string[];
+    missingEvidence?: readonly MissingEvidence[];
     detail?: string;
   }): Promise<DeclinedCandidate> {
     return this.withTenant(async (client) => {
@@ -1482,6 +1528,34 @@ export class PostgresStore implements PipelineStore {
       // does not. Today it is always the latter.
       const discoveredFrom = found.discovered_from ?? input.assumedDiscoveredFrom;
 
+      // The column takes any text, so the check is here or nowhere. A value
+      // nobody counts is worse than an empty list: it looks like a reason.
+      for (const evidence of input.missingEvidence ?? []) {
+        if (!isMissingEvidence(evidence)) {
+          throw new Error(`${evidence} is not an evidence type coverage can add up`);
+        }
+      }
+
+      // One decline per case. The schema allows a second row — a case declined
+      // again for a different reason is history — but `coverage_by_period` sums
+      // them all, so a second row for a case that already has one double-counts
+      // its dollars. Refused loudly here rather than counted twice there. (This
+      // closes the double-click, not a genuine race: two concurrent requests can
+      // still both read no row. The unique index that would settle it is a
+      // migration, and that wants its own ADR.)
+      const { rows: already } = await client.query<{ id: string; decided_at: string }>(
+        `select id, decided_at::text as decided_at
+           from declined_candidates
+          where deduction_id = $1
+          order by decided_at asc
+          limit 1`,
+        [input.deductionId],
+      );
+      const standing = already[0];
+      if (standing !== undefined) {
+        throw new AlreadyDeclinedError(input.deductionId, standing.id, standing.decided_at);
+      }
+
       const { rows } = await client.query<{ id: string; decided_at: string }>(
         `insert into declined_candidates
            (org_id, deduction_id, discovered_from, reason,
@@ -1505,6 +1579,28 @@ export class PostgresStore implements PipelineStore {
       );
       const row = rows[0];
       if (row === undefined) throw new Error('insert into declined_candidates returned no row');
+
+      // The case's own timeline says so too, in the same transaction as the row
+      // it describes: a reviewer reading the case should not have to know that
+      // the counterfactual log is a separate table to find out it was declined.
+      await client.query(
+        `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+         values ($1, $2, 'case.declined', $3::jsonb, now())`,
+        [
+          this.tenant.orgId,
+          input.deductionId,
+          JSON.stringify({
+            declined_candidate_id: row.id,
+            reason: input.reason,
+            estimated_recoverable_cents: Number(found.amount),
+            discovered_from: discoveredFrom,
+            decided_by: input.decidedBy,
+            decided_by_version: HUMAN_DECISION_VERSION,
+            missing_evidence: input.missingEvidence ?? [],
+          }),
+        ],
+      );
+
       return {
         declinedCandidateId: row.id,
         deductionId: input.deductionId,

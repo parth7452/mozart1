@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { closeAllPools, PostgresStore } from '../src/store';
+import { AlreadyDeclinedError, closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
@@ -24,6 +24,9 @@ describeDb('declining a case', () => {
   const suffix = orgId.slice(0, 8);
   let store: PostgresStore;
   let deductionId: string;
+  // A second case, never declined, so the tests about who may decline are not
+  // answered by the case already having been declined.
+  let undeclinedId: string;
 
   beforeAll(async () => {
     await admin.query(
@@ -48,6 +51,12 @@ describeDb('declining a case', () => {
     );
     const opened = await store.openCase({ orgId, claimId: 'APDP-1', deductionAmountCents: 312_000 });
     deductionId = opened.deductionId;
+    const second = await store.openCase({
+      orgId,
+      claimId: 'APDP-2',
+      deductionAmountCents: 45_000,
+    });
+    undeclinedId = second.deductionId;
   });
 
   afterAll(async () => {
@@ -94,20 +103,88 @@ describeDb('declining a case', () => {
     expect(rows[0]?.upload_rows).toBe('0');
   });
 
+  it('writes exactly one row and one event, and touches nothing else', async () => {
+    // Append-only, and appended once. A second decline would be a second row —
+    // the pair being the history — but one decline must not write two.
+    const { rows } = await admin.query<{ declines: string; events: string }>(
+      `select (select count(*)::text from declined_candidates where deduction_id = $1) as declines,
+              (select count(*)::text from deduction_events
+                where deduction_id = $1 and event_type = 'case.declined') as events`,
+      [deductionId],
+    );
+    expect(rows[0]?.declines).toBe('1');
+    expect(rows[0]?.events).toBe('1');
+
+    // The event says what the row says, so the case's own timeline is enough to
+    // know what was given up and what it was worth.
+    const { rows: events } = await admin.query<{ payload: Record<string, unknown> }>(
+      `select payload from deduction_events
+        where deduction_id = $1 and event_type = 'case.declined'`,
+      [deductionId],
+    );
+    expect(events[0]?.payload).toMatchObject({
+      reason: 'below_economic_floor',
+      estimated_recoverable_cents: 312_000,
+      discovered_from: 'web_upload',
+      decided_by_version: 'human/v1',
+    });
+  });
+
+  it('refuses a second decline, because coverage would count the dollars twice', async () => {
+    // `coverage_by_period` sums every declined row. A double-clicked form would
+    // otherwise move the one number this feature exists to produce.
+    await expect(
+      store.declineCase({
+        deductionId,
+        reason: 'deadline_passed',
+        decidedBy: `dec-a-${suffix}@example.test`,
+        assumedDiscoveredFrom: 'web_upload',
+      }),
+    ).rejects.toThrow(AlreadyDeclinedError);
+
+    const { rows } = await admin.query<{ declines: string }>(
+      `select count(*)::text as declines from declined_candidates where deduction_id = $1`,
+      [deductionId],
+    );
+    expect(rows[0]?.declines).toBe('1');
+  });
+
+  it('refuses an evidence type nothing could ever add up', async () => {
+    await expect(
+      store.declineCase({
+        deductionId: undeclinedId,
+        reason: 'evidence_unavailable',
+        decidedBy: `dec-a-${suffix}@example.test`,
+        assumedDiscoveredFrom: 'web_upload',
+        // Not a canonical type. The column is a plain text[], so nothing below
+        // this would refuse it and nothing above would ever count it.
+        missingEvidence: ['no POD' as never],
+      }),
+    ).rejects.toThrow(/add up/);
+
+    const { rows } = await admin.query<{ declines: string }>(
+      `select count(*)::text as declines from declined_candidates where deduction_id = $1`,
+      [undeclinedId],
+    );
+    expect(rows[0]?.declines).toBe('0');
+  });
+
   it('refuses a reader, because the write policy does not care what the UI showed', async () => {
     const reader = new PostgresStore(
       { connectionString: connectionString as string },
       { orgId, userId: readerId },
     );
     try {
+      // A case nobody has declined, so this is the policy refusing the insert
+      // rather than the one-decline-per-case check getting there first.
       await expect(
         reader.declineCase({
-          deductionId,
+          deductionId: undeclinedId,
           reason: 'other',
           decidedBy: `dec-r-${suffix}@example.test`,
           assumedDiscoveredFrom: 'web_upload',
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/row-level security|permission denied/i);
     } finally {
       await reader.close();
     }
