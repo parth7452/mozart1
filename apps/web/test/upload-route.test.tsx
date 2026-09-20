@@ -7,9 +7,14 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
-import type { PipelineDeps } from '@recouple/pipeline';
+import type { PipelineDeps, StoredDocument } from '@recouple/pipeline';
+import { InngestRunner, type UploadRunner } from '../lib/pipeline';
 import { NextRequest } from 'next/server';
-import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
+import {
+  AlwaysCleanScanner,
+  AlwaysInfectedScanner,
+  InMemoryStore,
+} from '@recouple/pipeline/testing';
 import type { PostgresStore } from '@recouple/store-postgres';
 
 /**
@@ -41,6 +46,10 @@ class RouteTestStore extends InMemoryStore {
   async close(): Promise<void> {
     this.closed += 1;
   }
+  /** And the one a job owes itself: the document it was handed the id of. */
+  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+    return this.documents.get(documentId);
+  }
 }
 
 const harness = vi.hoisted(() => ({
@@ -49,6 +58,8 @@ const harness = vi.hoisted(() => ({
   role: 'analyst' as string,
   /** How many times the session was resolved, so ordering can be asserted. */
   sessions: 0,
+  /** Left undefined to get the environment's own answer: the inline runner. */
+  runner: undefined as UploadRunner | undefined,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -64,10 +75,23 @@ vi.mock('../lib/session', () => ({
   storeFor: () => harness.store as unknown as PostgresStore,
 }));
 
-vi.mock('../lib/pipeline', () => ({
-  mayWrite: (role: string) => role !== 'read_only' && role !== 'accountant_guest',
-  pipelineDepsFor: () => harness.deps as PipelineDeps,
-}));
+/**
+ * The real module with two seams: the deps, so no model is called, and the
+ * runner, so both of the paths ADR 0021 introduced can be exercised here. The
+ * runners themselves are the real `InlineRunner` and `InngestRunner`; which one
+ * is used is the test's choice rather than the environment's, so a stray
+ * INNGEST_EVENT_KEY in someone's `.env` cannot change what these tests run.
+ * Which one an environment *would* choose is asserted in fail-closed.test.tsx.
+ */
+vi.mock('../lib/pipeline', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/pipeline')>();
+  return {
+    ...actual,
+    mayWrite: (role: string) => role !== 'read_only' && role !== 'accountant_guest',
+    pipelineDepsFor: () => harness.deps as PipelineDeps,
+    runnerFromEnv: () => harness.runner ?? new actual.InlineRunner(),
+  };
+});
 
 const { POST } = await import('../app/upload/route');
 
@@ -141,6 +165,7 @@ describe('uploading a notice whose claim is already a case', () => {
   beforeEach(() => {
     harness.role = 'analyst';
     harness.sessions = 0;
+    harness.runner = undefined;
     harness.store = new RouteTestStore();
     harness.deps = stubbedDeps(harness.store);
   });
@@ -259,5 +284,109 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
     expect(store.documents.size).toBe(0);
     expect(store.modelCalls).toHaveLength(0);
+  });
+});
+
+describe('uploading where the read runs as a job', () => {
+  /** Every event the runner sent, in order. */
+  let sent: { name: string; data: Record<string, unknown> }[] = [];
+
+  function jobRunner(): UploadRunner {
+    sent = [];
+    const client = {
+      async send(event: { name: string; data: Record<string, unknown> }) {
+        sent.push(event);
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0];
+    return new InngestRunner(client);
+  }
+
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+    harness.runner = jobRunner();
+  });
+
+  it('stores the bytes, announces the document by id, and reads nothing', async () => {
+    const store = harness.store as RouteTestStore;
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    // The bytes are in, and scanned. Nothing was read and nothing was spent:
+    // that is the job's work now.
+    expect(store.documents.size).toBe(1);
+    expect(store.scans).toHaveLength(1);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.cases.size).toBe(0);
+    expect(store.closed).toBe(1);
+
+    // One event, carrying ids and the member who uploaded it — and no word of
+    // what is on the page (invariant 4).
+    const documentId = [...store.documents.keys()][0];
+    expect(sent).toEqual([
+      {
+        name: 'document/read.requested',
+        data: {
+          documentId,
+          orgId: ORG_ID,
+          userId: '22222222-2222-2222-2222-222222222222',
+        },
+      },
+    ]);
+    const payload = JSON.stringify(sent);
+    expect(payload).not.toContain('APDP-99812');
+    expect(payload).not.toContain('Walmart');
+
+    // And the reviewer is told, rather than sent to a case that does not exist.
+    expect(response.status).toBe(303);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe('/');
+    expect(to.searchParams.get('upload')).toMatch(/being read/);
+  });
+
+  it('sends no event for a file that did not scan clean', async () => {
+    // The gate is the verdict, and it is in front of the queue as well as in
+    // front of the reader: an infected file is stored, scanned, and stops.
+    const store = harness.store as RouteTestStore;
+    harness.deps = { ...stubbedDeps(store), scanner: new AlwaysInfectedScanner() };
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(new URL(response.headers.get('location') as string).searchParams.get('upload')).toMatch(
+      /not scanned clean: infected/,
+    );
+  });
+
+  it('refuses a case it cannot resolve before storing anything', async () => {
+    // Still on the request path, because the reviewer is still standing in
+    // front of the case page when they press the button.
+    const store = harness.store as RouteTestStore;
+    const stranger = '44444444-4444-4444-4444-444444444444';
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, stranger));
+
+    expect(store.documents.size).toBe(0);
+    expect(sent).toEqual([]);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe('/');
+    expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
+  });
+
+  it('keeps a reviewer attaching evidence on the case they were on', async () => {
+    const store = harness.store as RouteTestStore;
+    const existing = await store.openCase({ orgId: ORG_ID });
+
+    const response = await POST(
+      uploadRequest(notice.bytes, notice.filename, existing.deductionId),
+    );
+
+    expect(sent[0]?.data.attachToCase).toBe(existing.deductionId);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe(`/cases/${existing.deductionId}`);
+    expect(to.searchParams.get('upload')).toMatch(/being read/);
   });
 });

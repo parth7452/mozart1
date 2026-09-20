@@ -3,10 +3,9 @@ import {
   CaseNotFoundError,
   DuplicateCaseError,
   RejectedUploadError,
-  processUpload,
 } from '@recouple/pipeline';
 import { requireSession, storeFor } from '../../lib/session';
-import { mayWrite, pipelineDepsFor } from '../../lib/pipeline';
+import { mayWrite, pipelineDepsFor, runnerFromEnv } from '../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../lib/request';
 
 /** One document per request, and not a large one: a notice is a few pages. */
@@ -23,6 +22,12 @@ const FORM_OVERHEAD_BYTES = 64 * 1024;
  * here is a better error message, not the enforcement — the write policies are
  * that, and they would refuse a `read_only` member's insert whatever this
  * handler thought.
+ *
+ * Since ADR 0021 the read is not necessarily *here*. The refusals above are,
+ * and so are the bytes and the scan; where the classify-and-extract half runs
+ * is `runnerFromEnv`'s answer, and the only difference this handler sees is
+ * whether it has a case to send the reviewer to or a sentence saying one is
+ * coming.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   // First, before the session is even looked up: this handler ingests a file
@@ -72,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const store = storeFor(session);
   try {
-    const result = await processUpload(
+    const outcome = await runnerFromEnv().run(
       {
         orgId: session.org.orgId,
         filename: file.name,
@@ -81,9 +86,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         source: 'web_upload' as const,
       },
       pipelineDepsFor(store),
-      attachingTo !== undefined ? { attachToCase: attachingTo } : {},
+      {
+        actor: { userId: session.userId },
+        ...(attachingTo !== undefined ? { attachToCase: attachingTo } : {}),
+      },
     );
 
+    if (outcome.kind === 'queued') {
+      // The document is stored and scanned clean and a job is reading it. There
+      // is no case id yet — the claim id is on a page nobody has read — so the
+      // reviewer goes back where they came from, told what is happening rather
+      // than sent to a case that does not exist for another minute.
+      back.searchParams.set(
+        'upload',
+        attachingTo !== undefined
+          ? 'that document is being read; it will appear on this case when it is'
+          : 'that document is being read; the case will appear here when it is',
+      );
+      return NextResponse.redirect(back, { status: 303 });
+    }
+
+    if (outcome.kind === 'halted') {
+      // The scan gate, in the runner that does not read here either. Stored,
+      // scanned, not read, and said out loud (invariant 4).
+      back.searchParams.set('upload', outcome.haltedBecause);
+      return NextResponse.redirect(back, { status: 303 });
+    }
+
+    const result = outcome.result;
     if (result.case !== undefined) {
       return NextResponse.redirect(new URL(`/cases/${result.case.deductionId}`, request.url), {
         status: 303,
