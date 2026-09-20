@@ -3,6 +3,7 @@ import { reconcileCase } from '@recouple/pipeline';
 import { requireSession } from '../../../lib/session';
 import { mayWrite } from '../../../lib/pipeline';
 import { isUuid } from '../../../lib/request';
+import { aboutFrom } from '../../../lib/notices';
 import { mayApprove, workflowStoreFor } from '../../../lib/workflow';
 import { CaseReview } from '../../../components/case-review';
 
@@ -27,11 +28,19 @@ export default async function CasePage({
 }: {
   params: Promise<{ id: string }>;
   // Every action redirects back here with what happened, so the outcome
-  // survives the POST rather than being lost to a full page load.
-  searchParams: Promise<{ decline?: string; upload?: string; action?: string }>;
+  // survives the POST rather than being lost to a full page load. What travels
+  // is a notice *key* and, for the few notices that name something, one or more
+  // validated `about` fragments — never the sentence itself, which would make
+  // this page a place a link can put words into (`lib/notices.ts`).
+  searchParams: Promise<{
+    decline?: string;
+    upload?: string;
+    action?: string;
+    about?: string | string[];
+  }>;
 }) {
   const { id } = await params;
-  const { decline, upload, action } = await searchParams;
+  const { decline, upload, action, about } = await searchParams;
   // The strict pattern, the same one every route here uses. `[0-9a-f-]{36}`
   // accepts `------------------------------------`, which is not a UUID and
   // reaches Postgres as a 500 rather than a 404.
@@ -84,6 +93,7 @@ export default async function CasePage({
         viewerUserId={session.userId}
         workflow={workflow}
         notice={decline ?? upload ?? action}
+        noticeAbout={aboutFrom(about)}
       />
     );
   } finally {

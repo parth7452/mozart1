@@ -1,7 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { MAX_RATIONALE_LENGTH } from '@recouple/core-domain';
+import {
+  ConfirmationNumberRequiredError,
+  InvalidRecoveryAmountError,
+  PacketNotBuildableError,
+} from '@recouple/pipeline';
+import {
+  ApprovalNamesNoPacketError,
+  ApprovedPacketMissingError,
+} from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
+import {
+  CONFIRMATION_MAX_LENGTH,
+  NOTE_MAX_LENGTH,
+  NOTICE_ABOUT_PARAM,
+  resolveNotice,
+} from '../lib/notices';
 import { FakeWorkflowStore } from './fake-workflow-store';
 
 /**
@@ -87,9 +102,25 @@ function location(response: Response): URL {
   return new URL(response.headers.get('location') as string);
 }
 
-/** What the reviewer is told, carried back on the redirect. */
-function said(response: Response): string | null {
+/** The notice key the redirect carried — never a sentence (`lib/notices.ts`). */
+function key(response: Response): string | null {
   return location(response).searchParams.get('action');
+}
+
+/**
+ * What the reviewer is actually told: the key, resolved.
+ *
+ * Through `resolveNotice` rather than read straight off the URL, so these
+ * assertions are about the words a person sees *and* about the key reaching
+ * them — a key that is not in the table, or a fragment that is not the shape
+ * the key declares, resolves to nothing and every one of these fails.
+ */
+function said(response: Response): string | undefined {
+  const at = location(response);
+  return resolveNotice(
+    at.searchParams.get('action') ?? undefined,
+    at.searchParams.getAll(NOTICE_ABOUT_PARAM),
+  )?.text;
 }
 
 function store(): FakeWorkflowStore {
@@ -171,6 +202,10 @@ describe('deciding to dispute', () => {
     expect(response.status).toBe(303);
     expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
     expect(said(response)).toMatch(/Nothing has been sent/);
+
+    // A key, and not the sentence: what travels in the query string is
+    // something this app can say and nothing else.
+    expect(key(response)).toBe('decided');
 
     // Who decided comes from the session and never from the form: the database
     // refuses a human decision that names anyone but its caller, and the column
@@ -275,6 +310,13 @@ describe('assembling the packet', () => {
     expect(response.status).toBe(303);
     expect(said(response)).toMatch(/packet assembled: 2 documents under [0-9a-f]{12}\./);
     expect(said(response)).toMatch(/a second person approves it/);
+    // The count and the hash are the only things in it that are not ours to
+    // say, and each arrives as a fragment the table validates.
+    expect(key(response)).toBe('packet_assembled');
+    expect(location(response).searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual([
+      '2',
+      expect.stringMatching(/^[0-9a-f]{12}$/) as unknown as string,
+    ]);
     expect(handlerCalls(before)).toEqual([
       { method: 'assemblePacket', input: { deductionId: CASE_ID, decisionId, assembledBy: ANALYST } },
     ]);
@@ -322,6 +364,12 @@ describe('the cover sheet', () => {
     expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
     expect(response.headers.get('content-disposition')).toContain('attachment');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    // The narrative quotes text read off somebody else's document, so nothing
+    // the browser might render it as may fetch, script or frame anything.
+    expect(response.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+    // A packet is what a person is about to authorise. A shared cache must not
+    // hold it, and a stale copy of it is worse than none.
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(await response.text()).toContain('# Dispute cover sheet');
     expect(store().closed).toBe(1);
   });
@@ -369,6 +417,8 @@ describe('approving a packet', () => {
 
     expect(response.status).toBe(303);
     expect(said(response)).toMatch(/approved/);
+    // The approve call, then the read that checks the approval landed on the
+    // case this URL names.
     expect(handlerCalls(before)).toEqual([
       {
         method: 'approve',
@@ -379,6 +429,7 @@ describe('approving a packet', () => {
           note: 'Checked the BOL.',
         },
       },
+      { method: 'getWorkflow', input: CASE_ID },
     ]);
   });
 
@@ -802,5 +853,530 @@ describe('the store’s named refusals, as a reviewer meets them', () => {
       params(CASE_ID),
     );
     expect(said(response)).toMatch(/no approval, so there is nothing to file/);
+  });
+});
+
+
+/**
+ * The fixes PR #8's review asked for, and the refusals nothing was driving.
+ *
+ * Every one of these is a way a reviewer's work is lost quietly: a reference
+ * cut to a length this app invented, a note cut the same way, a year nobody
+ * typed, a filing recorded against a case they were not looking at. None of
+ * them is a fault the store can catch — the store is handed something that is
+ * already wrong by then.
+ */
+describe('what is refused rather than quietly shortened', () => {
+  it('refuses a confirmation number longer than a confirmation, and names the length', async () => {
+    // Sliced at 120 before this: a reference cut to fit chases nothing in the
+    // retailer's portal, and it looks exactly like one that does.
+    const ready = await approved();
+    const before = store().calls.length;
+    const long = 'WM-'.padEnd(CONFIRMATION_MAX_LENGTH + 1, 'X');
+
+    const response = await submit(
+      post('submit', {
+        decisionId: ready.decisionId,
+        packetId: ready.packetId,
+        approvalId: ready.approvalId,
+        confirmationNumber: long,
+        submittedAt: '2026-09-20',
+      }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    expect(key(response)).toBe('submit_confirmation_too_long');
+    expect(said(response)).toContain(String(CONFIRMATION_MAX_LENGTH));
+    expect(said(response)).toContain(String(long.length));
+    // Nothing was filed, and nothing was shortened into the record.
+    expect(handlerCalls(before)).toHaveLength(0);
+    expect(store().closed).toBe(0);
+  });
+
+  it('takes a confirmation number exactly as long as the limit', async () => {
+    const ready = await approved();
+    const before = store().calls.length;
+    const exact = 'W'.repeat(CONFIRMATION_MAX_LENGTH);
+
+    const response = await submit(
+      post('submit', {
+        decisionId: ready.decisionId,
+        packetId: ready.packetId,
+        approvalId: ready.approvalId,
+        confirmationNumber: exact,
+        submittedAt: '2026-09-20',
+      }),
+      params(CASE_ID),
+    );
+
+    expect(said(response)).toMatch(/filed/);
+    expect(handlerCalls(before)[0]?.input).toMatchObject({ confirmationNumber: exact });
+  });
+
+  it('refuses an approval note longer than the field, and names the length', async () => {
+    const ready = await assembled();
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+    const before = store().calls.length;
+    const long = 'n'.repeat(NOTE_MAX_LENGTH + 1);
+
+    const response = await approve(
+      post('approve', {
+        decisionId: ready.decisionId,
+        packetId: ready.packetId,
+        note: long,
+      }),
+      params(CASE_ID),
+    );
+
+    expect(key(response)).toBe('approve_note_too_long');
+    expect(said(response)).toContain(String(NOTE_MAX_LENGTH));
+    expect(said(response)).toContain(String(long.length));
+    // Approving is a record of who authorised money moving. Half a sentence in
+    // that record is worse than being asked to shorten it.
+    expect(handlerCalls(before)).toHaveLength(0);
+  });
+
+  it('refuses an outcome note longer than the field, and names the length', async () => {
+    const ready = await approved();
+    await store().recordSubmission({
+      decisionId: ready.decisionId,
+      packetId: ready.packetId,
+      approvalId: ready.approvalId,
+      channel: 'manual_portal',
+      confirmationNumber: 'WM-1',
+      submittedAt: new Date('2026-09-20T00:00:00Z'),
+      actorId: ANALYST,
+    });
+    const before = store().calls.length;
+    const long = 'n'.repeat(NOTE_MAX_LENGTH + 1);
+
+    const response = await outcome(
+      post('outcome', { outcome: 'lost', note: long }),
+      params(CASE_ID),
+    );
+
+    expect(key(response)).toBe('outcome_note_too_long');
+    expect(said(response)).toContain(String(NOTE_MAX_LENGTH));
+    expect(handlerCalls(before)).toHaveLength(0);
+  });
+
+  it('takes a note exactly as long as the field, on both', async () => {
+    const ready = await assembled();
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+    const exact = 'n'.repeat(NOTE_MAX_LENGTH);
+    const before = store().calls.length;
+
+    const response = await approve(
+      post('approve', { decisionId: ready.decisionId, packetId: ready.packetId, note: exact }),
+      params(CASE_ID),
+    );
+    expect(said(response)).toMatch(/approved/);
+    expect(handlerCalls(before)[0]?.input).toMatchObject({ note: exact });
+  });
+
+  it('refuses a filing date outside the years a dispute could be filed in', async () => {
+    // Four digits is not a year. `0001-01-01` and `9999-12-31` both parse and
+    // neither is a day anybody filed on — and `submitted_at` is what a
+    // follow-up and a deadline are counted from. The same window
+    // `parsePrintedDate` holds a date read off a page to (ADR 0019).
+    const ready = await approved();
+    const before = store().calls.length;
+    for (const submittedAt of ['0001-01-01', '1999-12-31', '2101-01-01', '9999-12-31']) {
+      const response = await submit(
+        post('submit', {
+          decisionId: ready.decisionId,
+          packetId: ready.packetId,
+          approvalId: ready.approvalId,
+          confirmationNumber: 'WM-1',
+          submittedAt,
+        }),
+        params(CASE_ID),
+      );
+      expect(said(response), submittedAt).toBe('give the date it was filed, as YYYY-MM-DD');
+    }
+    expect(handlerCalls(before)).toHaveLength(0);
+
+    // …and the edges of the window are inside it.
+    for (const submittedAt of ['2000-01-01', '2100-12-31']) {
+      const at = store().calls.length;
+      const response = await submit(
+        post('submit', {
+          decisionId: ready.decisionId,
+          packetId: ready.packetId,
+          approvalId: ready.approvalId,
+          confirmationNumber: 'WM-1',
+          submittedAt,
+        }),
+        params(CASE_ID),
+      );
+      // The first one files it; the second meets the state check. Neither is
+      // the date refusal, which is the point.
+      expect(said(response), submittedAt).not.toBe('give the date it was filed, as YYYY-MM-DD');
+      expect(handlerCalls(at).length, submittedAt).toBeGreaterThan(0);
+    }
+  });
+
+  it('refuses a negative recovered amount in the store’s own words', async () => {
+    // `-5` parses: `parseMoneyToCents` reads it as -500 cents, which is money
+    // and not a typo this route can catch. The store is what knows a recovery
+    // cannot be negative, and it says so by name.
+    const ready = await approved();
+    await store().recordSubmission({
+      decisionId: ready.decisionId,
+      packetId: ready.packetId,
+      approvalId: ready.approvalId,
+      channel: 'manual_portal',
+      confirmationNumber: 'WM-1',
+      submittedAt: new Date('2026-09-20T00:00:00Z'),
+      actorId: ANALYST,
+    });
+    const before = store().calls.length;
+
+    const response = await outcome(
+      post('outcome', { outcome: 'partial', recovered: '-5' }),
+      params(CASE_ID),
+    );
+
+    expect(handlerCalls(before)[0]?.input).toMatchObject({ recoveredCents: -500 });
+    expect(key(response)).toBe('outcome_amount_refused');
+    expect(said(response)).toBe('that amount cannot be right: a recovery cannot be negative');
+  });
+
+  it('says so without repeating a refusal it cannot show', async () => {
+    // A reason that is not a sentence this app will repeat — a URL, markup,
+    // something very long — is not passed through a query string and read back
+    // out. The notice still says the amount was refused.
+    const ready = await approved();
+    await store().recordSubmission({
+      decisionId: ready.decisionId,
+      packetId: ready.packetId,
+      approvalId: ready.approvalId,
+      channel: 'manual_portal',
+      confirmationNumber: 'WM-1',
+      submittedAt: new Date('2026-09-20T00:00:00Z'),
+      actorId: ANALYST,
+    });
+    store().throws = new InvalidRecoveryAmountError(
+      CASE_ID,
+      'partial',
+      1,
+      'see https://evil.test for why',
+    );
+
+    const response = await outcome(
+      post('outcome', { outcome: 'partial', recovered: '0.01' }),
+      params(CASE_ID),
+    );
+    expect(key(response)).toBe('outcome_amount_refused_unsaid');
+    expect(said(response)).toMatch(/check it against the deduction/);
+    expect(location(response).searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual([]);
+  });
+});
+
+/**
+ * The refusals that had no route test at all, driven through the store.
+ *
+ * Each is a named `CaseWorkflowError` the handler translates. A translation
+ * nothing exercises is a translation that can be deleted without a failing
+ * test, which is the same as not having one.
+ */
+describe('the refusals nothing was driving', () => {
+  it('says why a packet could not be built, in the store’s own words', async () => {
+    const decisionId = await decided();
+    store().throws = new PacketNotBuildableError(
+      CASE_ID,
+      decisionId,
+      'a packet with no documents is not a packet',
+    );
+
+    const response = await assemble(post('packet', { decisionId }), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(key(response)).toBe('packet_not_buildable');
+    expect(said(response)).toBe(
+      'the packet could not be built: a packet with no documents is not a packet',
+    );
+    expect(store().closed).toBe(1);
+  });
+
+  it('says a packet could not be built without repeating a reason it cannot show', async () => {
+    const decisionId = await decided();
+    store().throws = new PacketNotBuildableError(CASE_ID, decisionId, 'see <b>this</b> instead');
+
+    const response = await assemble(post('packet', { decisionId }), params(CASE_ID));
+    expect(key(response)).toBe('packet_not_buildable_unsaid');
+    expect(said(response)).toMatch(/nothing was assembled/);
+  });
+
+  it('asks again for a confirmation the store refused as missing', async () => {
+    // The route asks first, so this is the store answering about something the
+    // route thought it had. It is still a thing to fix rather than a 500.
+    const ready = await approved();
+    store().throws = new ConfirmationNumberRequiredError(ready.decisionId);
+
+    const response = await submit(
+      post('submit', {
+        decisionId: ready.decisionId,
+        packetId: ready.packetId,
+        approvalId: ready.approvalId,
+        confirmationNumber: 'WM-1',
+        submittedAt: '2026-09-20',
+      }),
+      params(CASE_ID),
+    );
+    expect(response.status).toBe(303);
+    expect(said(response)).toBe('record the confirmation number the portal gave back');
+  });
+
+  it('says an approval that named no packet authorises nothing in particular', async () => {
+    // `approvals_packet_is_a_real_packet` is `MATCH SIMPLE`, so a null hash is
+    // valid to the database — it has to be, for `writeoff` and `writeback`. A
+    // `submit` approval with none authorises nothing, and the store refuses it.
+    const ready = await approved();
+    store().throws = new ApprovalNamesNoPacketError(ready.approvalId);
+
+    const response = await submit(
+      post('submit', {
+        decisionId: ready.decisionId,
+        packetId: ready.packetId,
+        approvalId: ready.approvalId,
+        confirmationNumber: 'WM-1',
+        submittedAt: '2026-09-20',
+      }),
+      params(CASE_ID),
+    );
+    expect(response.status).toBe(303);
+    expect(said(response)).toMatch(/names no packet/);
+    expect(said(response)).toMatch(/approved again/);
+  });
+
+  it('says to assemble again when an approval names a hash nothing was assembled under', async () => {
+    const ready = await assembled();
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+    store().throws = new ApprovedPacketMissingError(ready.decisionId);
+
+    const response = await approve(
+      post('approve', { decisionId: ready.decisionId, packetId: ready.packetId }),
+      params(CASE_ID),
+    );
+    expect(response.status).toBe(303);
+    expect(said(response)).toMatch(/no packet with that hash was assembled/);
+  });
+});
+
+/**
+ * Where a reviewer is sent when the write did not land on the case they were
+ * looking at.
+ *
+ * The ids travel on a form, and the store acts on the *decision's* case rather
+ * than on the id in the URL. A stale tab, two cases open at once, or a forged
+ * post can therefore approve or file one case while the browser is pointed at
+ * another — and the old handlers redirected to the URL's case with a notice
+ * saying it had happened there. The case would show nothing, under a sentence
+ * saying a dispute had been filed.
+ */
+describe('a write that landed on another case', () => {
+  const OTHER_CASE = '99999999-9999-9999-9999-999999999999';
+
+  /** A second case of this same tenant, decided, packeted and approved. */
+  async function otherCaseReady(): Promise<{
+    decisionId: string;
+    packetId: string;
+    approvalId: string;
+  }> {
+    store().seedCase({
+      deductionId: OTHER_CASE,
+      state: 'classified',
+      deductionAmountCents: AMOUNT_CENTS,
+      documentIds: [DOC_A],
+    });
+    const { decisionId } = await store().recordHumanDecision({
+      deductionId: OTHER_CASE,
+      preparedBy: ANALYST,
+      reason: 'shortage_quantity',
+      rationale: 'the other case',
+    });
+    const packet = await store().assemblePacket({
+      deductionId: OTHER_CASE,
+      decisionId,
+      assembledBy: ANALYST,
+    });
+    return { decisionId, packetId: packet.packetId, approvalId: '' };
+  }
+
+  it('sends an approver to the list rather than to the case they were on', async () => {
+    store().seedCase({
+      deductionId: CASE_ID,
+      state: 'classified',
+      deductionAmountCents: AMOUNT_CENTS,
+      documentIds: [DOC_A],
+    });
+    const other = await otherCaseReady();
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+
+    const response = await approve(
+      post('approve', { decisionId: other.decisionId, packetId: other.packetId }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe('/');
+    expect(key(response)).toBe('approve_other_case');
+    expect(said(response)).toMatch(/different case than the one you were looking at/);
+    // The approval itself is real and stands: it was given against the packet
+    // the form named, and `approvals` is append-only.
+    expect((await store().getWorkflow(OTHER_CASE))?.approval).toBeDefined();
+    expect((await store().getWorkflow(CASE_ID))?.approval).toBeUndefined();
+  });
+
+  it('sends a filer to the list rather than to the case they were on', async () => {
+    store().seedCase({
+      deductionId: CASE_ID,
+      state: 'classified',
+      deductionAmountCents: AMOUNT_CENTS,
+      documentIds: [DOC_A],
+    });
+    const other = await otherCaseReady();
+    store().setRole(APPROVER, 'approver');
+    const { approvalId } = await store().approve({
+      decisionId: other.decisionId,
+      packetId: other.packetId,
+      approverId: APPROVER,
+    });
+
+    const response = await submit(
+      post('submit', {
+        decisionId: other.decisionId,
+        packetId: other.packetId,
+        approvalId,
+        confirmationNumber: 'WM-1',
+        submittedAt: '2026-09-20',
+      }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe('/');
+    expect(key(response)).toBe('submit_other_case');
+    expect(said(response)).toMatch(/different case than the one you were looking at/);
+    expect((await store().getWorkflow(OTHER_CASE))?.submission).toBeDefined();
+    expect((await store().getWorkflow(CASE_ID))?.submission).toBeUndefined();
+  });
+});
+
+
+/**
+ * Where the double has to agree with the real store, because a route is tested
+ * against it and shipped against the other.
+ *
+ * `FakeWorkflowStore` enforces rules, not storage: which state, which role,
+ * which packet. A rule it gets wrong is a rule these route tests prove about
+ * software nobody runs — and the two that were wrong were both of that kind.
+ * The real store's answers are in `packages/store-postgres/src/workflow.ts` and
+ * are tested against a real Postgres in that package.
+ */
+describe('the store double, where it has to agree with the real one', () => {
+  it('lets any writer decide and assemble, as `WRITER_ROLES` does', async () => {
+    // The real store passes `WRITER_ROLES` — owner, approver, analyst — to
+    // `lockCase` for both `decide` and `assemble`: a `decisions` row is not an
+    // outbound act, and an approver who prepares one is stopped from approving
+    // it by separation of duties rather than from writing it (ADR 0020 §5). A
+    // double that refused an approver here would prove a rule that does not
+    // exist.
+    for (const role of ['owner', 'approver', 'analyst']) {
+      harness.store = new FakeWorkflowStore();
+      harness.userId = APPROVER;
+      harness.role = role;
+      store().setRole(APPROVER, role);
+      store().seedCase({
+        deductionId: CASE_ID,
+        state: 'classified',
+        deductionAmountCents: AMOUNT_CENTS,
+        documentIds: [DOC_A],
+      });
+
+      const decided = await decide(
+        post('decide', { reason: 'shortage_quantity', rationale: 'theirs to prepare' }),
+        params(CASE_ID),
+      );
+      expect(said(decided), role).toMatch(/Nothing has been sent/);
+
+      const workflow = await store().getWorkflow(CASE_ID);
+      const assembledIt = await assemble(
+        post('packet', { decisionId: workflow?.decision?.decisionId ?? '' }),
+        params(CASE_ID),
+      );
+      expect(said(assembledIt), role).toMatch(/packet assembled/);
+    }
+  });
+
+  it('still refuses an approver’s approval of their own decision', async () => {
+    // The other half of the same rule, and the reason widening the first one
+    // gives nothing away: preparing is a write, approving is the gate.
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+    store().seedCase({
+      deductionId: CASE_ID,
+      state: 'classified',
+      deductionAmountCents: AMOUNT_CENTS,
+      documentIds: [DOC_A],
+    });
+    const { decisionId } = await store().recordHumanDecision({
+      deductionId: CASE_ID,
+      preparedBy: APPROVER,
+      reason: 'shortage_quantity',
+      rationale: 'prepared by the approver',
+    });
+    const packet = await store().assemblePacket({
+      deductionId: CASE_ID,
+      decisionId,
+      assembledBy: APPROVER,
+    });
+
+    const response = await approve(
+      post('approve', { decisionId, packetId: packet.packetId }),
+      params(CASE_ID),
+    );
+    expect(said(response)).toBe(
+      'you prepared this decision, so you cannot approve it — a second person does that',
+    );
+  });
+
+  it('reads back the packet the approval named, not the first one assembled', async () => {
+    // `unique (decision_id, content_hash)` means re-assembling different
+    // contents is a *second* row, and the approval names exactly one of them.
+    // The real `getWorkflow` reads the approval first and fetches that packet;
+    // taking the first match instead showed a reviewer a packet nobody
+    // approved, which is the one thing the approve card must get right.
+    const ready = await assembled();
+    store().setRole(APPROVER, 'approver');
+    const second = store().seedPacket({
+      decisionId: ready.decisionId,
+      narrative: '# Dispute cover sheet (re-assembled)',
+      fileDocumentIds: [DOC_A],
+    });
+    expect(second.contentHash).not.toBe(ready.hash);
+
+    // With no approval, the latest is what a reviewer is looking at.
+    expect((await store().getWorkflow(CASE_ID))?.packet?.packetId).toBe(second.packetId);
+
+    // With one, it is the packet that approval named.
+    await store().approve({
+      decisionId: ready.decisionId,
+      packetId: ready.packetId,
+      approverId: APPROVER,
+    });
+    const after = await store().getWorkflow(CASE_ID);
+    expect(after?.packet?.packetId).toBe(ready.packetId);
+    expect(after?.packet?.contentHash).toBe(after?.approval?.packetHash);
   });
 });

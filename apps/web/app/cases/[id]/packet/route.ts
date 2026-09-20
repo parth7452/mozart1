@@ -12,6 +12,7 @@ import {
 import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
+import { noticeSentence } from '../../../../lib/notices';
 import { backToCase, caseNotFound, workflowStoreFor } from '../../../../lib/workflow';
 
 /**
@@ -41,7 +42,7 @@ export async function POST(
   }
   if (!mayWrite(session.org.role)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'your role can review cases but not assemble a packet'),
+      backToCase(request.url, id, 'packet_role'),
       { status: 303 },
     );
   }
@@ -53,7 +54,7 @@ export async function POST(
   // a 500 and lose the click.
   if (!isUuid(decisionId)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'this case has no decision to assemble a packet for'),
+      backToCase(request.url, id, 'packet_no_decision'),
       { status: 303 },
     );
   }
@@ -65,21 +66,19 @@ export async function POST(
       decisionId,
       assembledBy: session.userId,
     });
+    const files = packet.fileDocumentIds.length;
+    const hash = packet.contentHash.slice(0, 12);
     return NextResponse.redirect(
-      backToCase(
-        request.url,
-        id,
-        `packet assembled: ${packet.fileDocumentIds.length} document${
-          packet.fileDocumentIds.length === 1 ? '' : 's'
-        } under ${packet.contentHash.slice(0, 12)}. It has been sent nowhere; a second person approves it.`,
-      ),
+      files === 1
+        ? backToCase(request.url, id, 'packet_assembled_one', hash)
+        : backToCase(request.url, id, 'packet_assembled', String(files), hash),
       { status: 303 },
     );
   } catch (cause) {
     if (cause instanceof CaseNotVisibleError) return caseNotFound();
     if (cause instanceof DecisionNotFoundError || cause instanceof DecisionNotForCaseError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'this case has no decision to assemble a packet for'),
+        backToCase(request.url, id, 'packet_no_decision'),
         { status: 303 },
       );
     }
@@ -87,11 +86,7 @@ export async function POST(
       // A packet with no notice is an envelope with nothing in it. The
       // reviewer can fix this: attach the notice and assemble again.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'there is no notice on this case to send — attach the deduction notice first',
-        ),
+        backToCase(request.url, id, 'packet_nothing_to_send'),
         { status: 303 },
       );
     }
@@ -103,30 +98,34 @@ export async function POST(
         backToCase(
           request.url,
           id,
-          `this decision was already approved as packet ${cause.approvedPacketHash.slice(0, 12)}, so a new packet could never be approved`,
+          'packet_after_approval',
+          cause.approvedPacketHash.slice(0, 12),
         ),
         { status: 303 },
       );
     }
     if (cause instanceof PacketNotBuildableError) {
+      // The store's own words when they are words this app will repeat, and a
+      // notice that says so plainly when they are not. Never the raw detail:
+      // it travels through a query string, and what comes back out of one is
+      // not necessarily what went in.
+      const why = noticeSentence(cause.detail);
       return NextResponse.redirect(
-        backToCase(request.url, id, `the packet could not be built: ${cause.detail}`),
+        why === undefined
+          ? backToCase(request.url, id, 'packet_not_buildable_unsaid')
+          : backToCase(request.url, id, 'packet_not_buildable', why),
         { status: 303 },
       );
     }
     if (cause instanceof WrongCaseStateError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          `this case is ${cause.state.replace(/_/g, ' ')}, and a packet is assembled from a case an analyst has decided`,
-        ),
+        backToCase(request.url, id, 'packet_wrong_state', cause.state.replace(/_/g, ' ')),
         { status: 303 },
       );
     }
     if (cause instanceof WrongRoleError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'your role can review cases but not assemble a packet'),
+        backToCase(request.url, id, 'packet_role'),
         { status: 303 },
       );
     }

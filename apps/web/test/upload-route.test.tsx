@@ -16,6 +16,25 @@ import {
   InMemoryStore,
 } from '@recouple/pipeline/testing';
 import type { PostgresStore } from '@recouple/store-postgres';
+import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
+
+/**
+ * What the reviewer is told: the notice key the redirect carried, resolved.
+ *
+ * A key, never a sentence — the query string is a thing anybody can type, and
+ * an app that repeats what it finds there is an app a link can put words into.
+ * These went through the URL as prose until this was fixed, including the
+ * filename a stranger chose and the claim id printed on their document
+ * (`lib/notices.ts`). Resolving here means a key the table does not have fails
+ * the assertion rather than passing it with its own name.
+ */
+function said(response: Response): string | undefined {
+  const at = new URL(response.headers.get('location') as string);
+  return resolveNotice(
+    at.searchParams.get('upload') ?? undefined,
+    at.searchParams.getAll(NOTICE_ABOUT_PARAM),
+  )?.text;
+}
 
 /**
  * What the upload route does with the failures the pipeline can now hand it.
@@ -192,7 +211,11 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(second.status).toBe(303);
     const location = new URL(second.headers.get('location') as string);
     expect(location.pathname).toBe(`/cases/${opened?.deductionId}`);
-    expect(location.searchParams.get('upload')).toMatch(/APDP-99812 is already this case/);
+    expect(location.searchParams.get('upload')).toBe('upload_duplicate_case');
+    // The claim id was read off somebody else's page, so it travels as a
+    // validated fragment rather than inside a sentence.
+    expect(location.searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual(['APDP-99812']);
+    expect(said(second)).toMatch(/claim APDP-99812 is already this case/);
     expect(store.cases.size).toBe(1);
 
     // And the read that got us here is still on the books: it happened, and it
@@ -225,7 +248,7 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(response.status).toBe(303);
     const location = new URL(response.headers.get('location') as string);
     expect(location.pathname).toBe(`/cases/${caseId}`);
-    expect(location.searchParams.get('upload')).toBe('choose a file first');
+    expect(said(response)).toBe('choose a file first');
   });
 
   it('refuses a cross-site POST with a 403, before the session is resolved', async () => {
@@ -265,7 +288,7 @@ describe('uploading a notice whose claim is already a case', () => {
     const to = new URL(response.headers.get('location') as string);
     // Back to the list: the case page they came from is not theirs to return to.
     expect(to.pathname).toBe('/');
-    expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
+    expect(said(response)).toMatch(/no longer available; nothing was uploaded/);
 
     // Nothing read, nothing spent, nothing stored — the refusal is before all
     // of it, and it is not swallowed into a page that looks like it worked.
@@ -343,7 +366,7 @@ describe('uploading where the read runs as a job', () => {
     expect(response.status).toBe(303);
     const to = new URL(response.headers.get('location') as string);
     expect(to.pathname).toBe('/');
-    expect(to.searchParams.get('upload')).toMatch(/being read/);
+    expect(said(response)).toMatch(/being read/);
   });
 
   it('sends no event for a file that did not scan clean', async () => {
@@ -356,9 +379,12 @@ describe('uploading where the read runs as a job', () => {
 
     expect(sent).toEqual([]);
     expect(store.modelCalls).toHaveLength(0);
-    expect(new URL(response.headers.get('location') as string).searchParams.get('upload')).toMatch(
-      /not scanned clean: infected/,
+    // The gate's own key, so what a reviewer reads is this app's sentence
+    // rather than clamd's reply passed through a URL.
+    expect(new URL(response.headers.get('location') as string).searchParams.get('upload')).toBe(
+      'upload_not_scanned_clean',
     );
+    expect(said(response)).toMatch(/did not come back clean from the scanner/);
   });
 
   it('refuses a case it cannot resolve before storing anything', async () => {
@@ -373,7 +399,7 @@ describe('uploading where the read runs as a job', () => {
     expect(sent).toEqual([]);
     const to = new URL(response.headers.get('location') as string);
     expect(to.pathname).toBe('/');
-    expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
+    expect(said(response)).toMatch(/no longer available; nothing was uploaded/);
   });
 
   it('keeps the document and says so when the queue will not take the event', async () => {
@@ -393,11 +419,8 @@ describe('uploading where the read runs as a job', () => {
       const response = await POST(uploadRequest(notice.bytes, notice.filename));
 
       expect(response.status).toBe(303);
-      const to = new URL(response.headers.get('location') as string);
-      expect(to.searchParams.get('upload')).toMatch(
-        /stored but could not be queued for reading/,
-      );
-      expect(to.searchParams.get('upload')).toMatch(/uploading the same file again re-queues it/);
+      expect(said(response)).toMatch(/stored but could not be queued for reading/);
+      expect(said(response)).toMatch(/uploading the same file again re-queues it/);
 
       // The document is in, unread, and the failure went somewhere an operator
       // will see it — with the cause, not just a sentence.
@@ -423,6 +446,6 @@ describe('uploading where the read runs as a job', () => {
     expect(sent[0]?.data.attachToCase).toBe(existing.deductionId);
     const to = new URL(response.headers.get('location') as string);
     expect(to.pathname).toBe(`/cases/${existing.deductionId}`);
-    expect(to.searchParams.get('upload')).toMatch(/being read/);
+    expect(said(response)).toMatch(/being read/);
   });
 });

@@ -11,10 +11,14 @@ import {
 import { ApprovedPacketMissingError } from '@recouple/store-postgres';
 import { requireSession } from '../../../../lib/session';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
-import { backToCase, caseNotFound, mayApprove, workflowStoreFor } from '../../../../lib/workflow';
-
-/** Anything a later reader would need. Longer than this is a document. */
-const MAX_NOTE = 2000;
+import { NOTE_MAX_LENGTH } from '../../../../lib/notices';
+import {
+  backToCase,
+  backToList,
+  caseNotFound,
+  mayApprove,
+  workflowStoreFor,
+} from '../../../../lib/workflow';
 
 /**
  * A second person authorises a specific packet for submission.
@@ -43,11 +47,7 @@ export async function POST(
   }
   if (!mayApprove(session.org.role)) {
     return NextResponse.redirect(
-      backToCase(
-        request.url,
-        id,
-        'approving is an owner or approver’s act; your role can prepare a case but not authorise it',
-      ),
+      backToCase(request.url, id, 'approve_role'),
       { status: 303 },
     );
   }
@@ -57,61 +57,65 @@ export async function POST(
   const packetId = form.get('packetId');
   if (!isUuid(decisionId) || !isUuid(packetId)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'this case has no assembled packet to approve'),
+      backToCase(request.url, id, 'approve_no_packet'),
       { status: 303 },
     );
   }
 
   const note = form.get('note');
   const said = typeof note === 'string' ? note.trim() : '';
+  // Refused, not shortened. An approval's note is part of the record of who
+  // authorised money moving, and a note silently cut at a length this file
+  // invented would put words on that record that nobody finished writing. The
+  // form's `maxLength` stops a browser getting here; a POST that is not from
+  // the form is told the number rather than quietly trimmed to it.
+  if (said.length > NOTE_MAX_LENGTH) {
+    return NextResponse.redirect(
+      backToCase(request.url, id, 'approve_note_too_long', String(said.length)),
+      { status: 303 },
+    );
+  }
 
   const store = workflowStoreFor(session);
   try {
-    await store.approve({
+    const { approvalId } = await store.approve({
       decisionId,
       packetId,
       approverId: session.userId,
-      ...(said === '' ? {} : { note: said.slice(0, MAX_NOTE) }),
+      ...(said === '' ? {} : { note: said }),
     });
-    return NextResponse.redirect(
-      backToCase(
-        request.url,
-        id,
-        'approved: this packet may now be filed, and the submission you record must be this packet',
-      ),
-      { status: 303 },
-    );
+    // The store approves the *packet's* case, which is not necessarily the case
+    // in this URL: the ids come off a form, and a stale or forged one can name
+    // a decision of another case this tenant owns. The write is right either
+    // way — the store read the decision, not the path — but sending the
+    // reviewer back to the path's case would show them a case where nothing
+    // happened, with a notice saying it did.
+    const landed = await store.getWorkflow(id);
+    if (landed?.approval?.approvalId !== approvalId) {
+      return NextResponse.redirect(backToList(request.url, 'approve_other_case'), {
+        status: 303,
+      });
+    }
+    return NextResponse.redirect(backToCase(request.url, id, 'approved'), { status: 303 });
   } catch (cause) {
     if (cause instanceof PreparerCannotApproveError) {
       // Separation of duties, refused by the database and named here. Not a
       // fault: a preparer looking at their own case and pressing the button
       // their own browser should not have shown them.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'you prepared this decision, so you cannot approve it — a second person does that',
-        ),
+        backToCase(request.url, id, 'approve_is_preparer'),
         { status: 303 },
       );
     }
     if (cause instanceof WrongRoleError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'approving is an owner or approver’s act; your role can prepare a case but not authorise it',
-        ),
+        backToCase(request.url, id, 'approve_role'),
         { status: 303 },
       );
     }
     if (cause instanceof WrongCaseStateError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          `this case is ${cause.state.replace(/_/g, ' ')}, and an approval is given on a case awaiting one`,
-        ),
+        backToCase(request.url, id, 'approve_wrong_state', cause.state.replace(/_/g, ' ')),
         { status: 303 },
       );
     }
@@ -120,17 +124,13 @@ export async function POST(
       // One approval per decision, which the database holds as a unique
       // constraint. A double-clicked button is not a second authorisation.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'this packet was already approved; the first approval stands and is the one that counts',
-        ),
+        backToCase(request.url, id, 'approve_duplicate'),
         { status: 303 },
       );
     }
     if (cause instanceof PacketNotForDecisionError || cause instanceof DecisionNotFoundError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'this case has no assembled packet to approve'),
+        backToCase(request.url, id, 'approve_no_packet'),
         { status: 303 },
       );
     }
@@ -138,11 +138,7 @@ export async function POST(
       // The foreign key onto `packets (decision_id, content_hash)`: an approval
       // may not name a hash nothing was assembled under. Reload and assemble.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'no packet with that hash was assembled for this decision — reload the case and assemble it again',
-        ),
+        backToCase(request.url, id, 'approve_packet_missing'),
         { status: 303 },
       );
     }

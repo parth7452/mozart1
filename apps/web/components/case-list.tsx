@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { deadline, money, retailer } from '../lib/format';
+import { resolveNotice } from '../lib/notices';
 
 export interface Viewer {
   readonly email: string;
@@ -22,16 +23,24 @@ export function CaseList({
   today,
   mayUpload,
   notice,
+  noticeAbout,
 }: {
   viewer: Viewer;
   cases: readonly CaseSummary[];
   today: Date;
   /** Whether this member's role may add a document; the database decides too. */
   mayUpload: boolean;
-  /** What happened to the last upload, when something did. */
+  /**
+   * What happened to the last upload, as a notice *key* — never the sentence
+   * itself, which arrives in a query string anybody can write
+   * (`lib/notices.ts`). A key this app does not know shows nothing at all.
+   */
   notice?: string | undefined;
+  /** The validated fragments the key's text names, in order. */
+  noticeAbout?: readonly string[] | undefined;
 }) {
   const total = cases.reduce((sum, row) => sum + row.deductionAmountCents, 0);
+  const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
     <>
@@ -43,7 +52,9 @@ export function CaseList({
         </span>
       </header>
       <main>
-        {notice !== undefined ? <p className="notice bad">{notice}</p> : null}
+        {said === undefined ? null : (
+          <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
+        )}
         {mayUpload ? (
           <form className="card upload" action="/upload" method="post" encType="multipart/form-data">
             <label htmlFor="file">

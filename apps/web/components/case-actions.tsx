@@ -1,10 +1,12 @@
 import {
+  MAX_RATIONALE_LENGTH,
   familyOf,
   type CanonicalReasonCode,
   type CaseState,
   type ReasonFamily,
 } from '@recouple/core-domain';
 import type { CaseWorkflow } from '@recouple/pipeline';
+import { CONFIRMATION_MAX_LENGTH, NOTE_MAX_LENGTH } from '../lib/notices';
 
 /**
  * The reasons a deduction is disputed, in a reviewer's words.
@@ -138,11 +140,17 @@ export function CaseActions({
             </select>
 
             <label htmlFor="rationale">In one line, for whoever approves it</label>
+            {/* The cap is the packet narrative's, not a number this file chose:
+                `MAX_RATIONALE_LENGTH` is what the cover sheet has room for, and
+                it is what the store refuses on — before the append-only
+                `decisions` row is written, so a rationale the packet could not
+                hold cannot wedge the case. A browser stopping at some other
+                number would be this form disagreeing with the one referee. */}
             <input
               id="rationale"
               name="rationale"
               type="text"
-              maxLength={500}
+              maxLength={MAX_RATIONALE_LENGTH}
               required
               placeholder="The signed BOL shows all 30 cases delivered."
             />
@@ -216,7 +224,10 @@ export function CaseActions({
               <input type="hidden" name="decisionId" value={packet.decisionId} />
               <input type="hidden" name="packetId" value={packet.packetId} />
               <label htmlFor="approval-note">Anything a later reader would need (optional)</label>
-              <textarea id="approval-note" name="note" rows={2} maxLength={2000} />
+              {/* The same number the route refuses on, from the same constant:
+                  a browser that stopped at a different one would hand the
+                  handler a note the person thought they had finished. */}
+              <textarea id="approval-note" name="note" rows={2} maxLength={NOTE_MAX_LENGTH} />
               <button className="primary" type="submit">
                 Approve for submission
               </button>
@@ -225,7 +236,13 @@ export function CaseActions({
             <p className="hint" style={{ margin: 0 }}>
               {isPreparer
                 ? 'You prepared this decision, so approving it is not yours to do. Separation of duties is the point of the gate, and the database refuses it too.'
-                : 'Waiting on an owner or an approver. Your role can prepare a case and assemble its packet, but not authorise it.'}
+                : mayAct
+                  ? 'Waiting on an owner or an approver. Your role can prepare a case and assemble its packet, but not authorise it.'
+                  : // A `read_only` member is neither the approver nor the
+                    // analyst the other sentence is addressed to, and telling
+                    // them they can assemble a packet would be telling them to
+                    // go and press a button the write policies refuse.
+                    'Waiting on an owner or an approver. Your role can read this case but not act on it.'}
             </p>
           )}
         </div>
@@ -267,7 +284,7 @@ export function CaseActions({
               id="confirmationNumber"
               name="confirmationNumber"
               type="text"
-              maxLength={120}
+              maxLength={CONFIRMATION_MAX_LENGTH}
               required
             />
 
@@ -317,7 +334,7 @@ export function CaseActions({
             </span>
 
             <label htmlFor="outcome-note">Anything a later reader would need (optional)</label>
-            <textarea id="outcome-note" name="note" rows={2} maxLength={2000} />
+            <textarea id="outcome-note" name="note" rows={2} maxLength={NOTE_MAX_LENGTH} />
 
             <button className="primary" type="submit">
               Record this outcome

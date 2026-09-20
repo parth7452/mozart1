@@ -47,9 +47,7 @@ export async function POST(
   }
   if (!mayWrite(session.org.role)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'your role can review cases but not decide them'),
-      { status: 303 },
-    );
+      backToCase(request.url, id, 'decide_role'), { status: 303 });
   }
 
   const form = await request.formData();
@@ -58,7 +56,7 @@ export async function POST(
   // of these; a code that is not one of them would be stored and never counted.
   if (typeof reason !== 'string' || !isCanonicalReasonCode(reason)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'choose the reason this deduction is invalid'),
+      backToCase(request.url, id, 'decide_reason'),
       { status: 303 },
     );
   }
@@ -67,7 +65,7 @@ export async function POST(
   const said = typeof rationale === 'string' ? rationale.trim() : '';
   if (said === '') {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'say in one line why this deduction is worth disputing'),
+      backToCase(request.url, id, 'decide_rationale'),
       { status: 303 },
     );
   }
@@ -86,11 +84,7 @@ export async function POST(
       rationale: said,
     });
     return NextResponse.redirect(
-      backToCase(
-        request.url,
-        id,
-        'recorded: this case is yours to assemble a packet for. Nothing has been sent.',
-      ),
+      backToCase(request.url, id, 'decided'),
       { status: 303 },
     );
   } catch (cause) {
@@ -101,33 +95,25 @@ export async function POST(
       // Both at once would move the one number that log exists to produce, and
       // reversing a decline is a decision of its own that does not exist yet.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'this case was declined, and a declined case is not disputed — the decline stands',
-        ),
+        backToCase(request.url, id, 'decide_declined'),
         { status: 303 },
       );
     }
     if (cause instanceof WrongCaseStateError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          `this case is ${cause.state.replace(/_/g, ' ')}, and a decision is made from a case that has been classified`,
-        ),
+        backToCase(request.url, id, 'decide_wrong_state', cause.state.replace(/_/g, ' ')),
         { status: 303 },
       );
     }
     if (cause instanceof WrongRoleError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'your role can review cases but not decide them'),
+        backToCase(request.url, id, 'decide_role'),
         { status: 303 },
       );
     }
     if (cause instanceof RationaleRequiredError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'say in one line why this deduction is worth disputing'),
+        backToCase(request.url, id, 'decide_rationale'),
         { status: 303 },
       );
     }
@@ -139,22 +125,28 @@ export async function POST(
         backToCase(
           request.url,
           id,
-          `that rationale is ${cause.length} characters and the cover sheet holds ${cause.maxLength} — shorten it`,
+          'decide_rationale_too_long',
+          String(cause.length),
+          String(cause.maxLength),
         ),
         { status: 303 },
       );
     }
     if (cause instanceof NotACanonicalReasonError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'choose the reason this deduction is invalid'),
+        backToCase(request.url, id, 'decide_reason'),
         { status: 303 },
       );
     }
     // Fail loud. A decision that did not happen must not redirect back looking
     // like one that did: `decisions` is append-only, so a missing row is not
-    // something a later write repairs. `ActorIsNotTheSessionError` is here on
-    // purpose — this handler always names the session's own user, so it can
-    // only mean a bug, and a bug on a money path is not a notice.
+    // something a later write repairs. `ActorIsNotTheSessionError` and
+    // `HumanDecisionAuthorError` are both here on purpose — the first is the
+    // store refusing a `preparedBy` that is not its own caller, the second is
+    // `app.human_decision_names_its_author()` refusing the same thing from the
+    // database when the store did not catch it first. This handler always names
+    // the session's own user, so either one can only mean a bug, and a bug on a
+    // money path is not a notice.
     throw cause;
   } finally {
     await store.close();

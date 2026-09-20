@@ -10,6 +10,7 @@ import {
 import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
+import { NOTE_MAX_LENGTH, noticeSentence } from '../../../../lib/notices';
 import { backToCase, caseNotFound, workflowStoreFor } from '../../../../lib/workflow';
 
 const OUTCOMES: readonly CaseOutcome[] = ['won', 'partial', 'lost'];
@@ -17,8 +18,6 @@ const OUTCOMES: readonly CaseOutcome[] = ['won', 'partial', 'lost'];
 function isOutcome(value: unknown): value is CaseOutcome {
   return typeof value === 'string' && (OUTCOMES as readonly string[]).includes(value);
 }
-
-const MAX_NOTE = 2000;
 
 /**
  * Records what the retailer did with the dispute.
@@ -47,7 +46,7 @@ export async function POST(
   }
   if (!mayWrite(session.org.role)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'your role can review cases but not record an outcome'),
+      backToCase(request.url, id, 'outcome_role'),
       { status: 303 },
     );
   }
@@ -56,7 +55,7 @@ export async function POST(
   const outcome = form.get('outcome');
   if (!isOutcome(outcome)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'say what came back: won, partial or lost'),
+      backToCase(request.url, id, 'outcome_required'),
       { status: 303 },
     );
   }
@@ -75,11 +74,7 @@ export async function POST(
     } catch (cause) {
       if (cause instanceof MoneyError) {
         return NextResponse.redirect(
-          backToCase(
-            request.url,
-            id,
-            'write the recovered amount as dollars and cents, like 1,800.00 — it is stored as whole cents',
-          ),
+          backToCase(request.url, id, 'outcome_amount_unreadable'),
           { status: 303 },
         );
       }
@@ -89,6 +84,16 @@ export async function POST(
 
   const note = form.get('note');
   const said = typeof note === 'string' ? note.trim() : '';
+  // Refused, not shortened. The outcome event is where Phase 4 reads an
+  // attributable recovery from, and its note is the sentence a later reader has
+  // to go on; one silently cut at a length this file invented is a record of
+  // something nobody finished writing.
+  if (said.length > NOTE_MAX_LENGTH) {
+    return NextResponse.redirect(
+      backToCase(request.url, id, 'outcome_note_too_long', String(said.length)),
+      { status: 303 },
+    );
+  }
 
   const store = workflowStoreFor(session);
   try {
@@ -97,36 +102,34 @@ export async function POST(
       outcome,
       recoveredCents,
       recordedBy: session.userId,
-      ...(said === '' ? {} : { note: said.slice(0, MAX_NOTE) }),
+      ...(said === '' ? {} : { note: said }),
     });
-    return NextResponse.redirect(
-      backToCase(request.url, id, `recorded: this case is ${outcome}`),
-      { status: 303 },
-    );
+    return NextResponse.redirect(backToCase(request.url, id, 'outcome_recorded', outcome), {
+      status: 303,
+    });
   } catch (cause) {
     if (cause instanceof InvalidRecoveryAmountError) {
       // The amount contradicts the outcome, or is not a number of cents this
       // case could have recovered. Said in the store's own words, because the
       // reason is the useful half — "more than the deduction" and "not an
       // integer" are different mistakes.
+      const why = noticeSentence(cause.reason);
       return NextResponse.redirect(
-        backToCase(request.url, id, `that amount cannot be right: ${cause.reason}`),
+        why === undefined
+          ? backToCase(request.url, id, 'outcome_amount_refused_unsaid')
+          : backToCase(request.url, id, 'outcome_amount_refused', why),
         { status: 303 },
       );
     }
     if (cause instanceof WrongCaseStateError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          `this case is ${cause.state.replace(/_/g, ' ')}, and an outcome is recorded on a case that was filed`,
-        ),
+        backToCase(request.url, id, 'outcome_wrong_state', cause.state.replace(/_/g, ' ')),
         { status: 303 },
       );
     }
     if (cause instanceof WrongRoleError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'your role can review cases but not record an outcome'),
+        backToCase(request.url, id, 'outcome_role'),
         { status: 303 },
       );
     }
