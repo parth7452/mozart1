@@ -279,32 +279,47 @@ export function canTransition(from: CaseState, to: CaseState, trigger?: string):
  * Moves a case, or explains why it cannot move. Unsatisfied guards are named —
  * a silent refusal to advance is the failure mode this exists to prevent.
  *
- * Where several edges join the same pair of states, the case moves if *any* one
- * of them is satisfied, and a refusal names what each of them would have needed.
- * Taking only the first would let one edge's guard decide for another's.
+ * The `trigger` is required, and it is required because the table is keyed by
+ * `(from, to, trigger)`. Without it, `submitted → won` would match both the
+ * `outcome.detected` edge and the `outcome.recorded` edge, and whichever one's
+ * guards happened to be set would decide for the other: a caller holding
+ * `outcome_detected` would move a case a human never recorded an outcome for,
+ * and the resulting state would no longer say which fact moved it. Naming the
+ * event is what makes the answer a function of what actually happened.
+ *
+ * Two edges with the same `(from, to, trigger)` and both guards satisfied is a
+ * bug in the table, not a choice to make at runtime, so it throws rather than
+ * picking one. `has no duplicate edges` in the test suite is the other half of
+ * that; this is what catches a duplicate reachable only through guards.
  */
 export function applyTransition(
   from: CaseState,
   to: CaseState,
+  trigger: string,
   guards: Partial<Record<GuardName, boolean>> = {},
-  trigger?: string,
 ): Transition {
   const candidates = TRANSITIONS.filter(
-    (t) => t.from === from && t.to === to && (trigger === undefined || t.trigger === trigger),
+    (t) => t.from === from && t.to === to && t.trigger === trigger,
   );
   if (candidates.length === 0) {
-    throw new TransitionError(
-      `illegal transition ${from} → ${to}${trigger === undefined ? '' : ` on ${trigger}`}`,
-    );
+    throw new TransitionError(`illegal transition ${from} → ${to} on ${trigger}`);
   }
 
-  const satisfied = candidates.find((t) => t.guards.every((g) => guards[g] === true));
-  if (satisfied) return satisfied;
+  const satisfied = candidates.filter((t) => t.guards.every((g) => guards[g] === true));
+  if (satisfied.length > 1) {
+    throw new TransitionError(
+      `ambiguous transition ${from} → ${to} on ${trigger}: ${satisfied.length} edges are ` +
+        `satisfied at once (${satisfied.map((t) => t.workflow).join(', ')}) — the table is wrong`,
+    );
+  }
+  if (satisfied.length === 1) return satisfied[0] as Transition;
 
   const why = candidates
     .map((t) => `${t.trigger}: ${t.guards.filter((g) => guards[g] !== true).join(', ')}`)
     .join('; ');
-  throw new TransitionError(`transition ${from} → ${to} blocked by unmet guard(s): ${why}`);
+  throw new TransitionError(
+    `transition ${from} → ${to} on ${trigger} blocked by unmet guard(s): ${why}`,
+  );
 }
 
 /** Breadth-first reachability, optionally forbidding states along the way. */

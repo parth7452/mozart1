@@ -105,12 +105,13 @@ append-only tables.
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic |
-| `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production |
+| `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
+| `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
 | `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1) |
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
