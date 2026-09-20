@@ -260,7 +260,17 @@ unreadable date instead of guessing. Running it twice is a no-op.
 Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0015 as
 of 2026-09-19.
 
-Still to do before Phase 1 is done: the Inngest binding over the existing steps,
-and fixtures for the formats still missing — dense retailer tables with merged
-cells, and EDI-derived portal exports. Real customer documents would be worth
-more than all of them.
+The Inngest binding over the existing steps exists, and which environment gets
+it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
+`INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` gives a job, neither reads inside
+the request as before, one without the other is an error (ADR 0021). The request
+keeps the cheap fail-closed half — session, CSRF, magic bytes, the `documents`
+row, the scan gate — and the job does the read, through `PostgresStore` as
+`app_rw` with the claims the event names, never the service role. `ingestForJob`
+and `readDocumentJob` in `packages/pipeline` are the same `ingestDocument` and
+`readDocument` the synchronous path runs; the event carries ids and the acting
+member, never document text.
+
+Still to do before Phase 1 is done: fixtures for the formats still missing —
+dense retailer tables with merged cells, and EDI-derived portal exports. Real
+customer documents would be worth more than all of them.

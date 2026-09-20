@@ -1,6 +1,22 @@
 import { ClaudeClassifier, ClaudeExtractor, ReductoOcr } from '@recouple/extraction';
 import { scannerFromEnv } from '@recouple/ingest';
-import type { PipelineDeps } from '@recouple/pipeline';
+import {
+  assertCaseAttachable,
+  ingestForJob,
+  processUpload,
+  type IngestInput,
+  type JobDeps,
+  type PipelineDeps,
+  type ProcessedDocument,
+} from '@recouple/pipeline';
+import { PostgresStore } from '@recouple/store-postgres';
+import { env } from './env';
+import {
+  inngestClient,
+  inngestKeysFromEnv,
+  readRequestedEvent,
+  type ReadRequestedData,
+} from './inngest';
 
 /**
  * The real pipeline, assembled from configuration.
@@ -20,8 +36,15 @@ import type { PipelineDeps } from '@recouple/pipeline';
  * file's — a hosted `HttpScanner` when `CLAMAV_SCAN_URL` is set, clamd over TCP
  * when `CLAMAV_HOST` is, `NullScanner` otherwise. Deciding it twice is how the
  * two answers drift (ADR 0018).
+ *
+ * The store's own type is carried through rather than narrowed to the port, so
+ * a caller handing in a store that can do more keeps it — a job needs
+ * `getDocument` to read a document it only has the id of (ADR 0021), and
+ * `PostgresStore` has always had it.
  */
-export function pipelineDepsFor(store: PipelineDeps['store']): PipelineDeps {
+export function pipelineDepsFor<S extends PipelineDeps['store']>(
+  store: S,
+): PipelineDeps & { readonly store: S } {
   const scanner = scannerFromEnv();
 
   const ocr =
@@ -37,6 +60,145 @@ export function pipelineDepsFor(store: PipelineDeps['store']): PipelineDeps {
     ...(ocr !== undefined ? { ocr } : {}),
     now: () => new Date(),
   };
+}
+
+/**
+ * A store for a job, scoped to the tenant and member an event named.
+ *
+ * The same two claims `storeFor` sets for a request (lib/session.ts), set the
+ * same way: `PostgresStore` as `app_rw`, transaction-locally. A job is not a
+ * privileged context — it sees what that member sees, because RLS is what
+ * decides, and the service-role key appears nowhere in this app (invariant 6).
+ */
+export function storeForActor(identity: {
+  readonly orgId: string;
+  readonly userId: string;
+}): PostgresStore {
+  return new PostgresStore({ connectionString: env.databaseUrl }, identity);
+}
+
+/**
+ * What an upload did, in the two shapes an upload can now end in (ADR 0021).
+ *
+ * `read` is the whole pipeline, finished: a case to go to, or a reason it did
+ * not get one. `queued` is the bytes stored and scanned clean with the read
+ * handed to a job — there is no case id yet, and there will not be one for a
+ * minute, so the reviewer is told that rather than sent somewhere that does not
+ * exist.
+ */
+export type UploadOutcome =
+  | { readonly kind: 'read'; readonly result: ProcessedDocument }
+  | { readonly kind: 'queued'; readonly documentId: string }
+  | { readonly kind: 'halted'; readonly haltedBecause: string };
+
+export interface UploadRunner {
+  readonly name: 'inline' | 'inngest';
+  run(
+    input: IngestInput,
+    deps: JobDeps,
+    options: {
+      readonly actor: { readonly userId: string };
+      readonly attachToCase?: string;
+    },
+  ): Promise<UploadOutcome>;
+}
+
+/**
+ * The whole pipeline, inside the request. What this app did before ADR 0021 and
+ * what it still does wherever Inngest is not configured.
+ */
+export class InlineRunner implements UploadRunner {
+  readonly name = 'inline';
+
+  async run(
+    input: IngestInput,
+    deps: JobDeps,
+    options: { attachToCase?: string },
+  ): Promise<UploadOutcome> {
+    const result = await processUpload(
+      input,
+      deps,
+      options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {},
+    );
+    return { kind: 'read', result };
+  }
+}
+
+/**
+ * Ingest in the request, read in a job.
+ *
+ * The order is the point. The case to attach to is resolved first, so a
+ * reviewer who named one that is not theirs finds out while they are still
+ * looking at it. Then the bytes are hardened, stored and scanned — and a file
+ * that did not scan clean stops here, with no event sent, because the gate is
+ * the verdict and nothing downstream of it may run (invariant 4). Only a
+ * document that got through is announced, by id.
+ */
+export class InngestRunner implements UploadRunner {
+  readonly name = 'inngest';
+  private readonly client: ReturnType<typeof inngestClient>;
+
+  constructor(client: ReturnType<typeof inngestClient>) {
+    this.client = client;
+  }
+
+  async run(
+    input: IngestInput,
+    deps: JobDeps,
+    options: { actor: { userId: string }; attachToCase?: string },
+  ): Promise<UploadOutcome> {
+    await assertCaseAttachable(deps, options.attachToCase);
+
+    const ingested = await ingestForJob(deps, input);
+    if (ingested.haltedBecause !== undefined) {
+      return { kind: 'halted', haltedBecause: ingested.haltedBecause };
+    }
+
+    const data: ReadRequestedData = {
+      documentId: ingested.documentId,
+      orgId: ingested.orgId,
+      userId: options.actor.userId,
+      ...(options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {}),
+    };
+    await this.client.send(readRequestedEvent(data));
+
+    return { kind: 'queued', documentId: ingested.documentId };
+  }
+}
+
+/**
+ * Which of the two an environment runs, decided in one place.
+ *
+ * `scannerFromEnv`'s shape, for `scannerFromEnv`'s reason (ADR 0018): a
+ * decision made twice is a decision that drifts. Both keys gives the job runner;
+ * neither gives the inline runner, which is today's behaviour and is safe rather
+ * than convenient; one without the other throws out of `inngestKeysFromEnv`,
+ * because a half-configured binding is a deployment somebody left half-finished.
+ */
+export function runnerFromEnv(): UploadRunner {
+  const keys = inngestKeysFromEnv();
+  const runner =
+    keys === undefined ? new InlineRunner() : new InngestRunner(inngestClient(keys));
+  announce(runner.name);
+  return runner;
+}
+
+/**
+ * Says which runner this process is using, once.
+ *
+ * Once per answer, not once per call: the environment does not change under a
+ * running process, so this logs at startup and then never again — while a test
+ * that changes the environment still gets told what it changed to.
+ */
+let announced: string | undefined;
+function announce(name: UploadRunner['name']): void {
+  if (announced === name) return;
+  announced = name;
+  console.info(
+    name === 'inngest'
+      ? '[recouple] uploads: bytes are stored and scanned in the request, and the read runs as an Inngest job (ADR 0021)'
+      : '[recouple] uploads: the whole read runs inside the request — no INNGEST_EVENT_KEY/INNGEST_SIGNING_KEY here (ADR 0021)',
+  );
 }
 
 /** Roles that may add a document. `read_only` and `accountant_guest` may not. */
