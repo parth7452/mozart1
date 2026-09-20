@@ -7,10 +7,13 @@ import {
   TransitionError,
   applyTransition,
   canTransition,
+  findTransition,
   isReachable,
   isTerminal,
+  transitionsBetween,
   transitionsFrom,
   type CaseState,
+  type GuardName,
 } from '../src/state-machine';
 
 describe('the case state machine', () => {
@@ -88,8 +91,82 @@ describe('the case state machine', () => {
     ]);
   });
 
+  // An edge is keyed by (from, to, trigger): the same pair of states can be
+  // crossed by two different facts, and each carries its own guards.
   it('has no duplicate edges', () => {
-    const keys = TRANSITIONS.map((t) => `${t.from}→${t.to}`);
+    const keys = TRANSITIONS.map((t) => `${t.from}→${t.to} via ${t.trigger}`);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  describe('the Phase 3 human path (ADR 0020)', () => {
+    it('lets a human decision route a classified case straight to analyst review', () => {
+      const edge = findTransition('classified', 'analyst_review', 'decision.recorded');
+      expect(edge).toBeDefined();
+      expect(edge?.guards).toEqual(['human_decision_recorded']);
+      expect(edge?.workflow).toBe('decide.human');
+    });
+
+    it('still makes that case pass through awaiting_approval to be submitted', () => {
+      const walk: readonly [CaseState, CaseState, GuardName][] = [
+        ['classified', 'analyst_review', 'human_decision_recorded'],
+        ['analyst_review', 'awaiting_approval', 'packet_assembled_and_submission_safe'],
+        ['awaiting_approval', 'submitted', 'approval_row_exists'],
+        ['submitted', 'partial', 'outcome_recorded_by_human'],
+      ];
+      for (const [from, to, guard] of walk) {
+        expect(() => applyTransition(from, to, { [guard]: true })).not.toThrow();
+      }
+      expect(
+        isReachable('classified', 'submitted', { avoid: ['awaiting_approval'] }),
+      ).toBe(false);
+    });
+
+    it('keeps the detected outcome edges alongside the recorded ones', () => {
+      for (const outcome of ['won', 'partial', 'lost'] as const) {
+        const triggers = transitionsBetween('submitted', outcome)
+          .map((t) => t.trigger)
+          .sort();
+        expect(triggers).toEqual(['outcome.detected', 'outcome.recorded']);
+      }
+    });
+
+    it('takes whichever edge between a pair has its guards met, not merely the first', () => {
+      // outcome.detected is listed first. A human-recorded outcome must still
+      // move the case, and a detected one must still move it after that.
+      expect(
+        applyTransition('submitted', 'won', { outcome_recorded_by_human: true }).trigger,
+      ).toBe('outcome.recorded');
+      expect(applyTransition('submitted', 'won', { outcome_detected: true }).trigger).toBe(
+        'outcome.detected',
+      );
+    });
+
+    it('names every candidate edge when none of their guards are met', () => {
+      expect(() => applyTransition('submitted', 'won')).toThrow(/outcome_detected/);
+      expect(() => applyTransition('submitted', 'won')).toThrow(/outcome_recorded_by_human/);
+    });
+
+    it('refuses an edge asked for by the wrong trigger', () => {
+      expect(canTransition('classified', 'analyst_review', 'outcome.recorded')).toBe(false);
+      expect(() =>
+        applyTransition(
+          'classified',
+          'analyst_review',
+          { human_decision_recorded: true },
+          'outcome.recorded',
+        ),
+      ).toThrow(TransitionError);
+    });
+
+    it('gives the two new guards to the edges that need them and to nothing else', () => {
+      const guarded = (g: GuardName) =>
+        TRANSITIONS.filter((t) => t.guards.includes(g)).map((t) => `${t.from}→${t.to}`);
+      expect(guarded('human_decision_recorded')).toEqual(['classified→analyst_review']);
+      expect(guarded('outcome_recorded_by_human').sort()).toEqual([
+        'submitted→lost',
+        'submitted→partial',
+        'submitted→won',
+      ]);
+    });
   });
 });
