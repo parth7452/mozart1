@@ -309,7 +309,7 @@ places.
 | A packet's decision is the same tenant's and the same case's | **Database** — `app.packet_matches_its_decision()`, a before-insert trigger on `packets`; the foreign keys say each id exists, not that they are one case (§2) |
 | A submission's packet hash equals its approval's | **Store** — §2 above. The database deliberately permits the mismatch, and `11_a_human_decides.sql` asserts that it does, so nobody closes it in the gate's trigger by accident |
 | A `submit` approval names *some* packet | **Store** — the foreign key is `MATCH SIMPLE`, so an approval with a null `packet_hash` is valid to the database (it has to be: `writeoff` and `writeback` have no packet). A `submit` approval naming nothing authorises nothing in particular, and the store refuses to file against one (`ApprovalNamesNoPacketError`). So hash binding is store-enforced on both sides — the wrong hash *and* no hash at all |
-| An analyst or owner may decide and assemble | **Store** — the database sees both as ordinary writes by a writer, which is correct: a `decisions` row is not an outbound act |
+| Any writer — `owner`, `approver` or `analyst` — may decide and assemble | **Store** — the database sees both as ordinary writes by a writer, which is correct: a `decisions` row is not an outbound act. An `approver` who prepares one is refused as its approver by separation of duties, not by being kept from preparing it |
 | Any writer may record a submission and an outcome | **Store**, on top of the database's writer check |
 | A case is in the right state for the action | **Store** — the state machine is the spec; the database checks only the value |
 

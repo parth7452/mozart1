@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { AlreadyDeclinedError } from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
+import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
 /**
  * What the decline route does with everything that is not the happy path.
@@ -98,6 +99,22 @@ function location(response: Response): URL {
   return new URL(response.headers.get('location') as string);
 }
 
+/**
+ * What the reviewer is told: the notice key the redirect carried, resolved.
+ *
+ * A key, never a sentence — the query string is a thing anybody can type, and
+ * an app that repeats what it finds there is an app a link can put words into
+ * (`lib/notices.ts`). Going through `resolveNotice` means a key that is not in
+ * the table fails these assertions rather than passing them with its own name.
+ */
+function said(response: Response): string | undefined {
+  const at = new URL(response.headers.get('location') as string);
+  return resolveNotice(
+    at.searchParams.get('decline') ?? undefined,
+    at.searchParams.getAll(NOTICE_ABOUT_PARAM),
+  )?.text;
+}
+
 describe('declining a case from the web', () => {
   beforeEach(() => {
     harness.role = 'analyst';
@@ -119,7 +136,8 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toMatch(/logged as declined, not discarded/);
+    expect(to.searchParams.get('decline')).toBe('declined');
+    expect(said(response)).toMatch(/logged as declined, not discarded/);
 
     // Who decided comes from the session, never from the form. The evidence
     // list is filtered to what coverage can add up, and the detail is trimmed.
@@ -192,9 +210,7 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toBe(
-      'your role can review cases but not decide them',
-    );
+    expect(said(response)).toBe('your role can review cases but not decide them');
     expect(store.calls).toHaveLength(0);
   });
 
@@ -207,7 +223,7 @@ describe('declining a case from the web', () => {
       expect(response.status).toBe(303);
       const to = location(response);
       expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-      expect(to.searchParams.get('decline')).toBe('choose a reason for declining');
+      expect(said(response)).toBe('choose a reason for declining');
     }
     expect(store.calls).toHaveLength(0);
   });
@@ -223,9 +239,7 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toBe(
-      'this case was already declined; the first decline stands',
-    );
+    expect(said(response)).toBe('this case was already declined; the first decline stands');
     expect(store.closed).toBe(1);
   });
 

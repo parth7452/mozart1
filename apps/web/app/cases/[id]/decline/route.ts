@@ -3,6 +3,7 @@ import { AlreadyDeclinedError, isDeclineReason, isMissingEvidence } from '@recou
 import { requireSession, storeFor } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
+import { type NoticeKey } from '../../../../lib/notices';
 
 /**
  * Records a decision not to fight a case.
@@ -29,6 +30,13 @@ export async function POST(
   const { id } = await params;
   const session = await requireSession();
   const back = new URL(`/cases/${id}`, request.url);
+  // What happened travels as a key, not as a sentence: the query string is a
+  // thing anybody can type, and an app that repeats what it finds there is an
+  // app a link can put words into (`lib/notices.ts`).
+  const say = (notice: NoticeKey): NextResponse => {
+    back.searchParams.set('decline', notice);
+    return NextResponse.redirect(back, { status: 303 });
+  };
 
   // A real UUID, not 36 characters that look like one: an id that is the right
   // shape but not a UUID reaches Postgres and comes back as a 500, losing
@@ -37,8 +45,7 @@ export async function POST(
     return NextResponse.redirect(new URL('/', request.url), { status: 303 });
   }
   if (!mayWrite(session.org.role)) {
-    back.searchParams.set('decline', 'your role can review cases but not decide them');
-    return NextResponse.redirect(back, { status: 303 });
+    return say('decline_role');
   }
 
   const form = await request.formData();
@@ -46,8 +53,7 @@ export async function POST(
   if (!isDeclineReason(reason)) {
     // The database would refuse it too — the enum is there. Saying so here just
     // costs a round trip less.
-    back.searchParams.set('decline', 'choose a reason for declining');
-    return NextResponse.redirect(back, { status: 303 });
+    return say('decline_reason');
   }
 
   const detail = form.get('detail');
@@ -72,15 +78,13 @@ export async function POST(
         ? { detail: detail.trim().slice(0, 2000) }
         : {}),
     });
-    back.searchParams.set('decline', 'recorded: this case is logged as declined, not discarded');
-    return NextResponse.redirect(back, { status: 303 });
+    return say('declined');
   } catch (cause) {
     if (cause instanceof AlreadyDeclinedError) {
       // Not a fault: a second submit of a form that is still on screen. The
       // first decline stands, and saying so beats a 500 or a second row that
       // would count this case's dollars twice.
-      back.searchParams.set('decline', 'this case was already declined; the first decline stands');
-      return NextResponse.redirect(back, { status: 303 });
+      return say('decline_already');
     }
     throw cause;
   } finally {

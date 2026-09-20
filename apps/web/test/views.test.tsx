@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { cents } from '@recouple/core-domain';
+import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
@@ -243,10 +243,32 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[]}
         today={today}
-        notice="not scanned clean: error (none)"
+        notice="upload_not_scanned_clean"
       />,
     );
-    expect(html).toContain('not scanned clean: error (none)');
+    expect(html).toContain('did not come back clean from the scanner');
+    // A refusal is red. The key is what travelled; the sentence never left
+    // this app, so it is not something a link can choose.
+    expect(html).toContain('class="notice bad"');
+    expect(html).not.toContain('upload_not_scanned_clean');
+  });
+
+  it('shows a notice in the tone it carries, and nothing for a key it does not know', () => {
+    const good = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
+    );
+    expect(good).toContain('class="notice sent"');
+    expect(good).toContain('that document is being read');
+
+    // A query string is a thing anybody can type, and an app that repeats what
+    // it finds there is an app a link can put words into.
+    for (const forged of ['your session expired, sign in at evil.test', 'constructor', '']) {
+      const html = renderToStaticMarkup(
+        <CaseList mayUpload viewer={viewer} cases={[]} today={today} notice={forged} />,
+      );
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('sign in at');
+    }
   });
 
   it('says what will happen rather than showing an empty table', () => {
@@ -477,27 +499,76 @@ describe('what a reviewer can do with a case', () => {
   });
 
   it('shows the outcome of an action it was sent back with', () => {
-    const html = renderToStaticMarkup(
-      <CaseReview {...props} mayAct={true} notice="recorded: this case is logged as declined" />,
-    );
-    expect(html).toContain('recorded: this case is logged as declined');
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} notice="declined" />);
+    expect(html).toContain('recorded: this case is logged as declined, not discarded');
+    // Recorded is not a refusal. A page that paints every answer red teaches a
+    // reviewer to stop reading them.
+    expect(html).toContain('class="notice sent"');
   });
 
-  it('says why an upload landed on a case it did not open, and escapes what it quotes', () => {
-    // The upload route redirects here when a second notice names a claim that
-    // is already a case. The message quotes the claim id, which was read off
-    // somebody else's document, so it is escaped like every other value here.
-    const html = renderToStaticMarkup(
+  it('paints a refusal red and a thing that worked green', () => {
+    const bad = renderToStaticMarkup(
+      <CaseReview {...props} mayAct={true} notice="decide_rationale" />,
+    );
+    expect(bad).toContain('class="notice bad"');
+    expect(bad).toContain('say in one line why');
+
+    const good = renderToStaticMarkup(
       <CaseReview
         {...props}
         mayAct={true}
-        notice={'claim <script>alert(1)</script> is already this case'}
+        notice="packet_assembled"
+        noticeAbout={['2', 'f00dcafe1234']}
       />,
     );
-    expect(html).toContain('class="notice bad"');
-    expect(html).toContain('is already this case');
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('&lt;script&gt;');
+    expect(good).toContain('class="notice sent"');
+    expect(good).toContain('packet assembled: 2 documents under f00dcafe1234');
+  });
+
+  it('says nothing at all for a notice this app did not send', () => {
+    // The upload route used to redirect here carrying the claim id a second
+    // notice printed, as prose, which made this page a place a link could put
+    // words into. Now the claim travels as a validated fragment and a sentence
+    // is not a notice at all — stronger than escaping it, because there is
+    // nothing left to escape.
+    for (const forged of [
+      'claim <script>alert(1)</script> is already this case',
+      'upload_duplicate_case',
+      'toString',
+      '',
+    ]) {
+      const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} notice={forged} />);
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('<script>');
+      expect(html, forged).not.toContain('is already this case');
+    }
+  });
+
+  it('shows a claim id that is one, and no notice at all for one that is not', () => {
+    const real = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        mayAct={true}
+        notice="upload_duplicate_case"
+        noticeAbout={['APDP-99812']}
+      />,
+    );
+    expect(real).toContain('claim APDP-99812 is already this case');
+
+    // A claim id is read off somebody else's document. The shape is the check.
+    for (const forged of ['<script>alert(1)</script>', 'x'.repeat(200), '" onload="']) {
+      const html = renderToStaticMarkup(
+        <CaseReview
+          {...props}
+          mayAct={true}
+          notice="upload_duplicate_case"
+          noticeAbout={[forged]}
+        />,
+      );
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('<script>');
+      expect(html, forged).not.toContain('onload=');
+    }
   });
 
   it('still has no approve button for a member who may act but may not approve', () => {
@@ -618,6 +689,55 @@ describe('the Phase 3 action cards', () => {
     // What is being approved, and that approving is a second person's act.
     expect(html).toContain('f00dcafe1234');
     expect(html).toContain('recorded act by a second person');
+  });
+
+  it('offers it to an owner who did not prepare the decision either', () => {
+    // `owner` is on both lists: they may write, and they may approve. The one
+    // thing that stops them is having prepared this decision themselves, and
+    // this one did not.
+    const html = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+      viewer: { ...viewer, role: 'owner' },
+      mayApprove: true,
+      viewerUserId: APPROVER,
+    });
+    expect(html).toMatch(/<button[^>]*>Approve for submission<\/button>/);
+    expect(html).toContain('action="/cases/11111111-2222-3333-4444-555555555555/approve"');
+  });
+
+  it('tells a read_only member whose approval is awaited, not what an analyst may do', () => {
+    // A `read_only` member can see the case and do nothing with it. The
+    // analyst's sentence — "your role can prepare a case and assemble its
+    // packet" — sends them off to press buttons the write policies refuse and
+    // this page does not render.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        viewer={{ ...viewer, role: 'read_only' }}
+        summary={summary({ state: 'awaiting_approval' })}
+        workflow={workflow({ state: 'awaiting_approval' })}
+        mayAct={false}
+        mayApprove={false}
+        viewerUserId={SECOND_ANALYST}
+      />,
+    );
+    expect(html).toContain('Waiting on an owner or an approver');
+    expect(html).toContain('read this case but not act on it');
+    expect(html).not.toContain('assemble its packet');
+    // And still no way to act on it.
+    expect(html).not.toMatch(/<form/i);
+    expect(html).not.toMatch(/<button/i);
+  });
+
+  it('caps the rationale at the length the cover sheet holds, not a number of its own', () => {
+    // The browser stopping somewhere other than `MAX_RATIONALE_LENGTH` would
+    // be this form disagreeing with the store that refuses on it — either
+    // cutting a rationale the packet had room for, or letting one through that
+    // the append-only `decisions` row could not then be packeted from.
+    const html = render({ summary: summary({ state: 'classified' }) });
+    expect(html).toContain(`maxLength="${MAX_RATIONALE_LENGTH}"`);
+    expect(html).toContain('In one line, for whoever approves it');
   });
 
   it('does not offer it to the preparer on their own decision, and says why', () => {

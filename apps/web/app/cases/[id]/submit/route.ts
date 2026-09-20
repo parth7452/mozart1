@@ -14,7 +14,8 @@ import { ApprovalNamesNoPacketError } from '@recouple/store-postgres';
 import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
-import { backToCase, caseNotFound, workflowStoreFor } from '../../../../lib/workflow';
+import { CONFIRMATION_MAX_LENGTH } from '../../../../lib/notices';
+import { backToCase, backToList, caseNotFound, workflowStoreFor } from '../../../../lib/workflow';
 
 /**
  * The only way a dispute is filed today: a person, on the retailer's portal.
@@ -26,11 +27,19 @@ import { backToCase, caseNotFound, workflowStoreFor } from '../../../../lib/work
  */
 const CHANNEL: WorkflowSubmissionChannel = 'manual_portal';
 
-/** A retailer's confirmation is a reference, not a paragraph. */
-const MAX_CONFIRMATION = 120;
-
 /** `YYYY-MM-DD`, which is what `<input type="date">` submits, and nothing else. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The years a filing date can plausibly fall in, the same window
+ * `parsePrintedDate` holds a date read off a page to (ADR 0019).
+ *
+ * `0001-01-01` and `9999-12-31` are both four digits and neither is a day
+ * anybody filed a dispute on; a year out here is a typo or a paste, and
+ * `submitted_at` is what a deadline and a follow-up are counted from.
+ */
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
 
 /**
  * Parses the date a person says they filed on.
@@ -42,6 +51,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 function parseSubmittedAt(text: unknown): Date | undefined {
   if (typeof text !== 'string' || !ISO_DATE.test(text)) return undefined;
+  const year = Number(text.slice(0, 4));
+  if (year < MIN_YEAR || year > MAX_YEAR) return undefined;
   const at = new Date(`${text}T00:00:00Z`);
   if (Number.isNaN(at.getTime())) return undefined;
   // `2026-02-31` parses to March 3rd. A date that is not the date that was
@@ -73,7 +84,7 @@ export async function POST(
   }
   if (!mayWrite(session.org.role)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'your role can review cases but not record a filing'),
+      backToCase(request.url, id, 'submit_role'),
       { status: 303 },
     );
   }
@@ -84,7 +95,7 @@ export async function POST(
   const approvalId = form.get('approvalId');
   if (!isUuid(decisionId) || !isUuid(packetId) || !isUuid(approvalId)) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'this case has no approved packet to file'),
+      backToCase(request.url, id, 'submit_no_approved_packet'),
       { status: 303 },
     );
   }
@@ -95,7 +106,17 @@ export async function POST(
     // A filing with no confirmation is a filing nobody can chase. The portal
     // gives one; recording the dispute without it loses the only handle on it.
     return NextResponse.redirect(
-      backToCase(request.url, id, 'record the confirmation number the portal gave back'),
+      backToCase(request.url, id, 'submit_confirmation'),
+      { status: 303 },
+    );
+  }
+  // Refused, not truncated. A confirmation number is the only handle anybody
+  // has on a dispute sitting in a retailer's portal, and one silently cut at a
+  // length this file invented is a reference that finds nothing — worse than
+  // none, because it looks like one.
+  if (reference.length > CONFIRMATION_MAX_LENGTH) {
+    return NextResponse.redirect(
+      backToCase(request.url, id, 'submit_confirmation_too_long', String(reference.length)),
       { status: 303 },
     );
   }
@@ -103,41 +124,40 @@ export async function POST(
   const submittedAt = parseSubmittedAt(form.get('submittedAt'));
   if (submittedAt === undefined) {
     return NextResponse.redirect(
-      backToCase(request.url, id, 'give the date it was filed, as YYYY-MM-DD'),
+      backToCase(request.url, id, 'submit_date'),
       { status: 303 },
     );
   }
 
   const store = workflowStoreFor(session);
   try {
-    await store.recordSubmission({
+    const { submissionId } = await store.recordSubmission({
       decisionId,
       packetId,
       approvalId,
       channel: CHANNEL,
-      confirmationNumber: reference.slice(0, MAX_CONFIRMATION),
+      confirmationNumber: reference,
       submittedAt,
       actorId: session.userId,
     });
-    return NextResponse.redirect(
-      backToCase(
-        request.url,
-        id,
-        'filed: this case is submitted, and what comes back is recorded here as an outcome',
-      ),
-      { status: 303 },
-    );
+    // The store files against the *decision's* case, which is not necessarily
+    // the case in this URL: the ids come off a form, and a stale or forged one
+    // can name a decision of another case this tenant owns. Where the reviewer
+    // is sent next is read back rather than assumed from the path — a case page
+    // showing nothing, under a notice saying the dispute was filed, is the one
+    // answer nobody could act on.
+    const landed = await store.getWorkflow(id);
+    if (landed?.submission?.submissionId !== submissionId) {
+      return NextResponse.redirect(backToList(request.url, 'submit_other_case'), { status: 303 });
+    }
+    return NextResponse.redirect(backToCase(request.url, id, 'submitted'), { status: 303 });
   } catch (cause) {
     if (cause instanceof PacketHashMismatchError) {
       // The packet is not the one that was approved. Never a formatting
       // problem: something was re-assembled after approval, and the approval
       // names contents that are no longer what would be filed.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'this packet is not the one that was approved; it has to be approved again before it can be filed',
-        ),
+        backToCase(request.url, id, 'submit_packet_mismatch'),
         { status: 303 },
       );
     }
@@ -145,27 +165,19 @@ export async function POST(
       // Not a fault: a form still on screen, submitted twice. The first filing
       // stands, and a second row would be a second dispute for one deduction.
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'this dispute was already filed on the retailer’s portal; the first filing stands',
-        ),
+        backToCase(request.url, id, 'submit_duplicate'),
         { status: 303 },
       );
     }
     if (cause instanceof WrongCaseStateError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          `this case is ${cause.state.replace(/_/g, ' ')}, and a filing is recorded on a case that has been approved`,
-        ),
+        backToCase(request.url, id, 'submit_wrong_state', cause.state.replace(/_/g, ' ')),
         { status: 303 },
       );
     }
     if (cause instanceof WrongRoleError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'your role can review cases but not record a filing'),
+        backToCase(request.url, id, 'submit_role'),
         { status: 303 },
       );
     }
@@ -174,33 +186,25 @@ export async function POST(
       // The store asks first so this can be read; the gate asks last and is
       // the one that decides (invariant 1).
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'this dispute has no approval, so there is nothing to file — a second person approves it first',
-        ),
+        backToCase(request.url, id, 'submit_no_approval'),
         { status: 303 },
       );
     }
     if (cause instanceof ApprovalNamesNoPacketError) {
       return NextResponse.redirect(
-        backToCase(
-          request.url,
-          id,
-          'the approval on file names no packet, so it authorises nothing in particular — it has to be approved again',
-        ),
+        backToCase(request.url, id, 'submit_approval_names_no_packet'),
         { status: 303 },
       );
     }
     if (cause instanceof PacketNotForDecisionError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'that packet was not assembled for this decision'),
+        backToCase(request.url, id, 'submit_packet_not_for_decision'),
         { status: 303 },
       );
     }
     if (cause instanceof ConfirmationNumberRequiredError) {
       return NextResponse.redirect(
-        backToCase(request.url, id, 'record the confirmation number the portal gave back'),
+        backToCase(request.url, id, 'submit_confirmation'),
         { status: 303 },
       );
     }

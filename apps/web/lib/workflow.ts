@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { CaseWorkflowStore } from '@recouple/pipeline';
 import { storeFor, type Session } from './session';
 import type { TenantStore } from './store';
+import { NOTICE_ABOUT_PARAM, type NoticeKey } from './notices';
 
 /**
  * The Phase 3 workflow, as this request's tenant may walk it.
@@ -49,13 +50,45 @@ export function mayApprove(role: string): boolean {
  * produced it. A redirect rather than a rendered error because a POST that
  * re-renders is a POST a refresh repeats, and every one of these writes to a
  * money path.
+ *
+ * What travels is a key out of `lib/notices.ts` and never a sentence: the query
+ * string is a thing anybody can type, and an app that repeats it is an app a
+ * link can put words into. Anything the key cannot say on its own — a hash, a
+ * state, a count — follows as `about`, one validated fragment per `{n}`.
  */
 export const NOTICE_PARAM = 'action';
 
 /** A 303 back to the case, saying what happened. */
-export function backToCase(requestUrl: string, deductionId: string, notice: string): URL {
+export function backToCase(
+  requestUrl: string,
+  deductionId: string,
+  notice: NoticeKey,
+  ...about: readonly string[]
+): URL {
   const back = new URL(`/cases/${deductionId}`, requestUrl);
   back.searchParams.set(NOTICE_PARAM, notice);
+  for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
+  return back;
+}
+
+/**
+ * A 303 to the case list, saying what happened.
+ *
+ * Where a route goes when the case the write landed on is not the case in the
+ * URL it was posted to: sending the reviewer back to the path's case would show
+ * them a case where nothing happened, and this app cannot ask the store which
+ * case it did happen on (`approve` and `recordSubmission` answer with an id of
+ * their own row and nothing else). The list is where every case they may see
+ * is, and the notice says to look for it there.
+ */
+export function backToList(
+  requestUrl: string,
+  notice: NoticeKey,
+  ...about: readonly string[]
+): URL {
+  const back = new URL('/', requestUrl);
+  back.searchParams.set(NOTICE_PARAM, notice);
+  for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
   return back;
 }
 

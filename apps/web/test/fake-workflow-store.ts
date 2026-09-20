@@ -58,9 +58,21 @@ import {
  */
 
 /** Who may do what, as ADR 0020 §5 splits it between the database and the store. */
-const MAY_DECIDE: ReadonlySet<string> = new Set(['owner', 'analyst']);
-const MAY_APPROVE: ReadonlySet<string> = new Set(['owner', 'approver']);
 const MAY_WRITE: ReadonlySet<string> = new Set(['owner', 'approver', 'analyst']);
+/**
+ * Deciding and assembling are ordinary writes by a writer.
+ *
+ * The same set as `MAY_WRITE`, by name rather than by coincidence: the real
+ * store passes `WRITER_ROLES` to `lockCase` for both `decide` and `assemble`
+ * (`packages/store-postgres/src/workflow.ts`), because a `decisions` row is not
+ * an outbound act and nothing about it needs a second person. An `approver` who
+ * writes the decision simply cannot be the one who approves it — that is
+ * `PreparerCannotApproveError`'s job, not this set's. A narrower set here would
+ * make this double refuse what the real store allows, and a route tested
+ * against it would be tested against a rule that does not exist.
+ */
+const MAY_DECIDE: ReadonlySet<string> = MAY_WRITE;
+const MAY_APPROVE: ReadonlySet<string> = new Set(['owner', 'approver']);
 
 export interface SeededCase {
   readonly deductionId: string;
@@ -459,18 +471,27 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     const decision = [...this.decisions.values()].find(
       (candidate) => candidate.deductionId === deductionId,
     );
-    const packet =
-      decision === undefined
-        ? undefined
-        : [...this.packets.values()].find(
-            (candidate) => candidate.decisionId === decision.decisionId,
-          );
     const approval =
       decision === undefined
         ? undefined
         : [...this.approvals.values()].find(
             (candidate) => candidate.decisionId === decision.decisionId,
           );
+    // The packet the approval named, when there is one, and otherwise the
+    // latest — the real store's selection (`getWorkflow` in
+    // `packages/store-postgres/src/workflow.ts`), because a case page must show
+    // what was approved rather than the most recent thing assembled. Taking the
+    // first match instead made this double disagree with the store about which
+    // packet a reviewer is looking at, which is the one thing the approve card
+    // exists to get right: `unique (decision_id, content_hash)` means a
+    // re-assembly is a *second* row, and the approval names exactly one of them.
+    const forDecision = (candidate: PacketRecord): boolean =>
+      decision !== undefined && candidate.decisionId === decision.decisionId;
+    const packets = [...this.packets.values()].filter(forDecision);
+    const packet =
+      approval === undefined
+        ? packets[packets.length - 1]
+        : packets.find((candidate) => candidate.contentHash === approval.packetHash);
     const submission =
       decision === undefined
         ? undefined
