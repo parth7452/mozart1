@@ -19,7 +19,14 @@ import {
   type Cents,
 } from '@recouple/core-domain';
 import type { FieldValue } from './field';
-import type { DeductionNotice, Invoice, PurchaseOrder, ShipmentDocument } from './schemas';
+import type {
+  Correspondence,
+  DeductionNotice,
+  Invoice,
+  PurchaseOrder,
+  ShipmentDocument,
+} from './schemas';
+import { minutesLate, parseTimestamp } from './timestamps';
 
 export type FindingSeverity = 'blocking' | 'warning' | 'supports_dispute' | 'info';
 
@@ -92,6 +99,123 @@ export interface ReconcileInput {
   readonly invoice?: Invoice;
   readonly po?: PurchaseOrder;
   readonly shipment?: ShipmentDocument;
+  /** Messages on the case: an approved reschedule, a waiver, a confirmation. */
+  readonly correspondence?: readonly Correspondence[];
+}
+
+/**
+ * How late the carrier was against the appointment that was actually in force,
+ * and whether anything on the case says the appointment moved.
+ *
+ * A whole class of deduction — late delivery, detention, appointment compliance
+ * — is decided by two timestamps and a piece of paper saying which appointment
+ * counted. None of that is arithmetic a model should do, and all of it is
+ * checkable here.
+ *
+ * Deliberately conservative in three ways:
+ *
+ * - Timestamps in different zones are not compared at all (see `timestamps.ts`).
+ * - A reschedule is not a waiver. The finding says the appointment moved; it
+ *   claims a charge does not apply only where a message said so in writing.
+ * - Nothing here decides anything. These are findings for a human and, later,
+ *   for the decision layer.
+ */
+function reconcileAppointment(
+  shipment: ShipmentDocument | undefined,
+  correspondence: readonly Correspondence[],
+  findings: Finding[],
+): void {
+  if (shipment === undefined) return;
+
+  const checkInText = valueOf(shipment.gate_check_in_at);
+  const appointmentText = valueOf(shipment.appointment_at);
+  if (checkInText === undefined || appointmentText === undefined) return;
+
+  const checkIn = parseTimestamp(checkInText);
+  const appointment = parseTimestamp(appointmentText);
+  if (checkIn === null || appointment === null) {
+    findings.push({
+      code: 'appointment_times_unreadable',
+      severity: 'info',
+      message:
+        `could not read the appointment (${appointmentText}) or the gate check-in ` +
+        `(${checkInText}) as a date and time, so lateness was not checked`,
+      fieldPath: 'shipment.gate_check_in_at',
+    });
+    return;
+  }
+
+  // Did anything in writing move the appointment this was measured against? The
+  // supersession is reported whether or not the times then work out, because a
+  // fee assessed against a replaced appointment is wrong on its own terms.
+  for (const message of correspondence) {
+    for (const commitment of message.commitments) {
+      const supersedes = valueOf(commitment.supersedes);
+      const establishes = valueOf(commitment.establishes);
+      if (supersedes === undefined && establishes === undefined) continue;
+
+      const cited = valueOf(shipment.appointment_reference);
+      findings.push({
+        code: 'appointment_superseded',
+        severity: 'supports_dispute',
+        message:
+          `${valueOf(message.sender_organisation) ?? 'the customer'} confirmed in writing ` +
+          `(${message.message_reference.value}) that ${establishes ?? 'a later appointment'} ` +
+          `replaced ${supersedes ?? 'the earlier appointment'}` +
+          (cited !== undefined ? `; the delivery record cites ${cited}` : '') +
+          `: “${commitment.commitment_text.value}”`,
+        fieldPath: 'correspondence.commitments',
+      });
+
+      if (commitment.waives_charge.value === true) {
+        findings.push({
+          code: 'charge_waived_in_writing',
+          severity: 'supports_dispute',
+          message:
+            `${valueOf(message.sender_organisation) ?? 'the customer'} stated in writing that ` +
+            `a charge would not apply: “${commitment.commitment_text.value}”`,
+          fieldPath: 'correspondence.commitments',
+        });
+      }
+    }
+  }
+
+  const comparison = minutesLate(checkIn, appointment);
+  if (!comparison.comparable) {
+    findings.push({
+      code: 'appointment_times_not_comparable',
+      severity: 'info',
+      message: `lateness was not checked: ${comparison.why}`,
+      fieldPath: 'shipment.gate_check_in_at',
+    });
+    return;
+  }
+
+  const late = comparison.minutesLate;
+  if (late <= 0) {
+    findings.push({
+      code: 'arrived_before_appointment',
+      severity: 'supports_dispute',
+      message:
+        `gate check-in was ${Math.abs(late)} minutes before the confirmed appointment ` +
+        `(${checkIn.asPrinted} against ${appointment.asPrinted})`,
+      fieldPath: 'shipment.gate_check_in_at',
+    });
+    return;
+  }
+
+  // Late against the appointment on the delivery record. Whether that costs
+  // anything depends on the agreement's grace window and on who caused it,
+  // neither of which is decided here.
+  findings.push({
+    code: 'arrived_after_appointment',
+    severity: 'warning',
+    message:
+      `gate check-in was ${late} minutes after the confirmed appointment ` +
+      `(${checkIn.asPrinted} against ${appointment.asPrinted}); check the agreement’s ` +
+      'grace window and whether the delay was carrier-caused before disputing',
+    fieldPath: 'shipment.gate_check_in_at',
+  });
 }
 
 export function reconcileNotice(input: ReconcileInput): Reconciliation {
@@ -113,6 +237,47 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
 
     let expected: Cents | null = null;
     let verdict: LineVerdict = 'not_checkable';
+
+    // The money checks the quantities.
+    //
+    // A deduction line prints the same fact twice: as a pair of quantities and
+    // as an amount. When the amount divides evenly by the unit cost, the
+    // quotient is how many units the retailer is charging for, and it has to
+    // equal the gap between the quantities. When it does not, the line
+    // contradicts itself and the reading cannot be trusted.
+    //
+    // This is worth a check of its own because of how these tables are laid
+    // out. A reason code is often a bare number sitting immediately left of the
+    // quantity columns, so a reader that slips one column takes the reason code
+    // as a quantity — and the result is two plausible numbers that happen to be
+    // wrong. The money columns carry currency symbols and are much harder to
+    // mistake, so they are the better witness.
+    //
+    // Only when the division is exact: a deduction that is not a unit count
+    // times a unit cost (a price variance, a partial credit, a flat fee) has no
+    // quotient to compare, and says nothing here rather than guessing.
+    if (
+      qtyInvoiced !== undefined &&
+      qtyReceived !== undefined &&
+      unitCost !== undefined &&
+      unitCost > 0 &&
+      claimed !== undefined
+    ) {
+      const impliedUnits = claimed / unitCost;
+      const statedGap = Math.abs(qtyInvoiced - qtyReceived);
+      if (Number.isInteger(impliedUnits) && impliedUnits !== statedGap) {
+        findings.push({
+          code: 'quantities_contradict_the_amount',
+          severity: 'blocking',
+          message:
+            `${sku}: ${formatCents(claimed)} deducted at ${formatCents(unitCost)} each is ` +
+            `${impliedUnits} unit${impliedUnits === 1 ? '' : 's'}, but the line says ` +
+            `${qtyInvoiced} invoiced and ${qtyReceived} received, a gap of ${statedGap}. ` +
+            'The quantities and the amount on this line cannot both be right',
+          fieldPath: path,
+        });
+      }
+    }
 
     if (qtyInvoiced !== undefined && qtyReceived !== undefined && unitCost !== undefined) {
       if (qtyReceived > qtyInvoiced) {
@@ -268,6 +433,8 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
       });
     }
   }
+
+  reconcileAppointment(input.shipment, input.correspondence ?? [], findings);
 
   return {
     lines,

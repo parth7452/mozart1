@@ -34,6 +34,7 @@ Types:
 - bol: a bill of lading
 - pod: a proof of delivery or signed delivery receipt
 - asn: an advance ship notice / 856
+- correspondence: a message, email export or written confirmation between the parties — an approved reschedule, a granted exception, a waiver, a confirmation of something agreed
 - promo_agreement: a promotional deal sheet, allowance agreement or buyer approval
 - price_agreement: a price list, cost-change confirmation or pricing agreement
 - routing_guide: a retailer's routing, packaging or compliance guide
@@ -49,8 +50,11 @@ export const EXTRACTION_GUIDANCE: Record<DocType, string> = {
   invoice: 'Capture every line with its quantity and unit price as printed.',
   po: 'Capture ordered quantities and agreed unit costs. These are what a price or shortage claim is checked against.',
   bol: 'Cartons shipped versus cartons signed for, and whether a signature is actually visible, decide whether this document can support a shortage dispute.',
-  pod: 'Whether a signature or stamp is visible is the single most important field: an unsigned delivery report is rejected by most retailers.',
+  pod:
+    'Whether a signature or stamp is visible is the single most important field: an unsigned delivery report is rejected by most retailers. On a freight delivery the gate check-in time matters nearly as much, because late-delivery terms are usually measured against it rather than against unloading — capture it and the confirmed appointment exactly as printed, time zone included.',
   asn: 'Capture the declared carton count and per-item quantities.',
+  correspondence:
+    'What matters is what the sender committed to, quoted exactly: a new appointment, a replaced revision, a charge that will not apply, who caused the change. `waives_charge` is true only where the message says a charge does not apply — a reschedule on its own is not a waiver, and reading one as a waiver would invent the case. Capture every identifier the message names, because that is what links it to a load or an invoice.',
   promo_agreement:
     'Capture who approved the deal and the period it covers. An allowance claimed outside an agreed period is the basis of a dispute.',
   price_agreement: 'Capture the agreed prices and the dates they are effective between.',

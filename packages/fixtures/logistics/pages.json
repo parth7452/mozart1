@@ -1,0 +1,37 @@
+{
+  "log-001-short-pay-remittance": {
+    "filename": "01_short_pay_remittance.pdf",
+    "docType": "remittance_advice",
+    "pageText": [
+      "SHORT-PAY REMITTANCE\nBrookfield Supply Co. | Accounts Payable\nPAYMENT DETAILS\nRemittance: REM-BSC-0918-44\nPayment date: September 18, 2026 | Method: ACH\nPayee: Alder Freight Services LLC | Carrier account: AFS-208\nPayment reference: ACH-91844\nSETTLEMENT\nInvoice\nINV-AFS-260814\nLoad / purchase order\nLD-260812-77 / PO-BSC-8841\nGross invoice\n$4,800.00\nDeduction: LATE-DEL\n$600.00\nNet payment\n$4,200.00\nCUSTOMER DEDUCTION NARRATIVE\nChargeback CB-BSC-441: delivery recorded August 13, 2026, after original appointment of August\n12, 2026 at 10:00 AM Eastern. Flat late-delivery fee of $600.00 withheld.\nSystem comparison used original appointment AP-BSC-771 revision 1.\nCLAIM HANDLING\nStatus: Deducted; supplier review pending.\nSend a dispute response referencing CB-BSC-441, the invoice and load number. Dispute deadline:\nOctober 18, 2026.\nThis payment does not establish carrier acceptance of the deduction.\nCase LOG-001 | Load LD-260812-77 | Page 1 of 1"
+    ]
+  },
+  "log-001-carrier-invoice": {
+    "filename": "02_carrier_invoice.pdf",
+    "docType": "invoice",
+    "pageText": [
+      "FREIGHT INVOICE\nAlder Freight Services LLC | Billing\nINVOICE DETAILS\nInvoice: INV-AFS-260814 | Issued: August 14, 2026\nBill to: Brookfield Supply Co. | Terms: Net 30\nDue: September 13, 2026 | Currency: USD\nLoad: LD-260812-77 | PO: PO-BSC-8841 | Rate confirmation: RC-771\nSERVICE PROVIDED\nDedicated dry-van shipment: 24 pallets of packaged paper goods.\nOrigin: Brookfield Supply, Newark, NJ distribution center.\nDestination: Brookfield Supply, Richmond, VA distribution center.\nPickup completed August 11, 2026. Delivery completed August 13, 2026.\nCHARGES\nLinehaul - one dedicated load\n$4,200.00\nFuel surcharge - agreed flat amount\n$600.00\nTotal invoice\n$4,800.00\nBILLING REFERENCES\nCustomer-approved delivery appointment: AP-BSC-771 revision 2.\nProof of delivery: POD-771. All 24 pallets received; no delivery exceptions noted.\nNo additional accessorial charges are included. Please reference the invoice number with your\npayment.\nCase LOG-001 | Load LD-260812-77 | Page 1 of 1"
+    ]
+  },
+  "log-001-rate-confirmation": {
+    "filename": "03_rate_confirmation.pdf",
+    "docType": "price_agreement",
+    "pageText": [
+      "RATE CONFIRMATION\nBrookfield Supply Co. | Transportation\nAGREEMENT\nRate confirmation: RC-771 | Accepted: August 10, 2026\nCustomer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC\nLoad: LD-260812-77 | Purchase order: PO-BSC-8841\nRoute: Newark, NJ to Richmond, VA | Equipment: 53-foot dry van\nAGREED COMPENSATION\nLinehaul\n$4,200.00\nFuel surcharge\n$600.00\nTotal carrier compensation\n$4,800.00\nAPPOINTMENT AND DEDUCTION TERMS\nOriginal delivery appointment: August 12, 2026 at 10:00 AM Eastern, AP-BSC-771 revision 1.\nA $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after\nthe effective confirmed appointment, and the delay is carrier-caused.\nWritten appointment changes approved by the customer transportation team replace earlier\nappointments. A customer-requested reschedule is not a carrier-caused delay.\nTimeliness is determined by receiving gate check-in, not unloading completion.\nRECORDED ACCEPTANCE\nCustomer representative: Maya Chen, Transportation Coordinator.\nCarrier representative: Evan Brooks, Dispatch Supervisor.\nAcceptance recorded August 10, 2026 at 3:20 PM Eastern.\nAcceptance record: RC-771-ACK | Retain with shipment documents.\nCase LOG-001 | Load LD-260812-77 | Page 1 of 1"
+    ]
+  },
+  "log-001-appointment-change": {
+    "filename": "04_appointment_change.pdf",
+    "docType": "correspondence",
+    "pageText": [
+      "APPOINTMENT CHANGE CONFIRMATION\nBrookfield Supply Co. | Transportation message export\nMESSAGE METADATA\nMessage ID: MSG-BSC-0811-338 | Sent: August 11, 2026, 2:05 PM Eastern\nFrom: Maya Chen <transport@brookfieldsupply.example>\nTo: Evan Brooks <dispatch@alderfreight.example>\nSubject: Approved reschedule - LD-260812-77 / AP-BSC-771\nCUSTOMER INSTRUCTION\nOur Richmond receiving dock will be unavailable for the original August 12 appointment due to\nscheduled dock maintenance. Please deliver on August 13, 2026 at 2:00 PM Eastern instead.\nThis is a customer-requested change. Appointment AP-BSC-771 revision 2 replaces revision 1. No\ncarrier late-delivery charge applies for moving delivery to this revised appointment.\nThe agreed $4,800.00 compensation under RC-771 remains unchanged.\nAPPOINTMENT RECORD\nOriginal appointment\nAugust 12, 2026, 10:00 AM Eastern\nRevised appointment\nAugust 13, 2026, 2:00 PM Eastern\nEffective revision\nAP-BSC-771 revision 2\nLinked load / PO\nLD-260812-77 / PO-BSC-8841\nCARRIER ACKNOWLEDGMENT\nReply recorded August 11, 2026 at 2:17 PM Eastern: Confirmed. Dispatch updated to August 13 at\n2:00 PM Eastern. - Evan Brooks\nExport reference: MSG-BSC-0811-338 | Thread status: Confirmed.\nCase LOG-001 | Load LD-260812-77 | Page 1 of 1"
+    ]
+  },
+  "log-001-proof-of-delivery": {
+    "filename": "05_proof_of_delivery.pdf",
+    "docType": "pod",
+    "pageText": [
+      "PROOF OF DELIVERY\nBrookfield Supply Co. | Richmond receiving record\nSHIPMENT REFERENCES\nProof of delivery: POD-771 | Delivery date: August 13, 2026\nCarrier: Alder Freight Services LLC | Load: LD-260812-77\nPurchase order: PO-BSC-8841 | BOL: BOL-771\nAppointment: AP-BSC-771 revision 2\nRECEIVING TIMESTAMPS\nConfirmed appointment\nAugust 13, 2026, 2:00 PM Eastern\nGate check-in\nAugust 13, 2026, 1:42 PM Eastern\nDock assignment\nAugust 13, 2026, 1:55 PM Eastern\nUnloading completed\nAugust 13, 2026, 2:25 PM Eastern\nGate departure\nAugust 13, 2026, 2:38 PM Eastern\nQUANTITY AND CONDITION\nPallets shipped\n24\nPallets received\n24\nCondition\nAccepted; no visible damage\nExceptions\nNone recorded\nRECEIVING ACKNOWLEDGMENT\nReceived by: Jordan Ellis, Receiving Clerk.\nElectronic acknowledgment recorded August 13, 2026 at 2:25 PM Eastern.\nReceiving record GR-771 links the gate check-in timestamp to this load and appointment.\nReceiving acknowledgment: GR-771-ACK | Record status: Complete.\nCase LOG-001 | Load LD-260812-77 | Page 1 of 1"
+    ]
+  }
+}

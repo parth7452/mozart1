@@ -92,6 +92,12 @@ const BOL_CARRIER = {
   po_number: f('7741-88203', 'Purchase Order: 7741-88203'),
   ship_from: f('Harborline Foods LLC, Modesto, CA', 'Ship From: Harborline Foods LLC, Modesto, CA'),
   ship_to: f('Walmart DC 6094, Sanger, TX', 'Ship To: Walmart DC 6094, Sanger, TX'),
+  // A retail carrier BOL prints no appointment and no gate clock. Absent is the
+  // honest reading, and it is what keeps the appointment rules from firing on a
+  // document that cannot answer them.
+  appointment_at: absent(),
+  gate_check_in_at: absent(),
+  appointment_reference: absent(),
   total_cartons_shipped: f(30, 'Total Cartons Shipped: 30'),
   total_cartons_received: f(25, 'Total Cartons Received: 25'),
   signed_by: f('R. Alvarez', 'Received By: R. Alvarez'),
@@ -139,6 +145,9 @@ const POD_UNSIGNED = {
   po_number: f('KH-55120', 'Purchase Order: KH-55120'),
   ship_from: absent(),
   ship_to: f('KeHE Aurora DC', 'Ship To: KeHE Aurora DC'),
+  appointment_at: absent(),
+  gate_check_in_at: absent(),
+  appointment_reference: absent(),
   total_cartons_shipped: f(48, 'Total Cartons Shipped: 48'),
   total_cartons_received: f(48, 'Total Cartons Received: 48'),
   signed_by: absent(),
