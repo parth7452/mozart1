@@ -18,13 +18,13 @@
     },
     "invoice_number": {
       "value": "INV-260804",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260804"
     },
     "po_number": {
       "value": "PO-WCW-9128",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-WCW-9128"
     },
@@ -42,7 +42,7 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-004",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-004"
     },
@@ -62,33 +62,33 @@
         },
         "qty_invoiced": {
           "value": 400,
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "out of 400 cases invoiced"
         },
         "unit_cost": {
           "value": "$24.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "priced at $24.00 per case"
+          "source_quote": "$24.00 per case"
         },
         "deduction_amount": {
           "value": "$720.00",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$720.00"
         },
         "reason_code": {
           "value": "DAMAGE",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason code: DAMAGE"
         },
         "reason_description": {
-          "value": "Customer reports 30 damaged cases of Tomato Soup, SKU NS-410, priced at $24.00 per case, out of 400 cases invoiced.",
-          "confidence": 0.85,
+          "value": "Inspection record IR-WCW-198 describes crushed cartons.",
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Customer reports 30 damaged cases of Tomato Soup, SKU NS-410, priced at $24.00 per case, out of 400 cases invoiced."
+          "source_quote": "Inspection record IR-WCW-198 describes crushed cartons."
         },
         "qty_received": {
           "value": null,
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:39.939Z",
+  "recordedAt": "2026-09-18T12:49:30.343Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4952,
-    "outputTokens": 892,
-    "costMicros": 18824,
-    "latencyMs": 7218
+    "outputTokens": 829,
+    "costMicros": 18194,
+    "latencyMs": 6790
   }
 }

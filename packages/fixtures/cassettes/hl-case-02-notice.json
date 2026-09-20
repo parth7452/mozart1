@@ -12,7 +12,7 @@
     },
     "claim_id": {
       "value": "DN-2609-002",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-002"
     },
@@ -30,7 +30,7 @@
     },
     "deduction_total": {
       "value": "$900.00",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "$900.00"
     },
@@ -42,7 +42,7 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-002",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-002"
     },
@@ -56,9 +56,9 @@
         },
         "description": {
           "value": "Oat Beverage",
-          "confidence": 0.95,
+          "confidence": 0.93,
           "source_page": 1,
-          "source_quote": "Oat Beverage"
+          "source_quote": "600 cases of Oat Beverage, SKU NS-210"
         },
         "qty_invoiced": {
           "value": 600,
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:11.486Z",
+  "recordedAt": "2026-09-18T12:49:01.300Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4948,
-    "outputTokens": 908,
-    "costMicros": 18976,
-    "latencyMs": 7330
+    "outputTokens": 921,
+    "costMicros": 19106,
+    "latencyMs": 6999
   }
 }
