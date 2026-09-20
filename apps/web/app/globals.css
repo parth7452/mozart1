@@ -189,3 +189,65 @@ form.upload button.primary { margin-top: 0; }
 }
 .card label.check input { width: auto; margin: 0; }
 .card input[type='file'] { display: block; margin-top: 4px; font-size: 13px; }
+
+/* Phase 3: what a reviewer can do with a case (ADR 0020).
+   One card per state, so the column reads as a sequence rather than a panel of
+   buttons: decide, assemble, approve, file, record what came back. */
+.card.act { border-color: var(--line); }
+.card input[type='text'],
+.card input[type='date'] {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+.card input[disabled] { background: #f4f6f9; color: var(--ink-soft); }
+.card.act button.primary { margin-top: 14px; }
+
+/* The approve card is the one act the gate exists for. It is marked, not
+   shouted: a reviewer should notice it is different, not be hurried. */
+.card.approve { border-color: var(--accent); }
+
+ol.steps { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; color: var(--ink-soft); }
+ol.steps li { margin: 4px 0; }
+
+/* The packet: what a person is being asked to authorise, in full. */
+.narrative {
+  margin: 0;
+  padding: 12px 14px;
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+ul.filelist { margin: 12px 0 0; padding-left: 18px; font-size: 13.5px; }
+ul.filelist li { margin: 3px 0; word-break: break-all; }
+
+/* What has happened, in the order it happened. */
+ol.timeline { margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+ol.timeline li {
+  padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--line);
+  margin-left: 4px;
+}
+ol.timeline .stamp { display: block; color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+ol.timeline .detail { display: block; margin-top: 4px; }
+/* Text a person typed, or that came off somebody else's document. Quoted so it
+   reads as theirs rather than as ours. */
+.said {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-style: italic;
+  word-break: break-word;
+}
