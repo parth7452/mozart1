@@ -34,8 +34,17 @@ export interface CaseRecord {
   readonly orgId: string;
   readonly state: CaseState;
   readonly claimId?: string;
+  /** The retailer as the page printed it. Display, never identity (ADR 0019). */
   readonly retailerName?: string;
+  /**
+   * Set only when exactly one of the tenant's debtors matched the printed name.
+   * Undefined otherwise — the store never creates a debtor from document text.
+   */
+  readonly debtorId?: string;
   readonly deductionAmountCents?: number;
+  /** `YYYY-MM-DD`, already parsed; undefined when the page said nothing readable. */
+  readonly deductionDate?: string;
+  readonly disputeDeadline?: string;
 }
 
 export interface PipelineStore {
@@ -71,11 +80,20 @@ export interface PipelineStore {
   ): Promise<void>;
   pagesFor(documentId: string): Promise<readonly string[] | undefined>;
 
+  /**
+   * Opens a case. Dates arrive already parsed to `YYYY-MM-DD` — the pipeline
+   * does that with `parsePrintedDate`, so no store implementation has its own
+   * idea of what "08/14/2026" means. The store resolves `debtorId` from
+   * `retailerName` against the tenant's own debtors and aliases, and never
+   * creates a debtor.
+   */
   openCase(input: {
     orgId: string;
     claimId?: string;
     retailerName?: string;
     deductionAmountCents?: number;
+    deductionDate?: string;
+    disputeDeadline?: string;
   }): Promise<CaseRecord>;
   linkDocument(deductionId: string, documentId: string, role: 'notice' | 'evidence'): Promise<void>;
   transitionCase(deductionId: string, to: CaseState): Promise<CaseRecord>;

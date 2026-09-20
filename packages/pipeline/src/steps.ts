@@ -6,7 +6,7 @@
  * which is what makes the whole chain safe to retry.
  */
 
-import { applyTransition, parseMoneyToCents } from '@recouple/core-domain';
+import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
 import {
   locateQuote,
   OcrError,
@@ -30,6 +30,52 @@ import {
   type ScanVerdict,
 } from '@recouple/ingest';
 import type { CaseRecord, PipelineDeps, StoredDocument } from './ports';
+
+/**
+ * The same claim, for the same debtor, is already a case.
+ *
+ * Part of the `PipelineStore.openCase` contract rather than of any one store,
+ * which is why it lives beside the steps and not in the Postgres store: the
+ * database refuses the second insert (`unique (org_id, debtor_id, claim_id)`,
+ * ADR 0019), the in-memory store refuses it too, and a caller that wants to
+ * point at the existing case gets the same class from both.
+ *
+ * Carries that case so a caller can name it instead of reporting a
+ * unique-violation at the reviewer. Merging the two into one case is the
+ * identity-resolution layer of STRATEGY §5.2 and is not done here.
+ */
+export class DuplicateCaseError extends Error {
+  constructor(
+    message: string,
+    readonly existingDeductionId: string,
+    readonly claimId: string,
+  ) {
+    super(message);
+    this.name = 'DuplicateCaseError';
+  }
+}
+
+/**
+ * A caller named a case to attach this document to, and that case is not one
+ * this tenant can see.
+ *
+ * `getCase` answers `undefined` for a case that does not exist and for one
+ * belonging to another tenant — deliberately, because telling the two apart
+ * would leak the existence of another tenant's case. That made the two
+ * indistinguishable *here* too, and the pipeline used to treat both as "no case
+ * given": it would open a brand new case from the notice, or file the evidence
+ * against nothing at all. Either way the reviewer's document went somewhere they
+ * did not ask for and nothing said so.
+ *
+ * So it is an error, and it is raised before the document is read, because a
+ * read costs money and a case we cannot resolve is not one worth spending on.
+ */
+export class CaseNotFoundError extends Error {
+  constructor(readonly deductionId: string) {
+    super(`case ${deductionId} is not one this tenant can attach a document to`);
+    this.name = 'CaseNotFoundError';
+  }
+}
 
 export interface IngestInput {
   readonly orgId: string;
@@ -307,6 +353,12 @@ export async function processUpload(
     readonly allowCaseOpen?: boolean;
   } = {},
 ): Promise<ProcessedDocument> {
+  // Before the bytes are touched, and so before anything is read or paid for.
+  // A case the tenant cannot resolve ends the request here rather than quietly
+  // becoming "no case given" and opening a new one (`CaseNotFoundError`).
+  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
+  let caseRecord: CaseRecord | undefined = attachedCase;
+
   const ingest = await ingestDocument(input, deps);
 
   if (ingest.verdict.status !== 'clean') {
@@ -330,39 +382,54 @@ export async function processUpload(
 
   const classification = await deps.classifier.classify(readable.payload);
 
-  let caseRecord: CaseRecord | undefined;
-  if (options.attachToCase !== undefined) {
-    caseRecord = await deps.store.getCase(options.attachToCase);
-  }
-
   const extraction = await readExtraction(readable, classification.docType, deps);
+
+  // Everything the read produced, written down. Kept as a closure so it can run
+  // either side of `openCaseFromNotice`: the argument is the case the spend and
+  // the fields belong to, or undefined when there is no case to belong to.
+  const recordTheRead = async (deductionId?: string): Promise<void> => {
+    for (const call of [...readable.calls, classification.call]) {
+      await deps.store.recordModelCall(withCase(call, deductionId));
+    }
+    await deps.store.recordClassification(
+      ingest.document.documentId,
+      classification.docType,
+      classification.confidence,
+    );
+    await recordExtraction(ingest.document, extraction, deps, deductionId);
+  };
 
   // The case is opened before anything is recorded, because the notice that
   // opens a case is read before the case exists and every fact read from it —
   // and every micro-dollar spent reading it — belongs to that case. Opening
   // needs the extraction (the claim id is on the page), so this is the earliest
   // the case can exist.
+  //
+  // But opening can now fail — a claim already open against that debtor raises
+  // `DuplicateCaseError` (ADR 0019) — and the read has already happened and
+  // already cost money by then. Losing the model call would understate spend and
+  // losing the extraction would throw away a page we paid to read, so both are
+  // written against no case before the failure is handed on. Nothing here
+  // swallows it: the original error is what the caller sees.
   const mayOpenCase = options.allowCaseOpen ?? true;
   if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
-    caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
+    try {
+      caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
+    } catch (error) {
+      // If recording also fails the database is the problem, and that error is
+      // the louder one — it is not caught here either.
+      await recordTheRead();
+      throw error;
+    }
   }
 
-  const deductionId = caseRecord?.deductionId;
-  for (const call of [...readable.calls, classification.call]) {
-    await deps.store.recordModelCall(withCase(call, deductionId));
-  }
-  await deps.store.recordClassification(
-    ingest.document.documentId,
-    classification.docType,
-    classification.confidence,
-  );
-  await recordExtraction(ingest.document, extraction, deps, deductionId);
+  await recordTheRead(caseRecord?.deductionId);
 
-  if (options.attachToCase !== undefined && caseRecord !== undefined) {
-    await deps.store.linkDocument(caseRecord.deductionId, ingest.document.documentId, 'evidence');
+  if (attachedCase !== undefined) {
+    await deps.store.linkDocument(attachedCase.deductionId, ingest.document.documentId, 'evidence');
     await deps.store.appendEvent({
       orgId: input.orgId,
-      deductionId: caseRecord.deductionId,
+      deductionId: attachedCase.deductionId,
       eventType: 'evidence.uploaded',
       payload: {
         document_id: ingest.document.documentId,
@@ -384,6 +451,23 @@ export async function processUpload(
 }
 
 /**
+ * The case a document is being attached to, resolved before anything is read.
+ *
+ * `undefined` only when no case was named. A named case that does not resolve
+ * throws, because `getCase` cannot tell "no such case" from "another tenant's
+ * case" and neither of those is a reason to open a new one.
+ */
+async function resolveAttachTarget(
+  attachToCase: string | undefined,
+  deps: PipelineDeps,
+): Promise<CaseRecord | undefined> {
+  if (attachToCase === undefined) return undefined;
+  const found = await deps.store.getCase(attachToCase);
+  if (found === undefined) throw new CaseNotFoundError(attachToCase);
+  return found;
+}
+
+/**
  * The notice's total, in cents.
  *
  * Undefined when the notice does not say or says something we cannot read: the
@@ -400,6 +484,65 @@ function deductionTotalCents(document: unknown): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A date field off a notice: the day, or why we would not guess at one.
+ *
+ * Both halves can be empty — a notice that prints no deadline is not a problem,
+ * it is a notice with no deadline. A notice that prints something we cannot read
+ * *is* a problem, and it is recorded on `case.discovered` rather than swallowed
+ * (CLAUDE.md: fail loud; a silently dropped deadline is how a filing window gets
+ * missed).
+ */
+function printedDate(
+  document: unknown,
+  field: 'deduction_date' | 'dispute_deadline',
+): { date?: string; problem?: string } {
+  const text = fieldValue(document, [field, 'value']);
+  if (typeof text !== 'string' || text.trim() === '') return {};
+  const parsed = tryParsePrintedDate(text);
+  return 'date' in parsed ? { date: parsed.date } : { problem: parsed.problem };
+}
+
+/**
+ * How long a retailer name a case can hold: the cap migration 0015 puts on
+ * `deductions.retailer_name_as_printed`.
+ *
+ * Checked here as well as there so a pathological reading is a finding on the
+ * case rather than a driver error out of `openCase` — the constraint is still
+ * the enforcement, this is only the message.
+ */
+const MAX_RETAILER_NAME_LENGTH = 500;
+
+/**
+ * The retailer as the page printed it, or why we would not store what we read.
+ *
+ * Trimmed, because a name padded by a layout is the same name. An empty string
+ * is absence, not a value: a blank cell on the case list says the notice named
+ * a retailer whose name is nothing, and what it actually says is that the
+ * notice named nobody.
+ *
+ * A name past the column's cap is a reading we cannot keep, and it is never
+ * truncated to fit: half a name is not what the page said, and a paragraph cut
+ * down to "WALMART STORES" would go on to select a debtor the page never named
+ * (ADR 0019 — untrusted text may select master data, so a wrong reading of it
+ * is a wrong debtor). So the column stays null and the reason goes on
+ * `case.discovered`, exactly the way an unparseable date does.
+ */
+function printedRetailerName(document: unknown): { name?: string; problem?: string } {
+  const text = fieldValue(document, ['retailer_name', 'value']);
+  if (typeof text !== 'string') return {};
+  const trimmed = text.trim();
+  if (trimmed === '') return {};
+  if (trimmed.length > MAX_RETAILER_NAME_LENGTH) {
+    return {
+      problem:
+        `the printed retailer name is ${trimmed.length} characters, ` +
+        `longer than the ${MAX_RETAILER_NAME_LENGTH} a case stores`,
+    };
+  }
+  return { name: trimmed };
 }
 
 function fieldValue(document: unknown, path: readonly string[]): unknown {
@@ -422,7 +565,9 @@ export async function openCaseFromNotice(
   deps: PipelineDeps,
 ): Promise<CaseRecord> {
   const claimId = fieldValue(extraction.document, ['claim_id', 'value']);
-  const retailer = fieldValue(extraction.document, ['retailer_name', 'value']);
+  // The name the page printed, blank treated as absent and an impossible length
+  // reported rather than truncated — see `printedRetailerName`.
+  const retailer = printedRetailerName(extraction.document);
   // The amount the retailer took is what the case is about: it decides what is
   // worth disputing first, what the work is costed against, and what a
   // contingency fee is a percentage of. The model reports the text exactly as
@@ -430,12 +575,20 @@ export async function openCaseFromNotice(
   // the reason a wrong reading shows up as an unparseable amount rather than as
   // a plausible wrong number.
   const total = deductionTotalCents(extraction.document);
+  // Dates get the same treatment, for the same reason. A window we cannot read
+  // ("60 days of deduction date" is a retailer's rule, not a date) leaves the
+  // column null and the case still opens — better a case with no deadline than
+  // no case — but the reason goes on the event rather than on the floor.
+  const deductionDate = printedDate(extraction.document, 'deduction_date');
+  const disputeDeadline = printedDate(extraction.document, 'dispute_deadline');
 
   const opened = await deps.store.openCase({
     orgId: document.orgId,
     ...(typeof claimId === 'string' ? { claimId } : {}),
-    ...(typeof retailer === 'string' ? { retailerName: retailer } : {}),
+    ...(retailer.name !== undefined ? { retailerName: retailer.name } : {}),
     ...(total !== undefined ? { deductionAmountCents: total } : {}),
+    ...(deductionDate.date !== undefined ? { deductionDate: deductionDate.date } : {}),
+    ...(disputeDeadline.date !== undefined ? { disputeDeadline: disputeDeadline.date } : {}),
   });
 
   await deps.store.linkDocument(opened.deductionId, document.documentId, 'notice');
@@ -446,7 +599,19 @@ export async function openCaseFromNotice(
     payload: {
       document_id: document.documentId,
       claim_id: typeof claimId === 'string' ? claimId : null,
-      retailer_name: typeof retailer === 'string' ? retailer : null,
+      retailer_name: retailer.name ?? null,
+      // Null, not absent, when no debtor matched: the projection is rebuildable
+      // from the events, and "nobody matched" is itself the fact (ADR 0019 §8).
+      debtor_id: opened.debtorId ?? null,
+      deduction_date: deductionDate.date ?? null,
+      dispute_deadline: disputeDeadline.date ?? null,
+      ...(retailer.problem !== undefined ? { retailer_name_unread: retailer.problem } : {}),
+      ...(deductionDate.problem !== undefined
+        ? { deduction_date_unread: deductionDate.problem }
+        : {}),
+      ...(disputeDeadline.problem !== undefined
+        ? { dispute_deadline_unread: disputeDeadline.problem }
+        : {}),
     },
   });
 

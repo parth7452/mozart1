@@ -19,6 +19,8 @@ import {
   type FixtureDocument,
 } from '@recouple/fixtures';
 import {
+  CaseNotFoundError,
+  DuplicateCaseError,
   RejectedUploadError,
   classifyDocument,
   ingestDocument,
@@ -99,6 +101,34 @@ class FixtureExtractor implements Extractor {
   }
 }
 
+/**
+ * A fixture extractor with one field overridden, for the cases that are about
+ * what the pipeline does with a value rather than about the corpus.
+ */
+class PatchedExtractor extends FixtureExtractor {
+  constructor(private readonly patch: Record<string, unknown>) {
+    super();
+  }
+  override async extract(document: DocumentPayload, docType: DocType): Promise<ExtractionResult> {
+    const fixture = fixtureForPayload(document);
+    return buildExtractionResult({
+      docType,
+      extractor: this.name,
+      document: { ...(expectedExtraction(fixture) as object), ...this.patch },
+      pageText: document.pageText,
+      call: {
+        purpose: 'extract',
+        provider: 'anthropic',
+        modelVersion: 'fixture',
+        documentId: document.documentId,
+        costMicros: 12_700,
+        latencyMs: 40,
+        outcome: 'ok',
+      },
+    });
+  }
+}
+
 function harness(scanner: PipelineDeps['scanner'] = new AlwaysCleanScanner()) {
   const store = new InMemoryStore();
   const classifier = new FixtureClassifier();
@@ -140,6 +170,202 @@ describe('a notice becomes a case', () => {
     expect(store.totalCostMicros()).toBe(14_000);
   });
 
+  it('parses the printed dates onto the case, month-first', async () => {
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+
+    // The notice prints 08/14/2026 and 11/12/2026 and says 90 days; read
+    // month-first those are 90 days apart, which is why there is no day-first
+    // fallback (ADR 0019 §6).
+    expect(result.case?.deductionDate).toBe('2026-08-14');
+    expect(result.case?.disputeDeadline).toBe('2026-11-12');
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.deduction_date).toBe('2026-08-14');
+    expect(discovered?.payload.dispute_deadline).toBe('2026-11-12');
+    // Null, not absent: the projection has to be rebuildable from the events.
+    expect(discovered?.payload.debtor_id).toBeNull();
+  });
+
+  it('opens the case anyway when a deadline is a retailer rule, and says why', async () => {
+    // "60 days of deduction date" is a window a playbook computes in Phase 2,
+    // not a date. Losing the case over it would be worse; losing it silently
+    // would be worse still.
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        dispute_deadline: {
+          value: '60 days of deduction date',
+          confidence: 0.9,
+          source_page: 1,
+          source_quote: 'Dispute Deadline: 11/12/2026',
+        },
+      }),
+    });
+
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.disputeDeadline).toBeUndefined();
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.dispute_deadline).toBeNull();
+    expect(discovered?.payload.dispute_deadline_unread).toMatch(/60 days of deduction date/);
+    // The date that *did* read is unaffected.
+    expect(discovered?.payload.deduction_date).toBe('2026-08-14');
+  });
+
+  it('resolves a debtor only when exactly one of the tenant’s debtors matches', async () => {
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart (APDP)', 'Walmart'] });
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    expect(result.case?.debtorId).toBe('debtor-walmart');
+    expect(store.events.find((e) => e.eventType === 'case.discovered')?.payload.debtor_id).toBe(
+      'debtor-walmart',
+    );
+  });
+
+  it('never invents a debtor for a name nobody has claimed', async () => {
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-kehe', names: ['KeHE'] });
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    expect(result.case?.debtorId).toBeUndefined();
+    // The name still reaches the case; it is display, not identity.
+    expect(result.case?.retailerName).toBe('Walmart');
+    expect(store.debtors).toHaveLength(1);
+  });
+
+  it('reads a blank retailer name as a notice that named nobody', async () => {
+    // A whitespace reading is absence, not a value. Stored as one it becomes a
+    // blank cell on the case list, which says the notice named a retailer whose
+    // name is nothing — and it is not unreadable either, so nothing is reported.
+    const { store, deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: '   ',
+          confidence: 0.4,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.retailerName).toBeUndefined();
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.retailer_name).toBeNull();
+    expect(discovered?.payload.retailer_name_unread).toBeUndefined();
+  });
+
+  it('trims the padding a layout put around a name', async () => {
+    const { deps } = harness();
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: '  Walmart  ',
+          confidence: 0.98,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+    expect(result.case?.retailerName).toBe('Walmart');
+  });
+
+  it('refuses a retailer name longer than a case can hold, and never truncates it', async () => {
+    // The column is capped at 500 characters (migration 0015), so a reading that
+    // swallowed a paragraph used to come back as a raw constraint violation out
+    // of the store. Truncating it would be worse than refusing it: half a name
+    // is not what the page said, and it would go on to select a debtor the page
+    // never named.
+    const { store, deps } = harness();
+    const swallowedParagraph = 'Walmart Stores of the United States, '.repeat(20).trim();
+    expect(swallowedParagraph.length).toBeGreaterThan(500);
+
+    const result = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), {
+      ...deps,
+      extractor: new PatchedExtractor({
+        retailer_name: {
+          value: swallowedParagraph,
+          confidence: 0.6,
+          source_page: 1,
+          source_quote: 'WALMART STORES, INC.',
+        },
+      }),
+    });
+
+    // Better a case with no retailer than no case — the same rule the dates get.
+    expect(result.case?.deductionId).toBeTruthy();
+    expect(result.case?.retailerName).toBeUndefined();
+
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload.retailer_name).toBeNull();
+    expect(discovered?.payload.retailer_name_unread).toMatch(/longer than the 500/);
+    // Nothing shortened was stored anywhere on the way past.
+    expect([...store.cases.values()].every((c) => c.retailerName === undefined)).toBe(true);
+  });
+
+  it('names the existing case when the same claim arrives twice for one debtor', async () => {
+    // The in-memory store models `unique (org_id, debtor_id, claim_id)` the way
+    // Postgres applies it, nulls and all, so the duplicate path is the same
+    // answer here and there rather than a behaviour only the database has.
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+
+    const first = await processUpload(upload(notice), deps);
+    expect(first.case?.debtorId).toBe('debtor-walmart');
+
+    // A scan of the same notice: different bytes, so the hash does not dedupe
+    // it, and it is read before the store can say the claim is already a case.
+    const rescan = { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) };
+    const again = processUpload(rescan, deps);
+    await expect(again).rejects.toThrow(DuplicateCaseError);
+    await expect(again).rejects.toMatchObject({
+      existingDeductionId: first.case?.deductionId,
+      claimId: 'APDP-99812',
+    });
+
+    expect(store.cases.size).toBe(1);
+  });
+
+  it('records what the read cost even when the case cannot be opened', async () => {
+    // The document was read, and reading it spent money and produced fields we
+    // can check against the page. `openCase` failing afterwards is a fact about
+    // the case, not about the read: losing the model call would understate spend
+    // and losing the extraction would throw away a page we paid for.
+    const { store, deps } = harness();
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+
+    await processUpload(upload(notice), deps);
+    const afterFirst = store.totalCostMicros();
+    expect(afterFirst).toBe(14_000);
+
+    const rescan = { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) };
+    await expect(processUpload(rescan, deps)).rejects.toThrow(DuplicateCaseError);
+
+    expect(store.modelCalls.map((c) => c.purpose)).toEqual([
+      'classify',
+      'extract',
+      'classify',
+      'extract',
+    ]);
+    expect(store.totalCostMicros()).toBe(afterFirst * 2);
+    expect(store.extractions).toHaveLength(2);
+    expect(store.classifications).toHaveLength(2);
+    // Recorded against no case, because there is no case they belong to: the
+    // second reading is not evidence for the first one until a person says so.
+    expect(store.modelCalls.slice(2).every((c) => c.deductionId === undefined)).toBe(true);
+    expect(store.extractions[1]?.deductionId).toBeUndefined();
+    // And the failure was not swallowed to make room for the recording.
+    expect(store.cases.size).toBe(1);
+  });
+
   it('walks the case through the state machine rather than assigning a state', async () => {
     const { store, deps } = harness();
     await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
@@ -165,6 +391,46 @@ describe('a notice becomes a case', () => {
     expect(store.events.filter((e) => e.eventType === 'evidence.uploaded')).toHaveLength(3);
     // One case, not four: evidence does not open cases of its own.
     expect(store.cases.size).toBe(1);
+  });
+
+  it('refuses a case it cannot resolve, before it reads or spends anything', async () => {
+    // `getCase` answers `undefined` both for a case that does not exist and for
+    // one belonging to another tenant — it must, or it would leak the second.
+    // The pipeline used to read that as "no case was named": a notice would
+    // open a *new* case, and evidence would be filed against nothing, and the
+    // reviewer was told neither. Now it says so.
+    const { store, classifier, extractor, deps } = harness();
+    const stranger = '99999999-9999-9999-9999-999999999999';
+
+    await expect(
+      processUpload(upload(fixtureFor('walmart-po.pdf')), deps, { attachToCase: stranger }),
+    ).rejects.toThrow(CaseNotFoundError);
+
+    // Before anything was read, which is the part that costs money: not a
+    // classify, not an extract, not a micro-dollar.
+    expect(classifier.calls).toBe(0);
+    expect(extractor.calls).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.totalCostMicros()).toBe(0);
+    // And before anything was stored, so a refused attachment leaves no trace.
+    expect(store.documents.size).toBe(0);
+    expect(store.cases.size).toBe(0);
+    expect(store.extractions).toHaveLength(0);
+  });
+
+  it('does not open a second case when the notice names a case it cannot see', async () => {
+    // The worst version of the old behaviour: a *notice* attached to an
+    // unresolvable case fell through to `openCaseFromNotice` and opened one, so
+    // a typo in a case id silently created a case instead of failing.
+    const { store, deps } = harness();
+
+    await expect(
+      processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps, {
+        attachToCase: '99999999-9999-9999-9999-999999999999',
+      }),
+    ).rejects.toThrow(CaseNotFoundError);
+
+    expect(store.cases.size).toBe(0);
   });
 
   it('reconciles the whole case once its evidence is in', async () => {
