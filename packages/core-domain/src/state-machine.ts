@@ -5,6 +5,13 @@
  * path reaches `submitted` or `written_off` without passing through
  * `awaiting_approval`. The database enforces the same thing independently — if
  * these two ever disagree, the database wins and this file is the bug.
+ *
+ * An edge is keyed by `(from, to, trigger)`, not by `(from, to)`. Two different
+ * facts can move a case between the same pair of states: `submitted → won` is
+ * reachable both by `outcome.detected` (Phase 5 reading a remittance) and by
+ * `outcome.recorded` (a person typing in what came back, ADR 0020). They carry
+ * different guards, so collapsing them would mean one of the two guards
+ * silently deciding for both.
  */
 
 export const CASE_STATES = [
@@ -40,7 +47,11 @@ export type GuardName =
   | 'analyst_requested_more_evidence'
   | 'packet_assembled_and_submission_safe'
   | 'approval_row_exists'
-  | 'outcome_detected';
+  | 'outcome_detected'
+  /** An analyst decided, so there is no model confidence to route on (ADR 0020). */
+  | 'human_decision_recorded'
+  /** A person recorded what came back, rather than something detecting it. */
+  | 'outcome_recorded_by_human';
 
 export interface Transition {
   readonly from: CaseState;
@@ -70,6 +81,18 @@ export const TRANSITIONS: readonly Transition[] = [
     guards: ['classification_confidence_meets_tenant_minimum'],
     workflow: 'plan.evidence',
     idempotency: 'checklist upsert by (deduction_id, evidence_type)',
+  },
+  // The Phase 3 MVP path (ADR 0020). A human decides straight off the notice,
+  // which skips evidence planning, scoring and the expected-value routing
+  // fan-out — there is no model confidence for an EV gate to gate on. None of
+  // those states or edges is removed; Phase 2 is what uses them.
+  {
+    from: 'classified',
+    to: 'analyst_review',
+    trigger: 'decision.recorded',
+    guards: ['human_decision_recorded'],
+    workflow: 'decide.human',
+    idempotency: 'one human decision row per (deduction, analyst submission of the form)',
   },
   {
     from: 'evidence_pending',
@@ -183,6 +206,34 @@ export const TRANSITIONS: readonly Transition[] = [
     workflow: 'detect.outcome',
     idempotency: 'outcome events are append-only',
   },
+  // A person recording what came back (ADR 0020). These sit alongside the
+  // detected edges rather than replacing them: a human saying "they paid us
+  // $1,800 of the $3,120" is a different fact from Phase 5 noticing it on a
+  // remittance, and the trigger is what tells the two apart afterwards.
+  {
+    from: 'submitted',
+    to: 'won',
+    trigger: 'outcome.recorded',
+    guards: ['outcome_recorded_by_human'],
+    workflow: 'record.outcome',
+    idempotency: 'outcome events are append-only; the case state is the projection',
+  },
+  {
+    from: 'submitted',
+    to: 'partial',
+    trigger: 'outcome.recorded',
+    guards: ['outcome_recorded_by_human'],
+    workflow: 'record.outcome',
+    idempotency: 'outcome events are append-only; the case state is the projection',
+  },
+  {
+    from: 'submitted',
+    to: 'lost',
+    trigger: 'outcome.recorded',
+    guards: ['outcome_recorded_by_human'],
+    workflow: 'record.outcome',
+    idempotency: 'outcome events are append-only; the case state is the projection',
+  },
 ];
 
 export const INITIAL_STATE: CaseState = 'discovered';
@@ -197,34 +248,63 @@ export function transitionsFrom(state: CaseState): readonly Transition[] {
   return TRANSITIONS.filter((t) => t.from === state);
 }
 
-export function findTransition(from: CaseState, to: CaseState): Transition | undefined {
-  return TRANSITIONS.find((t) => t.from === from && t.to === to);
+/**
+ * Every edge between two states. More than one is legal: the same pair can be
+ * crossed by different facts, and each carries its own guards.
+ */
+export function transitionsBetween(from: CaseState, to: CaseState): readonly Transition[] {
+  return TRANSITIONS.filter((t) => t.from === from && t.to === to);
 }
 
-export function canTransition(from: CaseState, to: CaseState): boolean {
-  return findTransition(from, to) !== undefined;
+/**
+ * One edge, optionally the one a named trigger carries. Without a trigger this
+ * returns the first edge between the pair, which is ambiguous wherever there is
+ * more than one — pass the trigger when it matters.
+ */
+export function findTransition(
+  from: CaseState,
+  to: CaseState,
+  trigger?: string,
+): Transition | undefined {
+  return TRANSITIONS.find(
+    (t) => t.from === from && t.to === to && (trigger === undefined || t.trigger === trigger),
+  );
+}
+
+export function canTransition(from: CaseState, to: CaseState, trigger?: string): boolean {
+  return findTransition(from, to, trigger) !== undefined;
 }
 
 /**
  * Moves a case, or explains why it cannot move. Unsatisfied guards are named —
  * a silent refusal to advance is the failure mode this exists to prevent.
+ *
+ * Where several edges join the same pair of states, the case moves if *any* one
+ * of them is satisfied, and a refusal names what each of them would have needed.
+ * Taking only the first would let one edge's guard decide for another's.
  */
 export function applyTransition(
   from: CaseState,
   to: CaseState,
   guards: Partial<Record<GuardName, boolean>> = {},
+  trigger?: string,
 ): Transition {
-  const transition = findTransition(from, to);
-  if (!transition) {
-    throw new TransitionError(`illegal transition ${from} → ${to}`);
-  }
-  const unmet = transition.guards.filter((g) => guards[g] !== true);
-  if (unmet.length > 0) {
+  const candidates = TRANSITIONS.filter(
+    (t) => t.from === from && t.to === to && (trigger === undefined || t.trigger === trigger),
+  );
+  if (candidates.length === 0) {
     throw new TransitionError(
-      `transition ${from} → ${to} blocked by unmet guard(s): ${unmet.join(', ')}`,
+      `illegal transition ${from} → ${to}${trigger === undefined ? '' : ` on ${trigger}`}`,
     );
   }
-  return transition;
+
+  const satisfied = candidates.find((t) => t.guards.every((g) => guards[g] === true));
+  if (satisfied) return satisfied;
+
+  const why = candidates
+    .map((t) => `${t.trigger}: ${t.guards.filter((g) => guards[g] !== true).join(', ')}`)
+    .join('; ');
+  throw new TransitionError(`transition ${from} → ${to} blocked by unmet guard(s): ${why}`);
 }
 
 /** Breadth-first reachability, optionally forbidding states along the way. */
