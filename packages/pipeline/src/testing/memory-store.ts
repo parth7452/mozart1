@@ -53,6 +53,12 @@ export class InMemoryStore implements PipelineStore {
    * the behaviour the Postgres store has to match (ADR 0019).
    */
   readonly debtors: DebtorCandidate[] = [];
+  /**
+   * Who belongs to which tenant, and as what. Empty by default, so a store
+   * nobody has set up says no to `memberMayWrite` rather than yes — the same
+   * answer the database gives for a user with no `memberships` row.
+   */
+  readonly memberships: Array<{ orgId: string; userId: string; role: string }> = [];
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -184,6 +190,39 @@ export class InMemoryStore implements PipelineStore {
   /** Registers a tenant and the inbound address slug that routes to it. */
   addOrg(slug: string, orgId: string): void {
     this.orgs.set(slug, orgId);
+  }
+
+  /**
+   * The roles migration 0010's `app.member_may_write()` accepts, named here so
+   * the in-memory store refuses exactly what the database refuses.
+   */
+  static readonly WRITER_ROLES: readonly string[] = ['owner', 'approver', 'analyst'];
+
+  async memberMayWrite(actor: {
+    readonly orgId: string;
+    readonly userId: string;
+  }): Promise<boolean> {
+    return this.memberships.some(
+      (m) =>
+        m.orgId === actor.orgId &&
+        m.userId === actor.userId &&
+        InMemoryStore.WRITER_ROLES.includes(m.role),
+    );
+  }
+
+  /** Registers a member of a tenant, the way an invitation would. */
+  addMember(orgId: string, userId: string, role = 'analyst'): void {
+    this.memberships.push({ orgId, userId, role });
+  }
+
+  /**
+   * The notice link first, then whatever else there is — the order the Postgres
+   * store reads them in, because a document that opened a case belongs to that
+   * case and may also be evidence on another.
+   */
+  async caseForDocument(documentId: string): Promise<string | undefined> {
+    const links = this.links.filter((l) => l.documentId === documentId);
+    return (links.find((l) => l.role === 'notice') ?? links[0])?.deductionId;
   }
 
   async documentsForCase(deductionId: string): Promise<readonly StoredDocument[]> {

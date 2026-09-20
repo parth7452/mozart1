@@ -104,6 +104,18 @@ export interface PipelineStore {
     payload: Record<string, unknown>;
   }): Promise<void>;
   getCase(deductionId: string): Promise<CaseRecord | undefined>;
+  /**
+   * The case a document is already filed against, if any — the reverse of
+   * `documentsForCase`, and the only way to answer "has this document already
+   * been read, and where did it land" from an id alone.
+   *
+   * Optional on this port and required on `JobStore` (jobs.ts). A job reads
+   * from an id and has to be able to answer it; a store that cannot is one the
+   * pipeline still works with, it just reports an already-read document without
+   * naming the case. It is not optional to allow anyone to skip the check — the
+   * check is on `latestExtraction`, which every store has.
+   */
+  caseForDocument?(documentId: string): Promise<string | undefined>;
   /** The tenant an inbound address belongs to, or undefined if there is none. */
   findOrgBySlug(slug: string): Promise<{ readonly orgId: string; readonly slug: string } | undefined>;
   documentsForCase(deductionId: string): Promise<readonly StoredDocument[]>;

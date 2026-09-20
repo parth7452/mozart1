@@ -375,6 +375,67 @@ export function scanGateHalt(verdict: ScanVerdict): string {
 }
 
 /**
+ * What a previous read of this document already recorded, when there was one.
+ *
+ * A read is not idempotent by itself. It classifies, extracts, records the
+ * spend and — for a notice — opens a case, and only the last of those has a
+ * constraint behind it: `unique (org_id, debtor_id, claim_id)`, which does not
+ * fire while `debtor_id` is null (ADR 0019). A tenant that has not linked the
+ * retailer yet is exactly that case, so a second read of the same document
+ * opened a second case and paid for the page twice — on the job path whenever
+ * an event was redelivered or a run retried, and on the request path whenever
+ * the same file was uploaded again.
+ *
+ * So the recorded extraction is the gate: a document that has one has been
+ * read. `undefined` means reading it again would produce something the first
+ * read did not, and there are exactly two ways that happens:
+ *
+ * - it is being attached to a case it is not yet linked to. The read is how the
+ *   link and the `evidence.uploaded` event get written — the same BOL is
+ *   evidence for two deductions, and its second upload dedupes to the same
+ *   document — so skipping it would lose a reviewer's attachment.
+ * - it is a notice that has no case, and this read may open one. The earlier
+ *   read was an unauthenticated email's (ADR 0016), which files the document
+ *   and refuses to open a case from it, or it was one that failed on the way in.
+ *
+ * Nothing here writes. It is a question, asked before the first model call.
+ */
+export interface RecordedRead {
+  readonly docType: DocType;
+  /** The case the earlier read filed it against, when the store can say. */
+  readonly deductionId?: string;
+}
+
+export async function recordedRead(
+  document: StoredDocument,
+  deps: PipelineDeps,
+  options: ReadOptions = {},
+): Promise<RecordedRead | undefined> {
+  const recorded = await deps.store.latestExtraction(document.documentId);
+  if (recorded === undefined) return undefined;
+
+  if (options.attachToCase !== undefined) {
+    const linked = await deps.store.documentsForCase(options.attachToCase);
+    if (!linked.some((d) => d.documentId === document.documentId)) return undefined;
+    return { docType: recorded.docType, deductionId: options.attachToCase };
+  }
+
+  const deductionId = await deps.store.caseForDocument?.(document.documentId);
+  if (
+    deductionId === undefined &&
+    recorded.docType === 'deduction_notice' &&
+    (options.allowCaseOpen ?? true)
+  ) {
+    return undefined;
+  }
+
+  return {
+    docType: recorded.docType,
+    ...(deductionId !== undefined ? { deductionId } : {}),
+  };
+}
+
+/**
  * Ingest → classify → extract for one file, opening a case when the file turns
  * out to be a deduction notice.
  *
@@ -404,6 +465,32 @@ export async function processUpload(
 
   if (ingest.verdict.status !== 'clean') {
     return { ingest, haltedBecause: scanGateHalt(ingest.verdict) };
+  }
+
+  // The same bytes we already hold. Only then can a read already have happened,
+  // so this is the one path where the question is worth a query: if it has, the
+  // upload is a re-upload and reading it again would open a second case and pay
+  // for the page twice (`recordedRead`). The reviewer is sent to the case it
+  // already opened rather than told nothing happened.
+  if (ingest.deduplicated) {
+    const already = await recordedRead(ingest.document, deps, options);
+    if (already !== undefined) {
+      const existing =
+        already.deductionId === undefined
+          ? undefined
+          : await deps.store.getCase(already.deductionId);
+      return {
+        ingest,
+        ...(existing !== undefined ? { case: existing } : {}),
+        ...(existing === undefined
+          ? {
+              haltedBecause:
+                `this document was already read as a ${already.docType}; ` +
+                'it was not read again',
+            }
+          : {}),
+      };
+    }
   }
 
   return { ingest, ...(await readDocument(ingest.document, deps, options)) };

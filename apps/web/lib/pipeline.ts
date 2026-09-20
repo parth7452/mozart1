@@ -5,12 +5,10 @@ import {
   ingestForJob,
   processUpload,
   type IngestInput,
-  type JobDeps,
   type PipelineDeps,
   type ProcessedDocument,
 } from '@recouple/pipeline';
-import { PostgresStore } from '@recouple/store-postgres';
-import { env } from './env';
+import { tenantStore, type TenantStore } from './store';
 import {
   inngestClient,
   inngestKeysFromEnv,
@@ -39,8 +37,9 @@ import {
  *
  * The store's own type is carried through rather than narrowed to the port, so
  * a caller handing in a store that can do more keeps it — a job needs
- * `getDocument` to read a document it only has the id of (ADR 0021), and
- * `PostgresStore` has always had it.
+ * `getDocument` to read a document it only has the id of (ADR 0021), plus the
+ * two questions `JobStore` adds, and `TenantStore` (lib/store.ts) answers all
+ * three.
  */
 export function pipelineDepsFor<S extends PipelineDeps['store']>(
   store: S,
@@ -66,36 +65,43 @@ export function pipelineDepsFor<S extends PipelineDeps['store']>(
  * A store for a job, scoped to the tenant and member an event named.
  *
  * The same two claims `storeFor` sets for a request (lib/session.ts), set the
- * same way: `PostgresStore` as `app_rw`, transaction-locally. A job is not a
- * privileged context — it sees what that member sees, because RLS is what
- * decides, and the service-role key appears nowhere in this app (invariant 6).
+ * same way and by the same class: `PostgresStore` as `app_rw`,
+ * transaction-locally. A job is not a privileged context — it sees what that
+ * member sees, because RLS is what decides, and the service-role key appears
+ * nowhere in this app (invariant 6).
  */
 export function storeForActor(identity: {
   readonly orgId: string;
   readonly userId: string;
-}): PostgresStore {
-  return new PostgresStore({ connectionString: env.databaseUrl }, identity);
+}): TenantStore {
+  return tenantStore(identity);
 }
 
 /**
- * What an upload did, in the two shapes an upload can now end in (ADR 0021).
+ * What an upload did, in the shapes an upload can now end in (ADR 0021).
  *
  * `read` is the whole pipeline, finished: a case to go to, or a reason it did
  * not get one. `queued` is the bytes stored and scanned clean with the read
  * handed to a job — there is no case id yet, and there will not be one for a
  * minute, so the reviewer is told that rather than sent somewhere that does not
- * exist.
+ * exist. `not_queued` is that same document with the queue unreachable: stored,
+ * scanned, and waiting for somebody to ask for it again.
  */
 export type UploadOutcome =
   | { readonly kind: 'read'; readonly result: ProcessedDocument }
   | { readonly kind: 'queued'; readonly documentId: string }
+  | { readonly kind: 'not_queued'; readonly documentId: string }
   | { readonly kind: 'halted'; readonly haltedBecause: string };
 
 export interface UploadRunner {
   readonly name: 'inline' | 'inngest';
   run(
     input: IngestInput,
-    deps: JobDeps,
+    // `PipelineDeps`, not `JobDeps`: neither runner reads from a document id.
+    // The inline one runs `processUpload` and the queued one runs the ingest
+    // half and stops, so the request never needs the store a job needs — and
+    // the request path cannot accidentally acquire a job's reach.
+    deps: PipelineDeps,
     options: {
       readonly actor: { readonly userId: string };
       readonly attachToCase?: string;
@@ -112,7 +118,7 @@ export class InlineRunner implements UploadRunner {
 
   async run(
     input: IngestInput,
-    deps: JobDeps,
+    deps: PipelineDeps,
     options: { attachToCase?: string },
   ): Promise<UploadOutcome> {
     const result = await processUpload(
@@ -144,7 +150,7 @@ export class InngestRunner implements UploadRunner {
 
   async run(
     input: IngestInput,
-    deps: JobDeps,
+    deps: PipelineDeps,
     options: { actor: { userId: string }; attachToCase?: string },
   ): Promise<UploadOutcome> {
     await assertCaseAttachable(deps, options.attachToCase);
@@ -160,7 +166,29 @@ export class InngestRunner implements UploadRunner {
       userId: options.actor.userId,
       ...(options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {}),
     };
-    await this.client.send(readRequestedEvent(data));
+
+    try {
+      await this.client.send(readRequestedEvent(data));
+    } catch (cause) {
+      // Inngest is unreachable, or refused the event. The bytes are already
+      // stored and scanned, so throwing here would hand the reviewer a 500 for
+      // a document that is safely in the database — the worst of both: it looks
+      // like nothing happened, and the document sits there with nobody
+      // expecting it.
+      //
+      // Nothing is swallowed. The failure is logged with its cause where an
+      // operator reads logs, and the reviewer is told the document is stored
+      // and not yet read. Re-uploading the same file re-queues it: the bytes
+      // dedupe to this same document row (`ingestDocument`) and a fresh event
+      // is sent, and because no read was ever recorded for it the job does the
+      // read rather than reporting one (`recordedRead`).
+      console.error(
+        `[recouple] uploads: document ${ingested.documentId} is stored and scanned but ` +
+          'could not be queued for reading — the Inngest event was not accepted (ADR 0021)',
+        cause,
+      );
+      return { kind: 'not_queued', documentId: ingested.documentId };
+    }
 
     return { kind: 'queued', documentId: ingested.documentId };
   }

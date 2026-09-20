@@ -376,6 +376,42 @@ describe('uploading where the read runs as a job', () => {
     expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
   });
 
+  it('keeps the document and says so when the queue will not take the event', async () => {
+    // Inngest unreachable. The bytes are already stored and scanned by the time
+    // `send` fails, so a 500 here would report a failed upload for a document
+    // that is safely in the database — and nobody would be expecting it.
+    const store = harness.store as RouteTestStore;
+    const failure = new Error('connect ECONNREFUSED inngest.example');
+    harness.runner = new InngestRunner({
+      async send() {
+        throw failure;
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+      expect(response.status).toBe(303);
+      const to = new URL(response.headers.get('location') as string);
+      expect(to.searchParams.get('upload')).toMatch(
+        /stored but could not be queued for reading/,
+      );
+      expect(to.searchParams.get('upload')).toMatch(/uploading the same file again re-queues it/);
+
+      // The document is in, unread, and the failure went somewhere an operator
+      // will see it — with the cause, not just a sentence.
+      expect(store.documents.size).toBe(1);
+      expect(store.scans).toHaveLength(1);
+      expect(store.modelCalls).toHaveLength(0);
+      expect(store.cases.size).toBe(0);
+      expect(store.closed).toBe(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(/could not be queued/), failure);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('keeps a reviewer attaching evidence on the case they were on', async () => {
     const store = harness.store as RouteTestStore;
     const existing = await store.openCase({ orgId: ORG_ID });

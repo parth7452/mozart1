@@ -269,7 +269,27 @@ row, the scan gate — and the job does the read, through `PostgresStore` as
 `app_rw` with the claims the event names, never the service role. `ingestForJob`
 and `readDocumentJob` in `packages/pipeline` are the same `ingestDocument` and
 `readDocument` the synchronous path runs; the event carries ids and the acting
-member, never document text.
+member, never document text — and neither does a failure, whose message is
+rebuilt from the class name and the ids rather than passed through, because
+`DuplicateCaseError` quotes the claim id off the page.
+
+A job asks two questions before it spends anything. May this member write in
+this org — `app.member_may_write()`, asked of the database, because a signed
+event says Inngest delivered it and nothing more, and `tenant_read` checks only
+the org claim. And has this document already been read — because a read is not
+idempotent on its own and `unique (org_id, debtor_id, claim_id)` does not fire
+while `debtor_id` is null, so a redelivered event used to open a second case and
+pay for the page twice. A document that already has an extraction is answered
+from what was recorded; the two reads that still happen are the ones that would
+do something new, attaching it to a case it is not on yet or opening a case for a
+notice that has none. The same guard runs on the inline path, where the same
+thing happens when a file is uploaded twice.
+
+If `client.send` fails the document is not orphaned: it is stored, scanned, and
+the reviewer is told it will be read when the queue is reachable and that
+re-uploading the same file re-queues it. And `/api/inngest` refuses to serve at
+all — 503, logged — when `INNGEST_DEV` is set in a production build, because dev
+mode turns off the signature check that is the endpoint's only authentication.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
