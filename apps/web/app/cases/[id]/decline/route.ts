@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { isDeclineReason } from '@recouple/store-postgres';
+import { AlreadyDeclinedError, isDeclineReason, isMissingEvidence } from '@recouple/store-postgres';
 import { requireSession, storeFor } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 
@@ -23,7 +23,10 @@ export async function POST(
   const session = await requireSession();
   const back = new URL(`/cases/${id}`, request.url);
 
-  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+  // A real UUID, not 36 characters that look like one: an id that is the right
+  // shape but not a UUID reaches Postgres and comes back as a 500, losing
+  // whatever the reviewer typed into the form.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return NextResponse.redirect(new URL('/', request.url), { status: 303 });
   }
   if (!mayWrite(session.org.role)) {
@@ -41,9 +44,9 @@ export async function POST(
   }
 
   const detail = form.get('detail');
-  const missing = form
-    .getAll('missing')
-    .filter((value): value is string => typeof value === 'string' && value !== '');
+  // Only the evidence types coverage can add up. The column is a plain
+  // `text[]`, so anything else would be stored and then never counted.
+  const missing = form.getAll('missing').filter(isMissingEvidence);
 
   const store = storeFor(session);
   try {
@@ -64,6 +67,15 @@ export async function POST(
     });
     back.searchParams.set('decline', 'recorded: this case is logged as declined, not discarded');
     return NextResponse.redirect(back, { status: 303 });
+  } catch (cause) {
+    if (cause instanceof AlreadyDeclinedError) {
+      // Not a fault: a second submit of a form that is still on screen. The
+      // first decline stands, and saying so beats a 500 or a second row that
+      // would count this case's dollars twice.
+      back.searchParams.set('decline', 'this case was already declined; the first decline stands');
+      return NextResponse.redirect(back, { status: 303 });
+    }
+    throw cause;
   } finally {
     await store.close();
   }
