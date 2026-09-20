@@ -1504,6 +1504,16 @@ export class PostgresStore implements PipelineStore {
     return this.withTenant(async (client) => {
       // The amount comes from the case, not the caller — what it was worth is
       // not a reviewer's opinion. RLS scopes the read to this tenant.
+      //
+      // `for update of d` is what makes the check-then-insert below one
+      // decision rather than two. READ COMMITTED lets two transactions both
+      // read no declined row and both insert one, and there is no unique index
+      // to catch the second (migration 0014 allows a second decline for a
+      // different reason on purpose, so adding one is a migration and an ADR,
+      // not a line here). Taking a row lock on the case instead serialises
+      // every decline of the same case through this point: the second waits,
+      // then sees the first's row and raises `AlreadyDeclinedError`. The lock
+      // is held to commit, which is where the insert is.
       const { rows: caseRows } = await client.query<{
         amount: string;
         discovered_from: string | null;
@@ -1517,13 +1527,42 @@ export class PostgresStore implements PipelineStore {
                   order by doc.created_at asc
                   limit 1) as discovered_from
            from deductions d
-          where d.id = $1`,
+          where d.id = $1
+          for update of d`,
         [input.deductionId],
       );
       const found = caseRows[0];
       if (found === undefined) {
+        // Two different refusals arrive here as the same empty result, and they
+        // must not be reported as the same thing. `for update` makes Postgres
+        // apply the UPDATE policy as well as the read one, and migration 0010
+        // gates `tenant_update` on `app.member_may_write()` — so a `read_only`
+        // member of the tenant that owns this case gets no row either, and
+        // telling them their own case does not exist would be a lie that sends
+        // them looking for the wrong problem.
+        //
+        // One extra read, on the failure path only, tells the two apart. The
+        // database is still what refused in both cases; this only says which.
+        const { rows: readable } = await client.query<{ one: number }>(
+          `select 1 as one from deductions where id = $1`,
+          [input.deductionId],
+        );
+        if (readable.length > 0) {
+          throw new Error(
+            `permission denied: this member may read case ${input.deductionId} but not decline it`,
+          );
+        }
         throw new Error(`case ${input.deductionId} is not visible to this tenant`);
       }
+      // Cents are a bigint (invariant 3). `Number()` on one is lossy above
+      // 2^53, and it used to be called twice: once on the way into the
+      // `case.declined` event, which is append-only and so cannot be corrected,
+      // and once on the way out to the caller. The event now carries the
+      // column's exact text and this is the only conversion left — checked
+      // here, before anything is written, so a value we cannot represent stops
+      // the decline rather than landing in a row we cannot correct.
+      const estimatedRecoverableCents = exactCents(found.amount, 'deduction_amount_cents');
+
       // Derived when the document knows, the caller's stated assumption when it
       // does not. Today it is always the latter.
       const discoveredFrom = found.discovered_from ?? input.assumedDiscoveredFrom;
@@ -1539,10 +1578,16 @@ export class PostgresStore implements PipelineStore {
       // One decline per case. The schema allows a second row — a case declined
       // again for a different reason is history — but `coverage_by_period` sums
       // them all, so a second row for a case that already has one double-counts
-      // its dollars. Refused loudly here rather than counted twice there. (This
-      // closes the double-click, not a genuine race: two concurrent requests can
-      // still both read no row. The unique index that would settle it is a
-      // migration, and that wants its own ADR.)
+      // its dollars. Refused loudly here rather than counted twice there.
+      //
+      // This read is inside the case's row lock, so it closes the genuine race
+      // as well as the double-click: a concurrent decline of the same case is
+      // still waiting on that lock and cannot have read no row.
+      //
+      // It intentionally does not lock `declined_candidates` itself. There is
+      // nothing to lock — the row does not exist yet, and a predicate lock over
+      // "rows that might appear" is what SERIALIZABLE is for. The case row is
+      // the thing both transactions agree on.
       const { rows: already } = await client.query<{ id: string; decided_at: string }>(
         `select id, decided_at::text as decided_at
            from declined_candidates
@@ -1592,7 +1637,10 @@ export class PostgresStore implements PipelineStore {
           JSON.stringify({
             declined_candidate_id: row.id,
             reason: input.reason,
-            estimated_recoverable_cents: Number(found.amount),
+            // The column's own text, digit for digit. jsonb would hold a number
+            // of any size, but everything that reads this payload back goes
+            // through `JSON.parse`, and that is where a bigint would round.
+            estimated_recoverable_cents: found.amount,
             discovered_from: discoveredFrom,
             decided_by: input.decidedBy,
             decided_by_version: HUMAN_DECISION_VERSION,
@@ -1605,7 +1653,7 @@ export class PostgresStore implements PipelineStore {
         declinedCandidateId: row.id,
         deductionId: input.deductionId,
         reason: input.reason,
-        estimatedRecoverableCents: Number(found.amount),
+        estimatedRecoverableCents,
         discoveredFrom,
         decidedBy: input.decidedBy,
         decidedByVersion: HUMAN_DECISION_VERSION,
@@ -1615,6 +1663,22 @@ export class PostgresStore implements PipelineStore {
       };
     });
   }
+}
+
+/**
+ * A bigint cents column as a JS number, or a loud failure.
+ *
+ * Money is integer cents in a bigint (invariant 3), and a JS number holds only
+ * 2^53 of them exactly. Every conversion is therefore a place where a value can
+ * quietly stop being itself, and a rounded cent on a money path is the kind of
+ * bug that is only ever found in a reconciliation. This refuses instead.
+ */
+function exactCents(text: string, column: string): number {
+  const cents = Number(text);
+  if (!Number.isSafeInteger(cents)) {
+    throw new Error(`${column} is ${text}, which no JS number holds exactly`);
+  }
+  return cents;
 }
 
 /** The SQLSTATE of a driver error, when it carries one. */
