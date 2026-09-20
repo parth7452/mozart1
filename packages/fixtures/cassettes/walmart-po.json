@@ -18,13 +18,13 @@
     },
     "buyer_name": {
       "value": "Walmart Stores, Inc.",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Buyer: Walmart Stores, Inc."
     },
     "ship_to": {
       "value": "DC 6094 - Sanger, TX",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Ship To: DC 6094 - Sanger, TX"
     },
@@ -34,7 +34,7 @@
           "value": "000-4471-08",
           "confidence": 0.98,
           "source_page": 1,
-          "source_quote": "000-4471-08       Case Pack Olive Oil             30     $624.00"
+          "source_quote": "000-4471-08"
         },
         "qty_ordered": {
           "value": 30,
@@ -52,12 +52,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T03:41:13.938Z",
+  "recordedAt": "2026-09-20T16:50:05.848Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 3555,
-    "outputTokens": 430,
-    "costMicros": 11410,
-    "latencyMs": 4149
+    "outputTokens": 411,
+    "costMicros": 11220,
+    "latencyMs": 4001
   }
 }

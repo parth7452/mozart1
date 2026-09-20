@@ -42,15 +42,9 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-001",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-001"
-    },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.95,
-      "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
     },
     "lines": [
       {
@@ -70,19 +64,19 @@
           "value": 400,
           "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "400 cases"
+          "source_quote": "380 of 400 cases"
         },
         "qty_received": {
           "value": 380,
           "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "380 cases"
+          "source_quote": "380 of 400 cases"
         },
         "unit_cost": {
           "value": "$30.00",
           "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "$30.00 per case"
+          "source_quote": "billed at $30.00 per case"
         },
         "deduction_amount": {
           "value": "$600.00",
@@ -104,6 +98,12 @@
         }
       }
     ],
+    "vendor_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "store_or_dc": {
       "value": null,
       "confidence": 0,
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:48:47.158Z",
+  "recordedAt": "2026-09-20T16:50:55.784Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4960,
-    "outputTokens": 1006,
-    "costMicros": 19980,
-    "latencyMs": 7682
+    "outputTokens": 960,
+    "costMicros": 19520,
+    "latencyMs": 7514
   }
 }

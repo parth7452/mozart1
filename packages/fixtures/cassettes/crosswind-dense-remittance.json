@@ -6,7 +6,7 @@
   "document": {
     "payer_name": {
       "value": "Crosswind Grocery Distribution",
-      "confidence": 0.85,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "CROSSWIND GROCERY DISTRIBUTION"
     },
@@ -1376,12 +1376,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T18:27:30.032Z",
+  "recordedAt": "2026-09-20T16:53:56.569Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 7507,
-    "outputTokens": 10702,
-    "costMicros": 122034,
-    "latencyMs": 63297
+    "outputTokens": 10703,
+    "costMicros": 122044,
+    "latencyMs": 63516
   }
 }

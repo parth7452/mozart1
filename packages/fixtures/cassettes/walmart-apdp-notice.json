@@ -12,55 +12,55 @@
     },
     "vendor_number": {
       "value": "481207",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Vendor Number: 481207"
     },
     "claim_id": {
       "value": "APDP-99812",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Claim ID: APDP-99812"
     },
     "invoice_number": {
       "value": "HF-20418",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Invoice Number: HF-20418"
     },
     "po_number": {
       "value": "7741-88203",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Purchase Order: 7741-88203"
     },
     "store_or_dc": {
       "value": "DC 6094 - Sanger, TX",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Distribution Center: DC 6094 - Sanger, TX"
     },
     "deduction_total": {
       "value": "$3,120.00",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Total Deduction: $3,120.00"
     },
     "deduction_date": {
       "value": "08/14/2026",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Deduction Date: 08/14/2026"
     },
     "dispute_deadline": {
       "value": "11/12/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Dispute Deadline: 11/12/2026"
     },
     "remittance_or_check": {
       "value": "CHK-4471902",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Remittance Reference: CHK-4471902"
     },
@@ -68,27 +68,27 @@
       {
         "sku_upc": {
           "value": "000-4471-08",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "000-4471-08"
         },
         "description": {
           "value": "Case Pack Olive Oil",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Case Pack Olive Oil"
         },
         "qty_invoiced": {
-          "value": 30,
-          "confidence": 0.85,
+          "value": 24,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "30"
+          "source_quote": "24"
         },
         "qty_received": {
-          "value": 25,
-          "confidence": 0.85,
+          "value": 30,
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "25"
+          "source_quote": "30"
         },
         "unit_cost": {
           "value": "$624.00",
@@ -98,19 +98,19 @@
         },
         "deduction_amount": {
           "value": "$3,120.00",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$3,120.00"
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
         },
         "reason_description": {
           "value": "Merchandise billed not received (carton shortage)",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Merchandise billed not received (carton shortage)"
         }
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T03:41:08.445Z",
+  "recordedAt": "2026-09-20T16:50:00.409Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4489,
+    "inputTokens": 4553,
     "outputTokens": 1069,
-    "costMicros": 19668,
-    "latencyMs": 7760
+    "costMicros": 19796,
+    "latencyMs": 8379
   }
 }
