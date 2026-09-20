@@ -2,7 +2,7 @@
   "key": "hl-case-01-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.98,
+  "classifierConfidence": 0.99,
   "document": {
     "payer_name": {
       "value": "Harbor Lane Markets",
@@ -38,19 +38,19 @@
         },
         "gross_amount": {
           "value": "$12,000.00",
-          "confidence": 0.97,
+          "confidence": 0.96,
           "source_page": 1,
           "source_quote": "$12,000.00"
         },
         "deduction_amount": {
           "value": "$600.00",
-          "confidence": 0.97,
+          "confidence": 0.96,
           "source_page": 1,
           "source_quote": "$600.00"
         },
         "net_amount": {
           "value": "$11,400.00",
-          "confidence": 0.97,
+          "confidence": 0.96,
           "source_page": 1,
           "source_quote": "$11,400.00"
         },
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:01.841Z",
+  "recordedAt": "2026-09-20T17:54:22.418Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4344,
     "outputTokens": 516,
     "costMicros": 13848,
-    "latencyMs": 4402
+    "latencyMs": 4057
   }
 }

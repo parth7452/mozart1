@@ -10,39 +10,45 @@
       "source_page": 1,
       "source_quote": "Willow Creek Wholesale"
     },
+    "vendor_number": {
+      "value": "NSP-1048",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Supplier account: NSP-1048"
+    },
     "claim_id": {
       "value": "DN-2609-004",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-004"
     },
     "invoice_number": {
       "value": "INV-260804",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260804"
     },
     "po_number": {
       "value": "PO-WCW-9128",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-WCW-9128"
     },
     "deduction_total": {
       "value": "$720.00",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "$720.00"
     },
     "deduction_date": {
       "value": "2026-09-08",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-08"
     },
     "remittance_or_check": {
       "value": "RA-2609-004",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-004"
     },
@@ -56,7 +62,7 @@
         },
         "description": {
           "value": "Tomato Soup",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Tomato Soup"
         },
@@ -68,7 +74,7 @@
         },
         "unit_cost": {
           "value": "$24.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "priced at $24.00 per case"
         },
@@ -86,7 +92,7 @@
         },
         "reason_description": {
           "value": "Customer reports 30 damaged cases of Tomato Soup, SKU NS-410, priced at $24.00 per case, out of 400 cases invoiced.",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Customer reports 30 damaged cases of Tomato Soup, SKU NS-410, priced at $24.00 per case, out of 400 cases invoiced."
         },
@@ -98,12 +104,6 @@
         }
       }
     ],
-    "vendor_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
     "store_or_dc": {
       "value": null,
       "confidence": 0,
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:39.939Z",
+  "recordedAt": "2026-09-20T17:55:01.575Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4952,
-    "outputTokens": 892,
-    "costMicros": 18824,
-    "latencyMs": 7218
+    "inputTokens": 5095,
+    "outputTokens": 949,
+    "costMicros": 19680,
+    "latencyMs": 7008
   }
 }

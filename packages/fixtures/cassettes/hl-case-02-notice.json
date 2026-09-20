@@ -12,7 +12,7 @@
     },
     "claim_id": {
       "value": "DN-2609-002",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-002"
     },
@@ -28,6 +28,24 @@
       "source_page": 1,
       "source_quote": "Purchase order: PO-CPG-5170"
     },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "deduction_total": {
       "value": "$900.00",
       "confidence": 0.98,
@@ -40,9 +58,15 @@
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-04"
     },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "remittance_or_check": {
       "value": "RA-2609-002",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-002"
     },
@@ -58,7 +82,7 @@
           "value": "Oat Beverage",
           "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "Oat Beverage"
+          "source_quote": "Oat Beverage, SKU NS-210"
         },
         "qty_invoiced": {
           "value": 600,
@@ -74,13 +98,13 @@
         },
         "deduction_amount": {
           "value": "$900.00",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$900.00"
         },
         "reason_code": {
           "value": "PRICE",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason code: PRICE"
         },
@@ -103,39 +127,15 @@
       "confidence": 0,
       "source_page": 1,
       "source_quote": ""
-    },
-    "store_or_dc": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "dispute_deadline": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:11.486Z",
+  "recordedAt": "2026-09-20T17:54:31.831Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4948,
-    "outputTokens": 908,
-    "costMicros": 18976,
-    "latencyMs": 7330
+    "inputTokens": 5091,
+    "outputTokens": 1071,
+    "costMicros": 20892,
+    "latencyMs": 7711
   }
 }

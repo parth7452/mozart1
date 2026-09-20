@@ -6,7 +6,7 @@
   "document": {
     "payer_name": {
       "value": "Summit Basket Retail",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Summit Basket Retail"
     },
@@ -26,7 +26,7 @@
       "value": "$23,000.00",
       "confidence": 0.97,
       "source_page": 1,
-      "source_quote": "Net payment"
+      "source_quote": "Net payment $23,000.00"
     },
     "lines": [
       {
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:31.081Z",
+  "recordedAt": "2026-09-20T17:54:53.051Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4358,
-    "outputTokens": 512,
-    "costMicros": 13836,
-    "latencyMs": 4408
+    "outputTokens": 518,
+    "costMicros": 13896,
+    "latencyMs": 4306
   }
 }

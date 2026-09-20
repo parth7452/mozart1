@@ -36,7 +36,7 @@
     },
     "store_or_dc": {
       "value": "DC 6094 - Sanger, TX",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Distribution Center: DC 6094 - Sanger, TX"
     },
@@ -54,13 +54,13 @@
     },
     "dispute_deadline": {
       "value": "11/12/2026",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Dispute Deadline: 11/12/2026"
     },
     "remittance_or_check": {
       "value": "CHK-4471902",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Remittance Reference: CHK-4471902"
     },
@@ -74,19 +74,19 @@
         },
         "description": {
           "value": "Case Pack Olive Oil",
-          "confidence": 0.95,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "Case Pack Olive Oil"
         },
         "qty_invoiced": {
           "value": 30,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "30"
         },
         "qty_received": {
           "value": 25,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "25"
         },
@@ -104,13 +104,13 @@
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "24"
         },
         "reason_description": {
           "value": "Merchandise billed not received (carton shortage)",
-          "confidence": 0.95,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
         }
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:52:24.039Z",
+  "recordedAt": "2026-09-20T17:55:46.971Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5591,
+    "inputTokens": 5734,
     "outputTokens": 1054,
-    "costMicros": 21722,
-    "latencyMs": 8023
+    "costMicros": 22008,
+    "latencyMs": 8620
   }
 }

@@ -2,7 +2,7 @@
   "key": "hl-case-06-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.95,
+  "classifierConfidence": 0.98,
   "document": {
     "payer_name": {
       "value": "Pine Ridge Distribution",
@@ -26,7 +26,7 @@
       "value": "$21,560.00",
       "confidence": 0.95,
       "source_page": 1,
-      "source_quote": "Net payment\n$21,560.00"
+      "source_quote": "$21,560.00"
     },
     "lines": [
       {
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:52:14.264Z",
+  "recordedAt": "2026-09-20T17:55:36.499Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4344,
-    "outputTokens": 518,
-    "costMicros": 13868,
-    "latencyMs": 4309
+    "outputTokens": 512,
+    "costMicros": 13808,
+    "latencyMs": 4177
   }
 }

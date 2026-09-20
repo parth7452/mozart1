@@ -6,13 +6,13 @@
   "document": {
     "retailer_name": {
       "value": "Pine Ridge Distribution",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Pine Ridge Distribution"
     },
     "vendor_number": {
       "value": "NSP-1048",
-      "confidence": 0.85,
+      "confidence": 0.7,
       "source_page": 1,
       "source_quote": "Supplier account: NSP-1048"
     },
@@ -30,7 +30,7 @@
     },
     "po_number": {
       "value": "PO-PRD-3356",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Purchase order: PO-PRD-3356"
     },
@@ -54,9 +54,15 @@
     },
     "lines": [
       {
+        "description": {
+          "value": "Early-payment discount",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "Customer took a 2% early-payment discount."
+        },
         "deduction_amount": {
           "value": "$440.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$440.00"
         },
@@ -68,23 +74,11 @@
         },
         "reason_description": {
           "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date.",
-          "confidence": 0.8,
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date."
-        },
-        "unit_cost": {
-          "value": "$22,000.00",
-          "confidence": 0.5,
-          "source_page": 1,
-          "source_quote": "$22,000.00"
+          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the\ninvoice date."
         },
         "sku_upc": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
-        },
-        "description": {
           "value": null,
           "confidence": 0,
           "source_page": 1,
@@ -97,6 +91,12 @@
           "source_quote": ""
         },
         "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
           "value": null,
           "confidence": 0,
           "source_page": 1,
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:52:51.428Z",
+  "recordedAt": "2026-09-20T17:56:19.414Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5591,
-    "outputTokens": 750,
-    "costMicros": 18682,
-    "latencyMs": 5890
+    "inputTokens": 5734,
+    "outputTokens": 1066,
+    "costMicros": 22128,
+    "latencyMs": 7815
   }
 }

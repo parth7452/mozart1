@@ -2,7 +2,7 @@
   "key": "carrier-bol-scan",
   "docType": "bol",
   "classifiedAs": "pod",
-  "classifierConfidence": 0.85,
+  "classifierConfidence": 0.75,
   "document": {
     "document_number": {
       "value": "MFL-553318",
@@ -18,7 +18,7 @@
     },
     "carrier_name": {
       "value": "Meridian Freight Lines",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Carrier: Meridian Freight Lines"
     },
@@ -79,10 +79,10 @@
           "source_quote": "30"
         },
         "qty_received": {
-          "value": 25,
-          "confidence": 0.6,
+          "value": null,
+          "confidence": 0,
           "source_page": 1,
-          "source_quote": "Total Cartons Received: 25"
+          "source_quote": ""
         }
       }
     ],
@@ -106,12 +106,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:52:33.167Z",
+  "recordedAt": "2026-09-20T17:55:55.570Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 5568,
-    "outputTokens": 781,
-    "costMicros": 18946,
-    "latencyMs": 7429
+    "outputTokens": 726,
+    "costMicros": 18396,
+    "latencyMs": 6594
   }
 }

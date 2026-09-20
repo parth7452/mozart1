@@ -6,33 +6,33 @@
   "document": {
     "payer_name": {
       "value": "Cedar Point Grocers",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Cedar Point Grocers"
     },
     "payment_reference": {
       "value": "SIM-PAY-2609-002",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Payment reference: SIM-PAY-2609-002"
     },
     "payment_date": {
       "value": "2026-09-04",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Payment date: 2026-09-04"
     },
     "payment_total": {
       "value": "$17,100.00",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
-      "source_quote": "Net payment $17,100.00"
+      "source_quote": "Net payment"
     },
     "lines": [
       {
         "invoice_number": {
           "value": "INV-260802",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "INV-260802"
         },
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:51:17.873Z",
+  "recordedAt": "2026-09-20T17:54:37.603Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4344,
-    "outputTokens": 516,
-    "costMicros": 13848,
-    "latencyMs": 5122
+    "outputTokens": 510,
+    "costMicros": 13788,
+    "latencyMs": 4290
   }
 }

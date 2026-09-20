@@ -2,11 +2,11 @@
   "key": "unsigned-pod",
   "docType": "pod",
   "classifiedAs": "pod",
-  "classifierConfidence": 0.92,
+  "classifierConfidence": 0.85,
   "document": {
     "document_number": {
       "value": "RL-DEL-88214",
-      "confidence": 0.98,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Report Number: RL-DEL-88214"
     },
@@ -18,31 +18,31 @@
     },
     "carrier_name": {
       "value": "Ridgeway Logistics",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Ridgeway Logistics - System Generated"
     },
     "po_number": {
       "value": "KH-55120",
-      "confidence": 0.98,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Purchase Order: KH-55120"
     },
     "ship_to": {
       "value": "KeHE Aurora DC",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Ship To: KeHE Aurora DC"
     },
     "total_cartons_shipped": {
       "value": 48,
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Total Cartons Shipped: 48"
     },
     "total_cartons_received": {
       "value": 48,
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Total Cartons Received: 48"
     },
@@ -85,12 +85,12 @@
     "lines": []
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:50:33.389Z",
+  "recordedAt": "2026-09-20T17:53:53.587Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4244,
     "outputTokens": 472,
     "costMicros": 13208,
-    "latencyMs": 4568
+    "latencyMs": 4229
   }
 }

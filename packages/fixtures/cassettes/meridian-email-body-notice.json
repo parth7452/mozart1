@@ -48,13 +48,13 @@
     },
     "deduction_date": {
       "value": "09/08/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Deduction Date: 09/08/2026"
     },
     "dispute_deadline": {
       "value": "11/07/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Dispute Deadline: 11/07/2026"
     },
@@ -80,13 +80,13 @@
         },
         "qty_invoiced": {
           "value": 48,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "48"
         },
         "qty_received": {
           "value": 40,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "40"
         },
@@ -104,7 +104,7 @@
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason Code 24 — Shortage on receipt"
         },
@@ -130,13 +130,13 @@
         },
         "qty_invoiced": {
           "value": 24,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "24"
         },
         "qty_received": {
           "value": 24,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "24"
         },
@@ -180,12 +180,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:54:11.128Z",
+  "recordedAt": "2026-09-20T17:57:39.137Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 2707,
+    "inputTokens": 2850,
     "outputTokens": 1627,
-    "costMicros": 21684,
-    "latencyMs": 13016
+    "costMicros": 21970,
+    "latencyMs": 11583
   }
 }

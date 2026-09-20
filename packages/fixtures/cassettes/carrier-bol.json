@@ -6,61 +6,61 @@
   "document": {
     "document_number": {
       "value": "MFL-553318",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "BOL Number: MFL-553318"
     },
     "ship_date": {
       "value": "08/05/2026",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Ship Date: 08/05/2026"
     },
     "carrier_name": {
       "value": "Meridian Freight Lines",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Carrier: Meridian Freight Lines"
     },
     "po_number": {
       "value": "7741-88203",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Purchase Order: 7741-88203"
     },
     "ship_from": {
       "value": "Harborline Foods LLC, Modesto, CA",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Ship From: Harborline Foods LLC, Modesto, CA"
     },
     "ship_to": {
       "value": "Walmart DC 6094, Sanger, TX",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Ship To: Walmart DC 6094, Sanger, TX"
     },
     "total_cartons_shipped": {
       "value": 30,
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Total Cartons Shipped: 30"
     },
     "total_cartons_received": {
       "value": 25,
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Total Cartons Received: 25"
     },
     "signed_by": {
       "value": "R. Alvarez",
-      "confidence": 0.9,
+      "confidence": 0.93,
       "source_page": 1,
       "source_quote": "Received By: R. Alvarez (signature on file)"
     },
     "signature_present": {
       "value": true,
-      "confidence": 0.85,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Signature: /s/ R. Alvarez     Date: 08/08/2026"
     },
@@ -68,13 +68,13 @@
       {
         "sku_upc": {
           "value": "000-4471-08",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "000-4471-08       Case Pack Olive Oil                 30"
         },
         "qty_shipped": {
           "value": 30,
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "000-4471-08       Case Pack Olive Oil                 30"
         },
@@ -106,12 +106,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:50:19.897Z",
+  "recordedAt": "2026-09-20T17:53:40.952Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4430,
-    "outputTokens": 772,
-    "costMicros": 16580,
-    "latencyMs": 6459
+    "outputTokens": 815,
+    "costMicros": 17010,
+    "latencyMs": 6722
   }
 }

@@ -6,13 +6,13 @@
   "document": {
     "retailer_name": {
       "value": "WALMART STORES, INC.",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "WALMART STORES, INC."
     },
     "vendor_number": {
       "value": "481207",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Vendor Number: 481207"
     },
@@ -24,13 +24,13 @@
     },
     "invoice_number": {
       "value": "HF-20418",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice Number: HF-20418"
     },
     "po_number": {
       "value": "7741-88203",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase Order: 7741-88203"
     },
@@ -79,40 +79,40 @@
           "source_quote": "Case Pack Olive Oil"
         },
         "qty_invoiced": {
-          "value": 24,
-          "confidence": 0.95,
-          "source_page": 1,
-          "source_quote": "24"
-        },
-        "qty_received": {
           "value": 30,
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "30"
         },
+        "qty_received": {
+          "value": 25,
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "25"
+        },
         "unit_cost": {
           "value": "$624.00",
-          "confidence": 0.95,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "$624.00"
         },
         "deduction_amount": {
           "value": "$3,120.00",
-          "confidence": 0.98,
+          "confidence": 0.99,
           "source_page": 1,
           "source_quote": "$3,120.00"
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
+          "source_quote": "24"
         },
         "reason_description": {
           "value": "Merchandise billed not received (carton shortage)",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "Merchandise billed not received (carton shortage)"
+          "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
         }
       }
     ],
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:50:00.409Z",
+  "recordedAt": "2026-09-20T17:53:21.881Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4553,
-    "outputTokens": 1069,
-    "costMicros": 19796,
-    "latencyMs": 8379
+    "inputTokens": 4696,
+    "outputTokens": 1259,
+    "costMicros": 21982,
+    "latencyMs": 9987
   }
 }

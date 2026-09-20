@@ -42,7 +42,7 @@
     },
     "dispute_deadline": {
       "value": "180 days",
-      "confidence": 0.8,
+      "confidence": 0.85,
       "source_page": 1,
       "source_quote": "K-Solve disputes accepted within 180 days."
     },
@@ -52,7 +52,7 @@
           "value": "884-2210",
           "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "884-2210      Trail Mix 12ct      UDR   $1,847.50"
+          "source_quote": "884-2210"
         },
         "description": {
           "value": "Trail Mix 12ct",
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T16:50:27.665Z",
+  "recordedAt": "2026-09-20T17:53:48.042Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4254,
-    "outputTokens": 735,
-    "costMicros": 15858,
-    "latencyMs": 5940
+    "inputTokens": 4397,
+    "outputTokens": 713,
+    "costMicros": 15924,
+    "latencyMs": 5683
   }
 }
