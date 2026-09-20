@@ -78,3 +78,31 @@ describe('the LOG-001 dispute case', () => {
     ]);
   });
 });
+
+describe('every suite reaches the recorder and the eval gate', () => {
+  it('includes LOG-001 in everyDocument()', async () => {
+    // The bug this pins: `logistics.ts` was written, exported and tested, and
+    // `everyDocument()` — the one list the recorder and the eval iterate — was
+    // never told about it. The suite was invisible to both while looking
+    // completely wired, and a cassette run recorded 26 documents and none of
+    // these five.
+    const { everyDocument } = await import('../src/corpus');
+    const keys = new Set(everyDocument().map((d) => d.key));
+    for (const document of logisticsDocuments()) {
+      expect(keys.has(document.key), `${document.key} is not in everyDocument()`).toBe(true);
+    }
+  });
+
+  it('has every declared suite represented, so a new one cannot be orphaned', async () => {
+    const { everyDocument } = await import('../src/corpus');
+    const suites = new Set(everyDocument().map((d) => d.suite));
+    expect([...suites].sort()).toEqual([
+      'authored',
+      'dense',
+      'email_body',
+      'held_out',
+      'logistics',
+      'scanned',
+    ]);
+  });
+});
