@@ -2,18 +2,22 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import {
+  CaseAlreadyDeclinedError,
   CaseWorkflowError,
+  ConfirmationNumberRequiredError,
+  DuplicateApprovalError,
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
   PacketHashMismatchError,
   PreparerCannotApproveError,
+  RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
   type CaseWorkflowStore,
 } from '@recouple/pipeline';
+import { MAX_RATIONALE_LENGTH } from '@recouple/core-domain';
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
-import { CaseAlreadyDeclinedError, DuplicateApprovalError } from '../src/workflow';
 
 /**
  * The Phase 3 workflow against the real schema, and the contract both stores
@@ -45,9 +49,13 @@ interface Harness {
   attachEvidence(deductionId: string): Promise<void>;
   readonly analyst: string;
   readonly approver: string;
+  /** The tenant's owner, who may approve as well as write (migration 0005). */
+  readonly owner: string;
   /** An analyst who prepared nothing: not a preparer, and not an approver. */
   readonly colleague: string;
   readonly reader: string;
+  /** Records that the tenant chose not to fight this case. */
+  decline(deductionId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -419,6 +427,118 @@ function workflowContract(
       ).rejects.toBeInstanceOf(WrongCaseStateError);
     });
 
+    // ADR 0020 §5: `owner` is in both lists — it may write, and it may approve.
+    // Only `approver` was ever exercised, so an implementation that read the
+    // approver list as `['approver']` would have passed every other test here.
+    it('lets an owner approve, because an owner is an approver too', async () => {
+      const deductionId = await h.newCase();
+      const { decisionId, packetId, contentHash } = await toAwaitingApproval(h, deductionId);
+      const { approvalId } = await h
+        .store(h.owner)
+        .approve({ decisionId, packetId, approverId: h.owner });
+      expect(approvalId).not.toBe('');
+
+      const workflow = await h.store(h.owner).getWorkflow(deductionId);
+      expect(workflow?.approval?.approverId).toBe(h.owner);
+      expect(workflow?.approval?.packetHash).toBe(contentHash);
+    });
+
+    // A case we already chose not to fight is not a case to dispute:
+    // `declined_candidates` is the coverage denominator, and a case counted as
+    // both given up on and acted on moves the one number it exists to produce
+    // (STRATEGY ADD-1).
+    it('refuses a decision on a case that was already declined', async () => {
+      const deductionId = await h.newCase();
+      await h.decline(deductionId);
+      await expect(
+        h.store(h.analyst).recordHumanDecision({
+          deductionId,
+          preparedBy: h.analyst,
+          reason: 'shortage_never_received',
+          rationale: RATIONALE,
+        }),
+      ).rejects.toBeInstanceOf(CaseAlreadyDeclinedError);
+      expect((await h.store(h.analyst).getWorkflow(deductionId))?.decision).toBeUndefined();
+    });
+
+    // The wedge this suite exists to keep shut. `decisions` is append-only and
+    // the packet is assembled later, so a rationale accepted here and refused
+    // by `packets.narrative` would leave the case in `analyst_review` with
+    // nothing able to move it: no amended decision, and no packet, ever.
+    it('refuses a rationale the packet narrative could not hold, before writing it', async () => {
+      const deductionId = await h.newCase();
+      const refusal = h.store(h.analyst).recordHumanDecision({
+        deductionId,
+        preparedBy: h.analyst,
+        reason: 'shortage_never_received',
+        rationale: 'x'.repeat(MAX_RATIONALE_LENGTH + 1),
+      });
+      await expect(refusal).rejects.toBeInstanceOf(RationaleTooLongError);
+      // Nothing was written, and the case can still be decided.
+      const untouched = await h.store(h.analyst).getWorkflow(deductionId);
+      expect(untouched?.decision).toBeUndefined();
+      expect(untouched?.state).toBe('classified');
+    });
+
+    it('accepts a rationale at the cap and assembles a packet from it', async () => {
+      const deductionId = await h.newCase();
+      const rationale = 'x'.repeat(MAX_RATIONALE_LENGTH);
+      const { decisionId } = await h.store(h.analyst).recordHumanDecision({
+        deductionId,
+        preparedBy: h.analyst,
+        reason: 'shortage_never_received',
+        rationale,
+      });
+      const packet = await h
+        .store(h.analyst)
+        .assemblePacket({ deductionId, decisionId, assembledBy: h.analyst });
+      expect(packet.narrative).toContain(rationale);
+      // The number the cap is derived from: `packets.narrative` holds 20,000.
+      expect(packet.narrative.length).toBeLessThanOrEqual(20_000);
+    });
+
+    // A confirmation number that differs from the portal's by a trailing space
+    // is one nobody can match back to the retailer's record.
+    it('trims the confirmation number it stores and reports', async () => {
+      const deductionId = await h.newCase();
+      const { decisionId, packetId } = await toAwaitingApproval(h, deductionId);
+      const { approvalId } = await h
+        .store(h.approver)
+        .approve({ decisionId, packetId, approverId: h.approver });
+      await h.store(h.approver).recordSubmission({
+        decisionId,
+        packetId,
+        approvalId,
+        channel: 'manual_portal',
+        confirmationNumber: '  APDP-41007\n',
+        submittedAt: new Date('2026-09-20T10:00:00.000Z'),
+        actorId: h.approver,
+      });
+      expect(
+        (await h.store(h.approver).getWorkflow(deductionId))?.submission?.confirmationNumber,
+      ).toBe('APDP-41007');
+    });
+
+    it('refuses a submission whose confirmation number is only whitespace', async () => {
+      const deductionId = await h.newCase();
+      const { decisionId, packetId } = await toAwaitingApproval(h, deductionId);
+      const { approvalId } = await h
+        .store(h.approver)
+        .approve({ decisionId, packetId, approverId: h.approver });
+      await expect(
+        h.store(h.approver).recordSubmission({
+          decisionId,
+          packetId,
+          approvalId,
+          channel: 'manual_portal',
+          confirmationNumber: ' \t ',
+          submittedAt: new Date(),
+          actorId: h.approver,
+        }),
+      ).rejects.toBeInstanceOf(ConfirmationNumberRequiredError);
+      expect((await h.store(h.analyst).getWorkflow(deductionId))?.submission).toBeUndefined();
+    });
+
     it('shows the case page only what has happened so far', async () => {
       const deductionId = await h.newCase();
       const opening = await h.store(h.analyst).getWorkflow(deductionId);
@@ -452,10 +572,12 @@ workflowContract('in memory', describe, async () => {
   const orgId = randomUUID();
   const analyst = randomUUID();
   const approver = randomUUID();
+  const owner = randomUUID();
   const colleague = randomUUID();
   const reader = randomUUID();
   store.addMember(orgId, analyst, 'analyst');
   store.addMember(orgId, approver, 'approver');
+  store.addMember(orgId, owner, 'owner');
   store.addMember(orgId, colleague, 'analyst');
   store.addMember(orgId, reader, 'read_only');
   let claim = 0;
@@ -479,8 +601,12 @@ workflowContract('in memory', describe, async () => {
     store: () => store,
     analyst,
     approver,
+    owner,
     colleague,
     reader,
+    async decline(deductionId: string) {
+      store.declineCase(deductionId);
+    },
     async newCase(amountCents = 312_000) {
       claim += 1;
       const opened = await store.openCase({
@@ -514,11 +640,13 @@ interface Tenant {
   readonly orgId: string;
   readonly analyst: string;
   readonly approver: string;
+  readonly owner: string;
   readonly colleague: string;
   readonly reader: string;
   storeFor(userId: string): PostgresStore;
   newCase(amountCents?: number): Promise<string>;
   attachEvidence(deductionId: string): Promise<void>;
+  decline(deductionId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -530,6 +658,7 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
   const suffix = `${label}-${tenants}-${orgId.slice(0, 8)}`;
   const analyst = randomUUID();
   const approver = randomUUID();
+  const owner = randomUUID();
   const colleague = randomUUID();
   const reader = randomUUID();
   const debtorId = randomUUID();
@@ -541,18 +670,20 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
   ]);
   await admin.query(`insert into org_settings (org_id) values ($1)`, [orgId]);
   await admin.query(
-    `insert into users (id, email) values ($1,$2), ($3,$4), ($5,$6), ($7,$8)`,
+    `insert into users (id, email) values ($1,$2), ($3,$4), ($5,$6), ($7,$8), ($9,$10)`,
     [
       analyst, `wf-analyst-${suffix}@example.test`,
       approver, `wf-approver-${suffix}@example.test`,
+      owner, `wf-owner-${suffix}@example.test`,
       colleague, `wf-colleague-${suffix}@example.test`,
       reader, `wf-reader-${suffix}@example.test`,
     ],
   );
   await admin.query(
     `insert into memberships (org_id, user_id, role)
-     values ($1,$2,'analyst'), ($1,$3,'approver'), ($1,$4,'analyst'), ($1,$5,'read_only')`,
-    [orgId, analyst, approver, colleague, reader],
+     values ($1,$2,'analyst'), ($1,$3,'approver'), ($1,$4,'owner'), ($1,$5,'analyst'),
+            ($1,$6,'read_only')`,
+    [orgId, analyst, approver, owner, colleague, reader],
   );
   // A debtor, so the packet names the tenant's own master data rather than the
   // string the notice printed (ADR 0019).
@@ -598,9 +729,18 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
     orgId,
     analyst,
     approver,
+    owner,
     colleague,
     reader,
     storeFor,
+    async decline(deductionId: string) {
+      await storeFor(analyst).declineCase({
+        deductionId,
+        reason: 'below_economic_floor',
+        decidedBy: 'analyst',
+        assumedDiscoveredFrom: 'web_upload',
+      });
+    },
     async newCase(amountCents = 312_000) {
       claim += 1;
       const opened = await storeFor(analyst).openCase({
@@ -633,10 +773,12 @@ workflowContract('on postgres', describeDb, async () => {
     store: (userId: string) => tenant.storeFor(userId),
     analyst: tenant.analyst,
     approver: tenant.approver,
+    owner: tenant.owner,
     colleague: tenant.colleague,
     reader: tenant.reader,
     newCase: (amountCents?: number) => tenant.newCase(amountCents),
     attachEvidence: (deductionId: string) => tenant.attachEvidence(deductionId),
+    decline: (deductionId: string) => tenant.decline(deductionId),
     close: async () => {
       await tenant.close();
       await contractAdmin?.end();
@@ -993,6 +1135,42 @@ describeDb('the workflow on postgres', () => {
     ).toBe('classified');
   });
 
+  // getWorkflow answers with *the human decision*, not the newest decision. The
+  // same case will carry a model's Schema B row once Phase 2 lands in the slot
+  // Phase 3 has already used, and a case page that showed a model's rationale
+  // as the analyst's would be showing something nobody said.
+  it('shows the human decision even when the case also carries a model one', async () => {
+    const deductionId = await tenant.newCase();
+    const h = harnessFor(tenant);
+    const { decisionId } = await toAwaitingApproval(h, deductionId);
+
+    // A model decision on the same case, written the way a provider would:
+    // `provider = 'jev'`, no `prepared_by`, its own probabilities — and
+    // created after the human one, so "the newest row" and "the human row" are
+    // different answers.
+    const { rows: modelRows } = await admin.query<{ id: string }>(
+      `insert into decisions
+         (org_id, deduction_id, schema_id, schema_version, provider, model_version,
+          input_state_hash, questions, result, raw_probabilities, confidence,
+          latency_ms, cost_micros)
+       values ($1, $2, 'B', 'b-1', 'jev', 'jev-0.4.2', $3,
+               '{"dispute": "choice"}'::jsonb,
+               '{"dispute_reason": "price_discrepancy", "rationale": "the model said so"}'::jsonb,
+               '{"price_discrepancy": 0.91}'::jsonb, 0.9100, 42, 1200)
+       returning id`,
+      [tenant.orgId, deductionId, Buffer.alloc(32, 7)],
+    );
+    expect(modelRows[0]?.id).not.toBe(decisionId);
+
+    const workflow = await tenant.storeFor(tenant.analyst).getWorkflow(deductionId);
+    expect(workflow?.decision?.decisionId).toBe(decisionId);
+    expect(workflow?.decision?.preparedBy).toBe(tenant.analyst);
+    expect(workflow?.decision?.rationale).toBe(RATIONALE);
+    expect(workflow?.decision?.reason).toBe('shortage_never_received');
+    // And the packet still belongs to the decision a human made.
+    expect(workflow?.packet?.decisionId).toBe(decisionId);
+  });
+
   it('refuses a duplicate approval by the constraint, not by a convention', async () => {
     const deductionId = await tenant.newCase();
     const h = harnessFor(tenant);
@@ -1013,16 +1191,223 @@ describeDb('the workflow on postgres', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Two people pressing the same button at the same moment
+// ---------------------------------------------------------------------------
+
+/**
+ * Every write in this workflow is a check followed by a write, and READ
+ * COMMITTED lets two transactions both pass the check. What stops them is the
+ * `for update` on the case row in `lockCase`: the second waits until the first
+ * commits, then reads what it actually did. The in-memory store cannot show
+ * this — it has one thread and no transactions — so it lives here, against two
+ * pooled connections doing the real thing.
+ *
+ * The shape of every case below is the same: fire both, expect exactly one row
+ * and one event, and expect the loser to be told what happened by name rather
+ * than by a driver error or a lie about the state.
+ */
+describeDb('two people pressing the same button', () => {
+  const admin = new Pool({ connectionString });
+  let tenant: Tenant;
+
+  beforeAll(async () => {
+    tenant = await seedTenant(admin, 'race');
+  });
+
+  afterAll(async () => {
+    await tenant?.close();
+    await closeAllPools();
+    await admin.end();
+  });
+
+  /** How many rows a query counted. */
+  async function count(sql: string, params: unknown[]): Promise<number> {
+    const { rows } = await admin.query<{ n: string }>(sql, params);
+    return Number(rows[0]?.n ?? '-1');
+  }
+
+  /** The one rejection out of a settled pair, or a failure saying there was not one. */
+  function loserOf(results: PromiseSettledResult<unknown>[]): unknown {
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(rejected).toHaveLength(1);
+    return (rejected[0] as PromiseRejectedResult).reason;
+  }
+
+  it('records one decision when two tabs decide at once', async () => {
+    const deductionId = await tenant.newCase();
+    const store = tenant.storeFor(tenant.analyst);
+    // Named apart from the module-level `decide` helper it is not.
+    const decideOnce = () =>
+      store.recordHumanDecision({
+        deductionId,
+        preparedBy: tenant.analyst,
+        reason: 'shortage_never_received',
+        rationale: RATIONALE,
+      });
+    const results = await Promise.allSettled([decideOnce(), decideOnce()]);
+
+    // The loser is told where the case is, not handed a driver error: the
+    // winner already moved it to `analyst_review`.
+    expect(loserOf(results)).toBeInstanceOf(WrongCaseStateError);
+    expect(
+      await count(`select count(*)::text as n from decisions where deduction_id = $1`, [
+        deductionId,
+      ]),
+    ).toBe(1);
+    expect(
+      await count(
+        `select count(*)::text as n from deduction_events
+          where deduction_id = $1 and event_type = 'decision.recorded'`,
+        [deductionId],
+      ),
+    ).toBe(1);
+  });
+
+  it('assembles one packet when the same contents are assembled twice at once', async () => {
+    const deductionId = await tenant.newCase();
+    const decisionId = await decide(harnessFor(tenant), deductionId);
+    const store = tenant.storeFor(tenant.analyst);
+    const assemble = () =>
+      store.assemblePacket({ deductionId, decisionId, assembledBy: tenant.analyst });
+    const results = await Promise.allSettled([assemble(), assemble()]);
+
+    // Identical contents are one packet, so *both* callers get one back —
+    // re-assembling is not a second assembly, and neither of two people who
+    // pressed the same button has done anything wrong.
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+    const packets = (results as PromiseFulfilledResult<{ packetId: string }>[]).map(
+      (r) => r.value.packetId,
+    );
+    expect(new Set(packets).size).toBe(1);
+    expect(
+      await count(`select count(*)::text as n from packets where decision_id = $1`, [decisionId]),
+    ).toBe(1);
+    expect(
+      await count(
+        `select count(*)::text as n from deduction_events
+          where deduction_id = $1 and event_type = 'packet.assembled'`,
+        [deductionId],
+      ),
+    ).toBe(1);
+    // And the case crossed the edge once.
+    expect(await tenant.storeFor(tenant.analyst).getWorkflow(deductionId)).toMatchObject({
+      state: 'awaiting_approval',
+    });
+  });
+
+  it('grants one approval when two approvers approve at once', async () => {
+    const deductionId = await tenant.newCase();
+    const { decisionId, packetId } = await toAwaitingApproval(harnessFor(tenant), deductionId);
+    // Two different people, both entitled to approve: the constraint is on the
+    // decision, not on who pressed the button.
+    const results = await Promise.allSettled([
+      tenant.storeFor(tenant.approver).approve({
+        decisionId,
+        packetId,
+        approverId: tenant.approver,
+      }),
+      tenant.storeFor(tenant.owner).approve({ decisionId, packetId, approverId: tenant.owner }),
+    ]);
+
+    expect(loserOf(results)).toBeInstanceOf(DuplicateApprovalError);
+    expect(
+      await count(`select count(*)::text as n from approvals where decision_id = $1`, [
+        decisionId,
+      ]),
+    ).toBe(1);
+    expect(
+      await count(
+        `select count(*)::text as n from deduction_events
+          where deduction_id = $1 and event_type = 'approval.granted'`,
+        [deductionId],
+      ),
+    ).toBe(1);
+  });
+
+  it('records one submission when the submit button is pressed twice at once', async () => {
+    const deductionId = await tenant.newCase();
+    const { decisionId, packetId } = await toAwaitingApproval(harnessFor(tenant), deductionId);
+    const { approvalId } = await tenant
+      .storeFor(tenant.approver)
+      .approve({ decisionId, packetId, approverId: tenant.approver });
+    const store = tenant.storeFor(tenant.approver);
+    const submit = () =>
+      store.recordSubmission({
+        decisionId,
+        packetId,
+        approvalId,
+        channel: 'manual_portal',
+        confirmationNumber: 'APDP-41007',
+        submittedAt: new Date('2026-09-20T10:00:00.000Z'),
+        actorId: tenant.approver,
+      });
+    const results = await Promise.allSettled([submit(), submit()]);
+
+    // Not `WrongCaseStateError`: the case has moved to `submitted` by the time
+    // the loser looks, and "you are in the wrong state" would be true and
+    // useless. The duplicate is asked about first, on purpose.
+    expect(loserOf(results)).toBeInstanceOf(DuplicateSubmissionError);
+    expect(
+      await count(`select count(*)::text as n from submissions where decision_id = $1`, [
+        decisionId,
+      ]),
+    ).toBe(1);
+    expect(
+      await count(
+        `select count(*)::text as n from deduction_events
+          where deduction_id = $1 and event_type = 'submission.recorded'`,
+        [deductionId],
+      ),
+    ).toBe(1);
+  });
+
+  it('records one outcome when two people record what came back at once', async () => {
+    const deductionId = await tenant.newCase();
+    await toSubmitted(harnessFor(tenant), deductionId);
+    const store = tenant.storeFor(tenant.approver);
+    const results = await Promise.allSettled([
+      store.recordOutcome({
+        deductionId,
+        outcome: 'won',
+        recoveredCents: 312_000,
+        recordedBy: tenant.approver,
+      }),
+      store.recordOutcome({
+        deductionId,
+        outcome: 'lost',
+        recoveredCents: 0,
+        recordedBy: tenant.approver,
+      }),
+    ]);
+
+    // Whichever landed first, there is one outcome and the case says what it
+    // says: two would be a recovery rate that counts one dispute twice.
+    expect(loserOf(results)).toBeInstanceOf(WrongCaseStateError);
+    expect(
+      await count(
+        `select count(*)::text as n from deduction_events
+          where deduction_id = $1 and event_type = 'outcome.recorded'`,
+        [deductionId],
+      ),
+    ).toBe(1);
+    const state = (await tenant.storeFor(tenant.approver).getWorkflow(deductionId))?.state;
+    expect(['won', 'lost']).toContain(state);
+  });
+});
+
 /** The contract's view of a seeded tenant, so the Postgres tests can reuse the steps. */
 function harnessFor(tenant: Tenant): Harness {
   return {
     store: (userId: string) => tenant.storeFor(userId),
     analyst: tenant.analyst,
     approver: tenant.approver,
+    owner: tenant.owner,
     colleague: tenant.colleague,
     reader: tenant.reader,
     newCase: (amountCents?: number) => tenant.newCase(amountCents),
     attachEvidence: (deductionId: string) => tenant.attachEvidence(deductionId),
+    decline: (deductionId: string) => tenant.decline(deductionId),
     close: async () => undefined,
   };
 }

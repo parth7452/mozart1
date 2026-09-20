@@ -36,6 +36,47 @@ export const NOT_RECORDED = '(not recorded)';
  */
 export const MAX_NARRATIVE_LENGTH = 20_000;
 
+/**
+ * What the narrative spends on everything that is not the rationale, so the
+ * rationale can be refused at the point a person types it rather than three
+ * steps later.
+ *
+ * The arithmetic, worst case, for the template `buildPacketNarrative` renders:
+ *
+ * | Part | Characters | Where the cap comes from |
+ * | --- | --- | --- |
+ * | fixed text | 196 | the labels, the two sentences, the heading and the newlines: 32 + 10 + 7 + 18 + 16 + 18 + 16 + 35 + 11 + 19 = 182, plus the 14 newlines that are not a document's |
+ * | retailer | 500 | `deductions.retailer_name_as_printed … length <= 500` (migration 0015) |
+ * | claim | 200 | `deductions.claim_id` is unbounded `text`; 200 is the budget |
+ * | amount | 24 | `formatCents` of the largest exact cents is 22 characters |
+ * | deduction date | 10 | `YYYY-MM-DD` |
+ * | dispute deadline | 10 | `YYYY-MM-DD` |
+ * | reason | 40 | the longest canonical code is 31 characters |
+ * | enclosed documents | 7,500 | 25 documents x 300: `  NN. remittance: <255-character filename>` and its newline |
+ *
+ * 196 + 500 + 200 + 24 + 10 + 10 + 40 + 7,500 = 8,480, so a rationale of up to
+ * 20,000 - 8,480 = 11,520 characters always fits.
+ *
+ * Two of those caps are budgets rather than proofs — `claim_id` and a matched
+ * debtor's `display_name` are unbounded `text`, and nothing limits how many
+ * documents a case may enclose. So this is the *first* check and not the only
+ * one: `buildPacketNarrative` still measures what it actually built, and
+ * `assemblePacket` surfaces that as a named refusal (`PacketNotBuildableError`)
+ * rather than a raw `PacketError`.
+ */
+export const NARRATIVE_BUDGET_WITHOUT_RATIONALE = 196 + 500 + 200 + 24 + 10 + 10 + 40 + 7_500;
+
+/**
+ * The longest rationale a store will accept.
+ *
+ * It exists because `decisions` is append-only and the packet is assembled
+ * *later*: a rationale that overflows `packets.narrative` would be accepted by
+ * `recordHumanDecision`, move the case to `analyst_review`, and then wedge it
+ * there — nothing can amend the decision, and nothing can assemble a packet.
+ * Refused before the insert instead, where the analyst can still shorten it.
+ */
+export const MAX_RATIONALE_LENGTH = MAX_NARRATIVE_LENGTH - NARRATIVE_BUDGET_WITHOUT_RATIONALE;
+
 /** A document the packet encloses, in the order it will be sent. */
 export interface PacketDocument {
   /** `deduction_documents.role` — what this document is in the case. */
@@ -148,6 +189,13 @@ export function buildPacketNarrative(input: PacketNarrativeInput): string {
  * same contents", and the order a reviewer attached two evidence files in is
  * not a difference in contents; the ordered list is kept separately in
  * `packets.file_document_ids`, which is what actually gets sent.
+ *
+ * Put the other way round: the hash covers the document *set*, and the
+ * narrative covers the *order* — so two documents that differ only in the
+ * order they were attached hash the same and hand back the packet that already
+ * exists, while a document swapped for a different one changes the sorted set,
+ * and a document renamed or re-roled changes the enclosed list the narrative
+ * prints.
  *
  * `JSON.stringify` over a literal is canonical enough here for the same reason
  * `app.canonical(jsonb)` is: the keys are written in one place, in one order,

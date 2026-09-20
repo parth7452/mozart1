@@ -24,7 +24,9 @@ import {
   applyTransition,
   buildPacketNarrative,
   isCanonicalReasonCode,
+  MAX_RATIONALE_LENGTH,
   packetContentHash,
+  PacketError,
   resolveDebtorId,
 } from '@recouple/core-domain';
 import type {
@@ -36,11 +38,25 @@ import type {
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
+  CaseAlreadyDeclinedError,
+  CaseNotVisibleError,
   CaseWorkflowError,
+  ConfirmationNumberRequiredError,
+  DecisionNotForCaseError,
+  DecisionNotFoundError,
+  DuplicateApprovalError,
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
+  NoApprovalForSubmissionError,
+  NotACanonicalReasonError,
+  NothingToSendError,
+  PacketAfterApprovalError,
   PacketHashMismatchError,
+  PacketNotBuildableError,
+  PacketNotForDecisionError,
   PreparerCannotApproveError,
+  RationaleRequiredError,
+  RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
 } from '../ports';
@@ -70,29 +86,21 @@ const WRITER_ROLES: readonly MembershipRole[] = ['owner', 'approver', 'analyst']
 const APPROVER_ROLES: readonly MembershipRole[] = ['owner', 'approver'];
 
 /**
- * A second approval for the same decision and action.
+ * A case with no deduction amount, which this store alone can have.
  *
- * `unique (decision_id, action_type)` on `approvals` (migration 0005): batch
- * approval in the UI writes one row each, never a blanket approval, and a
- * double-clicked approve button is not a second authorisation.
- *
- * Declared here *and* in `@recouple/store-postgres`, identically, because
- * `ports.ts` is frozen for the UI work happening alongside this and a class
- * cannot be added to it yet. A caller sorts it from a bug the way it sorts
- * every other refusal — `instanceof CaseWorkflowError` — and the two stores
- * agree on `name`, which is what the contract test asserts. When `ports.ts`
- * reopens, this class moves there and both copies go.
+ * `deductions.deduction_amount_cents` is `not null check (> 0)`, so Postgres
+ * cannot reach this at all — but `CaseRecord` makes the field optional, so a
+ * test can build a case that has none, and a packet without an amount is a
+ * dispute that does not say what is being disputed. Named rather than left as
+ * a bare `CaseWorkflowError`, so the refusals here can all be told apart.
  */
-export class DuplicateApprovalError extends CaseWorkflowError {
+export class CaseAmountMissingError extends CaseWorkflowError {
   constructor(
-    readonly decisionId: string,
-    readonly existingApprovalId: string,
+    readonly deductionId: string,
+    readonly action: string,
   ) {
-    super(
-      `approval refused: decision ${decisionId} was already approved for submission ` +
-        `as ${existingApprovalId}`,
-    );
-    this.name = 'DuplicateApprovalError';
+    super(`${action} refused: case ${deductionId} has no deduction amount`);
+    this.name = 'CaseAmountMissingError';
   }
 }
 
@@ -143,6 +151,8 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   readonly approvals: (ApprovalRecord & { readonly deductionId: string })[] = [];
   readonly submissions: (SubmissionRecord & { readonly deductionId: string })[] = [];
   readonly outcomes: OutcomeRecord[] = [];
+  /** What `declineCase` leaves behind: the id and the case, and nothing else. */
+  readonly declinedCandidates: Array<{ declinedCandidateId: string; deductionId: string }> = [];
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -328,10 +338,31 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
 
   private caseOrThrow(deductionId: string): CaseRecord {
     const found = this.cases.get(deductionId);
-    // The same words the Postgres store uses when RLS hides a case: a tenant
-    // is never told whether somebody else's case exists.
-    if (found === undefined) throw new Error(`case ${deductionId} is not visible to this tenant`);
+    // The same class and the same words the Postgres store uses when RLS hides
+    // a case: a tenant is never told whether somebody else's case exists, and a
+    // route can render this as a 404 rather than a fault.
+    if (found === undefined) throw new CaseNotVisibleError(deductionId);
     return found;
+  }
+
+  /**
+   * Just enough of a decline for the rule that follows from it.
+   *
+   * `PostgresStore.declineCase` writes a `declined_candidates` row with what
+   * the case was worth and what was missing (STRATEGY ADD-1); none of that is
+   * modelled here. What is modelled is the one thing the workflow reads it
+   * for — a case we chose not to fight is not a case to dispute — so
+   * `CaseAlreadyDeclinedError` is a rule both stores are held to by the
+   * contract suite rather than one only Postgres has.
+   *
+   * Not a method of `CaseWorkflowStore` — that port has no `declineCase`. Like
+   * `addMember` and `addOrg`, this is a seam a test sets the world up through,
+   * named after the `PostgresStore` method whose effect it stands in for.
+   */
+  declineCase(deductionId: string): { readonly declinedCandidateId: string } {
+    const declinedCandidateId = randomUUID();
+    this.declinedCandidates.push({ declinedCandidateId, deductionId });
+    return { declinedCandidateId };
   }
 
   private requireWriter(orgId: string, userId: string, action: string): void {
@@ -371,19 +402,30 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   }): Promise<{ readonly decisionId: string }> {
     const existing = this.caseOrThrow(input.deductionId);
     this.requireWriter(existing.orgId, input.preparedBy, 'decide');
+    // Asked before the state check, in the order the Postgres store asks it: a
+    // case we already chose not to fight is not a case to dispute, whatever
+    // state it is sitting in.
+    const declined = this.declinedCandidates.find((d) => d.deductionId === input.deductionId);
+    if (declined !== undefined) {
+      throw new CaseAlreadyDeclinedError(input.deductionId, declined.declinedCandidateId);
+    }
     if (existing.state !== 'classified') {
       throw new WrongCaseStateError(input.deductionId, 'decide', existing.state, ['classified']);
     }
     const rationale = input.rationale.trim();
     if (rationale === '') {
-      throw new CaseWorkflowError('decide refused: a dispute decision needs a rationale');
+      throw new RationaleRequiredError(input.deductionId);
+    }
+    // Before the insert, because `decisions` is append-only: a rationale only
+    // `packets.narrative` could refuse would leave the case in `analyst_review`
+    // with nothing able to move it (core-domain/src/packet.ts).
+    if (rationale.length > MAX_RATIONALE_LENGTH) {
+      throw new RationaleTooLongError(input.deductionId, rationale.length, MAX_RATIONALE_LENGTH);
     }
     // The type says this is canonical; a form post is a string until something
     // checks.
     if (!isCanonicalReasonCode(input.reason)) {
-      throw new CaseWorkflowError(
-        `decide refused: ${input.reason} is not a canonical reason code`,
-      );
+      throw new NotACanonicalReasonError(input.deductionId, input.reason);
     }
     // The state machine is the spec; naming the trigger is what makes the move
     // a function of the fact that caused it (ADR 0020 §4).
@@ -433,33 +475,44 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
     this.requireWriter(existing.orgId, input.assembledBy, 'assemble');
     const decision = this.decisions.find((d) => d.decisionId === input.decisionId);
     if (decision === undefined || decision.deductionId !== input.deductionId) {
-      throw new CaseWorkflowError(
-        `assemble refused: decision ${input.decisionId} is not a decision on case ${input.deductionId}`,
-      );
+      throw new DecisionNotForCaseError(input.decisionId, input.deductionId);
     }
     const { ids, lines } = this.packetDocuments(input.deductionId);
     if (ids.length === 0) {
-      throw new CaseWorkflowError(
-        `assemble refused: case ${input.deductionId} has no notice to send`,
-      );
+      throw new NothingToSendError(input.deductionId);
     }
-    if (existing.deductionAmountCents === undefined) {
-      throw new CaseWorkflowError(
-        `assemble refused: case ${input.deductionId} has no deduction amount`,
-      );
+    const amountCents = existing.deductionAmountCents;
+    if (amountCents === undefined) {
+      throw new CaseAmountMissingError(input.deductionId, 'assemble');
     }
-    const narrative = buildPacketNarrative({
-      ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
-      ...(existing.retailerName !== undefined ? { retailer: existing.retailerName } : {}),
-      deductionAmountCents: existing.deductionAmountCents,
-      ...(existing.deductionDate !== undefined ? { deductionDate: existing.deductionDate } : {}),
-      ...(existing.disputeDeadline !== undefined
-        ? { disputeDeadline: existing.disputeDeadline }
-        : {}),
-      reason: decision.reason,
-      rationale: decision.rationale,
-      documents: lines,
-    });
+    // `core-domain`'s own refusal, wrapped as the workflow's, exactly as the
+    // Postgres store wraps it: a `PacketError` is not a `CaseWorkflowError`,
+    // and a caller that sorts rules from bugs on the base class would read one
+    // as a fault. Nothing is swallowed — the original is the `cause`.
+    let narrative: string;
+    try {
+      narrative = buildPacketNarrative({
+        ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
+        ...(existing.retailerName !== undefined ? { retailer: existing.retailerName } : {}),
+        deductionAmountCents: amountCents,
+        ...(existing.deductionDate !== undefined
+          ? { deductionDate: existing.deductionDate }
+          : {}),
+        ...(existing.disputeDeadline !== undefined
+          ? { disputeDeadline: existing.disputeDeadline }
+          : {}),
+        reason: decision.reason,
+        rationale: decision.rationale,
+        documents: lines,
+      });
+    } catch (error) {
+      if (error instanceof PacketError) {
+        throw new PacketNotBuildableError(input.deductionId, input.decisionId, error.message, {
+          cause: error,
+        });
+      }
+      throw error;
+    }
     const contentHash = packetContentHash({
       decisionId: input.decisionId,
       narrative,
@@ -495,10 +548,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
         ? this.approvals.find((a) => a.decisionId === input.decisionId)
         : undefined;
     if (approved !== undefined) {
-      throw new CaseWorkflowError(
-        `assemble refused: decision ${input.decisionId} was already approved as packet ` +
-          `${approved.packetHash} — a packet assembled now could never be approved`,
-      );
+      throw new PacketAfterApprovalError(input.decisionId, approved.packetHash);
     }
     if (existing.state === 'analyst_review') {
       applyTransition('analyst_review', 'awaiting_approval', 'packet.assembled', {
@@ -553,14 +603,12 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   }): Promise<{ readonly approvalId: string }> {
     const packet = this.packets.find((p) => p.packetId === input.packetId);
     if (packet === undefined || packet.decisionId !== input.decisionId) {
-      throw new CaseWorkflowError(
-        `approve refused: packet ${input.packetId} was not assembled for decision ${input.decisionId}`,
-      );
+      throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'approve');
     }
     const existing = this.caseOrThrow(packet.deductionId);
     const decision = this.decisions.find((d) => d.decisionId === input.decisionId);
     if (decision === undefined) {
-      throw new CaseWorkflowError(`approve refused: decision ${input.decisionId} does not exist`);
+      throw new DecisionNotFoundError(input.decisionId, 'approve');
     }
     // Separation of duties, in the order `app.enforce_separation_of_duties()`
     // asks it: the preparer first, then whether this is an approver at all.
@@ -620,9 +668,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   }): Promise<{ readonly submissionId: string }> {
     const packet = this.packets.find((p) => p.packetId === input.packetId);
     if (packet === undefined || packet.decisionId !== input.decisionId) {
-      throw new CaseWorkflowError(
-        `submit refused: packet ${input.packetId} was not assembled for decision ${input.decisionId}`,
-      );
+      throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'submit');
     }
     // The gate, such as it is here: there is no path to a submission that does
     // not start from an approval for this exact decision. In Postgres that is
@@ -630,9 +676,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
     // store believes (ADR 0020 §5).
     const approval = this.approvals.find((a) => a.approvalId === input.approvalId);
     if (approval === undefined || approval.decisionId !== input.decisionId) {
-      throw new CaseWorkflowError(
-        `submit refused: no submit approval row for decision ${input.decisionId}`,
-      );
+      throw new NoApprovalForSubmissionError(input.decisionId);
     }
     const existing = this.caseOrThrow(packet.deductionId);
     this.requireWriter(existing.orgId, input.actorId, 'submit');
@@ -657,10 +701,13 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
         packet.contentHash,
       );
     }
-    if (input.confirmationNumber.trim() === '') {
-      throw new CaseWorkflowError(
-        'submit refused: a manual submission is recorded with the confirmation the portal gave',
-      );
+    // Trimmed once, and it is the trimmed value that is stored and put on the
+    // event — the same as the Postgres store, because a confirmation number
+    // that differs from the portal's by a trailing space is one nobody can
+    // match back to the retailer's record.
+    const confirmationNumber = input.confirmationNumber.trim();
+    if (confirmationNumber === '') {
+      throw new ConfirmationNumberRequiredError(input.decisionId);
     }
     applyTransition('awaiting_approval', 'submitted', 'submission.recorded', {
       approval_row_exists: true,
@@ -672,7 +719,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
       decisionId: input.decisionId,
       channel: input.channel,
       packetHash: packet.contentHash,
-      confirmationNumber: input.confirmationNumber,
+      confirmationNumber,
       submittedAt: input.submittedAt,
     };
     this.submissions.push(record);
@@ -711,9 +758,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
       ]);
     }
     if (existing.deductionAmountCents === undefined) {
-      throw new CaseWorkflowError(
-        `record outcome refused: case ${input.deductionId} has no deduction amount`,
-      );
+      throw new CaseAmountMissingError(input.deductionId, 'record outcome');
     }
     checkRecoveredCents(
       input.deductionId,
@@ -835,9 +880,12 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
  * would be summing a word rather than a number. `lost` recovered nothing.
  *
  * The Postgres store makes the same judgement against the column's own text
- * rather than against a JS number (invariant 3); the rule is stated twice and
- * held together by one contract suite, because `ports.ts` has nowhere for a
- * shared helper to live until it reopens.
+ * rather than against a JS number (invariant 3). The rule is stated twice
+ * because the two stores hold the amount differently — a `number` here, a
+ * bigint column there — and a shared helper would have to take one of the two
+ * and convert, which is the conversion invariant 3 exists to avoid. What keeps
+ * them saying the same thing is the contract suite, which runs the same cases
+ * against both.
  */
 function checkRecoveredCents(
   deductionId: string,

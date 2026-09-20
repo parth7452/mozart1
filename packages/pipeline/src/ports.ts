@@ -259,8 +259,16 @@ export interface CaseWorkflowStore {
    * probabilities. Writes a `decision.recorded` event and moves the case to
    * `analyst_review`.
    *
+   * The rationale is checked against `MAX_RATIONALE_LENGTH` *before* the
+   * insert, because `decisions` is append-only: one that only the packet could
+   * have refused would leave the case in `analyst_review` with nothing able to
+   * move it.
+   *
    * @throws {WrongCaseStateError} the case is not in a state a decision may be made from
    * @throws {WrongRoleError} `preparedBy` is not an `owner` or `analyst` of the tenant
+   * @throws {RationaleRequiredError} the rationale is empty or only whitespace
+   * @throws {RationaleTooLongError} the rationale would not fit the packet narrative
+   * @throws {NotACanonicalReasonError} the reason maps to no family
    */
   recordHumanDecision(input: {
     readonly deductionId: string;
@@ -368,6 +376,262 @@ export interface CaseWorkflowStore {
 // bug. Each carries the ids a reviewer would need to see what happened.
 
 export class CaseWorkflowError extends Error {}
+
+/**
+ * The case is not one this session may see.
+ *
+ * A `CaseWorkflowError` rather than a bare `Error` so a route can render it as
+ * a 404 instead of a 500: RLS hiding another tenant's case is the system
+ * working, not a fault. The message says nothing about whether the case exists
+ * anywhere else, because that is none of this tenant's business.
+ */
+export class CaseNotVisibleError extends CaseWorkflowError {
+  constructor(readonly deductionId: string) {
+    super(`case ${deductionId} is not visible to this tenant`);
+    this.name = 'CaseNotVisibleError';
+  }
+}
+
+/**
+ * A method named somebody other than the person whose session this is.
+ *
+ * The store is constructed per request and carries one caller. On a money path
+ * a call acting as another user is either a bug or a forgery, and the two look
+ * identical from here.
+ */
+export class ActorIsNotTheSessionError extends CaseWorkflowError {
+  constructor(
+    readonly actorId: string,
+    readonly callerId: string,
+    readonly action: string,
+  ) {
+    super(`${action} refused: this session is ${callerId}, so it cannot act as ${actorId}`);
+    this.name = 'ActorIsNotTheSessionError';
+  }
+}
+
+/** A dispute with no rationale: the packet quotes it, so there has to be one. */
+export class RationaleRequiredError extends CaseWorkflowError {
+  constructor(readonly deductionId: string) {
+    super('decide refused: a dispute decision needs a rationale');
+    this.name = 'RationaleRequiredError';
+  }
+}
+
+/**
+ * A rationale longer than the packet narrative can hold.
+ *
+ * Refused *before* the decision is written, and that timing is the whole point.
+ * `decisions` is append-only and the packet is assembled later, so a rationale
+ * accepted here and refused there leaves the case in `analyst_review` with no
+ * way forward and no way back: the decision cannot be amended, and
+ * `assemblePacket` will refuse the same rationale every time. The cap is
+ * `MAX_RATIONALE_LENGTH` in `@recouple/core-domain`, derived from the
+ * `packets.narrative` check minus what the rest of the cover page spends.
+ */
+export class RationaleTooLongError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly length: number,
+    readonly maxLength: number,
+  ) {
+    super(
+      `decide refused: the rationale is ${length} characters and the packet narrative holds ` +
+        `${maxLength} — shorten it now rather than after the decision is recorded`,
+    );
+    this.name = 'RationaleTooLongError';
+  }
+}
+
+/**
+ * A reason code nothing can map to a family.
+ *
+ * The type says canonical; a form post is a string until something checks. A
+ * code no playbook maps is a decision Phase 5 cannot count and a packet naming
+ * a code that means nothing.
+ */
+export class NotACanonicalReasonError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly reason: string,
+  ) {
+    super(`decide refused: ${reason} is not a canonical reason code`);
+    this.name = 'NotACanonicalReasonError';
+  }
+}
+
+/** The decision named is not a decision on this case. */
+export class DecisionNotForCaseError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly deductionId: string,
+  ) {
+    super(
+      `assemble refused: decision ${decisionId} is not a decision on case ${deductionId}`,
+    );
+    this.name = 'DecisionNotForCaseError';
+  }
+}
+
+/** The decision named does not exist, or belongs to a tenant this is not. */
+export class DecisionNotFoundError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly action: string,
+    readonly detail?: string,
+  ) {
+    super(
+      `${action} refused: decision ${decisionId} does not exist` +
+        (detail === undefined ? '' : ` (${detail})`),
+    );
+    this.name = 'DecisionNotFoundError';
+  }
+}
+
+/** A case with no notice is a case with nothing to file. */
+export class NothingToSendError extends CaseWorkflowError {
+  constructor(readonly deductionId: string) {
+    super(`assemble refused: case ${deductionId} has no notice to send`);
+    this.name = 'NothingToSendError';
+  }
+}
+
+/**
+ * A *different* packet for a decision that has already been approved.
+ *
+ * `unique (decision_id, action_type)` on `approvals` means there is no second
+ * approval, so a packet assembled now could never be authorised — it would sit
+ * next to an approval naming the packet it replaced. Refused here rather than
+ * left for the hash check to turn into a puzzling mismatch at submission time.
+ */
+export class PacketAfterApprovalError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly approvedPacketHash: string,
+  ) {
+    super(
+      `assemble refused: decision ${decisionId} was already approved as packet ` +
+        `${approvedPacketHash} — a packet assembled now could never be approved`,
+    );
+    this.name = 'PacketAfterApprovalError';
+  }
+}
+
+/**
+ * The narrative could not be built from this case at all.
+ *
+ * `buildPacketNarrative` raises a `PacketError`, which is not a
+ * `CaseWorkflowError` — it is `core-domain`'s own refusal and knows nothing
+ * about cases or callers. Letting it out raw would reach a route as an
+ * unclassified throw and be rendered as a fault. This is that refusal with the
+ * case named and the original kept as `cause`, so nothing is swallowed.
+ */
+export class PacketNotBuildableError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly decisionId: string,
+    readonly detail: string,
+    options?: { readonly cause?: unknown },
+  ) {
+    super(
+      `assemble refused: the packet for case ${deductionId} could not be built — ${detail}`,
+      options,
+    );
+    this.name = 'PacketNotBuildableError';
+  }
+}
+
+/** The packet named was not assembled for the decision named. */
+export class PacketNotForDecisionError extends CaseWorkflowError {
+  constructor(
+    readonly packetId: string,
+    readonly decisionId: string,
+    readonly action: string,
+  ) {
+    super(
+      `${action} refused: packet ${packetId} was not assembled for decision ${decisionId}`,
+    );
+    this.name = 'PacketNotForDecisionError';
+  }
+}
+
+/**
+ * A second approval for the same decision and action.
+ *
+ * `unique (decision_id, action_type)` on `approvals` (migration 0005): batch
+ * approval in the UI writes one row each, never a blanket approval, and a
+ * double-clicked approve button is not a second authorisation. One class, here,
+ * so both stores refuse with the same one and a caller's `instanceof` holds
+ * whichever store it was given.
+ */
+export class DuplicateApprovalError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly existingApprovalId: string,
+  ) {
+    super(
+      `approval refused: decision ${decisionId} was already approved for submission ` +
+        `as ${existingApprovalId}`,
+    );
+    this.name = 'DuplicateApprovalError';
+  }
+}
+
+/**
+ * A case we already decided not to fight cannot then be disputed.
+ *
+ * `declined_candidates` is the coverage denominator (STRATEGY ADD-1): a case
+ * that is both declined and disputed is counted as given up on *and* acted on,
+ * and the one number the counterfactual log exists to produce moves. The
+ * decline stands; reversing it is a decision of its own and does not exist yet.
+ */
+export class CaseAlreadyDeclinedError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly declinedCandidateId: string,
+  ) {
+    super(
+      `decide refused: case ${deductionId} was declined (${declinedCandidateId}) and cannot ` +
+        'now be disputed',
+    );
+    this.name = 'CaseAlreadyDeclinedError';
+  }
+}
+
+/**
+ * No approval for this decision, so there is nothing to file.
+ *
+ * The store asks first so a caller gets a name; the database asks last and
+ * asks properly — `app.require_approval('submit')` refuses the insert whatever
+ * this store believes (migration 0005, invariant 1).
+ */
+export class NoApprovalForSubmissionError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly detail?: string,
+  ) {
+    super(
+      `submit refused: no submit approval row for decision ${decisionId}` +
+        (detail === undefined ? '' : ` (${detail})`),
+    );
+    this.name = 'NoApprovalForSubmissionError';
+  }
+}
+
+/**
+ * A manual submission with no confirmation number.
+ *
+ * A manual filing is only evidence that it happened if it records what the
+ * portal gave back; without it there is nothing to chase the retailer with.
+ */
+export class ConfirmationNumberRequiredError extends CaseWorkflowError {
+  constructor(readonly decisionId: string) {
+    super(
+      'submit refused: a manual submission is recorded with the confirmation the portal gave',
+    );
+    this.name = 'ConfirmationNumberRequiredError';
+  }
+}
 
 /** Separation of duties. The database refuses this too; this is its name here. */
 export class PreparerCannotApproveError extends CaseWorkflowError {
