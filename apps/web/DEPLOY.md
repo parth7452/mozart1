@@ -92,7 +92,11 @@ instead of to Inngest Cloud.
 
 Never set `INNGEST_DEV` on a deployment. It puts the SDK in dev mode, where the
 signing key is not checked — which is what a laptop's dev server needs and the
-opposite of what an endpoint on the public internet needs.
+opposite of what an endpoint on the public internet needs. A production build
+that has it set refuses to serve `/api/inngest` at all: 503, with the reason in
+the log. Uploads still store, scan and queue; nothing reads them until the
+variable is unset. A visible stop is the right failure here — the alternative is
+an endpoint on the public internet accepting unsigned work.
 
 ## Supabase, after the first deploy
 

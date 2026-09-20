@@ -1,4 +1,5 @@
 import { Inngest, NonRetriableError } from 'inngest';
+import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
 import {
   CaseNotFoundError,
@@ -37,6 +38,19 @@ export const READ_REQUESTED = 'document/read.requested';
  * see.
  */
 export const READS_IN_FLIGHT_PER_ORG = 4;
+
+/**
+ * How many documents this app may have being read at once, across every tenant.
+ *
+ * The per-org limit bounds one tenant; nothing bounded the fleet. Fifty tenants
+ * dropping four notices each is two hundred concurrent reads — two hundred
+ * Anthropic calls, two hundred Reducto calls and two hundred database
+ * connections from a pool of four per instance — and the first thing anyone
+ * would see is a vendor rate-limiting us or the pool timing out, neither of
+ * which reads as "too much work at once". A ceiling that is visible in the
+ * function's own configuration is the one we can reason about.
+ */
+export const READS_IN_FLIGHT = 16;
 
 /**
  * What the event carries: ids, and who asked.
@@ -190,7 +204,7 @@ export async function runReadRequested(
       ...(payload.attachToCase !== undefined ? { attachToCase: payload.attachToCase } : {}),
     });
   } catch (error) {
-    throw asJobFailure(error);
+    throw asJobFailure(error, { documentId: payload.documentId, orgId: payload.orgId });
   } finally {
     await store.close();
   }
@@ -222,50 +236,103 @@ export function readDocumentSteps(
     step.run('read-document', () => runReadRequested(event.data, context));
 }
 
+/**
+ * Two limits, and the runtime applies both.
+ *
+ * A tuple rather than a list because that is what the SDK takes: at most two
+ * concurrency options per function.
+ */
+const READ_CONCURRENCY: [ConcurrencyOption, ConcurrencyOption] = [
+  // One tenant's bulk upload queues behind itself rather than in front of
+  // everybody else.
+  { key: 'event.data.orgId', limit: READS_IN_FLIGHT_PER_ORG },
+  // And the fleet-wide ceiling, keyless on purpose: a key makes a separate
+  // limit per value of that key, which is exactly what this must not be. This
+  // is how many reads this app will run at once however many tenants want one.
+  { limit: READS_IN_FLIGHT },
+];
+
+/**
+ * How the runtime is asked to run this function.
+ *
+ * Exported so a test can read it: these four values are the difference between
+ * a redelivered event costing nothing and it costing a second read of a
+ * document, and none of them shows up in the behaviour of a stubbed `step.run`.
+ */
+export const READ_DOCUMENT_CONFIG = {
+  id: 'read-document',
+  name: 'Read an uploaded document',
+  triggers: [{ event: READ_REQUESTED }],
+  // The document id, so a redelivered event cannot open a second case. Behind
+  // it: `readDocumentJob` answers a document that already has an extraction
+  // from what was recorded, and the store's `unique (org_id, debtor_id,
+  // claim_id)` refuses a claim that is already a case for that debtor (ADR
+  // 0019). Three lines, because the first two are the runtime's promise and a
+  // window rather than a constraint we own.
+  idempotency: 'event.data.documentId',
+  retries: 3 as const,
+  concurrency: READ_CONCURRENCY,
+};
+
 /** The one function this app serves. */
 export function readDocumentFunction(client: Inngest, context: JobContext) {
-  return client.createFunction(
-    {
-      id: 'read-document',
-      name: 'Read an uploaded document',
-      triggers: [{ event: READ_REQUESTED }],
-      // The document id, so a redelivered event cannot open a second case. The
-      // store's `unique (org_id, debtor_id, claim_id)` is the backstop behind
-      // it, and `DuplicateCaseError` is what that backstop says (ADR 0019).
-      idempotency: 'event.data.documentId',
-      retries: 3,
-      concurrency: { key: 'event.data.orgId', limit: READS_IN_FLIGHT_PER_ORG },
-    },
-    readDocumentSteps(context),
-  );
+  return client.createFunction(READ_DOCUMENT_CONFIG, readDocumentSteps(context));
 }
 
 /**
- * Which failures are worth trying again.
+ * Which failures are worth trying again, and what may be said about them.
  *
- * Nothing is swallowed: every one of these still fails the run and still says
- * what happened. The question is only whether repeating it could answer
- * differently. A malformed payload, a document that is not this tenant's, a case
- * that is not attachable, a verdict that is not clean and a claim that is
- * already a case are all settled facts — and two of them are settled *after* a
- * model call, so retrying them would spend money three more times to be told the
- * same thing. Everything else — a timeout, a 500 from a vendor, a database that
- * blinked — is left retriable, which is the default.
+ * **Retriable or not.** Nothing is swallowed: every one of these still fails the
+ * run. The question is only whether repeating it could answer differently. A
+ * malformed payload, an actor who is not a member, a document that is not this
+ * tenant's, a case that is not attachable, a verdict that is not clean and a
+ * claim that is already a case are all settled facts — and two of them are
+ * settled *after* a model call, so retrying them would spend money three more
+ * times to be told the same thing. Everything else — a timeout, a 500 from a
+ * vendor, a database that blinked — is left retriable, which is the default.
  *
  * `DocumentNotFoundError` is deliberately in the second group. It costs nothing
  * to ask again, and the one benign cause of it is a delivery that arrived before
  * the row it names was visible. Three tries and then a failure somebody can see
  * is the right answer to a document that really is not there.
+ *
+ * **What the message says.** The class name and the ids this job already holds,
+ * and never the original message. `DuplicateCaseError` interpolates the claim id
+ * — which is text off the page — and an extractor's error can quote the page
+ * itself; both would otherwise travel to a third party's run history and sit
+ * there for its retention period, which is exactly what the event payload is
+ * careful not to do (invariant 4). The cause is dropped for the same reason: a
+ * serialised cause chain carries the message we just replaced.
+ *
+ * The original is not lost. It is logged here, in full, where the platform's own
+ * logs are — the same place the read's other failures land, and not a third
+ * party's.
  */
-function asJobFailure(error: unknown): unknown {
+export function asJobFailure(
+  error: unknown,
+  ids: { readonly documentId: string; readonly orgId: string },
+): unknown {
   const settled =
     error instanceof InvalidJobPayloadError ||
     error instanceof CaseNotFoundError ||
     error instanceof DuplicateCaseError ||
     error instanceof UnscannedDocumentError;
 
-  if (!settled) return error;
-  return new NonRetriableError((error as Error).message, { cause: error });
+  const name = error instanceof Error ? error.name : typeof error;
+  const caseId =
+    error instanceof DuplicateCaseError
+      ? error.existingDeductionId
+      : error instanceof CaseNotFoundError
+        ? error.deductionId
+        : undefined;
+
+  const message =
+    `${name} reading document ${ids.documentId} for org ${ids.orgId}` +
+    (caseId !== undefined ? ` (case ${caseId})` : '');
+
+  console.error(`[recouple] read job failed: ${message}`, error);
+
+  return settled ? new NonRetriableError(message) : new Error(message);
 }
 
 function requireId(value: unknown, field: string): string {

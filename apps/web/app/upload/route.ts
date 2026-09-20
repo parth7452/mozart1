@@ -106,6 +106,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(back, { status: 303 });
     }
 
+    if (outcome.kind === 'not_queued') {
+      // Stored and scanned, but the queue would not take it. Saying "it is
+      // being read" would be a lie, and a 500 would suggest the upload itself
+      // failed when the document is safely in the database. So it says what is
+      // true and what to do about it — and the same file re-uploaded dedupes to
+      // this same document and is queued again.
+      back.searchParams.set(
+        'upload',
+        'that document is stored but could not be queued for reading just now; ' +
+          'it will be read when the queue is reachable — uploading the same file again re-queues it',
+      );
+      return NextResponse.redirect(back, { status: 303 });
+    }
+
     if (outcome.kind === 'halted') {
       // The scan gate, in the runner that does not read here either. Stored,
       // scanned, not read, and said out loud (invariant 4).

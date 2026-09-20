@@ -9,13 +9,21 @@ import {
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import {
+  CaseNotFoundError,
+  DocumentNotFoundError,
+  DuplicateCaseError,
+  InvalidJobPayloadError,
   ingestForJob,
   type JobDeps,
   type StoredDocument,
 } from '@recouple/pipeline';
+import { UnscannedDocumentError } from '@recouple/ingest';
+import { NonRetriableError } from 'inngest';
 import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
 import {
+  READ_DOCUMENT_CONFIG,
   READ_REQUESTED,
+  asJobFailure,
   parseReadRequested,
   readDocumentSteps,
   runReadRequested,
@@ -55,6 +63,17 @@ class JobStoreForTest extends InMemoryStore implements JobStoreHandle {
   async close(): Promise<void> {
     this.closed += 1;
   }
+}
+
+/**
+ * A store with the member the events below name already in it. A job checks
+ * that membership before it reads anything, so a store without one refuses
+ * every job — which the refusal test at the bottom asserts on purpose.
+ */
+function jobStore(): JobStoreForTest {
+  const store = new JobStoreForTest();
+  store.addMember(ORG_ID, USER_ID, 'analyst');
+  return store;
 }
 
 function depsFor(store: JobStoreForTest): JobDeps {
@@ -136,7 +155,7 @@ async function storedNotice(store: JobStoreForTest): Promise<string> {
 
 describe('the read job', () => {
   it('builds its store from the identity in the event, and closes it', async () => {
-    const store = new JobStoreForTest();
+    const store = jobStore();
     const documentId = await storedNotice(store);
     const { context, identities } = contextOver(store);
 
@@ -159,7 +178,7 @@ describe('the read job', () => {
   it('runs through the step the runtime hands it', async () => {
     // The handler's whole body is one step, so a stubbed `step.run` is enough
     // to invoke exactly what Inngest invokes.
-    const store = new JobStoreForTest();
+    const store = jobStore();
     const documentId = await storedNotice(store);
     const { context } = contextOver(store);
     const steps: string[] = [];
@@ -179,7 +198,7 @@ describe('the read job', () => {
   });
 
   it('closes the store even when the read fails', async () => {
-    const store = new JobStoreForTest();
+    const store = jobStore();
     const { context } = contextOver(store);
 
     await expect(
@@ -212,6 +231,110 @@ describe('the read job', () => {
     expect(
       parseReadRequested({ documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID }),
     ).toEqual({ documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID });
+  });
+
+  it('refuses an event naming somebody who is not a member of that org', async () => {
+    // A signed event says Inngest sent it, not that the user in it belongs to
+    // the org in it — and `tenant_read` checks only the org claim. So a payload
+    // pairing a victim's org with any user id would otherwise be read and paid
+    // for. Refused, and not retried: a membership does not appear on a retry.
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const { context } = contextOver(store);
+    const stranger = '44444444-4444-4444-4444-444444444444';
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        runReadRequested({ documentId, orgId: ORG_ID, userId: stranger }, context),
+      ).rejects.toBeInstanceOf(NonRetriableError);
+    } finally {
+      logged.mockRestore();
+    }
+
+    expect(store.modelCalls).toEqual([]);
+    expect(store.extractions).toEqual([]);
+    expect(store.cases.size).toBe(0);
+    expect(store.closed).toBe(1);
+  });
+});
+
+describe('what a failed read says to Inngest', () => {
+  const ids = { documentId: ORG_ID, orgId: ORG_ID };
+  let logged: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    logged.mockRestore();
+  });
+
+  it('says the class and the ids, and never what the document said', () => {
+    // `DuplicateCaseError` interpolates the claim id, which is text off the
+    // page. The run history it would land in belongs to a third party and keeps
+    // it for its retention period — the same thing the event payload is careful
+    // not to do (invariant 4).
+    const duplicate = new DuplicateCaseError(
+      'claim APDP-99812 is already open for this debtor as case ' +
+        '55555555-5555-5555-5555-555555555555',
+      '55555555-5555-5555-5555-555555555555',
+      'APDP-99812',
+    );
+
+    const wrapped = asJobFailure(duplicate, ids) as Error;
+
+    expect(wrapped.message).not.toContain('APDP-99812');
+    expect(wrapped.message).toContain('DuplicateCaseError');
+    expect(wrapped.message).toContain(ids.documentId);
+    expect(wrapped.message).toContain('55555555-5555-5555-5555-555555555555');
+    // And the message it replaced is not smuggled along as a cause either.
+    expect((wrapped as { cause?: unknown }).cause).toBeUndefined();
+
+    // Not swallowed: the original, in full, goes to the platform's own log.
+    expect(logged).toHaveBeenCalledWith(expect.stringMatching(/read job failed/), duplicate);
+  });
+
+  it('marks the settled failures non-retriable and leaves the rest alone', () => {
+    // Retrying any of these would spend money three more times to be told the
+    // same thing — two of them are only settled *after* a model call.
+    const settled = [
+      new DuplicateCaseError('claim X is already case Y', ORG_ID, 'X'),
+      new CaseNotFoundError(ORG_ID),
+      new UnscannedDocumentError('no clean verdict for this document'),
+      new InvalidJobPayloadError('a read job needs documentId; this one has none'),
+    ];
+    for (const error of settled) {
+      expect(asJobFailure(error, ids)).toBeInstanceOf(NonRetriableError);
+    }
+
+    // And the one that is worth asking again: the benign cause is a delivery
+    // that arrived before the row it names was visible.
+    const notFound = asJobFailure(new DocumentNotFoundError(ORG_ID), ids);
+    expect(notFound).toBeInstanceOf(Error);
+    expect(notFound).not.toBeInstanceOf(NonRetriableError);
+    expect((notFound as Error).message).toContain('DocumentNotFoundError');
+  });
+});
+
+describe('how the runtime is asked to run the function', () => {
+  it('is these four values, and a change to any of them is a change to cost', () => {
+    // None of this shows up in the behaviour of a stubbed `step.run`, and every
+    // line of it is the difference between a redelivered event costing nothing
+    // and it costing another read.
+    expect(READ_DOCUMENT_CONFIG).toEqual({
+      id: 'read-document',
+      name: 'Read an uploaded document',
+      triggers: [{ event: 'document/read.requested' }],
+      idempotency: 'event.data.documentId',
+      retries: 3,
+      concurrency: [
+        { key: 'event.data.orgId', limit: 4 },
+        // Keyless: the ceiling for the whole app, not one per anything.
+        { limit: 16 },
+      ],
+    });
+    expect(READ_DOCUMENT_CONFIG.concurrency[1]).not.toHaveProperty('key');
   });
 });
 
@@ -307,5 +430,60 @@ describe('the endpoint Inngest calls', () => {
 
     const { POST } = await freshRoute();
     await expect(POST(call({}), undefined)).rejects.toThrow(/INNGEST_EVENT_KEY and INNGEST_SIGNING_KEY/);
+  });
+
+  it('serves nothing in a production build with INNGEST_DEV set', async () => {
+    // Dev mode does not verify Inngest's signature, and that signature is this
+    // endpoint's only authentication. Keys and all, it must not serve: anybody
+    // who could reach the URL could hand the function a payload naming any org
+    // and any member.
+    process.env.INNGEST_EVENT_KEY = 'test-event-key';
+    process.env.INNGEST_SIGNING_KEY =
+      'signkey-test-0000000000000000000000000000000000000000000000000000000000000000';
+    process.env.INNGEST_DEV = '1';
+    // Replaced wholesale: `NODE_ENV` is a read-only property on the typed
+    // environment, and what this test is about is the pair of them.
+    process.env = { ...process.env, NODE_ENV: 'production' };
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const { POST, GET, PUT } = await freshRoute();
+      const signed = call({
+        event: { name: READ_REQUESTED, data: { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID } },
+        ctx: {},
+        steps: {},
+      });
+
+      for (const response of [
+        await POST(signed, undefined),
+        await GET(new NextRequest('https://app.example.test/api/inngest'), undefined),
+        await PUT(new NextRequest('https://app.example.test/api/inngest', { method: 'PUT' }), undefined),
+      ]) {
+        expect(response.status).toBe(503);
+        expect(await response.text()).toMatch(/INNGEST_DEV is set in a production build/);
+      }
+
+      // And it says so where an operator reads logs: Inngest sees a failed sync,
+      // not an explanation.
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringMatching(/refuses to serve: INNGEST_DEV is set/),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('serves normally in development with INNGEST_DEV set', async () => {
+    // The same variable on a laptop is what it is for. Only the pairing with a
+    // production build is refused.
+    process.env.INNGEST_EVENT_KEY = 'test-event-key';
+    process.env.INNGEST_SIGNING_KEY =
+      'signkey-test-0000000000000000000000000000000000000000000000000000000000000000';
+    process.env.INNGEST_DEV = '1';
+    process.env = { ...process.env, NODE_ENV: 'development' };
+
+    const { GET } = await freshRoute();
+    const response = await GET(new NextRequest('https://app.example.test/api/inngest'), undefined);
+    expect(response.status).not.toBe(503);
   });
 });

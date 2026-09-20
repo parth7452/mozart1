@@ -79,17 +79,38 @@ case opens so a failed `openCase` cannot lose a read we paid for.
 **The serve route** is `apps/web/app/api/inngest/route.ts`, the Inngest Next.js
 adapter over one function: id `read-document` in app `recouple`
 (`recouple/read-document`), trigger `document/read.requested`, `retries: 3`,
-`idempotency: 'event.data.documentId'`, and a concurrency limit keyed on
-`event.data.orgId` so one tenant's bulk upload cannot starve another's. It
-declares `maxDuration = 300`, the largest value Vercel allows on the plans we
-might be on; the project's plan is not recorded anywhere in this repository, so
-if it is Hobby the platform will clamp it to that plan's ceiling rather than
-honour 300.
+`idempotency: 'event.data.documentId'`, and two concurrency limits — one keyed
+on `event.data.orgId` so a tenant's bulk upload cannot starve another's, and one
+with no key at all, which is the ceiling on how many reads this app runs at
+once however many tenants want one. The per-org limit bounds a tenant; only the
+keyless one bounds the bill. It declares `maxDuration = 300`, the largest value
+Vercel allows on the plans we might be on; the project's plan is not recorded
+anywhere in this repository, so if it is Hobby the platform will clamp it to that
+plan's ceiling rather than honour 300.
 
 The route serves nothing when the keys are absent: no client, no functions, and
 a 503 that says the read runs inline here. An unconfigured deployment therefore
 has no endpoint that runs a job at all, rather than one that would run whatever
 it was handed.
+
+It also serves nothing when `INNGEST_DEV` is set in a production build, keys or
+no keys — 503 with the reason logged. Dev mode turns off verification of
+Inngest's request signature, and that signature is this endpoint's entire
+authentication: it has no session, and the function behind it builds a tenant's
+store from ids in the body it is handed. `INNGEST_DEV` on a laptop is what it is
+for; the same variable on a deployment would publish an endpoint that runs a read
+as any org and any member for anyone who can reach the URL. Refusing to serve is
+the only reading of those two settings together that is not a hole.
+
+**The job checks the actor before it spends anything.** `tenant_read` is
+`org_id = app.current_org_id()` and nothing more (migration 0010) — the write
+policies are where `app.member_may_write()` is consulted. So a validly signed
+event naming a victim's org and one of its documents, with any user id at all,
+would be fetched, OCR'd and read by a model, and only refused when the first row
+was written. `readDocumentJob` therefore asks the database whether this member
+may write in this org *before* it fetches the document, and refuses with
+`InvalidJobPayloadError` — non-retriable, because a membership does not appear
+because we asked again.
 
 ## Consequences
 
@@ -99,22 +120,74 @@ case list with a message saying the document is being read; a reviewer attaching
 evidence goes back to the case they were on. With the inline runner the redirect
 is unchanged — straight to the case the notice opened.
 
+**When the queue will not take the event, the upload still succeeds.** The bytes
+are stored and scanned before the event is sent, so a failing `send` is a
+document that exists and nobody is coming for. Throwing there would hand the
+reviewer a 500 for an upload that worked. Instead the failure is logged with its
+cause, and the reviewer is told the document is stored and will be read when the
+queue is reachable, and that uploading the same file again re-queues it — which
+it does: the bytes dedupe to that same document row, no read was ever recorded
+for it, and the job does the read rather than reporting one.
+
 A failed read is now visible and retried. Inngest records the error and retries
 three times; the steps are idempotent by construction (the same bytes dedupe to
-the same document, `recordPages` is keyed on the document, the case is refused a
-second time by `unique (org_id, debtor_id, claim_id)`), so a retry re-reads
-rather than duplicating. It costs a model call to retry, which is the price of
-not losing the document.
+the same document, `recordPages` is keyed on the document, and a document that
+already has a recorded extraction is answered from what was recorded rather than
+read again), so a retry finishes the work rather than duplicating it.
 
-A redelivered event does not open a second case. `idempotency` on the document
-id is the first line, and `DuplicateCaseError` is the backstop it is already the
-backstop for (ADR 0019) — a second delivery that somehow slips past the first
-finds the claim already open and says which case holds it.
+A redelivered event does not open a second case, and does not pay for a second
+read. Three things stand behind that, in order of how much they are worth:
+`readDocumentJob` answers a document that already has an extraction from what
+was recorded, without classifying, extracting or opening anything; `idempotency`
+on the document id is the runtime's own promise, within its window;
+`unique (org_id, debtor_id, claim_id)` is the database's, and it holds only once
+a human has linked the retailer, because a null `debtor_id` never collides (ADR
+0019). The middle one is a third party's word and the last one is null for every
+case a new tenant opens, which is why the first one exists.
+
+The one thing that guard must not skip is a read that would do something the
+first one did not: attaching the document to a case it is not yet linked to (the
+same BOL is evidence for two deductions), or opening a case for a notice that
+has none — an unauthenticated email's notice is read and deliberately left
+caseless (ADR 0016). Both re-read.
+
+One interaction is worth writing down rather than discovering: `idempotency` is
+keyed on the document id alone, so within its window the runtime will also
+suppress the *second* event for a document a reviewer is deliberately attaching
+to another case — the same BOL, uploaded again from a second deduction's page.
+The guard is written so that read does its work when it runs; whether it runs
+inside that window is the runtime's decision and not ours. Narrowing the key to
+include `attachToCase` is the fix if a reviewer reports an attachment that never
+appeared, and it is a CEL expression change worth making against a real Inngest
+rather than guessing at here.
+
+**A failed run reports its class and its ids, and never its message.**
+`DuplicateCaseError` interpolates the claim id, which is text off the page, and
+an extractor's error can quote the page itself. Those messages would otherwise
+land in a third party's run history and stay for its retention period, which is
+precisely what the event payload is careful not to do. So the error that reaches
+Inngest says `DuplicateCaseError reading document <id> for org <id> (case <id>)`
+and carries no cause; the original is logged in full where the platform's own
+logs are.
 
 Spend is still attributed. The job records every `model_calls` row through the
 same store as the request would, with the same tenant claims, so cost per case
 and cost per document do not change shape. A retry's calls are recorded too:
 they happened.
+
+**What a clamped `maxDuration` costs.** `maxDuration = 300` is a request, not a
+guarantee: the platform clamps it to the plan's ceiling, and this repository does
+not record which plan the project is on. A clamp that lands mid-extraction kills
+the function between the model call finishing and `recordModelCall` writing it
+down — the read is one step, and its writes come after the page is read — so
+those tokens are spent, billed by Anthropic, and absent from `model_calls`. Cost
+per document then understates, and the retry pays again. Nothing is corrupted:
+the second attempt records what it spends, and a third-party invoice is the only
+place the lost tokens appear. Two things would fix it and neither is in this
+change: recording a model call as soon as it returns rather than after the read
+completes, and knowing the plan's real ceiling. Until then, a large jump between
+Anthropic's invoice and the sum of `model_calls` is the symptom to look for, and
+a dense document is where it would come from.
 
 **We now depend on a third party for the read to ever finish.** If Inngest is
 down, documents queue: they are stored, scanned and visible, and the case
@@ -150,7 +223,31 @@ tool is passed to any reader, and the scan gate still stands between the bytes
 and the first model call — now in two places that agree, because it is the same
 `assertScannedClean` on the same recorded verdict. The event carries no document
 text, so nothing a document says can reach the queue, the retry logic or the
-function's routing.
+function's routing. A failed run's error message carries none either, which is
+why it is rebuilt from ids rather than passed through.
+
+**One thing in this dependency is a trap, and it is worth writing down.**
+`inngest` depends on `@traceloop/instrumentation-anthropic` and on
+`@opentelemetry/auto-instrumentations-node`. Nothing registers them: we install
+no OpenTelemetry provider, we do not call `extendedTracesMiddleware`, and the
+client is constructed with keys and nothing else. The client does attach a span
+processor of its own, but what it reports is Inngest's view of the run — steps,
+timings, outcomes — and not the contents of anything the step called. No span of
+an Anthropic call is created or exported today. That middleware is what would
+change it. Its
+whole purpose is to attach richer spans to the traces in the Inngest dashboard,
+and the instrumentation it can register around the Anthropic SDK records the
+call's prompts and completions as span attributes. Our prompts *are* the
+document: the page text goes to the model inside `<untrusted_document>`
+delimiters, and the completion is the quotes copied off it. Enabling that
+middleware would therefore ship the contents of a customer's deduction notice to
+a third party's trace storage — quietly, as a telemetry improvement, and past
+every other care this ADR takes about what the queue is allowed to know. So:
+**`extendedTracesMiddleware` is not to be enabled without re-reading invariant 4
+and deciding, in an ADR, what a span may contain.** If richer traces are wanted,
+the thing to check first is whether the instrumentation can be given an
+attribute filter, and the thing never to do is to turn it on because a dashboard
+looked empty.
 
 **Invariant 2 (append-only tables).** Unchanged. No schema change, no migration,
 no new grant. The job writes the same appends the request wrote.
