@@ -238,6 +238,47 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
     let expected: Cents | null = null;
     let verdict: LineVerdict = 'not_checkable';
 
+    // The money checks the quantities.
+    //
+    // A deduction line prints the same fact twice: as a pair of quantities and
+    // as an amount. When the amount divides evenly by the unit cost, the
+    // quotient is how many units the retailer is charging for, and it has to
+    // equal the gap between the quantities. When it does not, the line
+    // contradicts itself and the reading cannot be trusted.
+    //
+    // This is worth a check of its own because of how these tables are laid
+    // out. A reason code is often a bare number sitting immediately left of the
+    // quantity columns, so a reader that slips one column takes the reason code
+    // as a quantity — and the result is two plausible numbers that happen to be
+    // wrong. The money columns carry currency symbols and are much harder to
+    // mistake, so they are the better witness.
+    //
+    // Only when the division is exact: a deduction that is not a unit count
+    // times a unit cost (a price variance, a partial credit, a flat fee) has no
+    // quotient to compare, and says nothing here rather than guessing.
+    if (
+      qtyInvoiced !== undefined &&
+      qtyReceived !== undefined &&
+      unitCost !== undefined &&
+      unitCost > 0 &&
+      claimed !== undefined
+    ) {
+      const impliedUnits = claimed / unitCost;
+      const statedGap = Math.abs(qtyInvoiced - qtyReceived);
+      if (Number.isInteger(impliedUnits) && impliedUnits !== statedGap) {
+        findings.push({
+          code: 'quantities_contradict_the_amount',
+          severity: 'blocking',
+          message:
+            `${sku}: ${formatCents(claimed)} deducted at ${formatCents(unitCost)} each is ` +
+            `${impliedUnits} unit${impliedUnits === 1 ? '' : 's'}, but the line says ` +
+            `${qtyInvoiced} invoiced and ${qtyReceived} received, a gap of ${statedGap}. ` +
+            'The quantities and the amount on this line cannot both be right',
+          fieldPath: path,
+        });
+      }
+    }
+
     if (qtyInvoiced !== undefined && qtyReceived !== undefined && unitCost !== undefined) {
       if (qtyReceived > qtyInvoiced) {
         findings.push({

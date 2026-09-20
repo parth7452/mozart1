@@ -322,3 +322,96 @@ describe('a late-delivery fee against a superseded appointment', () => {
     }
   });
 });
+
+/**
+ * The column-shift misread, caught by the money on the same line.
+ *
+ * A cassette re-recording read the Walmart notice's quantities as 24 and 30
+ * instead of 30 and 25 — one column left, taking the reason code as the
+ * invoiced quantity. Both numbers are plausible; nothing about them looks
+ * wrong. The amount on the same line is what makes it checkable.
+ */
+describe('quantities that contradict the amount beside them', () => {
+  const f = <T>(value: T) => ({ value, source_page: 1, source_quote: 'x' }) as never;
+
+  const withQuantities = (invoiced: number | null, received: number | null): DeductionNotice =>
+    ({
+      retailer_name: f('Walmart'),
+      vendor_number: f(null),
+      claim_id: f('APDP-99812'),
+      invoice_number: f(null),
+      po_number: f(null),
+      store_or_dc: f(null),
+      gln: f(null),
+      asn_number: f(null),
+      lines: [
+        {
+          sku_upc: f('000-4471-08'),
+          description: f('Case Pack Olive Oil'),
+          qty_invoiced: f(invoiced),
+          qty_received: f(received),
+          unit_cost: f('$624.00'),
+          deduction_amount: f('$3,120.00'),
+          reason_code: f('24'),
+          reason_description: f('Merchandise billed not received'),
+        },
+      ],
+      deduction_total: f('$3,120.00'),
+      deduction_date: f('08/14/2026'),
+      dispute_deadline: f(null),
+      remittance_or_check: f(null),
+    }) as unknown as DeductionNotice;
+
+  it('accepts the correct reading, where the money and the gap agree', () => {
+    // $3,120.00 ÷ $624.00 = 5 units, and 30 − 25 = 5.
+    const result = reconcileNotice({ notice: withQuantities(30, 25) });
+    expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
+    expect(result.lines[0]?.verdict).toBe('matches');
+  });
+
+  it('blocks the column-shifted reading that a re-recording actually produced', () => {
+    // 24 is the reason code, not a quantity. The gap of 6 cannot produce
+    // $3,120.00 at $624.00 each, and the line says so without any help from us.
+    const result = reconcileNotice({ notice: withQuantities(24, 30) });
+    const contradiction = result.findings.find(
+      (x) => x.code === 'quantities_contradict_the_amount',
+    );
+    expect(contradiction?.severity).toBe('blocking');
+    expect(contradiction?.message).toMatch(/5 units/);
+    expect(contradiction?.message).toMatch(/gap of 6/);
+    // Blocking means the claim's own numbers do not hold up, which is the
+    // honest verdict: we cannot file on a line that contradicts itself.
+    expect(result.internallyConsistent).toBe(false);
+  });
+
+  it('catches it whichever way the columns slipped', () => {
+    // The old `overage_not_shortage` branch only fired when received exceeded
+    // invoiced, and then stopped without doing the arithmetic. This check runs
+    // in both directions.
+    for (const [invoiced, received] of [
+      [24, 30],
+      [30, 24],
+    ] as const) {
+      const result = reconcileNotice({ notice: withQuantities(invoiced, received) });
+      expect(codes(result.findings), `${invoiced}/${received}`).toContain(
+        'quantities_contradict_the_amount',
+      );
+    }
+  });
+
+  it('says nothing when the deduction is not a unit count times a unit cost', () => {
+    // A price variance, a partial credit or a flat fee has no quotient to
+    // compare. Guessing there would invent a contradiction.
+    const priceVariance = withQuantities(30, 30) as unknown as {
+      lines: { deduction_amount: { value: string } }[];
+    };
+    priceVariance.lines[0]!.deduction_amount.value = '$97.50';
+    const result = reconcileNotice({ notice: priceVariance as unknown as DeductionNotice });
+    expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
+  });
+
+  it('says nothing when a quantity is missing', () => {
+    const result = reconcileNotice({ notice: withQuantities(30, null) });
+    expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
+  });
+});

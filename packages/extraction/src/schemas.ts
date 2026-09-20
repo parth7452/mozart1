@@ -29,8 +29,14 @@ export const DeductionNoticeSchema = z.object({
           'The item identifier: SKU, UPC, GTIN or item number. Many deductions are taken against a whole invoice rather than an item (an allowance, a compliance charge, a discount); those have no item identifier.',
         ),
         description: OptionalField(z.string(), 'The item description as printed.'),
-        qty_invoiced: OptionalField(Qty(), 'Quantity the supplier invoiced.'),
-        qty_received: OptionalField(Qty(), 'Quantity the retailer says it received.'),
+        qty_invoiced: OptionalField(
+          Qty(),
+          'Quantity the supplier invoiced, from the column headed with that meaning. Read the column headers and take the value beneath the right one — these tables often put a bare numeric reason code immediately to the left of the quantities, and the first number on the row is frequently not a quantity at all.',
+        ),
+        qty_received: OptionalField(
+          Qty(),
+          'Quantity the retailer says it received, from the column headed with that meaning. Check it against the amount: on a shortage line the deduction is usually the gap between the two quantities times the unit cost, so if that does not work out you have probably taken a number from the wrong column.',
+        ),
         unit_cost: OptionalField(MoneyText(), 'Unit cost as printed.'),
         deduction_amount: Field(MoneyText(), 'The amount deducted on this line, as printed.'),
         reason_code: Field(z.string(), 'The retailer’s own reason code, exactly as printed.'),
