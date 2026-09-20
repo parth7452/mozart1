@@ -142,11 +142,15 @@ const SUITE_LABELS: Record<string, string> = {
   scanned: 'rasterised + degraded — does it survive a scan',
   dense: 'dozens of rows — does it survive a real remittance',
   email_body: 'no page at all — a notice pasted into a message',
+  logistics: 'five documents, one dispute — does the case hold together',
 };
 
 const perSuite = new Map<string, ReturnType<typeof summarise>>();
 
-for (const suiteName of ['authored', 'held_out', 'scanned', 'dense', 'email_body']) {
+// Every suite that exists, not a list to remember to extend: a suite missing
+// from here is scored and never shown, which is how LOG-001 reported its misses
+// from nowhere.
+for (const suiteName of Object.keys(SUITE_LABELS)) {
   const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
   if (suiteScores.length === 0) continue;
   const tally = classifiedBySuite.get(suiteName);
