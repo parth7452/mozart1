@@ -18,7 +18,7 @@ export const DEFAULT_AUTO_DISPUTE_CEILING_CENTS = 50_000;
 export const DEFAULT_AUTO_WRITEOFF_CEILING_CENTS = 0;
 
 /**
- * The smallest gap ERP triage will open a case for (ADR 0028 §4).
+ * The smallest gap ERP triage will open a case for (ADR 0029 §4).
  *
  * $25.00, and deliberately far below what a dispute costs. A floor set where a
  * reviewer's time breaks even is the incumbent's floor, and the long tail is

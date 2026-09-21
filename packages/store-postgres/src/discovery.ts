@@ -1,11 +1,11 @@
 /**
- * The ERP discovery path, on Postgres (ADR 0028, STRATEGY §5, §6.3, ADD-7).
+ * The ERP discovery path, on Postgres (ADR 0029, STRATEGY §5, §6.3, ADD-7).
  *
  * A short-pay found in a customer's own ledger becomes a case the same way a
  * deduction notice does: an `uploads` row, then bytes, then a case, then the
  * link that makes those bytes its notice. Nothing here invents a channel and
  * nothing here writes a table the rest of the system does not already read —
- * which is the whole reason ADR 0028 §1 chose "a ledger extract is a document"
+ * which is the whole reason ADR 0029 §1 chose "a ledger extract is a document"
  * over a shadow table. `declineCase` can derive `erp_sync` off such a case's
  * notice on the day it is opened.
  *
@@ -23,7 +23,7 @@
  *     copy of either would be a second set of rules.
  *  2. **The writes that stop a duplicate land together.** `recordLedgerCase` is
  *     not one transaction — the delegated calls each open their own, and
- *     `store.ts` is not edited by this change (ADR 0028 §5) — but the notice
+ *     `store.ts` is not edited by this change (ADR 0029 §5) — but the notice
  *     link, the identifier rows and the events are, because the identifier rows
  *     are what make the *next* sync answer `exact` instead of opening a second
  *     case. The remaining window, between `openCase`'s commit and that
@@ -48,7 +48,7 @@ import { sessionPool, type PostgresStore, type PostgresStoreConfig, type TenantC
 export const TRIAGE_DECIDED_BY = 'triage-rules';
 export const TRIAGE_DECIDED_BY_VERSION = 'triage-rules/v1';
 
-/** The one channel this class can write. Never a parameter (ADR 0028 §5). */
+/** The one channel this class can write. Never a parameter (ADR 0029 §5). */
 const DISCOVERED_FROM_ERP = 'erp_sync';
 
 /** An identifier a deduction is already known by, as the matcher wants it. */
@@ -353,7 +353,7 @@ export class PostgresDiscoveryStore {
    * is typed `IngestSource`, the three channels the *pipeline* can produce, and
    * `erp_sync` is deliberately not one of them. The column has admitted it
    * since migration 0014. Widening the type is an edit to `store.ts`, which
-   * this change does not make (ADR 0028 §5); the statement is the same insert.
+   * this change does not make (ADR 0029 §5); the statement is the same insert.
    *
    * `created_by` is null and cannot be anything else: a scheduled job read a
    * third party's API, and no member put this document in front of the
@@ -421,7 +421,7 @@ export class PostgresDiscoveryStore {
    * Records the ledger's names for a deduction we already hold, and nothing
    * else.
    *
-   * This is the `exact` branch (ADR 0028 §3): a deduction a notice already
+   * This is the `exact` branch (ADR 0029 §3): a deduction a notice already
    * found, which the ledger has now named in its own terms. Recording that is a
    * fact worth having — it makes the next sync's match exact rather than
    * probable — and it is the *only* write that branch makes. No case, no
@@ -453,7 +453,7 @@ export class PostgresDiscoveryStore {
    * `(org_id, (external_ids->>'ledger_invoice_id'), decided_by_version)` would
    * be the stronger answer and is deliberately not added here:
    * `declined_candidates` is append-only and migration-owned, so adding one is
-   * migration 0022 and an amendment to ADR 0028 — proposed, not done. What this
+   * migration 0023 and an amendment to ADR 0029 — proposed, not done. What this
    * read does not close is two syncs of the same tenant running concurrently,
    * which is a shape nothing schedules today; the index is what closes it.
    */

@@ -170,7 +170,7 @@ describe('syncing a customer’s ledger', () => {
   /**
    * The asymmetry. A probable match is a guess, and the guess that loses a
    * deduction is invisible; the guess that duplicates one is a row a reviewer
-   * can see (ADR 0028 §3).
+   * can see (ADR 0029 §3).
    */
   it('opens a case on a probable match, flagged with what it may duplicate', async () => {
     const deductions: KnownDeduction[] = [

@@ -1,5 +1,5 @@
 /**
- * A short-paid invoice, rendered as a document (ADR 0028 §1).
+ * A short-paid invoice, rendered as a document (ADR 0029 §1).
  *
  * Every other deduction enters this system as a document, and a great deal
  * rests on that: provenance is derived from the `uploads` row the bytes name

@@ -1,5 +1,5 @@
 /**
- * Triage over short-pay candidates (ADR 0028 §2–§4, STRATEGY §6.3, ADD-7).
+ * Triage over short-pay candidates (ADR 0029 §2–§4, STRATEGY §6.3, ADD-7).
  *
  * The ledger produces thousands of candidate lines a month, most of which must
  * never reach extraction. This is the function that decides which of them
@@ -17,7 +17,7 @@
  *   ADD-1), which is both the coverage numerator and the population a later
  *   model has to be scored against.
  * - **The identity gate is asymmetric, and it errs towards keeping the
- *   deduction** (ADR 0025 §6, ADR 0028 §3). An `exact` match is the only answer
+ *   deduction** (ADR 0025 §6, ADR 0029 §3). An `exact` match is the only answer
  *   that resolves without a person. A `probable` one opens the case anyway with
  *   a flag on it: a duplicate case is visible and still disputable, while a
  *   dropped arrival is invisible and, with post-audit windows of about two
@@ -59,7 +59,7 @@ export type TriageDecision =
     };
 
 export interface TriageOptions {
-  /** Below this, a gap is declined `below_economic_floor` (ADR 0028 §4). */
+  /** Below this, a gap is declined `below_economic_floor` (ADR 0029 §4). */
   readonly minDisputeCents: number;
 }
 

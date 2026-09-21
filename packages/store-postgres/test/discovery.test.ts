@@ -294,7 +294,7 @@ describeDb('discovering a deduction in the ledger', () => {
   });
 
   /**
-   * The whole reason a ledger extract is a document (ADR 0028 §1): the case is
+   * The whole reason a ledger extract is a document (ADR 0029 §1): the case is
    * declinable on the day it is opened, and the channel is derived from its own
    * notice rather than taken from a caller.
    */

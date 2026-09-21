@@ -1,5 +1,5 @@
 /**
- * The ledger sync step (ADR 0028, STRATEGY §5.4 Phase 1.5, §6.3, ADD-7).
+ * The ledger sync step (ADR 0029, STRATEGY §5.4 Phase 1.5, §6.3, ADD-7).
  *
  * One window of a customer's accounting ledger in, and out the other end: cases
  * opened for the short-pays nobody surfaced, skips for the deductions we
@@ -95,7 +95,7 @@ export interface DiscoveryStore {
 /**
  * The Phase 2 slot STRATEGY ADD-7 reserves, carried and unused.
  *
- * Triage v1 is deterministic rules (ADR 0028 §2). This parameter exists so the
+ * Triage v1 is deterministic rules (ADR 0029 §2). This parameter exists so the
  * seam is visible and named rather than discovered later: when a provider is
  * passed, it will be asked about the residue the rules leave. Passing one today
  * is refused, loudly, because a port with no implementation that silently did
@@ -110,7 +110,7 @@ export interface SyncLedgerInput {
   readonly window: LedgerWindow;
   readonly store: DiscoveryStore;
   readonly orgId: string;
-  /** Defaults to `DEFAULT_MIN_DISPUTE_CENTS` (ADR 0028 §4). */
+  /** Defaults to `DEFAULT_MIN_DISPUTE_CENTS` (ADR 0029 §4). */
   readonly minDisputeCents?: number;
   /** Phase 2. Absent means "no provider", which is the only value v1 accepts. */
   readonly triageProvider?: TriageProvider;
@@ -193,7 +193,7 @@ export async function syncLedger(input: SyncLedgerInput): Promise<SyncReport> {
     // did is the kind of wrong nobody notices.
     throw new LedgerSyncError(
       `triage v1 is deterministic rules and calls no provider; ${input.triageProvider.name} ` +
-        'cannot be used until the Phase 2 decision layer lands (ADR 0028 §2)',
+        'cannot be used until the Phase 2 decision layer lands (ADR 0029 §2)',
     );
   }
 
@@ -255,7 +255,7 @@ export async function syncLedger(input: SyncLedgerInput): Promise<SyncReport> {
 
     if (decision.kind === 'skip_exact_match') {
       // The one write this branch makes: the ledger's own name for a deduction
-      // a notice already found. Never a second case (ADR 0028 §3).
+      // a notice already found. Never a second case (ADR 0029 §3).
       await input.store.ensureIdentifiers(decision.deductionId, input.orgId, identifiers);
       skipped.push({
         invoiceExternalId: candidate.invoiceExternalId,

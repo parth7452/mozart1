@@ -103,7 +103,7 @@ describe('triage over a short-pay candidate', () => {
 
   /**
    * The asymmetry, asserted. Losing a deduction is the worse error (ADR 0025,
-   * ADR 0028 §3): a duplicate case is visible and still disputable, a dropped
+   * ADR 0029 §3): a duplicate case is visible and still disputable, a dropped
    * arrival is not.
    */
   it('opens a case on a probable match anyway, flagging what it may duplicate', () => {
@@ -196,7 +196,7 @@ describe('the dispute floor', () => {
       ThresholdDirectionError,
     );
     expect(() =>
-      assertMinDisputeCentsDirection(DEFAULT_MIN_DISPUTE_CENTS, 50_000, 'ADR 0028'),
+      assertMinDisputeCentsDirection(DEFAULT_MIN_DISPUTE_CENTS, 50_000, 'ADR 0029'),
     ).not.toThrow();
   });
 });

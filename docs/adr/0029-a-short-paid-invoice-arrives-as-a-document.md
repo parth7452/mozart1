@@ -1,4 +1,4 @@
-# 0028 — A short-paid invoice arrives as a document
+# 0029 — A short-paid invoice arrives as a document
 
 - Status: accepted
 - Date: 2026-09-21
@@ -217,7 +217,7 @@ change to `store.ts` and belongs to whoever owns that file.
 `(org, ledger_invoice_id, decided_by_version)` read out of `external_ids`. A
 partial unique index would be better and is not added here:
 `declined_candidates` is append-only and migration-owned, so adding one is
-migration 0022 plus an amendment to this ADR. It is proposed, not done.
+migration 0023 plus an amendment to this ADR. It is proposed, not done.
 
 ## Consequences
 
