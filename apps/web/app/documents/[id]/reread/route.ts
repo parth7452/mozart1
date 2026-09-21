@@ -85,28 +85,30 @@ export async function POST(
 
     // May this re-drive open a case?
     //
-    // Only for a document nothing has read yet. That is the state this button
-    // exists for — stored, scanned, and never read — and reading it is the read
-    // the upload would have done, case and all.
+    // The rule ADR 0016 wrote is about where the document came from, and since
+    // ingest records that, this asks the document rather than inferring it from
+    // whether a read happened.
     //
-    // A document that *has* been read has already had its answer about a case,
-    // and a re-drive must not overturn it. The answer that matters is ADR
-    // 0016's: a notice that arrived on an email whose sender could not be
-    // authenticated is read and deliberately left caseless, and a button on our
-    // own case list must not be the way a forged `From:` finally gets its case.
-    // With this false, `recordedRead` answers such a document from what was
-    // recorded instead of reading it again.
+    // `web_upload` is yes, unconditionally: a member of this tenant signed in
+    // and put the file there, which is the same standing an upload has when it
+    // is first read, so a re-drive of one does exactly what the upload would
+    // have. That is the case the old rule got wrong — a web upload whose first
+    // read recorded an extraction and then failed to open a case could never
+    // get one from this button, because every read document was treated as
+    // having settled the question.
     //
-    // It is derived from the read rather than from the document's `source`,
-    // which is what it should be derived from and is not available: nothing
-    // writes the `uploads` table, so `documents.upload_id` is null on every row
-    // and no document in this database says where it came from. Persisting the
-    // source is a schema change and an ADR of its own. Until then this is the
-    // conservative half of the rule — it holds for every document that was read
-    // — and the gap it leaves is a document whose *first* read failed before it
-    // recorded anything, which a re-drive treats as the never-read document it
-    // looks like.
-    const allowCaseOpen = (await store.latestExtraction(id)) === undefined;
+    // Everything else falls back to the old rule: read once, no case. An email
+    // may open a case only when DKIM or DMARC passed, and whether they did is
+    // *not persisted anywhere* — `InboundEmail.authenticated` decides
+    // `allowCaseOpen` at ingest and is never written down, and there is no
+    // column for it short of a migration and an ADR. So an email-borne document
+    // gets the conservative answer, which is the one that cannot let a forged
+    // `From:` acquire a case by way of a button on our own case list. A
+    // document with no recorded channel — stored before any of this — gets the
+    // same answer for the same reason.
+    const source = await store.uploadSourceFor(id);
+    const allowCaseOpen =
+      source === 'web_upload' || (await store.latestExtraction(id)) === undefined;
 
     const outcome = await runnerFromEnv().reread(id, pipelineDepsFor(store), {
       orgId: session.org.orgId,

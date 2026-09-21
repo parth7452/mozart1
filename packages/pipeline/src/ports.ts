@@ -17,6 +17,56 @@ import type {
 } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 
+/**
+ * Every channel a deduction can reach us through — the closed set behind both
+ * `uploads.source` and `declined_candidates.discovered_from` (migration 0014,
+ * STRATEGY CH-4).
+ *
+ * One list, here, because coverage is attributed by it: a document's channel
+ * and the channel a decline is counted under have to be the same word or the
+ * numbers are about different things. `store-postgres` re-exports this as
+ * `DISCOVERED_FROM` rather than keeping a second copy.
+ */
+export const UPLOAD_SOURCES = [
+  'web_upload', // a person added it
+  'email_in', // an attachment on an inbound email
+  'email_body', // the message itself was the notice (ADR 0016)
+  'erp_sync', // found in the accounting ledger, never surfaced by anyone
+  'portal_fetch', // pulled from the retailer's own portal
+  'edi_812', // the debit advice, which is the deduction document itself
+] as const;
+
+export type UploadSource = (typeof UPLOAD_SOURCES)[number];
+
+/**
+ * The three of those this pipeline can actually produce today.
+ *
+ * The other three are Phases 1.5, 2 and 2.5. They exist in the database's check
+ * constraint because coverage has to be able to name them; nothing in this
+ * package can write one, and a type that claimed otherwise would be a promise
+ * to a caller that no code here keeps.
+ */
+export type IngestSource = Extract<UploadSource, 'web_upload' | 'email_in' | 'email_body'>;
+
+/**
+ * Where a document came from, written at the moment it arrives.
+ *
+ * One `uploads` row per arrival of new bytes (migration 0003). It is the only
+ * thing in the database that says which channel found a deduction, so
+ * `declined_candidates.discovered_from` is derived from it rather than assumed
+ * by whichever caller happened to be declining.
+ */
+export interface UploadRecord {
+  readonly uploadId: string;
+  readonly orgId: string;
+  readonly source: IngestSource;
+  /**
+   * The member who put it there, when a person did. An inbound email has none —
+   * the sender is not one of our users, and `From:` is forgeable anyway.
+   */
+  readonly createdBy?: string;
+}
+
 export interface StoredDocument {
   readonly documentId: string;
   readonly orgId: string;
@@ -27,6 +77,15 @@ export interface StoredDocument {
   readonly bytes: Uint8Array;
   readonly pageText?: readonly string[];
   readonly requiresSplit: boolean;
+  /**
+   * The arrival that produced these bytes (`documents.upload_id`).
+   *
+   * Set by `ingestDocument` for everything stored since provenance started
+   * being recorded. Absent on the rows that predate it, and that absence is
+   * never papered over: a decline that cannot find a channel is refused rather
+   * than attributed to a guess.
+   */
+  readonly uploadId?: string;
 }
 
 export interface CaseRecord {
@@ -51,6 +110,31 @@ export interface PipelineStore {
   /** Returns an existing document with the same (org, sha256), if any. */
   findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined>;
   putDocument(document: Omit<StoredDocument, 'documentId'>): Promise<StoredDocument>;
+
+  /**
+   * Records that something arrived, before the bytes it carried are stored.
+   *
+   * Written first, and deliberately: a document row that names an upload row
+   * that is not there is a document with no provenance, and provenance is what
+   * coverage is attributed by. The other order can fail that way; this one can
+   * only leave an `uploads` row nothing points at, which nothing counts.
+   */
+  recordUpload(input: {
+    readonly orgId: string;
+    readonly source: IngestSource;
+    readonly createdBy?: string;
+  }): Promise<UploadRecord>;
+
+  /**
+   * The channel a document arrived through, or `undefined` for one stored
+   * before anything recorded it.
+   *
+   * `undefined` is an answer, not a default. A caller that needs the channel to
+   * be true — attributing a decline, deciding whether a re-drive may open a
+   * case — treats it as "this document does not say" and refuses or falls back
+   * explicitly, rather than filling in the common case.
+   */
+  uploadSourceFor(documentId: string): Promise<UploadSource | undefined>;
 
   recordScan(documentId: string, verdict: ScanVerdict): Promise<void>;
   latestScan(documentId: string): Promise<ScanVerdict | undefined>;

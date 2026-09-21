@@ -67,6 +67,7 @@ import type {
   CaseWorkflow,
   CaseWorkflowStore,
   HumanDecisionRecord,
+  IngestSource,
   OutcomeRecord,
   PacketRecord,
   DocumentReadLease,
@@ -76,6 +77,8 @@ import type {
   SubmissionRecord,
   UnreadDocument,
   UnreadDocumentsStore,
+  UploadRecord,
+  UploadSource,
   WorkflowSubmissionChannel,
 } from '../ports';
 import { assertUnreadDocumentsQuery } from '../ports';
@@ -130,6 +133,8 @@ export class InMemoryStore
   implements PipelineStore, CaseWorkflowStore, UnreadDocumentsStore, DocumentReadLock
 {
   readonly documents = new Map<string, StoredDocument>();
+  /** One row per arrival, keyed by id — the `uploads` table (migration 0003). */
+  readonly uploads = new Map<string, UploadRecord>();
   /**
    * When each document was stored, which `documents.created_at` is in Postgres.
    *
@@ -173,6 +178,31 @@ export class InMemoryStore
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
+  }
+
+  /**
+   * Where a document came from, one row per arrival, exactly as the `uploads`
+   * table holds it.
+   *
+   * Modelled rather than skipped because the answer is load-bearing: a decline
+   * is attributed by it, and a store that handed back a channel for a document
+   * that never recorded one would make the contract suite a fiction in the one
+   * place it is about a number somebody reports.
+   */
+  async recordUpload(input: {
+    readonly orgId: string;
+    readonly source: IngestSource;
+    readonly createdBy?: string;
+  }): Promise<UploadRecord> {
+    const record: UploadRecord = { uploadId: randomUUID(), ...input };
+    this.uploads.set(record.uploadId, record);
+    return record;
+  }
+
+  async uploadSourceFor(documentId: string): Promise<UploadSource | undefined> {
+    const uploadId = this.documents.get(documentId)?.uploadId;
+    if (uploadId === undefined) return undefined;
+    return this.uploads.get(uploadId)?.source;
   }
 
   async putDocument(document: Omit<StoredDocument, 'documentId'>): Promise<StoredDocument> {

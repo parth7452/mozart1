@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { AlreadyDeclinedError, closeAllPools, PostgresStore } from '../src/store';
+import {
+  AlreadyDeclinedError,
+  closeAllPools,
+  PostgresStore,
+  ProvenanceUnknownError,
+} from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
@@ -68,6 +73,9 @@ describeDb('declining a case', () => {
   // A second case, never declined, so the tests about who may decline are not
   // answered by the case already having been declined.
   let undeclinedId: string;
+  /** The notice on the first case, whose `uploads` row is what is derived from. */
+  let noticeDocumentId: string;
+  let documents = 0;
 
   beforeAll(async () => {
     await admin.query(
@@ -92,13 +100,53 @@ describeDb('declining a case', () => {
     );
     const opened = await store.openCase({ orgId, claimId: 'APDP-1', deductionAmountCents: 312_000 });
     deductionId = opened.deductionId;
+    noticeDocumentId = await attachNotice(deductionId, 'web_upload');
     const second = await store.openCase({
       orgId,
       claimId: 'APDP-2',
       deductionAmountCents: 45_000,
     });
     undeclinedId = second.deductionId;
+    await attachNotice(undeclinedId, 'web_upload');
   });
+
+  /**
+   * A notice on a case, arriving the way one arrives: the `uploads` row first,
+   * then the bytes that name it.
+   *
+   * Every case in this file gets one, because a decline is attributed to the
+   * channel its notice arrived through and a case with no notice is refused.
+   * That refusal has its own tests below; the rest of the suite is about what
+   * happens when the provenance is there.
+   */
+  async function attachNotice(
+    caseId: string,
+    source: 'web_upload' | 'email_in',
+    options: { readonly recordArrival?: boolean } = {},
+  ): Promise<string> {
+    documents += 1;
+    const upload =
+      options.recordArrival === false
+        ? undefined
+        : await store.recordUpload({
+            orgId,
+            source,
+            // Email has no member behind it; a web upload does.
+            ...(source === 'web_upload' ? { createdBy: analystId } : {}),
+          });
+    const stored = await store.putDocument({
+      orgId,
+      sha256: `${suffix}${documents}`.padEnd(64, 'a').slice(0, 64),
+      filename: `notice-${documents}.pdf`,
+      mimeType: 'application/pdf',
+      byteSize: 1024,
+      bytes: new Uint8Array([37, 80, 68, 70]),
+      ...(upload !== undefined ? { uploadId: upload.uploadId } : {}),
+      requiresSplit: false,
+    });
+    await store.linkDocument(caseId, stored.documentId, 'notice');
+    return stored.documentId;
+  }
 
   afterAll(async () => {
     await closeAllPools();
@@ -111,7 +159,6 @@ describeDb('declining a case', () => {
       deductionId,
       reason: 'below_economic_floor',
       decidedBy: `dec-a-${suffix}@example.test`,
-      assumedDiscoveredFrom: 'web_upload',
       missingEvidence: ['proof_of_delivery'],
       detail: 'Recovery would not cover the work.',
     });
@@ -129,19 +176,90 @@ describeDb('declining a case', () => {
     expect(stillThere?.deductionId).toBe(deductionId);
   });
 
-  it('falls back to the stated assumption, because nothing records provenance yet', async () => {
-    // This is the honest state of the system, pinned so it cannot drift
-    // silently: `documents.upload_id` is never set, because nothing writes the
-    // `uploads` table. The day ingest records provenance, this test should be
-    // changed to assert the derived value instead — and the fact that it has to
-    // be changed is the point.
-    const { rows } = await admin.query<{ discovered_from: string; upload_rows: string }>(
-      `select dc.discovered_from, (select count(*)::text from uploads) as upload_rows
-         from declined_candidates dc where dc.deduction_id = $1`,
-      [deductionId],
+  it('takes the channel off the notice’s own arrival rather than from the caller', async () => {
+    // The deliberate inverse of the test that used to be here. That one pinned
+    // the honest state of the day — `uploads` had zero rows, nothing recorded
+    // where a document came from, and `discovered_from` was whatever the caller
+    // assumed — and said in as many words that it should be replaced by this
+    // one when ingest started recording provenance. It has.
+    //
+    // So the claim is now the opposite claim, and it is stronger: the row
+    // exists, the notice points at it, and the channel stored against the
+    // decline is the channel that row records. Nothing was passed in — the
+    // parameter is gone.
+    const { rows } = await admin.query<{
+      discovered_from: string;
+      upload_id: string | null;
+      upload_source: string | null;
+      created_by: string | null;
+    }>(
+      `select dc.discovered_from, doc.upload_id, u.source as upload_source, u.created_by
+         from declined_candidates dc
+         join documents doc on doc.id = $2
+         left join uploads u on u.id = doc.upload_id
+        where dc.deduction_id = $1`,
+      [deductionId, noticeDocumentId],
     );
-    expect(rows[0]?.discovered_from).toBe('web_upload');
-    expect(rows[0]?.upload_rows).toBe('0');
+    expect(rows[0]?.upload_id).not.toBeNull();
+    expect(rows[0]?.upload_source).toBe('web_upload');
+    // The person who uploaded it, by the id the session resolved.
+    expect(rows[0]?.created_by).toBe(analystId);
+    // And the decline is counted under that same word, not a similar one.
+    expect(rows[0]?.discovered_from).toBe(rows[0]?.upload_source);
+  });
+
+  it('refuses a case whose notice records no arrival, rather than defaulting it', async () => {
+    // The old fallback's replacement. A document stored before provenance
+    // existed says nothing about where it came from, and `discovered_from` is
+    // what coverage is grouped by — so the choice is between a row under a
+    // guessed channel and no row at all. A wrong number that looks right is
+    // worse than a refusal somebody has to act on.
+    const orphan = await store.openCase({
+      orgId,
+      claimId: `APDP-NO-UPLOAD-${suffix}`,
+      deductionAmountCents: 91_000,
+    });
+    const documentId = await attachNotice(orphan.deductionId, 'web_upload', {
+      recordArrival: false,
+    });
+
+    const refusal = store.declineCase({
+      deductionId: orphan.deductionId,
+      reason: 'below_economic_floor',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(ProvenanceUnknownError);
+    // It names the document somebody would have to go and look at.
+    await expect(refusal).rejects.toMatchObject({ noticeDocumentId: documentId });
+
+    // Refused, and nothing written: no row in the log and nothing on the case's
+    // timeline claiming it was given up on.
+    const { rows } = await admin.query<{ declines: string; events: string }>(
+      `select (select count(*)::text from declined_candidates where deduction_id = $1) as declines,
+              (select count(*)::text from deduction_events
+                where deduction_id = $1 and event_type = 'case.declined') as events`,
+      [orphan.deductionId],
+    );
+    expect(rows[0]?.declines).toBe('0');
+    expect(rows[0]?.events).toBe('0');
+  });
+
+  it('refuses a case with no notice at all, and says that is what is wrong', async () => {
+    // A different fault from the one above, and told apart on purpose: this is
+    // a case assembled wrong, not a document stored before provenance existed.
+    const bare = await store.openCase({
+      orgId,
+      claimId: `APDP-NO-NOTICE-${suffix}`,
+      deductionAmountCents: 12_000,
+    });
+    const refusal = store.declineCase({
+      deductionId: bare.deductionId,
+      reason: 'below_economic_floor',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(ProvenanceUnknownError);
+    await expect(refusal).rejects.toThrow(/no notice document/);
+    await expect(refusal).rejects.toMatchObject({ noticeDocumentId: undefined });
   });
 
   it('writes exactly one row and one event, and touches nothing else', async () => {
@@ -194,8 +312,7 @@ describeDb('declining a case', () => {
         deductionId,
         reason: 'deadline_passed',
         decidedBy: `dec-a-${suffix}@example.test`,
-        assumedDiscoveredFrom: 'web_upload',
-      }),
+        }),
     ).rejects.toThrow(AlreadyDeclinedError);
 
     const { rows } = await admin.query<{ declines: string }>(
@@ -219,6 +336,10 @@ describeDb('declining a case', () => {
       claimId: `APDP-RACE-${suffix}`,
       deductionAmountCents: 128_000,
     });
+    // With its notice, so both racers get as far as the insert. A case with no
+    // provenance is refused before the lock matters, which would make this
+    // test pass for the wrong reason.
+    await attachNotice(raced.deductionId, 'web_upload');
     // Tagged so the poll below can find exactly these two backends. A
     // different connection string is also a different pool, which is fine:
     // `closeAllPools()` in `afterAll` ends every one of them.
@@ -241,8 +362,7 @@ describeDb('declining a case', () => {
           deductionId: raced.deductionId,
           reason,
           decidedBy: `dec-a-${suffix}@example.test`,
-          assumedDiscoveredFrom: 'web_upload',
-        });
+            });
 
       await gate.query('begin');
       await gate.query('select id from deductions where id = $1 for update', [raced.deductionId]);
@@ -295,8 +415,7 @@ describeDb('declining a case', () => {
         deductionId: undeclinedId,
         reason: 'evidence_unavailable',
         decidedBy: `dec-a-${suffix}@example.test`,
-        assumedDiscoveredFrom: 'web_upload',
-        // Not a canonical type. The column is a plain text[], so nothing below
+          // Not a canonical type. The column is a plain text[], so nothing below
         // this would refuse it and nothing above would ever count it.
         missingEvidence: ['no POD' as never],
       }),
@@ -322,8 +441,7 @@ describeDb('declining a case', () => {
           deductionId: undeclinedId,
           reason: 'other',
           decidedBy: `dec-r-${suffix}@example.test`,
-          assumedDiscoveredFrom: 'web_upload',
-        }),
+            }),
       ).rejects.toThrow(/row-level security|permission denied/i);
     } finally {
       await reader.close();
@@ -341,8 +459,7 @@ describeDb('declining a case', () => {
           deductionId,
           reason: 'other',
           decidedBy: `dec-o-${suffix}@example.test`,
-          assumedDiscoveredFrom: 'web_upload',
-        }),
+            }),
       ).rejects.toThrow(/not visible to this tenant/);
     } finally {
       await other.close();

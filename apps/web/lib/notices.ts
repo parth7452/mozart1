@@ -256,6 +256,15 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this case was already declined; the first decline stands',
   },
+  decline_no_provenance: {
+    // Nothing was recorded. A decline is counted against the channel that found
+    // the deduction, and this case's notice does not say which one that was —
+    // so the choice was between a row under a guessed channel and no row at
+    // all, and a coverage number nobody can trust is worse than one that is
+    // visibly incomplete (docs/STRATEGY.md, ADD-1).
+    tone: 'bad',
+    text: 'this case was not declined: nothing on it records how the deduction reached us, and a decline is counted against the channel that found it. The case is untouched, and this is in the logs.',
+  },
 
   // --- uploading ------------------------------------------------------------
   upload_role: { tone: 'bad', text: 'your role can review documents but not add them' },

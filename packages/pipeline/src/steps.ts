@@ -29,7 +29,7 @@ import {
   type PostmarkInboundPayload,
   type ScanVerdict,
 } from '@recouple/ingest';
-import type { CaseRecord, PipelineDeps, StoredDocument } from './ports';
+import type { CaseRecord, IngestSource, PipelineDeps, StoredDocument } from './ports';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -90,8 +90,20 @@ export interface IngestInput {
    * wrong thing. The gate it gets is `acceptEmailBody`'s, and the distinction
    * lives here rather than in a flag a caller could set, so no upload path can
    * reach it by mistake.
+   *
+   * It is also what gets written to `uploads.source`, so it is the one thing
+   * that later says which channel found this deduction. Coverage is attributed
+   * by that (STRATEGY CH-4, ADD-1).
    */
-  readonly source: 'web_upload' | 'email_in' | 'email_body';
+  readonly source: IngestSource;
+  /**
+   * The member who put this document here, for `uploads.created_by`.
+   *
+   * A web upload has one — the signed-in reviewer — and an email does not: the
+   * sender is not one of our users and `From:` is forgeable, so the column is
+   * left null rather than filled with somebody's guess at who they were.
+   */
+  readonly uploadedBy?: string;
   /** Known text layer, when the caller already has one. */
   readonly pageText?: readonly string[];
   readonly pageTextSource?: 'embedded' | 'ocr';
@@ -123,6 +135,13 @@ export async function ingestDocument(
 
   const existing = await deps.store.findDocumentByHash(input.orgId, accepted.sha256);
   if (existing !== undefined) {
+    // No second `uploads` row, on purpose. Provenance is a fact about the
+    // arrival that produced these bytes, and that arrival already happened: the
+    // document keeps the `upload_id` its first one wrote. A second row would
+    // say the same deduction was discovered twice, which is exactly the kind of
+    // double count `declined_candidates` exists to avoid — and if the second
+    // arrival came through a different channel, crediting it would move
+    // coverage to whichever channel re-sent a document we already had.
     const verdict = (await deps.store.latestScan(existing.documentId)) ?? {
       status: 'error' as const,
       scanner: 'none',
@@ -131,6 +150,15 @@ export async function ingestDocument(
     return { document: existing, verdict, deduplicated: true, warnings: accepted.warnings };
   }
 
+  // Before the document, so a stored document always has an arrival behind it.
+  // The reverse order can leave a document that says nothing about where it
+  // came from, which is the state this whole change exists to end.
+  const upload = await deps.store.recordUpload({
+    orgId: input.orgId,
+    source: input.source,
+    ...(input.uploadedBy !== undefined ? { createdBy: input.uploadedBy } : {}),
+  });
+
   const document = await deps.store.putDocument({
     orgId: input.orgId,
     sha256: accepted.sha256,
@@ -138,6 +166,7 @@ export async function ingestDocument(
     mimeType: accepted.mimeType,
     byteSize: accepted.byteSize,
     bytes: input.bytes,
+    uploadId: upload.uploadId,
     ...(input.pageText !== undefined ? { pageText: input.pageText } : {}),
     requiresSplit: accepted.requiresSplit,
   });
@@ -866,6 +895,10 @@ export async function ingestInboundEmail(
             filename: attachment.filename,
             bytes,
             declaredMimeType: attachment.contentType,
+            // The channel, recorded on the `uploads` row this opens. No
+            // `uploadedBy`: the sender is not one of our members, and `From:`
+            // is forgeable, so the column stays null rather than naming a
+            // person on the strength of a header.
             source: 'email_in',
           },
           deps,
@@ -908,6 +941,9 @@ export async function ingestInboundEmail(
             orgId: org.orgId,
             filename: emailBodyFilename(email),
             bytes: body.bytes,
+            // Its own channel, not `email_in`: a notice written in the message
+            // and one attached to it are different things to have found, and
+            // coverage counts them separately (migration 0014, ADR 0016).
             source: 'email_body',
             pageText: [body.text],
           },

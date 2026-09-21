@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { AlreadyDeclinedError } from '@recouple/store-postgres';
+import { AlreadyDeclinedError, ProvenanceUnknownError } from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { DECLINE_DETAIL_MAX_LENGTH, NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
@@ -21,11 +21,16 @@ import { DECLINE_DETAIL_MAX_LENGTH, NOTICE_ABOUT_PARAM, resolveNotice } from '..
 const ORG_ID = '11111111-1111-1111-1111-111111111111';
 const CASE_ID = '33333333-3333-3333-3333-333333333333';
 
+/**
+ * What the route hands the store — and, as of provenance at ingest, what it
+ * does not: there is no `discoveredFrom` here. The channel a deduction arrived
+ * through is derived by the store from the case's own notice, so a route that
+ * could state it would be a route that could get it wrong.
+ */
 interface DeclineCall {
   deductionId: string;
   reason: string;
   decidedBy: string;
-  assumedDiscoveredFrom: string;
   missingEvidence?: readonly string[];
   detail?: string;
 }
@@ -116,10 +121,21 @@ function said(response: Response): string | undefined {
 }
 
 describe('declining a case from the web', () => {
+  /** What the route logged, so "it is in the logs" can be asserted rather than hoped. */
+  let logged: unknown[][] = [];
+
   beforeEach(() => {
     harness.role = 'analyst';
     harness.sessions = 0;
     harness.store = new RouteTestStore();
+    logged = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('records the decline and says so on the case it came from', async () => {
@@ -146,7 +162,6 @@ describe('declining a case from the web', () => {
       deductionId: CASE_ID,
       reason: 'evidence_unavailable',
       decidedBy: 'reviewer@example.test',
-      assumedDiscoveredFrom: 'web_upload',
       missingEvidence: ['proof_of_delivery'],
       detail: 'the carrier has nothing',
     });
@@ -290,6 +305,27 @@ describe('declining a case from the web', () => {
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
     expect(said(response)).toBe('this case was already declined; the first decline stands');
+    expect(store.closed).toBe(1);
+  });
+
+  it('tells the reviewer plainly when the case does not say how it reached us', async () => {
+    // The store refuses rather than attributing the decline to a guessed
+    // channel, and the route says so rather than 500ing. Nothing was written:
+    // the case is untouched, and the reviewer is told that in words instead of
+    // being shown a success for a row that does not exist.
+    const store = harness.store as RouteTestStore;
+    store.throws = new ProvenanceUnknownError(
+      CASE_ID,
+      'its notice document 44444444-4444-4444-4444-444444444444 records no arrival',
+      '44444444-4444-4444-4444-444444444444',
+    );
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
+    expect(said(response)).toMatch(/was not declined/);
+    // And it is in the logs, because this one is somebody's to fix.
+    expect(logged).toHaveLength(1);
     expect(store.closed).toBe(1);
   });
 

@@ -251,16 +251,32 @@ Two things the button deliberately does not do. It does not fetch the document
 to decide whether the tenant may see it — `documentIsVisible` is a `select 1`
 under the same policies, because the alternative was pulling a scanned notice's
 bytes out of object storage on every press to learn one bit. And it does not let
-a re-drive open a case for a document that has already been read: it passes
-`allowCaseOpen: false` for those, so an unauthenticated email's notice — read and
-deliberately left caseless by ADR 0016 — cannot acquire a case by way of a button
-on our own case list. The rule *should* be read off the document's source, and
-cannot be: nothing writes the `uploads` table, so `documents.upload_id` is null
-on every row and no document in this database records where it came from.
-Persisting the source is a schema change and an ADR of its own; until then the
-rule holds for every document that was read, and the gap it leaves is a document
-whose first read failed before recording anything, which a re-drive treats as the
-never-read document it looks like.
+a re-drive open a case for a notice that arrived on an email whose sender could
+not be authenticated — read and deliberately left caseless by ADR 0016 — so a
+button on our own case list cannot be how a forged `From:` finally gets its
+case.
+
+**That rule is now read off the document's source, which was the intention all
+along.** When this ADR was written nothing wrote the `uploads` table, so
+`documents.upload_id` was null on every row and no document recorded where it
+came from; the button had to approximate the rule with "has this been read
+before", which held for every document that was read and left a gap — a web
+upload whose first read recorded an extraction and then failed to open a case
+could never get one, because being read at all was taken as having settled the
+question. `ingestDocument` writes the `uploads` row now, before it stores the
+bytes, and no migration was needed: the table and the column have been there
+since 0003. So `web_upload` may open a case, unconditionally, which is exactly
+what the upload itself would have done.
+
+Everything else keeps the old approximation, and for a stated reason rather than
+an unstated one: whether an inbound email passed DKIM or DMARC is **not
+persisted anywhere**. `InboundEmail.authenticated` decides `allowCaseOpen` at
+ingest and is never written down, and there is no column for it short of a
+migration and an ADR of its own. An email-borne document — and a document
+stored before any of this, which records no channel — therefore gets the
+conservative answer, because that is the one that cannot let an unauthenticated
+sender acquire a case. Persisting the authentication verdict is the change that
+would close the remainder.
 
 This is the visible half the original design was missing. Every step was
 separately re-runnable from the start; what did not exist was a way to see that

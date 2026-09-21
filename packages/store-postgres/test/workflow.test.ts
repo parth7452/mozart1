@@ -612,6 +612,13 @@ workflowContract('in memory', describe, async () => {
 
   const put = async (deductionId: string, role: 'notice' | 'evidence') => {
     document += 1;
+    // The same two writes in the same order as the Postgres harness, and as
+    // `ingestDocument`: where a document came from is recorded first.
+    const upload = await store.recordUpload({
+      orgId,
+      source: 'web_upload',
+      createdBy: analyst,
+    });
     const stored = await store.putDocument({
       orgId,
       sha256: String(document).padStart(64, '0'),
@@ -619,6 +626,7 @@ workflowContract('in memory', describe, async () => {
       mimeType: 'application/pdf',
       byteSize: 1024,
       bytes: new Uint8Array([1, 2, 3]),
+      uploadId: upload.uploadId,
       requiresSplit: false,
     });
     await store.linkDocument(deductionId, stored.documentId, role);
@@ -734,8 +742,17 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
 
   let claim = 0;
   let document = 0;
+  // An arrival, then the bytes — the order `ingestDocument` writes them in, so
+  // a case seeded here has the provenance a case opened by the pipeline has.
+  // Without it every case in this suite would be undeclinable, which is the
+  // right refusal and the wrong test.
   const put = async (deductionId: string, role: 'notice' | 'evidence'): Promise<void> => {
     document += 1;
+    const upload = await storeFor(analyst).recordUpload({
+      orgId,
+      source: 'web_upload',
+      createdBy: analyst,
+    });
     const stored = await storeFor(analyst).putDocument({
       orgId,
       sha256: `${suffix}/${document}`
@@ -747,6 +764,7 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
       mimeType: 'application/pdf',
       byteSize: 1024,
       bytes: new Uint8Array([37, 80, 68, 70]),
+      uploadId: upload.uploadId,
       requiresSplit: false,
     });
     await storeFor(analyst).linkDocument(deductionId, stored.documentId, role);
@@ -765,7 +783,6 @@ async function seedTenant(admin: Pool, label: string): Promise<Tenant> {
         deductionId,
         reason: 'below_economic_floor',
         decidedBy: 'analyst',
-        assumedDiscoveredFrom: 'web_upload',
       });
     },
     async newCase(amountCents = 312_000) {
@@ -910,7 +927,6 @@ describeDb('the workflow on postgres', () => {
       deductionId,
       reason: 'below_economic_floor',
       decidedBy: 'analyst',
-      assumedDiscoveredFrom: 'web_upload',
     });
     await expect(
       tenant.storeFor(tenant.analyst).recordHumanDecision({
