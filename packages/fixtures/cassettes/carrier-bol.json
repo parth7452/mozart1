@@ -24,7 +24,7 @@
     },
     "po_number": {
       "value": "7741-88203",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase Order: 7741-88203"
     },
@@ -42,19 +42,19 @@
     },
     "total_cartons_shipped": {
       "value": 30,
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Total Cartons Shipped: 30"
     },
     "total_cartons_received": {
       "value": 25,
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Total Cartons Received: 25"
     },
     "signed_by": {
-      "value": "R. Alvarez (signature on file)",
-      "confidence": 0.95,
+      "value": "R. Alvarez",
+      "confidence": 0.93,
       "source_page": 1,
       "source_quote": "Received By: R. Alvarez (signature on file)"
     },
@@ -79,21 +79,39 @@
           "source_quote": "000-4471-08       Case Pack Olive Oil                 30"
         },
         "qty_received": {
-          "value": 25,
-          "confidence": 0.6,
+          "value": null,
+          "confidence": 0,
           "source_page": 1,
-          "source_quote": "Total Cartons Received: 25"
+          "source_quote": ""
         }
       }
-    ]
+    ],
+    "appointment_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gate_check_in_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_reference": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T03:42:51.300Z",
+  "recordedAt": "2026-09-21T04:57:52.712Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4211,
-    "outputTokens": 833,
-    "costMicros": 16752,
-    "latencyMs": 6644
+    "inputTokens": 4430,
+    "outputTokens": 815,
+    "costMicros": 17010,
+    "latencyMs": 6736
   }
 }

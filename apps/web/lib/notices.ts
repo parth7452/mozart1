@@ -271,14 +271,18 @@ export const NOTICES = {
   decline_predates_provenance: {
     // The other half, and deliberately a different sentence: here the notice is
     // present and it is the *arrival* that was never recorded, because the
-    // document was stored before ingest wrote one. Nobody can fix that from
-    // this page or any other — `documents` is append-only, so `upload_id`
-    // cannot be set after the fact, and `uploads` has no way to point back at a
-    // document. Telling a reviewer to go and record it would send them after a
-    // button that cannot exist yet, so the sentence says what is actually true
-    // and where it is written down.
+    // document was stored before ingest wrote one. This used to end "until a
+    // migration adds a way to record its arrival", which was true when it was
+    // written and stopped being true with migration 0019 (ADR 0024).
+    //
+    // It still does not tell the reviewer to go and do it. `documents` is
+    // append-only, so nothing on this page or any other page can set
+    // `upload_id`, and asserting which channel found a deduction is a decision
+    // with somebody's name on it — an operator running `pnpm link:provenance`,
+    // not a button. So the sentence says what is true, says that somebody can
+    // unblock it, and does not pretend the reader is that somebody.
     tone: 'bad',
-    text: 'this case predates provenance recording; it cannot be declined until a migration adds a way to record its arrival. Nothing was written — the case was not declined and is untouched, and this is in the logs.',
+    text: 'this case predates provenance recording, so nothing on it says which channel found the deduction and a decline is counted against that channel. It can be recorded by an operator (ADR 0024) and the case declined afterwards. Nothing was written — the case was not declined and is untouched, and this is in the logs.',
   },
 
   // --- uploading ------------------------------------------------------------

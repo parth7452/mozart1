@@ -1,0 +1,157 @@
+{
+  "key": "unsigned-pod-scan",
+  "docType": "pod",
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.95,
+  "document": {
+    "document_number": {
+      "value": "RL-DEL-88214",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Report Number: RL-DEL-88214"
+    },
+    "ship_date": {
+      "value": "08/28/2026",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Delivery Date: 08/28/2026"
+    },
+    "carrier_name": {
+      "value": "Ridgeway Logistics",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Ridgeway Logistics - System Generated"
+    },
+    "po_number": {
+      "value": "KH-55120",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Purchase Order: KH-55120"
+    },
+    "ship_to": {
+      "value": "KeHE Aurora DC",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Ship To: KeHE Aurora DC"
+    },
+    "total_cartons_shipped": {
+      "value": 48,
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Total Cartons Shipped: 48"
+    },
+    "total_cartons_received": {
+      "value": 48,
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Total Cartons Received: 48"
+    },
+    "signature_present": {
+      "value": false,
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "No consignee signature was captured for this delivery."
+    },
+    "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gate_check_in_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_reference": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "signed_by": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:15:05.917Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5683,
+    "outputTokens": 472,
+    "costMicros": 16086,
+    "latencyMs": 4712
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "CARRIER-GENERATED DELIVERY REPORT\nRidgeway Logistics System Generated\nReport Number: RL-DEL-88214\nDelivery Date: 08/28/2026\nPurchase Order: KH-55120\nShip To: KeHE Aurora DC\nTotal Cartons Shipped: 48\nTotal Cartons Received: 48\nThis report is generated from carrier scan data. No consignee signature was captured for this delivery."
+      }
+    ],
+    "blocks": [
+      {
+        "text": "CARRIER-GENERATED DELIVERY REPORT\nRidgeway Logistics System Generated",
+        "page": 1,
+        "bbox": [
+          0.0863639594160823,
+          0.05294534245828971,
+          0.4111904899232449,
+          0.0901965209915769
+        ],
+        "kind": "Title",
+        "confidence": 0.8176461070775985
+      },
+      {
+        "text": "Report Number: RL-DEL-88214\nDelivery Date: 08/28/2026\nPurchase Order: KH-55120\nShip To: KeHE Aurora DC",
+        "page": 1,
+        "bbox": [
+          0.07957452736590898,
+          0.09945033257481313,
+          0.3228757876118929,
+          0.16651008018824937
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9574947118759155
+      },
+      {
+        "text": "Total Cartons Shipped: 48\nTotal Cartons Received: 48",
+        "page": 1,
+        "bbox": [
+          0.0778526587875194,
+          0.17949830392765373,
+          0.30898441349720535,
+          0.21444496648832043
+        ],
+        "kind": "Key Value",
+        "confidence": 0.866815948486328
+      },
+      {
+        "text": "This report is generated from carrier scan data. No consignee signature was captured for this delivery.",
+        "page": 1,
+        "bbox": [
+          0.07604806698515577,
+          0.22939929747177426,
+          0.5509988680940293,
+          0.27176712110978696
+        ],
+        "kind": "Text",
+        "confidence": 0.9377015650272369
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 5799
+  }
+}

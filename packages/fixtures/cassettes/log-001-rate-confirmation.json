@@ -1,0 +1,109 @@
+{
+  "key": "log-001-rate-confirmation",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
+  "document": {
+    "agreement_type": {
+      "value": "Rate confirmation",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Rate confirmation: RC-771 | Accepted: August 10, 2026"
+    },
+    "counterparty": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Customer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC"
+    },
+    "effective_from": {
+      "value": "August 10, 2026",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Accepted: August 10, 2026"
+    },
+    "approved_by": {
+      "value": "Maya Chen, Transportation Coordinator",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Customer representative: Maya Chen, Transportation Coordinator."
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after the effective confirmed appointment, and the delay is carrier-caused.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after\nthe effective confirmed appointment, and the delay is carrier-caused."
+        },
+        "amount": {
+          "value": "$600.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "A $600.00 flat late-arrival fee"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Written appointment changes approved by the customer transportation team replace earlier appointments. A customer-requested reschedule is not a carrier-caused delay.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Written appointment changes approved by the customer transportation team replace earlier\nappointments. A customer-requested reschedule is not a carrier-caused delay."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Timeliness is determined by receiving gate check-in, not unloading completion.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Timeliness is determined by receiving gate check-in, not unloading completion."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T04:58:33.508Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4526,
+    "outputTokens": 1102,
+    "costMicros": 20072,
+    "latencyMs": 9688
+  }
+}

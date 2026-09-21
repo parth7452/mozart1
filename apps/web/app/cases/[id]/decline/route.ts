@@ -114,13 +114,15 @@ export async function POST(
         `[recouple] decline: case ${id} in org ${session.org.orgId} has no recorded provenance`,
         cause,
       );
-      // Two refusals, two sentences. A case with no notice is one somebody can
-      // put right by attaching it; a notice with no `uploads` row behind it is
-      // a document stored before ingest recorded arrivals, and nothing anyone
-      // can do from this app changes that — `documents` is append-only, so
-      // `upload_id` cannot be filled in now. The store tells them apart by
-      // whether it names a document, and repeating one sentence for both would
-      // send half the readers after a fix that does not exist.
+      // Two refusals, two sentences, and they stay two after ADR 0024. A case
+      // with no notice is one the reviewer can put right by attaching it. A
+      // notice with no arrival behind it is a document stored before ingest
+      // recorded them, and nothing on this page changes that — `documents` is
+      // append-only, so `upload_id` cannot be filled in from a request — but it
+      // is no longer a dead end either: an operator can record the arrival with
+      // `pnpm link:provenance`. The store tells the two apart by whether it
+      // names a document, and one sentence for both would send half the readers
+      // after the wrong fix.
       return say(
         cause.noticeDocumentId === undefined
           ? 'decline_no_notice'

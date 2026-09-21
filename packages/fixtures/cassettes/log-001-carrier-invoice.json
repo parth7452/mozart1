@@ -1,0 +1,48 @@
+{
+  "key": "log-001-carrier-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "invoice_number": {
+      "value": "INV-AFS-260814",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice: INV-AFS-260814"
+    },
+    "invoice_date": {
+      "value": "August 14, 2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Issued: August 14, 2026"
+    },
+    "po_number": {
+      "value": "PO-BSC-8841",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "PO: PO-BSC-8841"
+    },
+    "customer_name": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Bill to: Brookfield Supply Co."
+    },
+    "invoice_total": {
+      "value": "$4,800.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Total invoice $4,800.00"
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T04:58:22.286Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4180,
+    "outputTokens": 605,
+    "costMicros": 14410,
+    "latencyMs": 6568
+  }
+}

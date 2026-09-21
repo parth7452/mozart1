@@ -6,31 +6,37 @@
   "document": {
     "retailer_name": {
       "value": "Harbor Lane Markets",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Harbor Lane Markets"
     },
     "claim_id": {
       "value": "DN-2609-001",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-001"
     },
     "invoice_number": {
       "value": "INV-260801",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Invoice: INV-260801"
     },
     "po_number": {
       "value": "PO-HLM-8042",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Purchase order: PO-HLM-8042"
     },
+    "vendor_number": {
+      "value": "NSP-1048",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Supplier account: NSP-1048"
+    },
     "deduction_total": {
       "value": "$600.00",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "$600.00"
     },
@@ -42,15 +48,9 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-001",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-001"
-    },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.95,
-      "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
     },
     "lines": [
       {
@@ -76,7 +76,7 @@
           "value": 380,
           "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "380 cases"
+          "source_quote": "380 of 400 cases"
         },
         "unit_cost": {
           "value": "$30.00",
@@ -86,21 +86,21 @@
         },
         "deduction_amount": {
           "value": "$600.00",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$600.00"
         },
         "reason_code": {
           "value": "SHORT",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason code: SHORT"
         },
         "reason_description": {
-          "value": "Customer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases were deducted.",
-          "confidence": 0.9,
+          "value": "Twenty cases were deducted.",
+          "confidence": 0.7,
           "source_page": 1,
-          "source_quote": "Customer reports receiving 380 of 400 cases of Citrus Sparkling Water, SKU NS-100, billed at $30.00 per case. Twenty cases\nwere deducted."
+          "source_quote": "Twenty cases\nwere deducted."
         }
       }
     ],
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:48:47.158Z",
+  "recordedAt": "2026-09-20T17:54:17.199Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4960,
-    "outputTokens": 1006,
-    "costMicros": 19980,
-    "latencyMs": 7682
+    "inputTokens": 5103,
+    "outputTokens": 912,
+    "costMicros": 19326,
+    "latencyMs": 7702
   }
 }

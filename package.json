@@ -16,6 +16,7 @@
     "record:cassettes": "tsx scripts/record-cassettes.ts",
     "eval": "tsx scripts/run-evals.ts",
     "link:retailer": "tsx scripts/link-retailer.ts",
+    "link:provenance": "tsx scripts/link-provenance.ts",
     "render:scans": "tsx scripts/render-scans.mts",
     "build:review": "tsx scripts/build-review-bundle.mts",
     "build:web": "pnpm --filter @recouple/web build",

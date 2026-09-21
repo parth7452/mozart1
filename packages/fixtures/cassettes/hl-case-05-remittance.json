@@ -2,7 +2,7 @@
   "key": "hl-case-05-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.95,
+  "classifierConfidence": 0.99,
   "document": {
     "payer_name": {
       "value": "Maple Gate Stores",
@@ -32,7 +32,7 @@
       {
         "invoice_number": {
           "value": "INV-260805",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "INV-260805"
         },
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:49:50.645Z",
+  "recordedAt": "2026-09-20T17:55:23.458Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4346,
     "outputTokens": 510,
     "costMicros": 13792,
-    "latencyMs": 4472
+    "latencyMs": 4558
   }
 }

@@ -6,7 +6,7 @@
   "document": {
     "retailer_name": {
       "value": "WALMART STORES, INC.",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "WALMART STORES, INC."
     },
@@ -18,7 +18,7 @@
     },
     "claim_id": {
       "value": "APDP-99812",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Claim ID: APDP-99812"
     },
@@ -36,31 +36,31 @@
     },
     "store_or_dc": {
       "value": "DC 6094 - Sanger, TX",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Distribution Center: DC 6094 - Sanger, TX"
     },
     "deduction_total": {
       "value": "$3,120.00",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Total Deduction: $3,120.00"
     },
     "deduction_date": {
       "value": "08/14/2026",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "source_page": 1,
       "source_quote": "Deduction Date: 08/14/2026"
     },
     "dispute_deadline": {
       "value": "11/12/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Dispute Deadline: 11/12/2026"
     },
     "remittance_or_check": {
       "value": "CHK-4471902",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Remittance Reference: CHK-4471902"
     },
@@ -68,13 +68,13 @@
       {
         "sku_upc": {
           "value": "000-4471-08",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "000-4471-08"
         },
         "description": {
           "value": "Case Pack Olive Oil",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Case Pack Olive Oil"
         },
@@ -92,13 +92,13 @@
         },
         "unit_cost": {
           "value": "$624.00",
-          "confidence": 0.95,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "$624.00"
         },
         "deduction_amount": {
           "value": "$3,120.00",
-          "confidence": 0.97,
+          "confidence": 0.99,
           "source_page": 1,
           "source_quote": "$3,120.00"
         },
@@ -106,13 +106,13 @@
           "value": "24",
           "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
+          "source_quote": "24"
         },
         "reason_description": {
           "value": "Merchandise billed not received (carton shortage)",
           "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "Merchandise billed not received (carton shortage)"
+          "source_quote": "Reason Code 24: Merchandise billed not received (carton shortage)"
         }
       }
     ],
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T03:41:08.445Z",
+  "recordedAt": "2026-09-20T17:53:21.881Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4489,
-    "outputTokens": 1069,
-    "costMicros": 19668,
-    "latencyMs": 7760
+    "inputTokens": 4696,
+    "outputTokens": 1259,
+    "costMicros": 21982,
+    "latencyMs": 9987
   }
 }
