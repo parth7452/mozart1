@@ -150,18 +150,34 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Four suites, gated separately (never blended — the mix changes, and a blended
+Six suites, gated separately (never blended — the mix changes, and a blended
 number moves when it does):
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
 | --- | --- | --- | --- | --- |
-| authored | does the pipeline work | 100% | 100% | 8/8 |
-| held_out | does it generalise | 100% | 100% | 12/12 |
-| scanned | does it survive a scan | 100% | 98.4% | 4/4 |
-| dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
-| email_body | does it work with no page at all | 100% | 100% | 1/1 |
+| authored | does the pipeline work | 100% / 100% | 100% | 8/8 |
+| held_out | does it generalise | 100% / 100% | 100% | 12/12 |
+| scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
+| dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
+| email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
+| logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 
-About $0.021 per document across 26 of them. Extraction streams with a 32,000
+Classification is 39/39. The two misses in the corpus are both the same field
+pair on one document: `commitments[0].supersedes` and `.establishes` on the
+LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
+revision 2 replaces revision 1" and the model reports the change in prose
+instead of the identifiers. Its scanned twin returns null for both rather than
+the wrong answer, which is the better failure of the two.
+
+The `scanned` suite was four documents until 2026-09-21, three of them deduction
+notices, and the renderer stamped a fake "RECEIVED" box on every one — added
+content that contradicted the ground truth each scan inherits from its source.
+`carrier-bol-scan` classified `pod` four recordings running because of it. The
+stamp is gone, the suite is twelve documents spanning nine document types, and
+a single flip now costs 8 points rather than 25.
+
+About $0.0235 per document across 39 of them, and 311 of 821 fields carry a
+bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
 than storing a truncated document as a complete one.
