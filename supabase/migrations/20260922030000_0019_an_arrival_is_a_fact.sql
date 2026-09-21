@@ -4,14 +4,15 @@
 -- `app_rw` holds UPDATE and DELETE on it and no trigger guards it. That was
 -- harmless while nothing read the column. Since `declineCase` began deriving
 -- `declined_candidates.discovered_from` from `uploads.source`, it is not: a
--- declined row is append-only and cannot be corrected, `coverage_by_period`
--- groups by that column, and an `update uploads set source = …` re-labels which
--- channel found a deduction *after* the declines attributed to it were counted.
+-- declined row is append-only and cannot be corrected, that column is the one a
+-- coverage number is sliced by, and an `update uploads set source = …` re-labels
+-- which channel found a deduction *after* the declines attributed to it were
+-- counted.
 -- No `audit_log` row is written on any `uploads` path, so the before and after
 -- are indistinguishable by inspection. A published coverage number moves and
 -- nothing anywhere says that it did.
 --
--- Two changes, and nothing else.
+-- Three changes, and nothing else.
 --
 --   1. `uploads` joins the append-only set, on 0004's pattern exactly: revoke
 --      UPDATE/DELETE/TRUNCATE from app_rw and app_ro, INSERT + SELECT to app_rw,
@@ -20,9 +21,16 @@
 --
 --   2. `document_arrivals`: somewhere for a document stored *before* provenance
 --      was recorded to say which arrival it came from — write-once, refused
---      where ingest already recorded one, and naming the person who asserted it
---      (ADR 0024 §3). This is the migration `ProvenanceUnknownError` has been
---      telling reviewers about by name.
+--      where ingest already recorded one, refused for a channel that could not
+--      have delivered it, and naming the person who asserted it (ADR 0024 §3).
+--      This is the migration `ProvenanceUnknownError` has been telling reviewers
+--      about by name.
+--
+--   3. `declined_candidates.provenance_kind`: whether a declined row's channel
+--      was observed at ingest or asserted afterwards, so a coverage number can
+--      say that about itself instead of being three joins away from it
+--      (ADR 0024 §4). Added now because production carries no declines and no
+--      recorded uploads, so the default back-fills nothing.
 --
 -- What is deliberately NOT here: any edit to `app.require_approval()`,
 -- `app.guard_immutable_core()`, `app.member_may_write()` or
@@ -61,8 +69,8 @@ create trigger no_truncate before truncate on uploads
 comment on table uploads is
   'One row per arrival of new bytes: which channel they came through, when, '
   'and which member put them there. Append-only (ADR 0024) — this is what '
-  'declined_candidates.discovered_from is derived from, and what '
-  'coverage_by_period is grouped by. A source recorded wrongly at ingest '
+  'declined_candidates.discovered_from is derived from, which is the column a '
+  'coverage number is sliced by. A source recorded wrongly at ingest '
   'cannot be corrected in place, and a second row is a row nothing joins to, '
   'because documents.upload_id is itself immutable (0004). Correcting one is a '
   'migration-backed decision, which is the same dead end '
@@ -127,9 +135,9 @@ comment on table document_arrivals is
 
 comment on column document_arrivals.recorded_by is
   'The member who asserted this arrival. A declined_candidates row attributed '
-  'through it is indistinguishable in that table from one derived at ingest; '
-  'this column, recorded_at, detail and the case''s own '
-  'document.provenance_recorded event are what tell them apart (ADR 0024).';
+  'through it says so in its own provenance_kind; this column, recorded_at, '
+  'detail and the case''s own document.provenance_recorded event are what say '
+  'who asserted it and why (ADR 0024).';
 
 create index if not exists document_arrivals_org_idx
   on document_arrivals (org_id, recorded_at desc);
@@ -200,6 +208,7 @@ declare
   doc_org uuid;
   doc_upload uuid;
   upload_org uuid;
+  upload_source text;
 begin
   select d.org_id, d.upload_id into doc_org, doc_upload
     from documents d where d.id = new.document_id;
@@ -224,7 +233,8 @@ begin
       using errcode = 'restrict_violation';
   end if;
 
-  select u.org_id into upload_org from uploads u where u.id = new.upload_id;
+  select u.org_id, u.source into upload_org, upload_source
+    from uploads u where u.id = new.upload_id;
 
   if upload_org is null then
     raise exception 'arrival blocked: upload % does not exist', new.upload_id
@@ -237,15 +247,76 @@ begin
       using errcode = 'restrict_violation';
   end if;
 
+  -- Only a door that existed while a document could be stored with no arrival
+  -- on it. `uploads.source` admits six channels; three of them — erp_sync,
+  -- portal_fetch, edi_812 — are Phases 1.5, 2 and 2.5, and every one of those
+  -- writes an `uploads` row at ingest like the rest, so a document of theirs
+  -- never reaches this table with nothing recorded. Asserting one here would be
+  -- crediting a channel that could not have delivered the bytes. `ASSERTABLE_SOURCES`
+  -- in `store-postgres` refuses the same three before a round trip; this is the
+  -- half that answers for the owner and for anything that never went through the
+  -- store at all.
+  if upload_source not in ('web_upload', 'email_in', 'email_body') then
+    raise exception
+      'arrival blocked: upload % records channel %, which is not one an arrival '
+      'can be asserted from (web_upload, email_in, email_body)',
+      new.upload_id, upload_source
+      using errcode = 'restrict_violation';
+  end if;
+
   return new;
 end
 $$;
 
 comment on function app.arrival_only_when_unknown() is
   'A document_arrivals row records the arrival of a document that records '
-  'none, within one tenant. The foreign keys say each id exists; this says '
-  'they are one tenant''s and that nothing was already known (ADR 0024 §3).';
+  'none, within one tenant, through a door that existed while such a document '
+  'could be stored. The foreign keys say each id exists; this says they are one '
+  'tenant''s, that nothing was already known, and that the channel is one of '
+  'web_upload, email_in, email_body (ADR 0024 §3).';
+
+-- The pattern migration 0012 set for every definer function: nobody holds
+-- EXECUTE on it. Firing a trigger does not check EXECUTE, so the function still
+-- runs on every insert into document_arrivals — this only takes away the ability
+-- to call it by hand, which nothing has a reason to do and a definer function
+-- should never leave lying around.
+revoke all on function app.arrival_only_when_unknown() from public;
 
 drop trigger if exists arrival_only_when_unknown on document_arrivals;
 create trigger arrival_only_when_unknown before insert on document_arrivals
   for each row execute function app.arrival_only_when_unknown();
+
+-- ---------------------------------------------------------------------------
+-- 3. declined_candidates says whether its channel was observed or asserted
+-- ---------------------------------------------------------------------------
+-- `discovered_from` is now read as `coalesce(observed, asserted)`, so two rows
+-- with the same channel can have arrived at it two different ways: one the
+-- pipeline watched happen, one a person supplied afterwards from a
+-- `document_arrivals` row. A coverage number computed over a period that spans
+-- 2026-09-21 mixes them, and nothing in the table said which was which — the
+-- answer was three joins away, in ADR 0024's own "what we live with".
+--
+-- Adding the column is additive and it fires no trigger: `alter table … add
+-- column` is DDL, `no_update_delete` is a row trigger on UPDATE and DELETE, and
+-- the default is filled in by the table rewrite rather than by an UPDATE anybody
+-- issues. No grant changes, no policy changes, and the append-only triggers on
+-- this table are untouched.
+--
+-- The reason to do it *now* rather than in a later migration is that the window
+-- is open and closing: production carries no `declined_candidates` rows and no
+-- `uploads` rows at all, so `default 'observed'` back-fills nothing and cannot
+-- mislabel anything. A migration written after the first decline would have to
+-- choose between a null column on the historical rows and a default that claims
+-- something about them, which is exactly the argument ADR 0024 made against the
+-- column — an argument that holds when there is history and does not when there
+-- is none.
+alter table declined_candidates
+  add column if not exists provenance_kind text not null default 'observed'
+    check (provenance_kind in ('observed', 'asserted'));
+
+comment on column declined_candidates.provenance_kind is
+  'How this row''s discovered_from was arrived at: ''observed'' — the pipeline '
+  'recorded the arrival at ingest (documents.upload_id) — or ''asserted'' — a '
+  'person supplied it afterwards through document_arrivals, for a document '
+  'stored before provenance was recorded (ADR 0024). Set by declineCase from '
+  'which of the two joins answered, never passed in.';

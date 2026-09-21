@@ -174,16 +174,25 @@ one was, and what it became:
    production caller, so every pre-provenance production document arrived by web
    upload" is an assertion about this deployment rather than a derivation from
    anything in the database. It lives in ADR 0024 §3 and in an operator's typed
-   argument. `declineCase` reads `coalesce(observed, asserted)` and the refusal
-   now names the command rather than naming a migration nobody had written.
+   argument — and the *database* refuses any other channel, not just the script:
+   `app.arrival_only_when_unknown()` already reads the `uploads` row to check its
+   org, so it also refuses one whose `source` is not `web_upload`, `email_in` or
+   `email_body`. The other three channels write an arrival at ingest, so they
+   could not have delivered a document that records none. `declineCase` reads
+   observed-or-asserted and the refusal now names the command rather than naming
+   a migration nobody had written.
 
-   What it leaves behind, named in the ADR rather than left to be discovered: a
-   `declined_candidates` row attributed through an asserted arrival is
-   indistinguishable *in that table* from one derived at ingest. The
-   `document_arrivals` row, the `uploads.created_by` and the case's
-   `document.provenance_recorded` event are what tell them apart, and anybody
-   computing a coverage number over a period that includes the pre-provenance
-   documents should know to ask.
+   The thing this was going to leave behind did not have to be left. An earlier
+   draft accepted that a `declined_candidates` row attributed through an asserted
+   arrival would be indistinguishable *in that table* from one derived at ingest,
+   on the grounds that the table is append-only and a column meaningful only for
+   new rows is worse than a paragraph. Production has zero declines and zero
+   recorded uploads, so there is no history for a default to mislabel: 0019 adds
+   `provenance_kind` (`'observed'` / `'asserted'`, ADR 0024 §4) while the window
+   is open, set by `declineCase` from which of the two joins answered. Who
+   asserted it, when and why are still on the `document_arrivals` row, in
+   `uploads.created_by` and on the case's `document.provenance_recorded` event —
+   the column is for counting, those are for auditing.
 
 2. ~~**`uploads.source` is mutable; ADR + migration to make `uploads`
    append-only now that coverage depends on it.**~~ **done.** `uploads` was in
@@ -212,8 +221,13 @@ one was, and what it became:
    `supabase/tests/14_an_arrival_is_a_fact.sql` reads the end state back after
    `db-test`'s second pass: UPDATE, DELETE and TRUNCATE refused for `app_rw` by
    grant and for the owner by trigger, INSERT still working for a writer, the
-   grants exactly INSERT and SELECT, and a `read_only` member still refused by
-   RLS.
+   grants exactly INSERT and SELECT, a `read_only` member still refused by RLS,
+   RLS on and cross-tenant reads empty on `document_arrivals`, nobody holding
+   EXECUTE on the definer guard, a refused arrival leaving no orphan `uploads`
+   row, and both values of `provenance_kind` landing on the right decline.
+   `supabase/tests/15_every_table_has_rls.sql` is the general form of one of
+   those: every table in `public` carries `relrowsecurity`, by enumeration, so a
+   future table cannot ship without it.
 
 Nothing in production has been migrated for this yet — Supabase
 `hvheqbgkvwhlqutklwfh` still carries 0018.

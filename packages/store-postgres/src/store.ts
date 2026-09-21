@@ -42,7 +42,11 @@ import type {
   UploadSource,
   WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
-import { assertUnreadDocumentsQuery, UPLOAD_SOURCES } from '@recouple/pipeline';
+import {
+  assertUnreadDocumentsQuery,
+  UNREAD_DOCUMENTS_MAX_LIMIT,
+  UPLOAD_SOURCES,
+} from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 
@@ -410,6 +414,19 @@ export class ProvenanceUnknownError extends Error {
  */
 export const HUMAN_DECISION_VERSION = 'human/v1';
 
+/**
+ * How a declined row's channel was arrived at (ADR 0024 §4).
+ *
+ * `observed` — the pipeline recorded the arrival as it happened, so
+ * `documents.upload_id` answered. `asserted` — a person supplied it afterwards
+ * through `document_arrivals`, for a document stored before provenance was
+ * recorded. Both produce the same `discovered_from`; only this says which way
+ * it was reached, so a coverage number can be split by it instead of being
+ * three joins away from the difference.
+ */
+export const PROVENANCE_KINDS = ['observed', 'asserted'] as const;
+export type ProvenanceKind = (typeof PROVENANCE_KINDS)[number];
+
 /** A recorded decline: what it was worth, and what would have changed it. */
 export interface DeclinedCandidate {
   readonly declinedCandidateId: string;
@@ -421,6 +438,12 @@ export interface DeclinedCandidate {
    * way out of the database rather than asserted into it (`isDiscoveredFrom`).
    */
   readonly discoveredFrom: DiscoveredFrom;
+  /**
+   * Whether that channel was observed at ingest or asserted afterwards. Derived
+   * from which of the two joins answered, never passed in — the same rule
+   * `discoveredFrom` itself is under.
+   */
+  readonly provenanceKind: ProvenanceKind;
   readonly decidedBy: string;
   readonly decidedByVersion: string;
   readonly missingEvidence: readonly string[];
@@ -917,8 +940,19 @@ export class PostgresStore
    * walks with `--all-unrecorded`. Ordered oldest first, because these are by
    * definition the oldest documents here and an operator reading the list is
    * reading a history.
+   *
+   * Capped, for `unreadDocuments`' reason and validated by the same function:
+   * an unbounded `select` is a query whose cost is set by the tenant's history
+   * rather than by the caller, and this one is read by a script that prints
+   * every row it is given before asserting anything. A tenant with ten thousand
+   * pre-provenance documents is a migration-sized job, not a list; the default
+   * is {@link UNREAD_DOCUMENTS_MAX_LIMIT} because the list an operator walks in
+   * one sitting is the same size as the list a reviewer reads.
+   *
+   * @throws {UnreadDocumentsQueryError} the limit is not a whole number of rows
+   *   between 1 and {@link UNREAD_DOCUMENTS_MAX_LIMIT}. Nothing is read.
    */
-  async documentsWithoutArrival(): Promise<
+  async documentsWithoutArrival(limit = UNREAD_DOCUMENTS_MAX_LIMIT): Promise<
     readonly {
       readonly documentId: string;
       readonly filename: string;
@@ -926,6 +960,12 @@ export class PostgresStore
       readonly deductionIds: readonly string[];
     }[]
   > {
+    // The age half of that check is not a question this query asks, so it is
+    // passed the value that always satisfies it. The limit half is the whole
+    // point, and it refuses with the same class and the same words as
+    // `unreadDocuments` so a caller cannot be right about one and wrong about
+    // the other.
+    assertUnreadDocumentsQuery(0, limit);
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{
         id: string;
@@ -941,7 +981,9 @@ export class PostgresStore
            from documents d
            left join document_arrivals da on da.document_id = d.id
           where d.upload_id is null and da.id is null
-          order by d.created_at asc, d.id asc`,
+          order by d.created_at asc, d.id asc
+          limit $1`,
+        [limit],
       );
       return rows.map((row) => ({
         documentId: row.id,
@@ -2243,28 +2285,33 @@ export class PostgresStore
       // later one records a channel" in `decline-case.test.ts` keeps it from
       // being quietly relaxed into "the earliest notice that knows".
       //
-      // `coalesce(observed, asserted)` since ADR 0024: a document ingest
-      // recorded an arrival for answers from `documents.upload_id`, and one
-      // stored before provenance existed answers from the `document_arrivals`
-      // row an operator supplied with `pnpm link:provenance`. Observed first,
-      // and the order is not a preference — the database refuses a
-      // `document_arrivals` row for a document that already has an
-      // `upload_id`, so at most one of the two is ever non-null and the
-      // `coalesce` is reading whichever exists rather than choosing between
-      // them. `unique (document_id)` means the extra join multiplies nothing,
-      // so which notice is picked is exactly what it was.
+      // Observed or asserted, since ADR 0024: a document ingest recorded an
+      // arrival for answers from `documents.upload_id`, and one stored before
+      // provenance existed answers from the `document_arrivals` row an operator
+      // supplied with `pnpm link:provenance`. The two come back as separate
+      // columns rather than pre-coalesced because which of them answered is
+      // itself recorded — `declined_candidates.provenance_kind` (ADR 0024 §4) —
+      // and a `coalesce` in SQL throws that away. Reading observed first is not
+      // a preference: the database refuses a `document_arrivals` row for a
+      // document that already has an `upload_id`, so at most one of the two is
+      // ever non-null and this is reading whichever exists rather than choosing
+      // between them. `unique (document_id)` means the extra join multiplies
+      // nothing, so which notice is picked is exactly what it was.
       const { rows: caseRows } = await client.query<{
         amount: string;
         notice_document_id: string | null;
-        discovered_from: string | null;
+        observed_from: string | null;
+        asserted_from: string | null;
       }>(
         `select d.deduction_amount_cents::text as amount,
                 notice.document_id as notice_document_id,
-                notice.source as discovered_from
+                notice.observed_from as observed_from,
+                notice.asserted_from as asserted_from
            from deductions d
            left join lateral (
              select doc.id as document_id,
-                    coalesce(u.source, au.source) as source
+                    u.source as observed_from,
+                    au.source as asserted_from
                from deduction_documents dd
                join documents doc on doc.id = dd.document_id
                left join uploads u on u.id = doc.upload_id
@@ -2318,7 +2365,14 @@ export class PostgresStore
       //
       // Nothing is written on this path. The transaction rolls back, the case
       // is untouched, and the person is told what is missing.
-      if (found.discovered_from === null) {
+      // Which of the two answered, before either is used: the channel and the
+      // kind are one derivation, so they cannot disagree.
+      const observedFrom = found.observed_from;
+      const assertedFrom = found.asserted_from;
+      const rawDiscoveredFrom = observedFrom ?? assertedFrom;
+      const provenanceKind: ProvenanceKind = observedFrom !== null ? 'observed' : 'asserted';
+
+      if (rawDiscoveredFrom === null) {
         throw new ProvenanceUnknownError(
           input.deductionId,
           found.notice_document_id === null
@@ -2338,18 +2392,18 @@ export class PostgresStore
           found.notice_document_id ?? undefined,
         );
       }
-      if (!isDiscoveredFrom(found.discovered_from)) {
+      if (!isDiscoveredFrom(rawDiscoveredFrom)) {
         // Unreachable while `uploads_source_check` and the `discovered_from`
         // check in migration 0014 hold the same list — which is the point of
         // there being one `UPLOAD_SOURCES` behind both. If they ever drift, the
         // insert below fails on a check constraint with no clue which value did
         // it; this fails first and names it. Loud, and before anything written.
         throw new Error(
-          `uploads.source returned ${JSON.stringify(found.discovered_from)}, which is not a ` +
+          `uploads.source returned ${JSON.stringify(rawDiscoveredFrom)}, which is not a ` +
             'channel coverage can be attributed to',
         );
       }
-      const discoveredFrom = found.discovered_from;
+      const discoveredFrom = rawDiscoveredFrom;
 
       // The column takes any text, so the check is here or nowhere. A value
       // nobody counts is worse than an empty list: it looks like a reason.
@@ -2387,15 +2441,16 @@ export class PostgresStore
 
       const { rows } = await client.query<{ id: string; decided_at: string }>(
         `insert into declined_candidates
-           (org_id, deduction_id, discovered_from, reason,
+           (org_id, deduction_id, discovered_from, provenance_kind, reason,
             estimated_recoverable_cents, decided_by, decided_by_version,
             missing_evidence, detail)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          returning id, decided_at`,
         [
           this.tenant.orgId,
           input.deductionId,
           discoveredFrom,
+          provenanceKind,
           input.reason,
           found.amount,
           input.decidedBy,
@@ -2426,6 +2481,10 @@ export class PostgresStore
             // through `JSON.parse`, and that is where a bigint would round.
             estimated_recoverable_cents: found.amount,
             discovered_from: discoveredFrom,
+            // Said on the timeline too, so a reader of the case can tell an
+            // observed channel from one a person supplied without going to
+            // `declined_candidates` for it.
+            provenance_kind: provenanceKind,
             decided_by: input.decidedBy,
             decided_by_version: HUMAN_DECISION_VERSION,
             missing_evidence: input.missingEvidence ?? [],
@@ -2439,6 +2498,7 @@ export class PostgresStore
         reason: input.reason,
         estimatedRecoverableCents,
         discoveredFrom,
+        provenanceKind,
         decidedBy: input.decidedBy,
         decidedByVersion: HUMAN_DECISION_VERSION,
         missingEvidence: input.missingEvidence ?? [],

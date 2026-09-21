@@ -9,6 +9,12 @@ declare
   arrival uuid;
   named integer;
   privs text;
+  erp_upload uuid; orphan_upload uuid;
+  uploads_before integer; uploads_after integer;
+  refused boolean;
+  cross_tenant integer;
+  derived text;
+  declined_observed uuid; declined_asserted uuid;
 begin
   ids := test.seed_org('arrivalfact');
   org := (ids->>'org')::uuid; analyst := (ids->>'analyst')::uuid;
@@ -61,9 +67,9 @@ begin
   -- =========================================================================
   -- `source` specifically, because that is the column with a number hanging off
   -- it: `declined_candidates.discovered_from` is derived from it, the declined
-  -- row is append-only, and `coverage_by_period` groups by it. An UPDATE here
-  -- re-labels which channel found a deduction after the declines attributed to
-  -- it were counted (ADR 0024).
+  -- row is append-only, and that column is the one a coverage number is sliced
+  -- by. An UPDATE here re-labels which channel found a deduction after the
+  -- declines attributed to it were counted (ADR 0024).
   perform test.expect_error(format(
     'update uploads set source = ''erp_sync'' where id = %L', ingested),
     'denied', 'app_rw holds no UPDATE on uploads, so it cannot re-label a channel');
@@ -200,6 +206,46 @@ begin
     'belongs to another org',
     'nor point at another tenant''s arrival');
 
+  -- Only a door that existed while a document could be stored with no arrival
+  -- on it. `uploads.source` admits six channels; `erp_sync`, `portal_fetch` and
+  -- `edi_812` are Phases 1.5, 2 and 2.5, and every one of them will write an
+  -- `uploads` row at ingest like the rest, so a document of theirs can never be
+  -- one that records nothing. Asserting one here would credit a channel that
+  -- could not have delivered the bytes — a coverage number attributing dollars
+  -- to an ERP feed that has never run. The store refuses the same three before
+  -- a round trip (`ASSERTABLE_SOURCES`); this is the copy that answers for the
+  -- table owner and for anything that never went through the store (ADR 0024 §3).
+  insert into uploads (org_id, source, created_by) values (org, 'erp_sync', analyst)
+    returning id into erp_upload;
+  perform test.expect_error(format(
+    $q$insert into document_arrivals (org_id, document_id, upload_id, recorded_by)
+       values (%L, %L, %L, %L)$q$, org, doc_unknown_2, erp_upload, analyst),
+    'not one an arrival can be asserted from',
+    'an erp_sync upload cannot back an arrival: that channel writes its own at ingest');
+
+  -- An arrival and the `uploads` row it points at are one write or neither.
+  -- `recordDocumentArrival` inserts the upload first and the mapping second, so
+  -- a refusal on the second would strand an `uploads` row that nothing joins to
+  -- — on a table that is now append-only, so it could never be cleaned up. The
+  -- store does both in one transaction; this is that property read back from the
+  -- database, by counting the table either side of a refused pair.
+  select count(*) into uploads_before from uploads where org_id = org;
+  refused := false;
+  begin
+    insert into uploads (org_id, source, created_by) values (org, 'web_upload', analyst)
+      returning id into orphan_upload;
+    -- Refused by the trigger: `doc_known` already records the arrival ingest saw.
+    insert into document_arrivals (org_id, document_id, upload_id, recorded_by)
+      values (org, doc_known, orphan_upload, analyst);
+  exception when others then
+    refused := true;
+  end;
+  select count(*) into uploads_after from uploads where org_id = org;
+  perform test.ok(refused, 'the second half of that pair was refused, as it should be');
+  perform test.ok(uploads_before = uploads_after,
+    format('and a refused arrival leaves no orphan uploads row behind (%s before, %s after)',
+           uploads_before, uploads_after));
+
   -- =========================================================================
   -- 6. And the mapping is append-only too, for the same reason uploads is.
   -- =========================================================================
@@ -257,6 +303,114 @@ begin
     (select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'app' and p.proname = 'arrival_only_when_unknown'),
     'and it reads as definer, so a cross-tenant reference and a missing row give different answers');
+
+  -- Definer and callable by anybody is the combination migrations 0012 and 0016
+  -- revoke, every time. Firing a trigger does not consult EXECUTE, so the
+  -- function still runs on every insert into `document_arrivals`; what the
+  -- revoke takes away is calling it by hand, which nothing has a reason to do
+  -- and a definer function should never leave available.
+  perform test.ok(
+    has_function_privilege('public', 'app.arrival_only_when_unknown()', 'execute') = false,
+    'and nobody holds EXECUTE on it: a definer function is not left callable by hand');
+
+  -- =========================================================================
+  -- 8. RLS on document_arrivals, read back rather than assumed.
+  -- =========================================================================
+  -- Invariant 6 is "RLS on every table", and a new table is exactly where it
+  -- gets forgotten. `alter table … enable row level security` is one line in the
+  -- migration; this is the line that notices if it ever stops being there.
+  -- Suite 15 asks the same question of every table in `public`; this asks it of
+  -- the one this migration added, so a failure here names the table.
+  perform test.ok(
+    (select c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'document_arrivals'),
+    'document_arrivals has row-level security enabled');
+
+  -- And it is enabled to some effect. A policy on the org claim is what the
+  -- other tenant's read has to go through, and an asserted arrival is a record
+  -- of who said what about whose documents — one tenant's operators have no
+  -- business reading another's.
+  set role app_rw;
+  perform test.as_member(other_org, (other_ids->>'analyst')::uuid);
+  select count(*) into cross_tenant from document_arrivals;
+  perform test.ok(cross_tenant = 0,
+    format('and another tenant reads none of them (saw %s)', cross_tenant));
+  perform test.as_member(org, analyst);
+  perform test.ok(
+    (select count(*) from document_arrivals where id = arrival) = 1,
+    'while the tenant that wrote it still reads its own');
+
+  -- =========================================================================
+  -- 9. A decline says whether its channel was observed or asserted.
+  -- =========================================================================
+  -- `discovered_from` is read as observed-or-asserted (ADR 0024 §3), so two rows
+  -- can carry the same channel and have reached it two different ways. §4 adds
+  -- `provenance_kind` to say which, while production has no declines for a
+  -- default to mislabel. The column is a closed set, and this is where that is
+  -- read back rather than trusted to the one caller that writes it today.
+  reset role;
+  insert into declined_candidates
+    (org_id, deduction_id, discovered_from, provenance_kind, reason,
+     estimated_recoverable_cents, decided_by, decided_by_version)
+    values (org, (ids->>'deduction')::uuid, 'web_upload', 'observed', 'evidence_unavailable',
+            312000, 'human', 'human/v1')
+    returning id into declined_observed;
+  perform test.ok(
+    (select provenance_kind from declined_candidates where id = declined_observed) = 'observed',
+    'a decline whose channel the pipeline observed records provenance_kind = observed');
+
+  insert into declined_candidates
+    (org_id, deduction_id, discovered_from, provenance_kind, reason,
+     estimated_recoverable_cents, decided_by, decided_by_version)
+    values (org, (ids->>'deduction')::uuid, 'web_upload', 'asserted', 'evidence_unavailable',
+            312000, 'human', 'human/v1')
+    returning id into declined_asserted;
+  perform test.ok(
+    (select provenance_kind from declined_candidates where id = declined_asserted) = 'asserted',
+    'and one whose channel a person supplied records provenance_kind = asserted');
+
+  perform test.expect_error(format(
+    $q$insert into declined_candidates
+         (org_id, deduction_id, discovered_from, provenance_kind, reason,
+          estimated_recoverable_cents, decided_by, decided_by_version)
+       values (%L, %L, 'web_upload', 'guessed', 'evidence_unavailable', 1, 'human', 'human/v1')$q$,
+    org, (ids->>'deduction')::uuid),
+    'check constraint',
+    'and anything but those two is refused: there is no third way to know');
+
+  -- The default is the honest one for a database with no document_arrivals rows
+  -- in it — which is every database before this migration, and production today.
+  insert into declined_candidates
+    (org_id, deduction_id, discovered_from, reason,
+     estimated_recoverable_cents, decided_by, decided_by_version)
+    values (org, (ids->>'deduction')::uuid, 'web_upload', 'evidence_unavailable',
+            312000, 'human', 'human/v1');
+  perform test.ok(
+    (select count(*) from declined_candidates
+      where org_id = org and provenance_kind = 'observed') = 2,
+    'a row that names no kind defaults to observed, which is what every existing row is');
+
+  -- And the two are distinguishable from the schema alone, by the join that
+  -- `declineCase` derives them from: a notice ingest recorded an arrival for
+  -- answers through documents.upload_id, one stored before that answers through
+  -- document_arrivals, and at most one of the two can ever be non-null.
+  select case when u.source is not null then 'observed' else 'asserted' end into derived
+    from documents doc
+    left join uploads u on u.id = doc.upload_id
+    left join document_arrivals da on da.document_id = doc.id
+    left join uploads au on au.id = da.upload_id
+   where doc.id = doc_known;
+  perform test.ok(derived = 'observed',
+    'the derivation reads observed for a document whose arrival ingest recorded');
+
+  select case when u.source is not null then 'observed' else 'asserted' end into derived
+    from documents doc
+    left join uploads u on u.id = doc.upload_id
+    left join document_arrivals da on da.document_id = doc.id
+    left join uploads au on au.id = da.upload_id
+   where doc.id = doc_unknown and au.source is not null;
+  perform test.ok(derived = 'asserted',
+    'and asserted for one that only answers through the arrival a person wrote');
 end
 $test$;
 rollback;

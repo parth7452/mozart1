@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
+import { UnreadDocumentsQueryError } from '@recouple/pipeline';
 import {
   ArrivalAlreadyRecordedError,
   closeAllPools,
@@ -367,5 +368,37 @@ describeDb('recording an arrival after the fact', () => {
     });
     const after = await store.documentsWithoutArrival();
     expect(after.map((row) => row.documentId)).not.toContain(waiting);
+  });
+
+  it('caps that list, and refuses a limit it will not answer', async () => {
+    // Same cap and same refusal as `unreadDocuments`, from the same function:
+    // an unbounded `select` is a query whose cost is set by the tenant's history
+    // rather than by the caller, and this one is read by a script that prints
+    // every row before asserting anything. A caller cannot be right about one
+    // list and wrong about the other.
+    const opened = await store.openCase({
+      orgId,
+      claimId: `ARR-${suffix}-5`,
+      deductionAmountCents: 8_000,
+    });
+    await legacyNotice(opened.deductionId);
+    await legacyNotice(opened.deductionId);
+
+    const one = await store.documentsWithoutArrival(1);
+    expect(one).toHaveLength(1);
+    const unlimited = await store.documentsWithoutArrival();
+    expect(unlimited.length).toBeGreaterThan(1);
+    // Oldest first, so the page an operator walks is the front of the history.
+    expect(one[0]?.documentId).toBe(unlimited[0]?.documentId);
+
+    await expect(store.documentsWithoutArrival(0)).rejects.toBeInstanceOf(
+      UnreadDocumentsQueryError,
+    );
+    await expect(store.documentsWithoutArrival(201)).rejects.toBeInstanceOf(
+      UnreadDocumentsQueryError,
+    );
+    await expect(store.documentsWithoutArrival(1.5)).rejects.toBeInstanceOf(
+      UnreadDocumentsQueryError,
+    );
   });
 });
