@@ -137,7 +137,7 @@ append-only tables.
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
-| `pipeline` | `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
+| `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
@@ -505,6 +505,46 @@ this path a retry costs three model calls to hear it again. All three calls are
 recorded before the first row the database can refuse, so the extraction — the
 expensive one, previously written on the far side of the statement that raised —
 is no longer the read least visible in `model_calls`.
+
+**A short-paid remittance line is a discovered deduction** (ADR 0028, migration
+0022). `openCaseFromNotice` opened cases for `deduction_notice` and nothing
+else, so a remittance advice was scanned, classified, read — and appeared
+nowhere in the product. In staffing, freight and foodservice the remittance *is*
+the notice, so those were exactly the deductions the coverage thesis is about,
+sitting inside a document we had already paid to read.
+`openCasesFromRemittance` runs where `openCaseFromNotice` does, under the same
+`allowCaseOpen` guard, so it is on the Inngest path and the inline path at once.
+The short-pay per line is `deduction_amount` as printed, else `gross − net`
+through `subCents` when both are printed, else no case and a recorded reason —
+the model is never asked for a difference. A line opens a case only over both
+halves of a per-tenant floor (`org_settings.remittance_tolerance_cents` /
+`_bps`), and the proportional half is a `BigInt` cross-multiplication rather than
+`applyBps`, because half-up rounding on a threshold is a coin toss at the
+boundary. Those two columns join `app.guard_threshold_direction()` in the
+opposite sense from every ceiling in it: **raising** a tolerance skips more
+short-pays silently, so raising is the loosening. `remittance_dedup_days` is
+deliberately not guarded — neither direction is the conservative one.
+
+Dedup goes through `deduction_identifiers` and `resolveIdentity`, not a column
+of its own: every case opened now writes its identifier rows, which is the
+`openCase` wiring ADR 0025 left as follow-up and nothing but its backfill had
+done. A notice writes its claim id and, where the page prints one, its invoice
+number; a remittance line writes `payment_reference:invoice_number` (so
+`unique (org_id, debtor_id, claim_id)` still fires) and the invoice. Only an
+**exact** match merges. `probable` and `ambiguous` open the case and name the
+other one on `case.discovered`, because a duplicate case is visible and
+mergeable while a wrong merge destroys a disputable deduction and leaves no
+record it was seen. The invoice number is recorded as a name and never matched
+on as an exact key — one invoice carries many deductions. The resolve-then-open
+runs under a second advisory lock, per (org, invoice), seeded `1` so it cannot
+collide with `withDocumentRead`'s document keys; it waits rather than giving up,
+and cannot deadlock because the claim is taken and released per line. Lines below
+the floor become `declined_candidates` rows with `decided_by_version` naming the
+policy that declined them, and a document whose arrival nothing recorded has its
+below-tolerance lines counted as unattributed rather than credited to a guess.
+Model spend and the extraction are recorded against **no** case: one read pays
+for many, and attributing it to one would overstate the number a contingency fee
+is set against.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

@@ -23,6 +23,8 @@ import { randomUUID } from 'node:crypto';
 import {
   applyTransition,
   buildPacketNarrative,
+  cents,
+  identifierMatchKey,
   isCanonicalReasonCode,
   MAX_RATIONALE_LENGTH,
   packetContentHash,
@@ -33,6 +35,9 @@ import type {
   CanonicalReasonCode,
   CaseState,
   DebtorCandidate,
+  IdentifierKind,
+  KnownDeduction,
+  KnownIdentifier,
   PacketDocument,
 } from '@recouple/core-domain';
 import { DOC_TYPES, restoreDocument } from '@recouple/extraction';
@@ -67,8 +72,11 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DeclinedLine,
+  DiscoveredVia,
   HumanDecisionRecord,
   IngestSource,
+  RemittanceSettings,
   OutcomeRecord,
   PacketRecord,
   DocumentReadLease,
@@ -83,7 +91,11 @@ import type {
   UploadSource,
   WorkflowSubmissionChannel,
 } from '../ports';
-import { assertUnreadDocumentsQuery, ClassificationRefusedError } from '../ports';
+import {
+  assertUnreadDocumentsQuery,
+  ClassificationRefusedError,
+  LineProvenanceUnknownError,
+} from '../ports';
 import { DuplicateCaseError } from '../steps';
 
 /** A membership role, as `memberships.role` spells it. */
@@ -292,6 +304,8 @@ export class InMemoryStore
     deductionAmountCents?: number;
     deductionDate?: string;
     disputeDeadline?: string;
+    discoveredVia?: DiscoveredVia;
+    reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord> {
     const debtorId =
       input.retailerName === undefined
@@ -321,11 +335,247 @@ export class InMemoryStore
     const record: CaseRecord = {
       deductionId: randomUUID(),
       state: 'discovered',
+      // The column's default, modelled: a case that does not say how it was
+      // discovered was discovered by a notice, because until ADR 0028 there was
+      // no other way. A store that left it undefined would let a test pass on a
+      // case shape Postgres cannot produce.
+      discoveredVia: 'notice',
       ...input,
       ...(debtorId !== undefined ? { debtorId } : {}),
     };
     this.cases.set(record.deductionId, record);
+    this.caseOpenedAt.set(record.deductionId, new Date());
     return record;
+  }
+
+  /**
+   * The tenant's remittance floor and dedup window.
+   *
+   * Defaulted to migration 0022's own defaults, and writable, because the whole
+   * subject of a tolerance test is what happens on each side of it.
+   */
+  readonly remittanceSettingsByOrg = new Map<string, RemittanceSettings>();
+
+  async remittanceSettings(orgId: string): Promise<RemittanceSettings> {
+    return (
+      this.remittanceSettingsByOrg.get(orgId) ?? {
+        toleranceCents: 500,
+        toleranceBps: 50,
+        dedupDays: 30,
+      }
+    );
+  }
+
+  /**
+   * When each case was opened, which `deductions.created_at` is in Postgres.
+   *
+   * Public and writable for `documentCreatedAt`'s reason: a test about what a
+   * case looked like when it was opened should be able to say so rather than
+   * wait for it.
+   */
+  readonly caseOpenedAt = new Map<string, Date>();
+
+  /** `deduction_identifiers` (migration 0020), in the open so a test can read it. */
+  readonly identifiers: Array<KnownIdentifier & { readonly orgId: string }> = [];
+
+  /**
+   * Every name a case is known by, with the source derived from the document.
+   *
+   * Derived here for the reason the Postgres store derives it: a source a
+   * caller supplied would be a channel credited on somebody's say-so. A
+   * document that records no arrival gets no rows and says why, rather than
+   * being filed under a guess — and an identifier another case already holds
+   * for that source is reported too, because that is two cases for one
+   * deduction and merging them is identity resolution's job.
+   */
+  async recordIdentifiers(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+  }): Promise<{ readonly written: number; readonly skippedBecause?: string }> {
+    const source = await this.uploadSourceFor(input.documentId);
+    if (source === undefined) {
+      return {
+        written: 0,
+        skippedBecause: `document ${input.documentId} records no arrival, so no source can be named`,
+      };
+    }
+    let written = 0;
+    const taken: string[] = [];
+    for (const arrived of input.identifiers) {
+      if (arrived.identifier.trim() === '') continue;
+      // `unique (org_id, source, identifier_kind, identifier)`, modelled the way
+      // Postgres applies it — on the stored text, not on the folded key.
+      const clash = this.identifiers.find(
+        (row) =>
+          row.orgId === input.orgId &&
+          row.source === source &&
+          row.kind === arrived.kind &&
+          row.identifier === arrived.identifier,
+      );
+      if (clash !== undefined) {
+        if (clash.deductionId !== input.deductionId) taken.push(arrived.kind);
+        continue;
+      }
+      this.identifiers.push({
+        orgId: input.orgId,
+        deductionId: input.deductionId,
+        source,
+        kind: arrived.kind,
+        identifier: arrived.identifier,
+      });
+      written += 1;
+    }
+    return {
+      written,
+      ...(taken.length > 0
+        ? {
+            skippedBecause: `another case already holds this tenant's ${taken.join(', ')} for ${source}`,
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * The candidates `resolveIdentity` needs, narrowed the way the Postgres store
+   * narrows them — and folded with `identifierMatchKey`, which is the matcher's
+   * own fold. A store that folded differently would hand back candidates the
+   * matcher then refused, and "no duplicate" is how a second case gets opened.
+   */
+  async identityCandidates(input: {
+    readonly orgId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+    readonly invoiceNumber?: string;
+  }): Promise<{
+    readonly knownIdentifiers: readonly KnownIdentifier[];
+    readonly knownDeductions: readonly KnownDeduction[];
+  }> {
+    const wanted = new Set(
+      input.identifiers
+        .map((i) => `${i.kind}\u0000${identifierMatchKey(i.identifier)}`)
+        .filter((key) => !key.endsWith('\u0000')),
+    );
+    const knownIdentifiers = this.identifiers
+      .filter(
+        (row) =>
+          row.orgId === input.orgId &&
+          wanted.has(`${row.kind}\u0000${identifierMatchKey(row.identifier)}`),
+      )
+      .map(({ deductionId, source, kind, identifier }) => ({
+        deductionId,
+        source,
+        kind,
+        identifier,
+      }));
+
+    // The probable branch's candidates: every case of this tenant's filed
+    // against this invoice, whatever opened it.
+    const knownDeductions: KnownDeduction[] = [];
+    if (input.invoiceNumber !== undefined) {
+      const key = identifierMatchKey(input.invoiceNumber);
+      const byInvoice = new Set(
+        this.identifiers
+          .filter(
+            (row) =>
+              row.orgId === input.orgId &&
+              row.kind === 'invoice_number' &&
+              identifierMatchKey(row.identifier) === key,
+          )
+          .map((row) => row.deductionId),
+      );
+      for (const deductionId of byInvoice) {
+        const record = this.cases.get(deductionId);
+        if (record?.deductionAmountCents === undefined) continue;
+        knownDeductions.push({
+          deductionId,
+          amountCents: cents(record.deductionAmountCents),
+          invoiceNumber: input.invoiceNumber,
+          ...(record.deductionDate !== undefined ? { deductionDate: record.deductionDate } : {}),
+          ...(record.debtorId !== undefined ? { debtorId: record.debtorId } : {}),
+        });
+      }
+    }
+    return { knownIdentifiers, knownDeductions };
+  }
+
+  /** The invoices a `withInvoiceClaim` is holding right now. */
+  private readonly invoiceClaims = new Set<string>();
+
+  /**
+   * The per-invoice claim, as a set in one process.
+   *
+   * The Postgres store's is an advisory lock in the database, which is what
+   * makes it hold across two of them. Same contract: one holder at a time, and
+   * the claim released however the work ends. It **waits** rather than refusing,
+   * which is the opposite of `withDocumentRead` — there is no model call inside
+   * it, and a line that gave up would be a deduction silently dropped.
+   *
+   * A test is single-threaded enough that contention is the exception, so this
+   * polls rather than keeping a waiter queue: the point it models is that the
+   * second caller sees the first caller's writes, not how it was scheduled.
+   */
+  async withInvoiceClaim<T>(
+    orgId: string,
+    invoiceNumber: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${orgId}:${invoiceNumber}`;
+    while (this.invoiceClaims.has(key)) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    this.invoiceClaims.add(key);
+    try {
+      return await work();
+    } finally {
+      this.invoiceClaims.delete(key);
+    }
+  }
+
+  /** Every line declined under the tolerance, as `declined_candidates` holds it. */
+  readonly declinedLines: Array<
+    DeclinedLine & {
+      readonly orgId: string;
+      readonly documentId: string;
+      readonly estimatedRecoverableCents: number;
+      readonly externalIds: Readonly<Record<string, string>>;
+      readonly decidedByVersion: string;
+      readonly detail?: string;
+    }
+  > = [];
+
+  /**
+   * A short-paid line we are not fighting, with no case.
+   *
+   * The channel is derived here rather than taken, exactly as the Postgres store
+   * derives it: a document whose arrival nothing recorded cannot be attributed,
+   * and a store that quietly credited `web_upload` would make the contract suite
+   * a fiction in the one place it is about a number somebody reports.
+   */
+  async recordDeclinedLine(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly estimatedRecoverableCents: number;
+    readonly externalIds: Readonly<Record<string, string>>;
+    readonly decidedByVersion: string;
+    readonly detail?: string;
+  }): Promise<DeclinedLine> {
+    const discoveredFrom = await this.uploadSourceFor(input.documentId);
+    if (discoveredFrom === undefined) throw new LineProvenanceUnknownError(input.documentId);
+    const row = {
+      declinedCandidateId: randomUUID(),
+      discoveredFrom,
+      // This store models arrivals recorded at ingest and nothing else — it has
+      // no `document_arrivals` — so everything it can answer, it observed.
+      provenanceKind: 'observed' as const,
+      ...input,
+    };
+    this.declinedLines.push(row);
+    return {
+      declinedCandidateId: row.declinedCandidateId,
+      discoveredFrom: row.discoveredFrom,
+      provenanceKind: row.provenanceKind,
+    };
   }
 
   async linkDocument(

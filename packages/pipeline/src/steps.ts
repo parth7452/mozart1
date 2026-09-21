@@ -6,7 +6,14 @@
  * which is what makes the whole chain safe to retry.
  */
 
-import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
+import {
+  applyTransition,
+  parseMoneyToCents,
+  resolveIdentity,
+  subCents,
+  tryParsePrintedDate,
+} from '@recouple/core-domain';
+import type { Cents, IdentityResolution } from '@recouple/core-domain';
 import {
   CorrespondenceSchema,
   DeductionNoticeSchema,
@@ -41,9 +48,11 @@ import type {
   CaseRecord,
   IngestSource,
   PipelineDeps,
+  RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
 } from './ports';
+import { LineProvenanceUnknownError } from './ports';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -508,6 +517,14 @@ export interface DocumentRead {
   readonly classification?: ClassifyResult;
   readonly extraction?: ExtractionResult;
   readonly case?: CaseRecord;
+  /**
+   * What a remittance's lines came to, when the document was one (ADR 0028).
+   *
+   * Absent for every other document type. Deliberately not folded into `case`:
+   * one remittance opens many, and naming one of them would be a choice the
+   * document did not make.
+   */
+  readonly remittance?: RemittanceRead;
   /** Why the document stopped where it did, when it did not go all the way. */
   readonly haltedBecause?: string;
 }
@@ -751,6 +768,19 @@ export async function readDocument(
 
   await recordTheRead(caseRecord?.deductionId);
 
+  // A remittance opens its cases *after* the read is recorded, which is the
+  // opposite order from a notice, and the reason is the same fact in both
+  // directions: what a read's fields and its spend belong to. A notice's belong
+  // to the one case it opens, so the case has to exist first. A remittance's
+  // belong to none of the twelve it may open — attributing one read to one of
+  // them would overstate that case's cost, which is the number a contingency
+  // fee is set against (Phase 4). So they are recorded against no case, and the
+  // lines run afterwards (ADR 0028).
+  let remittance: RemittanceRead | undefined;
+  if (classification.docType === 'remittance_advice' && caseRecord === undefined && mayOpenCase) {
+    remittance = await openCasesFromRemittance(document, extraction, deps);
+  }
+
   if (attachedCase !== undefined) {
     await deps.store.linkDocument(attachedCase.deductionId, document.documentId, 'evidence');
     await deps.store.appendEvent({
@@ -774,8 +804,14 @@ export async function readDocument(
     classification,
     extraction,
     ...(caseRecord !== undefined ? { case: caseRecord } : {}),
-    ...(classification.docType === 'deduction_notice' && caseRecord === undefined && !mayOpenCase
-      ? { haltedBecause: 'a notice from an unauthenticated sender: filed for a human to attach' }
+    ...(remittance !== undefined ? { remittance } : {}),
+    ...((classification.docType === 'deduction_notice' ||
+      classification.docType === 'remittance_advice') &&
+    caseRecord === undefined &&
+    !mayOpenCase
+      ? {
+          haltedBecause: `a ${classification.docType} from an unauthenticated sender: filed for a human to attach`,
+        }
       : {}),
   };
 }
@@ -831,7 +867,7 @@ function deductionTotalCents(document: unknown): number | undefined {
  */
 function printedDate(
   document: unknown,
-  field: 'deduction_date' | 'dispute_deadline',
+  field: 'deduction_date' | 'dispute_deadline' | 'payment_date',
 ): { date?: string; problem?: string } {
   const text = fieldValue(document, [field, 'value']);
   if (typeof text !== 'string' || text.trim() === '') return {};
@@ -864,8 +900,15 @@ const MAX_RETAILER_NAME_LENGTH = 500;
  * is a wrong debtor). So the column stays null and the reason goes on
  * `case.discovered`, exactly the way an unparseable date does.
  */
-function printedRetailerName(document: unknown): { name?: string; problem?: string } {
-  const text = fieldValue(document, ['retailer_name', 'value']);
+function printedRetailerName(
+  document: unknown,
+  // A remittance calls the same party `payer_name`. One function, because a
+  // name read off a remittance has to reach `deductions.retailer_name_as_printed`
+  // under the same cap and the same "blank is absence" rule as one read off a
+  // notice, or two document types would disagree about what a stored name means.
+  field: 'retailer_name' | 'payer_name' = 'retailer_name',
+): { name?: string; problem?: string } {
+  const text = fieldValue(document, [field, 'value']);
   if (typeof text !== 'string') return {};
   const trimmed = text.trim();
   if (trimmed === '') return {};
@@ -915,14 +958,8 @@ export async function openCaseFromNotice(
   // no case — but the reason goes on the event rather than on the floor.
   const deductionDate = printedDate(extraction.document, 'deduction_date');
   const disputeDeadline = printedDate(extraction.document, 'dispute_deadline');
-  // No column holds the invoice number; it is carried so the store can ask
-  // whether this is a deduction we already have (ADR 0025 §6 — invoice number
-  // *and* amount *and* date, never one of them alone).
-  const invoiceNumber = fieldValue(extraction.document, ['invoice_number', 'value']);
-  // Which door the notice came through, asked of the database rather than
-  // assumed. It is the `source` the identifier is recorded under, and a
-  // document stored before provenance existed answers `undefined` — which is an
-  // answer, not a default (ADR 0024).
+  // Preserve the printed identifier and the observed arrival source (ADRs 0024/0028).
+  const invoiceNumber = printedIdentifier(extraction.document, 'invoice_number');
   const source = await deps.store.uploadSourceFor(document.documentId);
 
   const opened = await deps.store.openCase({
@@ -938,6 +975,23 @@ export async function openCaseFromNotice(
     ...(disputeDeadline.date !== undefined ? { disputeDeadline: disputeDeadline.date } : {}),
   });
 
+  // Every name this case is known by, in the table built for them (ADR 0025).
+  // Nothing but that migration's own backfill has ever written a row; this is
+  // the `openCase` wiring it left as follow-up.
+  const names = await deps.store.recordIdentifiers({
+    orgId: document.orgId,
+    deductionId: opened.deductionId,
+    documentId: document.documentId,
+    identifiers: [
+      ...(typeof claimId === 'string' && claimId.trim() !== ''
+        ? [{ kind: 'claim_id' as const, identifier: claimId }]
+        : []),
+      ...(invoiceNumber !== undefined
+        ? [{ kind: 'invoice_number' as const, identifier: invoiceNumber }]
+        : []),
+    ],
+  });
+
   await deps.store.linkDocument(opened.deductionId, document.documentId, 'notice');
   await deps.store.appendEvent({
     orgId: document.orgId,
@@ -947,6 +1001,18 @@ export async function openCaseFromNotice(
       document_id: document.documentId,
       claim_id: typeof claimId === 'string' ? claimId : null,
       retailer_name: retailer.name ?? null,
+      // `discovered_via` is named on every `case.discovered` event, including
+      // the notice path's, so the projection is rebuildable from the events
+      // alone rather than from the events plus a column's default.
+      discovered_via: 'notice',
+      invoice_number: invoiceNumber ?? null,
+      // How many names were recorded, and why none were when none were. Said on
+      // the event rather than swallowed: a case with no identifier rows is a
+      // case the matcher cannot recognise a second copy of.
+      identifiers_recorded: names.written,
+      ...(names.skippedBecause !== undefined
+        ? { identifiers_unrecorded: names.skippedBecause }
+        : {}),
       // Null, not absent, when no debtor matched: the projection is rebuildable
       // from the events, and "nobody matched" is itself the fact (ADR 0019 §8).
       debtor_id: opened.debtorId ?? null,
@@ -982,6 +1048,691 @@ export async function openCaseFromNotice(
   });
 
   return classified;
+}
+
+/**
+ * The longest identifier a case stores — the cap migration 0022 puts on
+ * `deductions.invoice_number` and `deductions.reason_code_as_printed`.
+ *
+ * Checked here as well as there for `MAX_RETAILER_NAME_LENGTH`'s reason: a
+ * pathological reading is a line outcome somebody can read rather than a driver
+ * error out of `openCase`. The constraint is still the enforcement.
+ */
+const MAX_IDENTIFIER_LENGTH = 200;
+
+/**
+ * A short identifier off a page — an invoice number, a reason code — trimmed,
+ * with blank treated as absence and an impossible length treated as nothing
+ * read at all.
+ *
+ * Never truncated. Half an invoice number is not the invoice number, and this
+ * value is a lookup key: a shortened one would match the wrong case, which is
+ * worse than matching none.
+ */
+function printedIdentifier(document: unknown, ...path: readonly string[]): string | undefined {
+  const text = fieldValue(document, [...path, 'value']);
+  if (typeof text !== 'string') return undefined;
+  const trimmed = text.trim();
+  if (trimmed === '' || trimmed.length > MAX_IDENTIFIER_LENGTH) return undefined;
+  return trimmed;
+}
+
+/** Printed money, in cents, or `undefined` when the page said nothing readable. */
+function printedMoneyCents(document: unknown, ...path: readonly string[]): Cents | undefined {
+  const text = fieldValue(document, [...path, 'value']);
+  if (typeof text !== 'string' || text.trim() === '') return undefined;
+  try {
+    return parseMoneyToCents(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the page printed anything at all in that field, readable or not. */
+function fieldWasPrinted(document: unknown, ...path: readonly string[]): boolean {
+  const text = fieldValue(document, [...path, 'value']);
+  return typeof text === 'string' && text.trim() !== '';
+}
+
+/** What became of one line of a remittance advice. */
+export type RemittanceLineOutcome =
+  /** Over the floor, no recent case for this invoice: a new case. */
+  | 'opened'
+  /** An identifier matched a case exactly: the same deduction, arriving twice. */
+  | 'merged'
+  /**
+   * A case for this invoice, amount and date already exists, but not exactly —
+   * so it is opened anyway and the probable duplicate is named on its event. A
+   * person decides (ADR 0025: a wrong merge is invisible, a duplicate is not).
+   */
+  | 'probable_duplicate'
+  /** Under the tenant's floor; recorded in `declined_candidates`. */
+  | 'below_tolerance'
+  /**
+   * Under the floor, and the document records no arrival, so the decline could
+   * not be attributed to a channel. Counted, never guessed at.
+   */
+  | 'below_tolerance_unattributed'
+  /** Paid in full, or overpaid. An overpayment is not a deduction. */
+  | 'not_short_paid'
+  /** Nothing on the line prices the short-pay, or what is there will not parse. */
+  | 'unreadable';
+
+export interface RemittanceLineResult {
+  /** Position on the page, so a reviewer can find the row this is about. */
+  readonly index: number;
+  readonly outcome: RemittanceLineOutcome;
+  /** As printed. Absent when the line printed none, which is itself a reason. */
+  readonly invoiceNumber?: string;
+  /** The short-pay in cents, once we had one. */
+  readonly amountCents?: number;
+  /** For a probable duplicate: the case that might be this one already. */
+  readonly probableDuplicateOf?: readonly string[];
+  readonly reasonCode?: string;
+  /** The case this line opened or merged into. */
+  readonly deductionId?: string;
+  /** Why, in a sentence, for the outcomes that need one. */
+  readonly detail?: string;
+}
+
+/** What a whole remittance advice came to. */
+export interface RemittanceRead {
+  /** Cases these lines opened, in page order. */
+  readonly opened: readonly CaseRecord[];
+  /** Cases these lines merged into rather than duplicating. */
+  readonly mergedInto: readonly string[];
+  readonly lines: readonly RemittanceLineResult[];
+}
+
+/** The event naming what a whole remittance's lines came to. */
+export const LINES_PROCESSED = 'remittance.lines_processed';
+/** The event on a case a second document turned out to be about. */
+export const MERGED_DUPLICATE_LINE = 'case.merged_duplicate_line';
+/** What `declined_candidates.decided_by` says for a line under the floor. */
+export const DECLINED_BY_TOLERANCE = 'remittance_tolerance';
+
+/**
+ * The short-pay on one line, and how we got it.
+ *
+ * `deduction_amount` as printed wins, because it is the payer's own statement
+ * of what they withheld. `gross − net` is the fallback, and it is the case most
+ * freight and foodservice advices are: they print what they paid and what they
+ * owed, and the difference is left for the reader to do. That subtraction
+ * happens here, in integer cents, never in the model (CLAUDE.md: models copy,
+ * we compute).
+ *
+ * A field the page printed and we could not read comes back as a problem rather
+ * than as an absence, and the caller reports the line as unreadable: a deduction
+ * we cannot price is not a deduction of nothing.
+ */
+function shortPayOnLine(
+  line: unknown,
+):
+  | { readonly cents: Cents; readonly basis: 'printed' | 'gross_minus_net' }
+  | { readonly problem: string } {
+  if (fieldWasPrinted(line, 'deduction_amount')) {
+    const printed = printedMoneyCents(line, 'deduction_amount');
+    if (printed === undefined) {
+      return { problem: 'the line prints a deduction amount that will not parse as money' };
+    }
+    return { cents: printed, basis: 'printed' };
+  }
+
+  const grossPrinted = fieldWasPrinted(line, 'gross_amount');
+  const netPrinted = fieldWasPrinted(line, 'net_amount');
+  if (!grossPrinted || !netPrinted) {
+    return {
+      problem:
+        'the line prints no deduction amount, and ' +
+        (grossPrinted ? 'no net paid' : netPrinted ? 'no gross' : 'neither a gross nor a net paid') +
+        ' to subtract one from',
+    };
+  }
+
+  const gross = printedMoneyCents(line, 'gross_amount');
+  const net = printedMoneyCents(line, 'net_amount');
+  if (gross === undefined || net === undefined) {
+    return {
+      problem:
+        'the line prints a ' +
+        (gross === undefined ? 'gross' : 'net paid') +
+        ' that will not parse as money, so the short-pay cannot be computed',
+    };
+  }
+  // `subCents`, not `-`: core-domain's own integer-cents subtraction, the same
+  // one `detectShortPays` computes its ledger gap with. It keeps the `Cents`
+  // brand and refuses a result outside the safe integer range rather than
+  // producing one (invariant 3, ADR 0028 §9).
+  return { cents: subCents(gross, net), basis: 'gross_minus_net' };
+}
+
+/**
+ * Whether a short-pay clears the tenant's floor.
+ *
+ * Both halves, and the proportional one only when the gross is readable — a
+ * delta over the absolute floor with nothing to proportion it against is still
+ * a deduction, and refusing it would lose a real case over a missing column.
+ *
+ * The proportional comparison is a cross-multiplication in `BigInt`, not
+ * `delta >= gross * bps / 10000`. There is then no division, no rounding, and
+ * no question about which way a half-cent goes — and no overflow at any amount
+ * a document could print (invariant 3, ADR 0028 §3).
+ */
+export function clearsRemittanceTolerance(
+  deltaCents: number,
+  grossCents: number | undefined,
+  settings: Pick<RemittanceSettings, 'toleranceCents' | 'toleranceBps'>,
+): boolean {
+  // `applyBps` was the other candidate and is the wrong tool: it rounds half-up,
+  // which is right for a fee and wrong for a threshold — a line exactly on the
+  // boundary would fall one side or the other depending on the cent, and nobody
+  // reading this could say which without working the rounding out (ADR 0028 §3).
+  if (deltaCents < settings.toleranceCents) return false;
+  if (grossCents === undefined) return true;
+  return BigInt(deltaCents) * 10_000n >= BigInt(grossCents) * BigInt(settings.toleranceBps);
+}
+
+/**
+ * Opens a case for every line of a remittance advice that shows a short-pay.
+ *
+ * `openCaseFromNotice` is for a document that says "we took this from you".
+ * This is for the document that says "here is what we paid", where the
+ * deduction is the difference and nobody ever sent a notice — which in
+ * staffing, freight and foodservice is most of them (ADR 0028).
+ *
+ * One remittance can open many cases, so lines are processed one at a time and
+ * each gets its own `openCase`. A `DuplicateCaseError` on line 17 of a 42-line
+ * advice costs line 17 and nothing else. Nothing else is caught: a database
+ * that is down is not a line outcome.
+ *
+ * Every opened case, and every case a line merged into, gets the whole read's
+ * summary appended as `remittance.lines_processed` — `deduction_events` has no
+ * document-level row (its `deduction_id` is `not null`, migration 0004), and
+ * making an append-only table's column nullable is its own ADR. So a reviewer
+ * landing on any one of these cases can see what the read as a whole concluded.
+ */
+export async function openCasesFromRemittance(
+  document: StoredDocument,
+  extraction: ExtractionResult,
+  deps: PipelineDeps,
+): Promise<RemittanceRead> {
+  const settings = await deps.store.remittanceSettings(document.orgId);
+  const advice = extraction.document;
+
+  const payer = printedRetailerName(advice, 'payer_name');
+  const paymentReference = printedIdentifier(advice, 'payment_reference');
+  const paymentDate = printedDate(advice, 'payment_date');
+
+  const rows = fieldValue(advice, ['lines']);
+  const lines: RemittanceLineResult[] = [];
+  const opened: CaseRecord[] = [];
+  const mergedInto: string[] = [];
+
+  // Once per document, not once per line. A remittance stored before ingest
+  // recorded arrivals cannot attribute a decline to a channel, and asking again
+  // for each of forty-two lines would produce forty-two identical refusals. The
+  // first one stops the attempts and the count says how many went uncounted.
+  let attributionUnavailable: string | undefined;
+
+  if (!Array.isArray(rows)) {
+    // The document came back with no `lines` array at all — a read stored
+    // without provenance, or a shape we do not understand. Said out loud rather
+    // than treated as a remittance that happened to short-pay nothing.
+    console.warn(
+      `[recouple] remittance: document ${document.documentId} came back with no lines array; ` +
+        'no case was opened from it',
+    );
+    return { opened, mergedInto, lines };
+  }
+
+  for (const [index, line] of rows.entries()) {
+    const invoiceNumber = printedIdentifier(line, 'invoice_number');
+    const reasonCode = printedIdentifier(line, 'reason_code');
+    const grossCents = printedMoneyCents(line, 'gross_amount');
+    const note = (result: Omit<RemittanceLineResult, 'index'>): void => {
+      lines.push({
+        index,
+        ...(invoiceNumber !== undefined ? { invoiceNumber } : {}),
+        ...(reasonCode !== undefined ? { reasonCode } : {}),
+        ...result,
+      });
+    };
+
+    const shortPay = shortPayOnLine(line);
+    if ('problem' in shortPay) {
+      note({ outcome: 'unreadable', detail: shortPay.problem });
+      continue;
+    }
+    if (shortPay.cents <= 0) {
+      note({ outcome: 'not_short_paid', amountCents: shortPay.cents });
+      continue;
+    }
+
+    // Everything downstream is keyed by the invoice: the claim id, the dedup
+    // window, the lock. A line with none is a short-pay we cannot tell apart
+    // from the next one on the page, and a case we could never dedupe is how
+    // the same deduction gets filed twice.
+    if (invoiceNumber === undefined) {
+      note({
+        outcome: 'unreadable',
+        amountCents: shortPay.cents,
+        detail:
+          'the line prints no invoice number, so this short-pay cannot be told apart ' +
+          'from another on the same advice',
+      });
+      continue;
+    }
+
+    if (!clearsRemittanceTolerance(shortPay.cents, grossCents, settings)) {
+      if (attributionUnavailable !== undefined) {
+        note({
+          outcome: 'below_tolerance_unattributed',
+          amountCents: shortPay.cents,
+          detail: attributionUnavailable,
+        });
+        continue;
+      }
+      try {
+        // A discard is not a decision. Coverage is a ratio of dollars and has no
+        // numerator without this (STRATEGY ADD-1) — and a floor whose cost
+        // nobody can add up is a floor nobody can argue about.
+        await deps.store.recordDeclinedLine({
+          orgId: document.orgId,
+          documentId: document.documentId,
+          estimatedRecoverableCents: shortPay.cents,
+          externalIds: {
+            invoice_number: invoiceNumber,
+            ...(paymentReference !== undefined ? { payment_reference: paymentReference } : {}),
+            ...(reasonCode !== undefined ? { reason_code: reasonCode } : {}),
+          },
+          // The policy that decided, so a tenant that later lowers its floor can
+          // evaluate the change against exactly what the old one declined.
+          decidedByVersion: `${settings.toleranceCents}c/${settings.toleranceBps}bps`,
+          detail:
+            `short-pay of ${shortPay.cents} cents is under this tenant's remittance floor ` +
+            `(${settings.toleranceCents} cents / ${settings.toleranceBps} bps)`,
+        });
+        note({ outcome: 'below_tolerance', amountCents: shortPay.cents });
+      } catch (error) {
+        if (!(error instanceof LineProvenanceUnknownError)) throw error;
+        attributionUnavailable = error.message;
+        console.warn(`[recouple] remittance: ${error.message}`);
+        note({
+          outcome: 'below_tolerance_unattributed',
+          amountCents: shortPay.cents,
+          detail: error.message,
+        });
+      }
+      continue;
+    }
+
+    // The claim, the look-up and the insert are one decision. Two *different*
+    // documents — a notice and this remittance — can reach this point for the
+    // same invoice at the same moment, and `withDocumentRead` says nothing
+    // about that: it claims a document, and these are two.
+    const outcome = await deps.store.withInvoiceClaim(
+      document.orgId,
+      invoiceNumber,
+      async (): Promise<RemittanceLineResult> => {
+        // The claim id this line builds, which is what an exact match is on.
+        const claimId = lineClaimId(paymentReference, invoiceNumber);
+        // Deliberately only the claim id. The invoice number is *recorded* as an
+        // identifier, because it is a name this deduction is known by — but it
+        // is not matched on exactly, because one invoice legitimately carries
+        // many deductions and a shortage and a price claim against the same
+        // invoice are two. It reaches the matcher as `invoiceNumber` below,
+        // where it is the probable branch's field and has to agree with the
+        // amount and the date before it means anything (ADR 0028 §6).
+        const arrivalIdentifiers = [{ kind: 'claim_id' as const, identifier: claimId }];
+        const candidates = await deps.store.identityCandidates({
+          orgId: document.orgId,
+          identifiers: arrivalIdentifiers,
+          invoiceNumber,
+        });
+        const resolution = resolveIdentity(
+          {
+            identifiers: arrivalIdentifiers,
+            amountCents: shortPay.cents,
+            invoiceNumber,
+            ...(paymentDate.date !== undefined ? { deductionDate: paymentDate.date } : {}),
+          },
+          candidates.knownIdentifiers,
+          candidates.knownDeductions,
+          { dateToleranceDays: settings.dedupDays },
+        );
+
+        // Only `exact` merges. `probable` and `ambiguous` open the case and say
+        // so on its event, which is ADR 0025's asymmetry applied literally: a
+        // duplicate case is visible and mergeable, a wrong merge destroys a
+        // disputable deduction and leaves no record that it was ever seen.
+        if (resolution.kind === 'exact') {
+          await mergeIntoCase(resolution.deductionId, document, extraction, deps, {
+            invoiceNumber,
+            amountCents: shortPay.cents,
+            ...(reasonCode !== undefined ? { reasonCode } : {}),
+            matchedOn: [resolution.matchedOn.kind],
+          });
+          return {
+            index,
+            invoiceNumber,
+            outcome: 'merged',
+            deductionId: resolution.deductionId,
+          };
+        }
+
+        const probableDuplicateOf = probableDuplicates(resolution);
+
+        try {
+          const opened = await openCaseForLine(document, deps, {
+            invoiceNumber,
+            claimId,
+            amountCents: shortPay.cents,
+            basis: shortPay.basis,
+            ...(grossCents !== undefined ? { grossCents } : {}),
+            ...(reasonCode !== undefined ? { reasonCode } : {}),
+            ...(payer.name !== undefined ? { payerName: payer.name } : {}),
+            ...(payer.problem !== undefined ? { payerProblem: payer.problem } : {}),
+            ...(paymentReference !== undefined ? { paymentReference } : {}),
+            ...(paymentDate.date !== undefined ? { paymentDate: paymentDate.date } : {}),
+            ...(paymentDate.problem !== undefined
+              ? { paymentDateProblem: paymentDate.problem }
+              : {}),
+            ...(probableDuplicateOf !== undefined && resolution.kind !== 'none'
+              ? { probableDuplicateOf, probableBasis: resolution.basis }
+              : {}),
+          });
+          return {
+            index,
+            invoiceNumber,
+            outcome: probableDuplicateOf === undefined ? 'opened' : 'probable_duplicate',
+            deductionId: opened.deductionId,
+            ...(probableDuplicateOf !== undefined ? { probableDuplicateOf } : {}),
+          };
+        } catch (error) {
+          // The claim this line builds is already open against this debtor, and
+          // the matcher did not see it — which happens when the earlier case
+          // carries no identifier rows, the state every case opened before this
+          // change is in. The constraint caught what the matcher could not, and
+          // it caught it on the same string, so this is an exact match by
+          // another route. The other forty-one lines are unaffected.
+          if (!(error instanceof DuplicateCaseError)) throw error;
+          await mergeIntoCase(error.existingDeductionId, document, extraction, deps, {
+            invoiceNumber,
+            amountCents: shortPay.cents,
+            ...(reasonCode !== undefined ? { reasonCode } : {}),
+            matchedOn: ['claim_id'],
+            detail:
+              'the claim this line builds is already open against this debtor; ' +
+              'the unique constraint caught what the identifier matcher could not',
+          });
+          return {
+            index,
+            invoiceNumber,
+            outcome: 'merged',
+            deductionId: error.existingDeductionId,
+          };
+        }
+      },
+    );
+
+    lines.push({ ...outcome, ...(reasonCode !== undefined ? { reasonCode } : {}) });
+    if (outcome.deductionId === undefined) continue;
+    if (outcome.outcome === 'opened' || outcome.outcome === 'probable_duplicate') {
+      const record = await deps.store.getCase(outcome.deductionId);
+      if (record !== undefined) opened.push(record);
+    } else {
+      mergedInto.push(outcome.deductionId);
+    }
+  }
+
+  await reportLinesProcessed(document, extraction, deps, { opened, mergedInto, lines });
+  return { opened, mergedInto, lines };
+}
+
+/**
+ * The claim id a remittance line builds, from the advice's own identifiers.
+ *
+ * A remittance prints no claim id, because nobody filed a claim — they paid
+ * less. But `unique (org_id, debtor_id, claim_id)` is what stops the same
+ * deduction opening two cases once a debtor resolves, and a null opts every one
+ * of these out of it: Postgres does not compare nulls, which is the bug ADR 0019
+ * was written about. Payment reference plus invoice number is on the page,
+ * unique per line within a payment, and readable by a person holding the advice.
+ *
+ * It is also what `resolveIdentity`'s exact branch fires on when the same advice
+ * is read twice, which is the one duplicate we are certain about (ADR 0028 §7).
+ */
+function lineClaimId(paymentReference: string | undefined, invoiceNumber: string): string {
+  return paymentReference === undefined
+    ? invoiceNumber
+    : `${paymentReference}:${invoiceNumber}`;
+}
+
+/**
+ * The cases this arrival might already be, when the matcher would not commit.
+ *
+ * `undefined` for `exact` — which never reaches here, it merges — and for
+ * `none`. Both `probable` and `ambiguous` come back as a list, because from the
+ * point of view of the case being opened they mean the same thing: somebody has
+ * to look. Ids only; a basis is reported beside this and a basis names facts,
+ * never their values (`identity.ts`).
+ */
+function probableDuplicates(resolution: IdentityResolution): readonly string[] | undefined {
+  if (resolution.kind === 'probable') return [resolution.deductionId];
+  if (resolution.kind === 'ambiguous') return resolution.deductionIds;
+  return undefined;
+}
+
+/** Opens one case from one short-paid line, and walks it discovered → classified. */
+async function openCaseForLine(
+  document: StoredDocument,
+  deps: PipelineDeps,
+  line: {
+    readonly invoiceNumber: string;
+    readonly claimId: string;
+    readonly amountCents: number;
+    readonly basis: 'printed' | 'gross_minus_net';
+    readonly grossCents?: number;
+    readonly reasonCode?: string;
+    readonly payerName?: string;
+    readonly payerProblem?: string;
+    readonly paymentReference?: string;
+    readonly paymentDate?: string;
+    readonly paymentDateProblem?: string;
+    readonly probableDuplicateOf?: readonly string[];
+    readonly probableBasis?: readonly string[];
+  },
+): Promise<CaseRecord> {
+  const claimId = line.claimId;
+
+  const opened = await deps.store.openCase({
+    orgId: document.orgId,
+    claimId,
+    discoveredVia: 'remittance_line',
+    deductionAmountCents: line.amountCents,
+    ...(line.reasonCode !== undefined ? { reasonCodeAsPrinted: line.reasonCode } : {}),
+    ...(line.payerName !== undefined ? { retailerName: line.payerName } : {}),
+    ...(line.paymentDate !== undefined ? { deductionDate: line.paymentDate } : {}),
+    // No `disputeDeadline`, deliberately. A remittance prints no window, and
+    // "dispute within 90 days" in its footer is a payer's rule — versioned,
+    // effective-dated playbook data (Phase 2), not a date this code may infer.
+  });
+
+  // Role `notice`, not `evidence`. This document *is* the notice for this
+  // deduction, and `declineCase` derives `discovered_from` from the case's
+  // notice-role document — so filing it any other way would make every
+  // remittance-originated case undeclinable, which is a provenance mechanism
+  // breaking on a document whose provenance is perfectly well known.
+  await deps.store.linkDocument(opened.deductionId, document.documentId, 'notice');
+
+  // Both names this case is known by, in `deduction_identifiers` (ADR 0025).
+  // The invoice number is recorded here and never matched on alone: one invoice
+  // carries many deductions, and an exact match on it would merge two of them
+  // (ADR 0028 §6).
+  const names = await deps.store.recordIdentifiers({
+    orgId: document.orgId,
+    deductionId: opened.deductionId,
+    documentId: document.documentId,
+    identifiers: [
+      { kind: 'claim_id' as const, identifier: claimId },
+      { kind: 'invoice_number' as const, identifier: line.invoiceNumber },
+    ],
+  });
+
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId: opened.deductionId,
+    eventType: 'case.discovered',
+    payload: {
+      document_id: document.documentId,
+      claim_id: claimId,
+      discovered_via: 'remittance_line',
+      invoice_number: line.invoiceNumber,
+      identifiers_recorded: names.written,
+      ...(names.skippedBecause !== undefined
+        ? { identifiers_unrecorded: names.skippedBecause }
+        : {}),
+      // A case the matcher thinks might already exist, opened anyway because
+      // only an exact match may merge without a person (ADR 0025). The basis
+      // names the facts that agreed and never their values.
+      ...(line.probableDuplicateOf !== undefined
+        ? {
+            probable_duplicate_of: [...line.probableDuplicateOf],
+            probable_duplicate_basis: [...(line.probableBasis ?? [])],
+          }
+        : {}),
+      payment_reference: line.paymentReference ?? null,
+      retailer_name: line.payerName ?? null,
+      debtor_id: opened.debtorId ?? null,
+      deduction_date: line.paymentDate ?? null,
+      dispute_deadline: null,
+      deduction_amount_cents: line.amountCents,
+      reason_code_as_printed: line.reasonCode ?? null,
+      // How the amount was arrived at, which is the one thing a reviewer cannot
+      // see by looking at the row: `printed` means the payer said so, and
+      // `gross_minus_net` means we subtracted and they never wrote it down.
+      amount_basis: line.basis,
+      gross_amount_cents: line.grossCents ?? null,
+      ...(line.payerProblem !== undefined ? { retailer_name_unread: line.payerProblem } : {}),
+      ...(line.paymentDateProblem !== undefined
+        ? { deduction_date_unread: line.paymentDateProblem }
+        : {}),
+    },
+  });
+
+  // The same edge the notice path crosses, by the same trigger, checked against
+  // the same table — so the state machine stays the spec for both.
+  applyTransition(opened.state, 'classified', 'document.classified', { doc_type_known: true });
+  const classified = await deps.store.transitionCase(opened.deductionId, 'classified');
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId: opened.deductionId,
+    eventType: 'case.classified',
+    payload: { doc_type: 'remittance_advice', schema_version: 'remittance' },
+  });
+  return classified;
+}
+
+/**
+ * Files this document against a case that already holds the same deduction, and
+ * says so on that case.
+ *
+ * As `evidence`, not `notice`: the case already has whichever document named it
+ * first, and that first document is the one the deduction reached us through.
+ * Crediting the second would move `declined_candidates.discovered_from` to
+ * whichever channel re-sent something we already had — the same misattribution
+ * `ingestDocument` refuses when it declines to write a second `uploads` row.
+ */
+async function mergeIntoCase(
+  deductionId: string,
+  document: StoredDocument,
+  extraction: ExtractionResult,
+  deps: PipelineDeps,
+  line: {
+    readonly invoiceNumber: string;
+    readonly amountCents: number;
+    readonly reasonCode?: string;
+    /** The identifier kinds that agreed exactly. Names, never values. */
+    readonly matchedOn: readonly string[];
+    readonly detail?: string;
+  },
+): Promise<void> {
+  await deps.store.linkDocument(deductionId, document.documentId, 'evidence');
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId,
+    eventType: MERGED_DUPLICATE_LINE,
+    payload: {
+      document_id: document.documentId,
+      // Which kind of document turned up second. Notice-then-remittance and
+      // remittance-then-notice are both merges, and a reviewer wants to know
+      // which one they are looking at.
+      doc_type: extraction.docType,
+      invoice_number: line.invoiceNumber,
+      deduction_amount_cents: line.amountCents,
+      reason_code_as_printed: line.reasonCode ?? null,
+      matched_on: [...line.matchedOn],
+      ...(line.detail !== undefined ? { detail: line.detail } : {}),
+    },
+  });
+}
+
+/**
+ * The whole read's outcome, on every case it touched.
+ *
+ * Counts and ids, plus invoice numbers and reason codes — which are already on
+ * the case rows this event sits beside. No other document text: an event is not
+ * a place untrusted content goes (invariant 4).
+ *
+ * A read that opened and merged nothing has nowhere to put this, because
+ * `deduction_events.deduction_id` is `not null`. It is logged instead, and the
+ * `declined_candidates` rows are the durable record of what it decided.
+ */
+async function reportLinesProcessed(
+  document: StoredDocument,
+  extraction: ExtractionResult,
+  deps: PipelineDeps,
+  read: RemittanceRead,
+): Promise<void> {
+  const counts: Record<string, number> = {};
+  for (const line of read.lines) counts[line.outcome] = (counts[line.outcome] ?? 0) + 1;
+
+  const payload = {
+    document_id: document.documentId,
+    doc_type: extraction.docType,
+    lines_read: read.lines.length,
+    counts,
+    opened: read.opened.map((c) => c.deductionId),
+    merged_into: [...new Set(read.mergedInto)],
+    lines: read.lines.map((line) => ({
+      index: line.index,
+      outcome: line.outcome,
+      invoice_number: line.invoiceNumber ?? null,
+      deduction_amount_cents: line.amountCents ?? null,
+      reason_code_as_printed: line.reasonCode ?? null,
+      deduction_id: line.deductionId ?? null,
+      probable_duplicate_of: line.probableDuplicateOf ? [...line.probableDuplicateOf] : null,
+      detail: line.detail ?? null,
+    })),
+  };
+
+  const touched = [...new Set([...read.opened.map((c) => c.deductionId), ...read.mergedInto])];
+  if (touched.length === 0) {
+    console.warn(
+      `[recouple] remittance: document ${document.documentId} opened no case — ` +
+        `${read.lines.length} line(s): ${JSON.stringify(counts)}`,
+    );
+    return;
+  }
+
+  for (const deductionId of touched) {
+    await deps.store.appendEvent({
+      orgId: document.orgId,
+      deductionId,
+      eventType: LINES_PROCESSED,
+      payload,
+    });
+  }
 }
 
 export { RejectedUploadError };

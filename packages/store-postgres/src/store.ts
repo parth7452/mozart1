@@ -19,7 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import { cents, resolveDebtorId, resolveIdentity, tryParsePrintedDate } from '@recouple/core-domain';
+import { cents, identifierMatchKey, resolveDebtorId, resolveIdentity, tryParsePrintedDate } from '@recouple/core-domain';
 import type {
   ArrivalIdentity,
   CanonicalReasonCode,
@@ -38,10 +38,13 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DeclinedLine,
+  DiscoveredVia,
   DocumentReadLease,
   IngestSource,
   JobStore,
   PipelineStore,
+  RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
   UnreadDocument,
@@ -52,6 +55,7 @@ import type {
 } from '@recouple/pipeline';
 import {
   assertUnreadDocumentsQuery,
+  LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
 } from '@recouple/pipeline';
@@ -236,6 +240,23 @@ export interface CaseSummary {
    * (ADR 0019).
    */
   readonly retailerNameAsPrinted?: string;
+  /**
+   * What kind of document named this deduction (ADR 0028). `'notice'` for every
+   * case opened before that, which is what the column's default says too.
+   */
+  readonly discoveredVia: DiscoveredVia;
+  /**
+   * The invoice this deduction was taken against, as the document printed it.
+   *
+   * Read back from `deduction_identifiers` rather than from a column on the
+   * case: a deduction's names live there (ADR 0025), and a second copy here
+   * would be the one a view showed while the matcher read the other. The
+   * earliest one wins where a case carries more than one, so the list does not
+   * change when the planner does.
+   */
+  readonly invoiceNumber?: string;
+  /** The reason code exactly as printed, never mapped (playbook data, Phase 2). */
+  readonly reasonCodeAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
 }
@@ -517,6 +538,23 @@ export interface StoredField {
   readonly quoteVerified: boolean | null;
 }
 
+/**
+ * `identifierMatchKey`, written in SQL.
+ *
+ * Trim, collapse internal whitespace, case-fold — exactly what `identity.ts`
+ * does in TypeScript, and deliberately nothing more: no punctuation stripping,
+ * because `APDP-99812` and `APDP99812` are different identifiers until a person
+ * says otherwise (ADR 0025 §4). Written out once and interpolated into both
+ * lookups rather than typed twice, since the one way this can be wrong is the
+ * two copies drifting — and a fold that drifts from the matcher's hands back
+ * candidates the matcher refuses, which reads as "no duplicate" and opens a
+ * second case for a deduction we already have.
+ *
+ * It is a constant expression over a column, never user input: the values it
+ * compares against are bound parameters.
+ */
+const FOLDED_IDENTIFIER = "lower(regexp_replace(btrim(i.identifier), '\\s+', ' ', 'g'))";
+
 interface CaseSummaryRow {
   id: string;
   state: CaseState;
@@ -530,6 +568,9 @@ interface CaseSummaryRow {
   debtor_name: string | null;
   retailer_key: string | null;
   retailer_name_as_printed: string | null;
+  discovered_via: DiscoveredVia;
+  invoice_number: string | null;
+  reason_code_as_printed: string | null;
   document_count: number;
 }
 
@@ -1434,6 +1475,8 @@ export class PostgresStore
     deductionAmountCents?: number;
     deductionDate?: string;
     disputeDeadline?: string;
+    discoveredVia?: DiscoveredVia;
+    reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord> {
     return this.withTenant(async (client) => {
       // The name goes on the case as printed, always. Whether it also names a
@@ -1493,8 +1536,9 @@ export class PostgresStore
       try {
         ({ rows } = await client.query<{ id: string; state: CaseState }>(
           `insert into deductions (org_id, debtor_id, claim_id, retailer_name_as_printed,
-                                   deduction_amount_cents, deduction_date, dispute_deadline, state)
-           values ($1, $2, $3, $4, $5, $6, $7, 'discovered')
+                                   deduction_amount_cents, deduction_date, dispute_deadline,
+                                   discovered_via, reason_code_as_printed, state)
+           values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, 'notice'), $9, 'discovered')
            returning id, state`,
           [
             input.orgId,
@@ -1504,6 +1548,11 @@ export class PostgresStore
             input.deductionAmountCents ?? 1,
             input.deductionDate ?? null,
             input.disputeDeadline ?? null,
+            // `coalesce` rather than a default in TypeScript: the column's
+            // default is what says a case nobody labelled was named by a notice,
+            // and there should be one place that says so (migration 0022).
+            input.discoveredVia ?? null,
+            input.reasonCodeAsPrinted ?? null,
           ],
         ));
       } catch (error) {
@@ -1576,6 +1625,417 @@ export class PostgresStore
         ...(input.disputeDeadline !== undefined
           ? { disputeDeadline: input.disputeDeadline }
           : {}),
+        discoveredVia: input.discoveredVia ?? 'notice',
+        ...(input.reasonCodeAsPrinted !== undefined
+          ? { reasonCodeAsPrinted: input.reasonCodeAsPrinted }
+          : {}),
+      };
+    });
+  }
+
+  /**
+   * The tenant's remittance floor and dedup window (`org_settings`, 0021).
+   *
+   * Read through RLS in the caller's transaction like everything else here, and
+   * read per document rather than cached: a tenant that lowers its floor should
+   * see the next remittance filed against the new one. A tenant with no
+   * `org_settings` row at all gets the column defaults rather than a throw —
+   * every path that creates a tenant writes one, and a remittance that refused
+   * to be read because a settings row was missing would be a read paid for and
+   * thrown away.
+   */
+  async remittanceSettings(orgId: string): Promise<RemittanceSettings> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        cents: string;
+        bps: number;
+        days: number;
+      }>(
+        `select remittance_tolerance_cents::text as cents,
+                remittance_tolerance_bps as bps,
+                remittance_dedup_days as days
+           from org_settings where org_id = $1`,
+        [orgId],
+      );
+      const row = rows[0];
+      if (row === undefined) return { toleranceCents: 500, toleranceBps: 50, dedupDays: 30 };
+      return {
+        toleranceCents: exactCents(row.cents, 'remittance_tolerance_cents'),
+        toleranceBps: row.bps,
+        dedupDays: row.days,
+      };
+    });
+  }
+
+  /**
+   * Every name a case is known by, in `deduction_identifiers` (migration 0020).
+   *
+   * ADR 0025 built that table and wired nothing but its own backfill into it.
+   * This is the `openCase` wiring it left as follow-up, and it is what gives
+   * `resolveIdentity` something to match against on the live path rather than
+   * only the claim ids the backfill carried across.
+   *
+   * `source` is **derived** from the document's own arrival — observed from
+   * `documents.upload_id`, else asserted from `document_arrivals` — by the same
+   * read `declineCase` and `recordDeclinedLine` use. It is never a parameter,
+   * for ADR 0024's reason.
+   *
+   * Two things are reported rather than thrown, and both for the same reason:
+   * an identifier row is an index, not a counted number, so the conservative
+   * failure is to write nothing and say so. A document with no arrival names no
+   * source, and an identifier another case already holds for that source is two
+   * cases for one deduction — which is identity resolution's job (STRATEGY
+   * §5.2), not something an insert here may decide. Either way the case stands;
+   * the matcher will simply answer `none` next time, which is a second case
+   * somebody can see, rather than a wrong merge, which nobody can.
+   */
+  async recordIdentifiers(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+  }): Promise<{ readonly written: number; readonly skippedBecause?: string }> {
+    const wanted = input.identifiers.filter((i) => i.identifier.trim() !== '');
+    if (wanted.length === 0) return { written: 0 };
+    return this.withTenant(async (client) => {
+      const source = await this.arrivalSourceFor(client, input.documentId);
+      if (source === undefined) {
+        return {
+          written: 0,
+          skippedBecause:
+            `document ${input.documentId} records no arrival, so no source can be named`,
+        };
+      }
+
+      // `on conflict … do nothing` rather than a savepoint per row: the unique
+      // constraint is `(org_id, source, identifier_kind, identifier)`, and a
+      // conflict is a name somebody already recorded. Which case holds it is
+      // asked afterwards, once, so the answer can say whether it was this one.
+      const { rowCount } = await client.query(
+        `insert into deduction_identifiers
+           (org_id, deduction_id, source, identifier_kind, identifier)
+         select $1, $2, $3, k.kind, k.identifier
+           from unnest($4::text[], $5::text[]) as k(kind, identifier)
+         on conflict (org_id, source, identifier_kind, identifier) do nothing`,
+        [
+          input.orgId,
+          input.deductionId,
+          source,
+          wanted.map((i) => i.kind),
+          wanted.map((i) => i.identifier),
+        ],
+      );
+      const written = rowCount ?? 0;
+      if (written === wanted.length) return { written };
+
+      const { rows: taken } = await client.query<{ identifier_kind: string }>(
+        `select i.identifier_kind
+           from deduction_identifiers i
+           join unnest($3::text[], $4::text[]) as k(kind, identifier)
+             on k.kind = i.identifier_kind and k.identifier = i.identifier
+          where i.org_id = $1 and i.source = $2 and i.deduction_id <> $5`,
+        [
+          input.orgId,
+          source,
+          wanted.map((i) => i.kind),
+          wanted.map((i) => i.identifier),
+          input.deductionId,
+        ],
+      );
+      if (taken.length === 0) return { written };
+      const kinds = [...new Set(taken.map((row) => row.identifier_kind))].sort();
+      return {
+        written,
+        skippedBecause:
+          `another case already holds this tenant's ${kinds.join(', ')} for ${source}`,
+      };
+    });
+  }
+
+  /**
+   * The channel a document arrived through, observed or asserted.
+   *
+   * The same `coalesce`-shaped read `declineCase` makes, and at most one of the
+   * two can exist — the database refuses a `document_arrivals` row for a
+   * document that already names an upload — so this reads whichever is there
+   * rather than choosing between them (ADR 0024).
+   */
+  private async arrivalSourceFor(
+    client: PoolClient,
+    documentId: string,
+  ): Promise<UploadSource | undefined> {
+    const { rows } = await client.query<{
+      observed_from: string | null;
+      asserted_from: string | null;
+    }>(
+      `select u.source as observed_from, au.source as asserted_from
+         from documents d
+         left join uploads u on u.id = d.upload_id
+         left join document_arrivals da on da.document_id = d.id
+         left join uploads au on au.id = da.upload_id
+        where d.id = $1`,
+      [documentId],
+    );
+    const found = rows[0];
+    const raw = found?.observed_from ?? found?.asserted_from ?? null;
+    if (raw === null) return undefined;
+    if (!isDiscoveredFrom(raw)) {
+      // Unreachable while `uploads_source_check` and the lists in migrations
+      // 0014 and 0020 stay one list — the point of there being one
+      // `UPLOAD_SOURCES` behind all of them. Loud, and before anything written.
+      throw new Error(
+        `uploads.source returned ${JSON.stringify(raw)}, which is not a channel a ` +
+          'deduction identifier can be attributed to',
+      );
+    }
+    return raw;
+  }
+
+  /**
+   * The candidates `resolveIdentity` needs, and nothing else.
+   *
+   * The matching stays in `core-domain`: deterministic, pure, no I/O, no model,
+   * and one implementation whichever store is underneath. This only narrows the
+   * search, and it folds exactly the way `identifierMatchKey` does — trim,
+   * collapse internal whitespace, case-fold — because a store that folded
+   * differently would hand back candidates the matcher then refused, and "no
+   * duplicate" is how a second case for one deduction gets opened.
+   *
+   * RLS scopes both reads to this tenant; the `org_id` in the predicates is the
+   * index's leading column rather than the isolation.
+   */
+  async identityCandidates(input: {
+    readonly orgId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+    readonly invoiceNumber?: string;
+  }): Promise<{
+    readonly knownIdentifiers: readonly KnownIdentifier[];
+    readonly knownDeductions: readonly KnownDeduction[];
+  }> {
+    const wanted = input.identifiers.filter((i) => identifierMatchKey(i.identifier) !== '');
+    return this.withTenant(async (client) => {
+      const knownIdentifiers: KnownIdentifier[] = [];
+      if (wanted.length > 0) {
+        const { rows } = await client.query<{
+          deduction_id: string;
+          source: string;
+          identifier_kind: IdentifierKind;
+          identifier: string;
+        }>(
+          `select i.deduction_id, i.source, i.identifier_kind, i.identifier
+             from deduction_identifiers i
+             join unnest($2::text[], $3::text[]) as k(kind, folded)
+               on k.kind = i.identifier_kind
+              and k.folded = ${FOLDED_IDENTIFIER}
+            where i.org_id = $1`,
+          [
+            input.orgId,
+            wanted.map((i) => i.kind),
+            wanted.map((i) => identifierMatchKey(i.identifier)),
+          ],
+        );
+        for (const row of rows) {
+          knownIdentifiers.push({
+            deductionId: row.deduction_id,
+            source: row.source,
+            kind: row.identifier_kind,
+            identifier: row.identifier,
+          });
+        }
+      }
+
+      const knownDeductions: KnownDeduction[] = [];
+      if (input.invoiceNumber !== undefined && identifierMatchKey(input.invoiceNumber) !== '') {
+        // The probable branch's candidates: every case of this tenant's already
+        // filed against this invoice, whatever kind of document opened it.
+        // Distinct, because one case may carry the same invoice from two
+        // sources and a duplicated candidate would read as two probables and
+        // come back `ambiguous`.
+        const { rows } = await client.query<{
+          id: string;
+          amount: string;
+          deduction_date: Date | string | null;
+          debtor_id: string | null;
+          identifier: string;
+        }>(
+          `select distinct on (d.id)
+                  d.id, d.deduction_amount_cents::text as amount,
+                  d.deduction_date, d.debtor_id, i.identifier
+             from deduction_identifiers i
+             join deductions d on d.id = i.deduction_id
+            where i.org_id = $1
+              and i.identifier_kind = 'invoice_number'
+              and ${FOLDED_IDENTIFIER} = $2
+            order by d.id`,
+          [input.orgId, identifierMatchKey(input.invoiceNumber)],
+        );
+        for (const row of rows) {
+          const deductionDate = isoDate(row.deduction_date);
+          knownDeductions.push({
+            deductionId: row.id,
+            amountCents: cents(exactCents(row.amount, 'deduction_amount_cents')),
+            invoiceNumber: row.identifier,
+            ...(deductionDate !== undefined ? { deductionDate } : {}),
+            ...(row.debtor_id !== null ? { debtorId: row.debtor_id } : {}),
+          });
+        }
+      }
+
+      return { knownIdentifiers, knownDeductions };
+    });
+  }
+
+  /**
+   * Runs `work` while this (org, invoice) is claimed, so the look-then-open in
+   * `openCasesFromRemittance` is one decision rather than two steps with a race
+   * between them.
+   *
+   * `withDocumentRead` above claims a *document*, which stops two deliveries of
+   * one remittance reading it at once. It says nothing about a notice and a
+   * remittance — two different documents — arriving seconds apart and both
+   * finding no case for one invoice. Under READ COMMITTED both would see no
+   * existing case and both would insert, and `unique (org_id, debtor_id,
+   * claim_id)` does not catch it: the two documents build different claim ids,
+   * and it does not fire at all while `debtor_id` is null.
+   *
+   * `pg_advisory_xact_lock` — the **waiting** form, which is the opposite of
+   * what `withDocumentRead` uses and for the opposite reason. There is no model
+   * call inside this: the lookup and the insert are two short queries, so a
+   * waiter waits milliseconds, while a caller that gave up would drop a
+   * deduction on the floor rather than harmlessly skip a read. It cannot
+   * deadlock, because the claim is taken and released per line — a read holds at
+   * most one at a time, so there is no second lock for a cycle to form around.
+   *
+   * Transaction-scoped for `withDocumentRead`'s reason: `DATABASE_URL` is
+   * Supabase's transaction pooler, and a session lock could be taken on one
+   * server connection and unlocked on another.
+   *
+   * The key is `hashtextextended(org || ':' || invoice, 1)`. Seed 1, not 0, so
+   * an invoice key cannot collide with a document key from `withDocumentRead` —
+   * two different things waiting on one number would be a stall nobody could
+   * explain. On its own pool, again like the read claim, so a connection held
+   * for the length of a line cannot starve the queries inside it.
+   */
+  async withInvoiceClaim<T>(
+    orgId: string,
+    invoiceNumber: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const client = await this.lockPool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 1))', [
+        `${orgId}:${invoiceNumber}`,
+      ]);
+      try {
+        const result = await work();
+        // Nothing is written on this connection; the commit is what releases the
+        // claim, and it happens once the work is finished either way.
+        await client.query('commit');
+        return result;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Records a short-paid line we are not fighting, with no case attached.
+   *
+   * `declined_candidates.deduction_id` is nullable for exactly this (migration
+   * 0014): "ERP triage will decline thousands of short-pay lines that never
+   * reach extraction, and those are the rows coverage is measured against".
+   * These are those rows, arriving a phase earlier than expected.
+   *
+   * `discovered_from` and `provenance_kind` are derived from the document's own
+   * arrival by the same observed-or-asserted read `declineCase` uses, and are
+   * not parameters. At most one of the two can exist for a document — the
+   * database refuses a `document_arrivals` row for one that already names an
+   * upload — so this reads whichever is there rather than choosing between them
+   * (ADR 0024).
+   *
+   * @throws {LineProvenanceUnknownError} the document records no arrival either
+   *   way. Nothing is written: the transaction rolls back and the caller counts
+   *   the line as unattributed rather than crediting a channel to a guess.
+   */
+  async recordDeclinedLine(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly estimatedRecoverableCents: number;
+    readonly externalIds: Readonly<Record<string, string>>;
+    readonly decidedByVersion: string;
+    readonly detail?: string;
+  }): Promise<DeclinedLine> {
+    if (
+      !Number.isSafeInteger(input.estimatedRecoverableCents) ||
+      input.estimatedRecoverableCents < 0
+    ) {
+      throw new RangeError(
+        `${input.estimatedRecoverableCents} is not a number of cents a decline can be worth`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        observed_from: string | null;
+        asserted_from: string | null;
+      }>(
+        `select u.source as observed_from, au.source as asserted_from
+           from documents d
+           left join uploads u on u.id = d.upload_id
+           left join document_arrivals da on da.document_id = d.id
+           left join uploads au on au.id = da.upload_id
+          where d.id = $1`,
+        [input.documentId],
+      );
+      const found = rows[0];
+      const observedFrom = found?.observed_from ?? null;
+      const assertedFrom = found?.asserted_from ?? null;
+      const rawDiscoveredFrom = observedFrom ?? assertedFrom;
+      if (rawDiscoveredFrom === null) throw new LineProvenanceUnknownError(input.documentId);
+      if (!isDiscoveredFrom(rawDiscoveredFrom)) {
+        // Unreachable while `uploads_source_check` and 0014's `discovered_from`
+        // check hold the same list — the point of there being one
+        // `UPLOAD_SOURCES` behind both. If they drift, this names the value
+        // instead of failing on a check constraint with no clue which did it.
+        throw new Error(
+          `uploads.source returned ${JSON.stringify(rawDiscoveredFrom)}, which is not a ` +
+            'channel coverage can be attributed to',
+        );
+      }
+      const provenanceKind: ProvenanceKind = observedFrom !== null ? 'observed' : 'asserted';
+
+      const { rows: written } = await client.query<{ id: string }>(
+        `insert into declined_candidates
+           (org_id, deduction_id, discovered_from, provenance_kind, reason,
+            estimated_recoverable_cents, external_ids, decided_by, decided_by_version,
+            missing_evidence, detail)
+         values ($1, null, $2, $3, 'below_economic_floor', $4, $5::jsonb,
+                 'remittance_tolerance', $6, '{}', $7)
+         returning id`,
+        [
+          input.orgId,
+          rawDiscoveredFrom,
+          provenanceKind,
+          input.estimatedRecoverableCents,
+          JSON.stringify(input.externalIds),
+          input.decidedByVersion,
+          input.detail ?? null,
+        ],
+      );
+      const row = written[0];
+      if (row === undefined) throw new Error('insert into declined_candidates returned no row');
+      return {
+        declinedCandidateId: row.id,
+        discoveredFrom: rawDiscoveredFrom,
+        provenanceKind,
       };
     });
   }
@@ -2396,8 +2856,17 @@ export class PostgresStore
       const { rows } = await client.query<CaseSummaryRow>(
         `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
                 d.deduction_date, d.dispute_deadline, d.created_at,
-                d.retailer_name_as_printed,
+                d.retailer_name_as_printed, d.discovered_via, d.reason_code_as_printed,
                 b.display_name as debtor_name, b.retailer_key,
+                -- The invoice, from the table that holds a deduction's names
+                -- (ADR 0025). Earliest first with id breaking the tie, for
+                -- declineCase's reason: first_seen_at defaults to the
+                -- transaction's start time, so two rows written in one
+                -- transaction carry the identical timestamp and limit 1 over a
+                -- tie is whichever row the plan reached first.
+                (select i.identifier from deduction_identifiers i
+                  where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
+                  order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
                 (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
                   ::int as document_count
            from deductions d
@@ -2420,6 +2889,11 @@ export class PostgresStore
           ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
           ...(row.retailer_name_as_printed !== null
             ? { retailerNameAsPrinted: row.retailer_name_as_printed }
+            : {}),
+          discoveredVia: row.discovered_via,
+          ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+          ...(row.reason_code_as_printed !== null
+            ? { reasonCodeAsPrinted: row.reason_code_as_printed }
             : {}),
           documentCount: row.document_count,
           createdAt: isoDate(row.created_at) ?? '',
