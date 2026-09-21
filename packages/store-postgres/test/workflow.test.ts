@@ -1073,6 +1073,67 @@ describeDb('the workflow on postgres', () => {
     expect(rows[0]?.n).toBe('0');
   });
 
+  it('lets the database refuse a filing record written blank', async () => {
+    // `recordSubmission` writes the packet hash, the confirmation number and
+    // the filing date in one insert, and refuses an empty confirmation number
+    // before it gets there. That is the store, on the near side of the gate —
+    // and migration 0017 froze all three, so a row written blank could never be
+    // completed by anybody. The constraint is what makes the database the
+    // referee (ADR 0023): this writes the row the way a buggy store would, as
+    // `app_rw` with the tenant's claims, against a decision that really is
+    // approved, so nothing but the constraint can be what refuses it.
+    const deductionId = await tenant.newCase();
+    const h = harnessFor(tenant);
+    const { decisionId, packetId, contentHash } = await toAwaitingApproval(h, deductionId);
+    await h
+      .store(tenant.approver)
+      .approve({ decisionId, packetId, approverId: tenant.approver, note: 'Checked the POD.' });
+
+    const client = await admin.connect();
+    try {
+      await client.query('begin');
+      await client.query('set local role app_rw');
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: tenant.orgId, sub: tenant.approver }),
+      ]);
+      // A savepoint each, because a refused statement aborts the transaction
+      // and the second attempt would otherwise be answered by that rather than
+      // by the constraint it is about.
+      await client.query('savepoint blank');
+      await expect(
+        client.query(
+          `insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                                    submitted_at)
+           values ($1, $2, $3, 'manual_portal', $4, now())`,
+          [tenant.orgId, deductionId, decisionId, Buffer.from(contentHash, 'hex')],
+        ),
+      ).rejects.toThrow(/submissions_manual_filing_is_complete/);
+      await client.query('rollback to savepoint blank');
+
+      // And the cap the submit route enforces is enforced here too, so a caller
+      // that is not that route cannot store a reference the app can never show
+      // — and, since 0017, can never trim.
+      await expect(
+        client.query(
+          `insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                                    confirmation_number, submitted_at)
+           values ($1, $2, $3, 'manual_portal', $4, $5, now())`,
+          [tenant.orgId, deductionId, decisionId, Buffer.from(contentHash, 'hex'), 'A'.repeat(121)],
+        ),
+      ).rejects.toThrow(/submissions_confirmation_number_length/);
+    } finally {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
+
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from submissions where decision_id = $1`,
+      [decisionId],
+    );
+    expect(rows[0]?.n).toBe('0');
+  });
+
   it('refuses a method that acts as somebody other than the session', async () => {
     // The store carries one person's session. A call naming another actor is a
     // bug or a forgery, and on a money path those look identical from here.
