@@ -69,6 +69,18 @@ export const CONFIRMATION_MAX_LENGTH = 120;
 export const DECLINE_DETAIL_MAX_LENGTH = 2000;
 export const UPLOAD_MAX_MB = 25;
 export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
+/**
+ * How long a document may be stored and scanned and unread before the case list
+ * says so.
+ *
+ * Long enough that a document being read right now is not called stuck — a
+ * dense remittance is about a minute of model time, and a list that flagged
+ * every upload for its first minute would teach a reviewer to ignore it. Short
+ * enough that a read which never started is found the same session it was
+ * uploaded in. It is one number because the page that asks the store and the
+ * sentence that explains the answer must not be able to disagree.
+ */
+export const UNREAD_AFTER_MINUTES = 5;
 
 export const NOTICES = {
   // --- deciding to dispute -------------------------------------------------
@@ -258,8 +270,14 @@ export const NOTICES = {
     text: 'that document is being read; the case will appear here when it is',
   },
   upload_not_queued: {
+    // It used to say that uploading the same file again re-queues it. That was
+    // true of the bytes and false of the read: while the read function carried
+    // an idempotency key on the document id, a second event for a document that
+    // had stalled was swallowed for twenty-four hours, so the advice sent the
+    // reviewer to do the one thing that could not work. The key is gone, and
+    // the honest answer is the list below rather than a second upload.
     tone: 'bad',
-    text: 'that document is stored but could not be queued for reading just now; it will be read when the queue is reachable — uploading the same file again re-queues it',
+    text: 'that document is stored and scanned but could not be queued for reading just now; it is listed under “Documents waiting to be read” on the case list, where it can be read again',
   },
   upload_not_scanned_clean: {
     tone: 'bad',
@@ -285,6 +303,49 @@ export const NOTICES = {
   upload_duplicate_case_unsaid: {
     tone: 'bad',
     text: 'that claim is already this case; the document was read but no second case was opened',
+  },
+
+  // --- reading a document again --------------------------------------------
+  //
+  // The recovery path for a document that was stored, scanned clean and never
+  // read. Nothing here re-uploads anything: the bytes are already in the
+  // database, and what is being asked for is the read.
+  reread_role: {
+    tone: 'bad',
+    text: 'your role can review documents but not ask for one to be read',
+  },
+  reread_queued: {
+    tone: 'good',
+    text: 'that document is queued to be read again; it leaves this list when it has been',
+  },
+  reread_done: {
+    tone: 'good',
+    text: 'that document has been read; a case it opened is in the list above',
+  },
+  reread_already_read: {
+    tone: 'good',
+    text: 'that document had already been read, so it was not read again and nothing was spent on it',
+  },
+  reread_not_scanned_clean: {
+    tone: 'bad',
+    text: 'that document has no clean scan verdict, so nothing in it was read. The gate fails closed: no verdict is not a pass.',
+  },
+  reread_duplicate_case: {
+    // Deliberately wordless about which claim. The claim id is text off
+    // somebody else's page, and the other notices that name one arrive at a
+    // case page where there is somewhere to send the reviewer; this one arrives
+    // at a list, where the id would be the only thing said and nothing to do
+    // with it.
+    tone: 'bad',
+    text: 'that document was read, and the claim printed on it is already a case — no second case was opened',
+  },
+  reread_not_queued: {
+    tone: 'bad',
+    text: 'that document could not be queued just now — the queue would not take it. Nothing was lost; try again in a few minutes.',
+  },
+  reread_failed: {
+    tone: 'bad',
+    text: 'reading that document failed, and the reason is in this deployment’s logs — nothing was stored from the attempt',
   },
 
   // One per `RejectionCode`, because the door's refusal is a closed set and its

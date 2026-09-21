@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-09-20
+- Amended: 2026-09-21 — the function's `idempotency` key is removed, and a
+  document that was queued and never read is visible with a way to re-drive it.
 
 ## Context
 
@@ -79,7 +81,7 @@ case opens so a failed `openCase` cannot lose a read we paid for.
 **The serve route** is `apps/web/app/api/inngest/route.ts`, the Inngest Next.js
 adapter over one function: id `read-document` in app `recouple`
 (`recouple/read-document`), trigger `document/read.requested`, `retries: 3`,
-`idempotency: 'event.data.documentId'`, and two concurrency limits — one keyed
+no `idempotency` key at all (see below), and two concurrency limits — one keyed
 on `event.data.orgId` so a tenant's bulk upload cannot starve another's, and one
 with no key at all, which is the ceiling on how many reads this app runs at
 once however many tenants want one. The per-org limit bounds a tenant; only the
@@ -124,10 +126,11 @@ is unchanged — straight to the case the notice opened.
 are stored and scanned before the event is sent, so a failing `send` is a
 document that exists and nobody is coming for. Throwing there would hand the
 reviewer a 500 for an upload that worked. Instead the failure is logged with its
-cause, and the reviewer is told the document is stored and will be read when the
-queue is reachable, and that uploading the same file again re-queues it — which
-it does: the bytes dedupe to that same document row, no read was ever recorded
-for it, and the job does the read rather than reporting one.
+cause, and the reviewer is told the document is stored and that it is listed
+under "Documents waiting to be read" on the case list, where it can be re-driven
+by hand. That notice used to say to upload the same file again, which was true of
+the bytes and false of the read for as long as this function carried an
+idempotency key — see below.
 
 A failed read is now visible and retried. Inngest records the error and retries
 three times; the steps are idempotent by construction (the same bytes dedupe to
@@ -136,14 +139,12 @@ already has a recorded extraction is answered from what was recorded rather than
 read again), so a retry finishes the work rather than duplicating it.
 
 A redelivered event does not open a second case, and does not pay for a second
-read. Three things stand behind that, in order of how much they are worth:
-`readDocumentJob` answers a document that already has an extraction from what
-was recorded, without classifying, extracting or opening anything; `idempotency`
-on the document id is the runtime's own promise, within its window;
-`unique (org_id, debtor_id, claim_id)` is the database's, and it holds only once
-a human has linked the retailer, because a null `debtor_id` never collides (ADR
-0019). The middle one is a third party's word and the last one is null for every
-case a new tenant opens, which is why the first one exists.
+read. Two things stand behind that: `readDocumentJob` answers a document that
+already has an extraction from what was recorded, without classifying,
+extracting or opening anything; and `unique (org_id, debtor_id, claim_id)` is
+the database's backstop, which holds only once a human has linked the retailer,
+because a null `debtor_id` never collides (ADR 0019). The second is null for
+every case a new tenant opens, which is why the first one exists.
 
 The one thing that guard must not skip is a read that would do something the
 first one did not: attaching the document to a case it is not yet linked to (the
@@ -151,15 +152,52 @@ same BOL is evidence for two deductions), or opening a case for a notice that
 has none — an unauthenticated email's notice is read and deliberately left
 caseless (ADR 0016). Both re-read.
 
-One interaction is worth writing down rather than discovering: `idempotency` is
-keyed on the document id alone, so within its window the runtime will also
-suppress the *second* event for a document a reviewer is deliberately attaching
-to another case — the same BOL, uploaded again from a second deduction's page.
-The guard is written so that read does its work when it runs; whether it runs
-inside that window is the runtime's decision and not ours. Narrowing the key to
-include `attachToCase` is the fix if a reviewer reports an attachment that never
-appeared, and it is a CEL expression change worth making against a real Inngest
-rather than guessing at here.
+**There was a third layer and it has been removed: `idempotency:
+'event.data.documentId'`.** Amended 2026-09-21, after production showed what it
+cost. A document was uploaded and queued; Inngest invoked
+`recouple/read-document` once; the SDK answered 206 with a step plan; the
+runtime never called back to execute the step. Nothing threw, nothing was
+logged, and the reviewer's notice said "being read" indefinitely. A second
+upload of the same bytes sent a second event, and that key's own twenty-four
+hour window swallowed it — so the recovery the `upload_not_queued` notice
+promised could not work, for a day, by design.
+
+What the key bought was one saved invocation on a redelivery. What the
+DB-backed guard buys is the thing that actually matters — no second model call,
+no second case — and it buys it on every delivery rather than inside a window,
+on the inline path as well as the queued one, and without refusing a re-drive
+somebody asked for on purpose. A window that suppresses the recovery is worse
+than no window. The guard is the layer; there is no second one, and the
+interaction that used to be written down here — the key suppressing a
+*deliberate* second event for the same BOL being attached to another case — goes
+with it.
+
+In its place the function logs its own step boundaries: run entered, step
+entered, what the step concluded, run returned, each with the document and org
+ids and nothing else. A run line with no step line under it is exactly the stall
+above, and it is now visible in the platform's logs rather than invisible
+everywhere.
+
+**A document that was queued and never read can be seen, and read again.** The
+case list shows, to a member who may write, every document of theirs that is
+stored, scanned clean, has no `extraction_results` row and is older than five
+minutes — `PostgresStore.unreadDocuments`, read through `withTenant` as `app_rw`
+like everything else, no new table and no migration. Each row carries a "Read
+again" button, which POSTs to `/documents/[id]/reread`: cross-site refused,
+session, id checked, role checked here and `app.member_may_write()` checked in
+the database, the document visible to the tenant or a 404, and then a re-drive
+through the same runner `runnerFromEnv` gives — the same
+`document/read.requested` event where there is a queue, the same
+`readDocumentJob` inline where there is not. It is safe to press twice for the
+same reason a redelivered event is: the guard answers a document that has
+already been read from what was recorded. Every refusal is a notice key and a
+redirect, never a 500.
+
+This is the visible half the original design was missing. Every step was
+separately re-runnable from the start; what did not exist was a way to see that
+there was something to re-run, and "the reviewer's only recourse is to upload
+the same file again and hope" — the sentence this ADR's own Context wrote about
+gateway timeouts — turned out to describe the queue too.
 
 **A failed run reports its class and its ids, and never its message.**
 `DuplicateCaseError` interpolates the claim id, which is text off the page, and
@@ -269,9 +307,11 @@ opens a case, and nothing downstream of a case is triggered from here.
 
 Unset `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`. Every environment falls
 back to the inline runner, which is today's behaviour, and the serve route stops
-serving. Documents already queued are lost as events and can be re-read by
-re-uploading the same file: the bytes dedupe to the same document row, so a
-re-upload is a re-read rather than a second document.
+serving. Documents already queued are lost as events and are then exactly the
+"waiting to be read" case above: they appear on the case list and the same
+button reads them, now inline. Re-uploading the same file also works — the bytes
+dedupe to the same document row, so a re-upload is a re-read rather than a
+second document — and it is no longer the only recourse.
 
 To remove it entirely: delete `apps/web/app/api/inngest/route.ts`,
 `apps/web/lib/inngest.ts`, the runner half of `apps/web/lib/pipeline.ts` and the

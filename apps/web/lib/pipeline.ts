@@ -4,9 +4,12 @@ import {
   assertCaseAttachable,
   ingestForJob,
   processUpload,
+  readDocumentJob,
   type IngestInput,
+  type JobDeps,
   type PipelineDeps,
   type ProcessedDocument,
+  type ReadDocumentJobResult,
 } from '@recouple/pipeline';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { tenantStore } from './store';
@@ -93,8 +96,43 @@ export type UploadOutcome =
   | { readonly kind: 'not_queued'; readonly documentId: string }
   | { readonly kind: 'halted'; readonly haltedBecause: string };
 
+/**
+ * What asking for a stored document to be read again amounted to.
+ *
+ * The same three shapes an upload can end in, minus the ones that are about
+ * bytes: nothing is accepted, stored or scanned here. The document is already
+ * in the database and already has a clean verdict — what is being asked for is
+ * the read, and the answer is either that it ran, that it is queued, or that
+ * the queue would not take it.
+ */
+export type RereadOutcome =
+  | { readonly kind: 'read'; readonly result: ReadDocumentJobResult }
+  | { readonly kind: 'queued' }
+  | { readonly kind: 'not_queued' };
+
 export interface UploadRunner {
   readonly name: 'inline' | 'inngest';
+  /**
+   * Asks for a document that is already stored and scanned to be read.
+   *
+   * The recovery path for a read that was queued and never ran (ADR 0021). It
+   * is the same read either way — `readDocumentJob` here, `readDocumentJob` in
+   * the function there — so a re-drive cannot become a second, more permissive
+   * way into the pipeline. It is safe to press twice: a document that already
+   * has an extraction is answered from what was recorded, with no model call.
+   *
+   * `JobDeps` rather than `PipelineDeps`, because the inline half genuinely
+   * runs the job: it reads from a document id, which is the one thing a request
+   * path does not otherwise need to do.
+   */
+  reread(
+    documentId: string,
+    deps: JobDeps,
+    options: {
+      readonly orgId: string;
+      readonly actor: { readonly userId: string };
+    },
+  ): Promise<RereadOutcome>;
   run(
     input: IngestInput,
     // `PipelineDeps`, not `JobDeps`: neither runner reads from a document id.
@@ -126,6 +164,27 @@ export class InlineRunner implements UploadRunner {
       deps,
       options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {},
     );
+    return { kind: 'read', result };
+  }
+
+  /**
+   * Runs the read here and now, and answers with what it found.
+   *
+   * No queue to fail, so there is no `not_queued` from this one. A refusal —
+   * the gate, a duplicate claim, a document that is not this tenant's — is
+   * thrown, because it is the caller who is standing in front of the person
+   * waiting for an answer.
+   */
+  async reread(
+    documentId: string,
+    deps: JobDeps,
+    options: { orgId: string; actor: { userId: string } },
+  ): Promise<RereadOutcome> {
+    const result = await readDocumentJob(deps, {
+      documentId,
+      orgId: options.orgId,
+      actor: options.actor,
+    });
     return { kind: 'read', result };
   }
 }
@@ -191,6 +250,47 @@ export class InngestRunner implements UploadRunner {
     }
 
     return { kind: 'queued', documentId: ingested.documentId };
+  }
+
+  /**
+   * Sends the same `document/read.requested` the upload would have sent.
+   *
+   * The same event, with the actor taken from the session asking for it rather
+   * than from the one who uploaded it — a re-drive is a thing somebody did, and
+   * the job checks that they may write in this org before it spends anything.
+   * `attachToCase` is deliberately absent: a document that was never read has
+   * no case it was going to be attached to, and inventing one here would make a
+   * button that files evidence somewhere nobody asked for.
+   *
+   * The event carries ids and nothing else, exactly as the upload's does
+   * (invariant 4). `deps` is unused: no bytes are read here.
+   */
+  async reread(
+    documentId: string,
+    _deps: JobDeps,
+    options: { orgId: string; actor: { userId: string } },
+  ): Promise<RereadOutcome> {
+    const data: ReadRequestedData = {
+      documentId,
+      orgId: options.orgId,
+      userId: options.actor.userId,
+    };
+
+    try {
+      await this.client.send(readRequestedEvent(data));
+    } catch (cause) {
+      // Same reasoning as an upload's failed send, minus the document being new:
+      // nothing is lost, nothing is corrupt, and a 500 would say the opposite.
+      // Logged in full here, where an operator reads logs.
+      console.error(
+        `[recouple] reread: document ${documentId} could not be queued for re-reading — ` +
+          'the Inngest event was not accepted (ADR 0021)',
+        cause,
+      );
+      return { kind: 'not_queued' };
+    }
+
+    return { kind: 'queued' };
   }
 }
 

@@ -72,6 +72,8 @@ import type {
   PipelineStore,
   StoredDocument,
   SubmissionRecord,
+  UnreadDocument,
+  UnreadDocumentsStore,
   WorkflowSubmissionChannel,
 } from '../ports';
 import { DuplicateCaseError } from '../steps';
@@ -121,8 +123,16 @@ export interface StoredEvent {
   readonly payload: Record<string, unknown>;
 }
 
-export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
+export class InMemoryStore implements PipelineStore, CaseWorkflowStore, UnreadDocumentsStore {
   readonly documents = new Map<string, StoredDocument>();
+  /**
+   * When each document was stored, which `documents.created_at` is in Postgres.
+   *
+   * Public and writable on purpose: "this document has been waiting twenty
+   * minutes" is the whole subject of `unreadDocuments`, and a test that cannot
+   * say so would have to sleep for it.
+   */
+  readonly documentCreatedAt = new Map<string, Date>();
   readonly scans: Array<{ documentId: string; verdict: ScanVerdict }> = [];
   readonly classifications: Array<{ documentId: string; docType: DocType; confidence: number }> = [];
   readonly extractions: StoredExtraction[] = [];
@@ -161,6 +171,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   async putDocument(document: Omit<StoredDocument, 'documentId'>): Promise<StoredDocument> {
     const stored: StoredDocument = { ...document, documentId: randomUUID() };
     this.documents.set(stored.documentId, stored);
+    this.documentCreatedAt.set(stored.documentId, new Date());
     return stored;
   }
 
@@ -312,6 +323,45 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
   async caseForDocument(documentId: string): Promise<string | undefined> {
     const links = this.links.filter((l) => l.documentId === documentId);
     return (links.find((l) => l.role === 'notice') ?? links[0])?.deductionId;
+  }
+
+  /**
+   * The documents that were stored and scanned clean and never read.
+   *
+   * The same three conditions the Postgres store applies, modelled the way
+   * Postgres applies them: the *latest* verdict decides, an extraction is the
+   * record of a read, and the age is measured against the wall clock. A store
+   * that was more generous here would make the contract suite a fiction.
+   */
+  async unreadDocuments(olderThanMinutes: number, limit = 50): Promise<readonly UnreadDocument[]> {
+    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes < 0) {
+      throw new Error(
+        `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
+      );
+    }
+    const now = Date.now();
+    const cutoff = now - olderThanMinutes * 60_000;
+
+    return [...this.documents.values()]
+      .map((document) => ({
+        document,
+        createdAt: this.documentCreatedAt.get(document.documentId) ?? new Date(0),
+      }))
+      .filter(({ document, createdAt }) => {
+        if (createdAt.getTime() > cutoff) return false;
+        const verdict = this.scans.filter((s) => s.documentId === document.documentId).at(-1);
+        if (verdict?.verdict.status !== 'clean') return false;
+        return !this.extractions.some((e) => e.documentId === document.documentId);
+      })
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .slice(0, limit)
+      .map(({ document, createdAt }) => ({
+        documentId: document.documentId,
+        filename: document.filename,
+        createdAt: createdAt.toISOString(),
+        ageMinutes: Math.max(0, Math.floor((now - createdAt.getTime()) / 60_000)),
+        onCase: this.links.some((l) => l.documentId === document.documentId),
+      }));
   }
 
   async documentsForCase(deductionId: string): Promise<readonly StoredDocument[]> {

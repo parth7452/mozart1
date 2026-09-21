@@ -246,12 +246,59 @@ export interface ReadDocumentInvocation {
  * share one payload — the page text a scan costs money to produce — and steps
  * do not share memory: splitting them would either re-read the document or ship
  * its text between steps, and neither is something to do for a progress bar.
+ *
+ * **It says where it got to.** A run that is invoked and then never comes back
+ * to execute its step is the failure this logging exists for: the SDK answers
+ * the first call with a step plan, the runtime is meant to call again to run
+ * the step, and when it does not there is no error anywhere — the document
+ * simply stays unread while the reviewer is told for ever that it is being
+ * read. Four lines make the two halves distinguishable in the platform's own
+ * logs: the run was entered, the step body actually ran, what it concluded, and
+ * the run returned. A run line with no step line is a stall at exactly that
+ * seam, and there was no way to see it from here before.
+ *
+ * What a line may carry is the rule the event payload follows: ids, flags and a
+ * doc type, which is a closed set. Never a filename, never a quote, never a page
+ * (invariant 4). `haltedBecause` is reduced to yes or no for that reason — it
+ * is a sentence built around a scanner's own words.
  */
 export function readDocumentSteps(
   context: JobContext,
 ): (invocation: ReadDocumentInvocation) => Promise<ReadDocumentJobResult> {
-  return async ({ event, step }) =>
-    step.run('read-document', () => runReadRequested(event.data, context));
+  return async ({ event, step }) => {
+    const where = whereFor(event.data);
+    console.log(`[recouple] read job: run entered, ${where}`);
+    const result = await step.run('read-document', async () => {
+      console.log(`[recouple] read job: step read-document entered, ${where}`);
+      const read = await runReadRequested(event.data, context);
+      console.log(
+        '[recouple] read job: step read-document ' +
+          (read.alreadyRead ? 'found it already read and spent nothing' : 'finished the read') +
+          `, ${where}, doc type ${read.docType ?? 'none'}, case ${read.deductionId ?? 'none'}, ` +
+          `halted ${read.haltedBecause === null ? 'no' : 'yes'}`,
+      );
+      return read;
+    });
+    console.log(`[recouple] read job: run returned, ${where}`);
+    return result;
+  };
+}
+
+/**
+ * The two ids a log line names, when they are ids.
+ *
+ * Read off the raw payload rather than out of `parseReadRequested`, so the
+ * first line is written before anything can throw — a malformed payload is
+ * exactly the case where knowing that a run was entered is worth something. A
+ * value that is not a UUID is printed as `unknown` rather than printed: the
+ * payload is the one input here this app did not write, and a log line is not a
+ * place to repeat somebody else's text.
+ */
+function whereFor(data: unknown): string {
+  const raw = data === null || typeof data !== 'object' ? {} : (data as Record<string, unknown>);
+  const documentId = isUuid(raw.documentId) ? raw.documentId : 'unknown';
+  const orgId = isUuid(raw.orgId) ? raw.orgId : 'unknown';
+  return `document ${documentId} org ${orgId}`;
 }
 
 /**
@@ -273,21 +320,32 @@ const READ_CONCURRENCY: [ConcurrencyOption, ConcurrencyOption] = [
 /**
  * How the runtime is asked to run this function.
  *
- * Exported so a test can read it: these four values are the difference between
- * a redelivered event costing nothing and it costing a second read of a
- * document, and none of them shows up in the behaviour of a stubbed `step.run`.
+ * Exported so a test can read it: these values are the difference between a
+ * redelivered event costing nothing and it costing a second read of a document,
+ * and none of them shows up in the behaviour of a stubbed `step.run`.
+ *
+ * **There is deliberately no `idempotency` key here.** There was one, on
+ * `event.data.documentId`, and what it bought was one saved invocation. What it
+ * cost showed up in production: a run was invoked once, the SDK answered with a
+ * step plan, the runtime never called back to execute the step, nothing logged
+ * an error, and the document stayed unread. The second event — the recovery —
+ * was swallowed by that key's own 24-hour window. So a stall was unrecoverable
+ * for a day, and the `upload_not_queued` notice's promise that re-uploading the
+ * same file re-queues the read was simply false for that day.
+ *
+ * What actually stops a second read costing money is `readDocumentJob`'s own
+ * guard, asked of the database under the tenant's claims: a document that
+ * already has an extraction is answered from what was recorded, with no model
+ * call, no second case and no second row of anything. That guard is tested
+ * (`packages/pipeline/test/jobs.test.ts`), it holds for every delivery rather
+ * than for a window, and it holds on the inline path too. A runtime key layered
+ * over it was not a second layer of protection so much as a second layer of
+ * refusal, and the thing it refused was the recovery.
  */
 export const READ_DOCUMENT_CONFIG = {
   id: 'read-document',
   name: 'Read an uploaded document',
   triggers: [{ event: READ_REQUESTED }],
-  // The document id, so a redelivered event cannot open a second case. Behind
-  // it: `readDocumentJob` answers a document that already has an extraction
-  // from what was recorded, and the store's `unique (org_id, debtor_id,
-  // claim_id)` refuses a claim that is already a case for that debtor (ADR
-  // 0019). Three lines, because the first two are the runtime's promise and a
-  // window rather than a constraint we own.
-  idempotency: 'event.data.documentId',
   retries: 3 as const,
   concurrency: READ_CONCURRENCY,
 };

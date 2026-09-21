@@ -121,6 +121,63 @@ export interface PipelineStore {
   documentsForCase(deductionId: string): Promise<readonly StoredDocument[]>;
 }
 
+/**
+ * A document that got through the door and was never read.
+ *
+ * Stored, scanned clean, and with no extraction against it: the exact state a
+ * document is left in when the read was handed to a queue that then did not
+ * run it. Nothing about it is wrong — the bytes are in the database and the
+ * verdict is recorded — but nothing is coming for it either, and until this
+ * existed nothing in the product said so.
+ *
+ * It carries no page text and no extracted field, because there are none. The
+ * filename is the one piece of somebody else's text on it, and it is text a
+ * view escapes rather than markup.
+ */
+export interface UnreadDocument {
+  readonly documentId: string;
+  /** As uploaded, or empty when the row has none. Untrusted text. */
+  readonly filename: string;
+  /** When the bytes were stored, ISO-8601. */
+  readonly createdAt: string;
+  /** How long it has been waiting, whole minutes, by the store's own clock. */
+  readonly ageMinutes: number;
+  /**
+   * Whether it is already filed against a case.
+   *
+   * A notice that opened nothing and a piece of evidence already attached to a
+   * case are both unread here; only this tells them apart, and the difference
+   * is what a reviewer needs to know before asking for it to be read again.
+   */
+  readonly onCase: boolean;
+}
+
+/**
+ * Reads the documents nobody is coming for.
+ *
+ * A separate port from `PipelineStore` for `CaseWorkflowStore`'s reason: the
+ * pipeline runs unattended and never asks this question. It is asked by a
+ * person looking at a list, and answered — like every other read in this
+ * system — under that person's own tenant claims rather than by a privileged
+ * sweep over everybody's documents (invariant 6).
+ */
+export interface UnreadDocumentsStore {
+  /**
+   * Every document of this tenant that is scanned clean, has no extraction and
+   * has been waiting longer than `olderThanMinutes`, oldest first.
+   *
+   * The age is a parameter rather than a constant here because the store is not
+   * the place that decides what "stuck" means: a view shows five minutes, a
+   * test asks for none, and neither should have to agree with the other.
+   *
+   * An age that is not a finite, non-negative number of minutes throws rather
+   * than being coerced: it is a programming error, and the alternative is a
+   * `where created_at < now() - NaN` that quietly answers nothing at all, which
+   * reads exactly like "nothing is stuck".
+   */
+  unreadDocuments(olderThanMinutes: number, limit?: number): Promise<readonly UnreadDocument[]>;
+}
+
 export interface Scanner {
   readonly name: string;
   scan(bytes: Uint8Array): Promise<ScanVerdict>;

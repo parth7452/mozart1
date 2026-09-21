@@ -4,8 +4,9 @@ import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
-import type { CaseWorkflow } from '@recouple/pipeline';
+import type { CaseWorkflow, UnreadDocument } from '@recouple/pipeline';
 import { CaseList, type Viewer } from '../components/case-list';
+import { UnreadDocuments, waiting } from '../components/unread-documents';
 import { CaseReview } from '../components/case-review';
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { deadline, fieldLabel, money } from '../lib/format';
@@ -277,6 +278,120 @@ describe('the case list', () => {
     );
     expect(html).toContain('No cases yet');
     expect(html).not.toContain('<table');
+  });
+});
+
+/**
+ * The documents that were stored and scanned and never read.
+ *
+ * This section is the visible half of a failure that had no visible half at
+ * all: an upload queued, a read that never ran, no error anywhere, and a
+ * reviewer told for ever that the document was being read. What is tested here
+ * is that it says which documents those are, that each one carries a way to ask
+ * again, and that the filename — the one piece of text on this page that
+ * somebody outside chose — is text and not markup.
+ */
+function unread(overrides: Partial<UnreadDocument> = {}): UnreadDocument {
+  return {
+    documentId: 'dddddddd-1111-2222-3333-444444444444',
+    filename: 'walmart-apdp-notice.pdf',
+    createdAt: '2026-09-21T09:00:00.000Z',
+    ageMinutes: 42,
+    onCase: false,
+    ...overrides,
+  };
+}
+
+describe('documents waiting to be read', () => {
+  it('lists each one with how long it has waited and a way to ask again', () => {
+    const html = renderToStaticMarkup(
+      <UnreadDocuments
+        documents={[
+          unread(),
+          unread({
+            documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+            filename: 'signed-bol.pdf',
+            ageMinutes: 1500,
+            onCase: true,
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain('Documents waiting to be read');
+    expect(html).toContain('walmart-apdp-notice.pdf');
+    expect(html).toContain('42m');
+    expect(html).toContain('1d');
+    // A POST per document, at that document's own route: asking for a read
+    // spends money, and a link is something a prefetch can follow.
+    expect(html).toContain('action="/documents/dddddddd-1111-2222-3333-444444444444/reread"');
+    expect(html).toContain('method="post"');
+    expect(html).toContain('Read again');
+  });
+
+  it('says nothing at all when nothing is waiting', () => {
+    // An empty section reads as a problem that has not loaded yet. The absence
+    // is the message.
+    expect(renderToStaticMarkup(<UnreadDocuments documents={[]} />)).toBe('');
+  });
+
+  it('renders a filename somebody else chose as text, never as markup', () => {
+    // The filename comes off an upload, which means it comes from outside. It
+    // is the only untrusted string on this page and it is rendered, not built
+    // into anything (invariant 4).
+    const html = renderToStaticMarkup(
+      <UnreadDocuments
+        documents={[
+          unread({
+            filename: '<img src=x onerror="alert(1)">.pdf',
+          }),
+        ]}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+    expect(html).not.toContain('onerror="alert(1)"');
+    // Present, but as text.
+    expect(html).toContain('&lt;img src=x onerror=');
+  });
+
+  it('shows a dash for a document whose row kept no name', () => {
+    const html = renderToStaticMarkup(<UnreadDocuments documents={[unread({ filename: '' })]} />);
+    expect(html).toContain('—');
+  });
+
+  it('reads the wait in the largest unit that is still honest', () => {
+    expect(waiting(0)).toBe('0m');
+    expect(waiting(59)).toBe('59m');
+    expect(waiting(60)).toBe('1h');
+    expect(waiting(1439)).toBe('23h');
+    expect(waiting(1440)).toBe('1d');
+  });
+
+  it('is on the case list for a writer, and not for a reader', () => {
+    // A reader cannot ask for a read, so a list of documents they are not
+    // allowed to fix is worse than no list.
+    const writer = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} unread={[unread()]} />,
+    );
+    expect(writer).toContain('Documents waiting to be read');
+
+    const reader = renderToStaticMarkup(
+      <CaseList
+        mayUpload={false}
+        viewer={{ ...viewer, role: 'read_only' }}
+        cases={[]}
+        today={today}
+        unread={[unread()]}
+      />,
+    );
+    expect(reader).not.toContain('Documents waiting to be read');
+  });
+
+  it('is absent from a case list with nothing waiting', () => {
+    const html = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
+    );
+    expect(html).not.toContain('Documents waiting to be read');
   });
 });
 
