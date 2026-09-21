@@ -1,8 +1,8 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { resolveSession, type OrgMembership } from '@recouple/store-postgres';
+import { resolveSession, type OrgMembership, type PostgresStore } from '@recouple/store-postgres';
 import { env } from './env';
-import { tenantStore, type TenantStore } from './store';
+import { tenantStore } from './store';
 import { supabaseForRequest } from './supabase';
 
 /** Which tenant the reviewer is looking at, when they belong to more than one. */
@@ -103,7 +103,7 @@ function messageFor(cause: unknown): string {
  * transaction-locally, so what the page can see is what the policies allow —
  * not what we remembered to filter.
  */
-export function storeFor(session: Session): TenantStore {
+export function storeFor(session: Session): PostgresStore {
   return tenantStore({ orgId: session.org.orgId, userId: session.userId });
 }
 

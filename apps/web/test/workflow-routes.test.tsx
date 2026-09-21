@@ -417,8 +417,9 @@ describe('approving a packet', () => {
 
     expect(response.status).toBe(303);
     expect(said(response)).toMatch(/approved/);
-    // The approve call, then the read that checks the approval landed on the
-    // case this URL names.
+    // The approve call, and nothing after it: the store answers with the case
+    // it approved, so the handler knows where the write landed without reading
+    // a case back to find out.
     expect(handlerCalls(before)).toEqual([
       {
         method: 'approve',
@@ -429,7 +430,6 @@ describe('approving a packet', () => {
           note: 'Checked the BOL.',
         },
       },
-      { method: 'getWorkflow', input: CASE_ID },
     ]);
   });
 
@@ -1180,6 +1180,13 @@ describe('the refusals nothing was driving', () => {
  * another — and the old handlers redirected to the URL's case with a notice
  * saying it had happened there. The case would show nothing, under a sentence
  * saying a dispute had been filed.
+ *
+ * Which case it *did* land on is now the store's own answer: `approve` and
+ * `recordSubmission` return the deduction they acted on, so the handler
+ * compares it with the path and sends the reviewer to the case that changed.
+ * The mechanism it replaces was a second `getWorkflow` on the path's case,
+ * which could say "not here" but never "here instead" — and asked the database
+ * again for something the write already knew.
  */
 describe('a write that landed on another case', () => {
   const OTHER_CASE = '99999999-9999-9999-9999-999999999999';
@@ -1210,7 +1217,7 @@ describe('a write that landed on another case', () => {
     return { decisionId, packetId: packet.packetId, approvalId: '' };
   }
 
-  it('sends an approver to the list rather than to the case they were on', async () => {
+  it('sends an approver to the case the approval landed on', async () => {
     store().seedCase({
       deductionId: CASE_ID,
       state: 'classified',
@@ -1228,16 +1235,41 @@ describe('a write that landed on another case', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(location(response).pathname).toBe('/');
+    // The case the store approved, not the path's and not the list.
+    expect(location(response).pathname).toBe(`/cases/${OTHER_CASE}`);
     expect(key(response)).toBe('approve_other_case');
     expect(said(response)).toMatch(/different case than the one you were looking at/);
+    // And the handler learned where it landed from the write rather than by
+    // reading a case back afterwards.
+    expect(store().calls.filter((call) => call.method === 'getWorkflow')).toHaveLength(0);
     // The approval itself is real and stands: it was given against the packet
     // the form named, and `approvals` is append-only.
     expect((await store().getWorkflow(OTHER_CASE))?.approval).toBeDefined();
     expect((await store().getWorkflow(CASE_ID))?.approval).toBeUndefined();
   });
 
-  it('sends a filer to the list rather than to the case they were on', async () => {
+  it('does not call an upper-case link a different case', async () => {
+    // The path id and the store's answer meet as strings: Postgres prints a
+    // uuid in lower case and `isUuid` accepts either, so a reviewer who got to
+    // the page through an upper-case link would otherwise be told their own
+    // approval had landed somewhere else — and sent to the same case to read
+    // about it.
+    const ready = await assembled();
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+
+    const shouted = CASE_ID.toUpperCase();
+    const response = await approve(
+      post('approve', { decisionId: ready.decisionId, packetId: ready.packetId }),
+      params(shouted),
+    );
+
+    expect(key(response)).toBe('approved');
+    expect(location(response).pathname).toBe(`/cases/${shouted}`);
+  });
+
+  it('sends a filer to the case the filing landed on', async () => {
     store().seedCase({
       deductionId: CASE_ID,
       state: 'classified',
@@ -1264,9 +1296,10 @@ describe('a write that landed on another case', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(location(response).pathname).toBe('/');
+    expect(location(response).pathname).toBe(`/cases/${OTHER_CASE}`);
     expect(key(response)).toBe('submit_other_case');
     expect(said(response)).toMatch(/different case than the one you were looking at/);
+    expect(store().calls.filter((call) => call.method === 'getWorkflow')).toHaveLength(0);
     expect((await store().getWorkflow(OTHER_CASE))?.submission).toBeDefined();
     expect((await store().getWorkflow(CASE_ID))?.submission).toBeUndefined();
   });

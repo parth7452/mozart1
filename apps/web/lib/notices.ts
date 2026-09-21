@@ -49,6 +49,16 @@ export const NOTICE_ABOUT_PARAM = 'about';
  */
 export const NOTE_MAX_LENGTH = 2000;
 export const CONFIRMATION_MAX_LENGTH = 120;
+/**
+ * What a decline's prose holds.
+ *
+ * The same number the decline form's `maxLength` carries, in one place now: the
+ * route used to cut the text here instead of refusing it, so a reviewer
+ * explaining a decline at length was logged as having said half of it — and the
+ * counterfactual log is the one record of why a case was not fought
+ * (docs/STRATEGY.md, ADD-1).
+ */
+export const DECLINE_DETAIL_MAX_LENGTH = 2000;
 export const UPLOAD_MAX_MB = 25;
 export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
 
@@ -144,7 +154,7 @@ export const NOTICES = {
   },
   approve_other_case: {
     tone: 'bad',
-    text: 'that approval was recorded, but on a different case than the one you were looking at — the form you sent was out of date. The case it belongs to is in this list.',
+    text: 'that approval was recorded, but on a different case than the one you were looking at — the form you sent was out of date. This is the case it was recorded on.',
   },
 
   // --- recording the filing -------------------------------------------------
@@ -189,7 +199,7 @@ export const NOTICES = {
   },
   submit_other_case: {
     tone: 'bad',
-    text: 'that filing was recorded, but on a different case than the one you were looking at — the form you sent was out of date. The case it belongs to is in this list.',
+    text: 'that filing was recorded, but on a different case than the one you were looking at — the form you sent was out of date. This is the case it was recorded on.',
   },
 
   // --- recording the outcome ------------------------------------------------
@@ -217,6 +227,10 @@ export const NOTICES = {
   // --- declining ------------------------------------------------------------
   decline_role: { tone: 'bad', text: 'your role can review cases but not decide them' },
   decline_reason: { tone: 'bad', text: 'choose a reason for declining' },
+  decline_detail_too_long: {
+    tone: 'bad',
+    text: `that note is {0} characters and this field holds ${DECLINE_DETAIL_MAX_LENGTH} — shorten it, because a decline is only ever explained once and half an explanation is not one`,
+  },
   declined: { tone: 'good', text: 'recorded: this case is logged as declined, not discarded' },
   decline_already: {
     tone: 'bad',
@@ -353,6 +367,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   approve_note_too_long: [COUNT],
   approve_wrong_state: [oneOf(CASE_STATES)],
   submit_confirmation_too_long: [COUNT],
+  decline_detail_too_long: [COUNT],
   submit_wrong_state: [oneOf(CASE_STATES)],
   outcome_note_too_long: [COUNT],
   outcome_recorded: [oneOf(['won', 'partial', 'lost'])],

@@ -600,7 +600,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
-  }): Promise<{ readonly approvalId: string }> {
+  }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
     const packet = this.packets.find((p) => p.packetId === input.packetId);
     if (packet === undefined || packet.decisionId !== input.decisionId) {
       throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'approve');
@@ -654,7 +654,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
         approver_id: record.approverId,
       },
     });
-    return { approvalId: record.approvalId };
+    return { approvalId: record.approvalId, deductionId: record.deductionId };
   }
 
   async recordSubmission(input: {
@@ -665,7 +665,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
     readonly confirmationNumber: string;
     readonly submittedAt: Date;
     readonly actorId: string;
-  }): Promise<{ readonly submissionId: string }> {
+  }): Promise<{ readonly submissionId: string; readonly deductionId: string }> {
     const packet = this.packets.find((p) => p.packetId === input.packetId);
     if (packet === undefined || packet.decisionId !== input.decisionId) {
       throw new PacketNotForDecisionError(input.packetId, input.decisionId, 'submit');
@@ -738,7 +738,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore {
       },
     });
     this.cases.set(packet.deductionId, { ...existing, state: 'submitted' });
-    return { submissionId: record.submissionId };
+    return { submissionId: record.submissionId, deductionId: record.deductionId };
   }
 
   async recordOutcome(input: {

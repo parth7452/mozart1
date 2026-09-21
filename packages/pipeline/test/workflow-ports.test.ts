@@ -230,13 +230,16 @@ describe('the CaseWorkflowStore contract', () => {
         };
       },
       async approve() {
-        return { approvalId: 'apr-1' };
+        // The case it landed on, beside the approval's own id: the store acts
+        // on the packet's case, and a caller that was not told which one has to
+        // go and ask.
+        return { approvalId: 'apr-1', deductionId: 'ded-1' };
       },
       async recordSubmission(input) {
         // The channel is the union, not a wider string: a store cannot be
         // handed a way of filing that does not exist.
         expect(input.channel).toBe('manual_portal');
-        return { submissionId: 'sub-1' };
+        return { submissionId: 'sub-1', deductionId: 'ded-1' };
       },
       async recordOutcome(input) {
         if (!Number.isInteger(input.recoveredCents)) {
@@ -277,7 +280,7 @@ describe('the CaseWorkflowStore contract', () => {
         packetId: 'pkt-1',
         approverId: 'approver-1',
       }),
-    ).toEqual({ approvalId: 'apr-1' });
+    ).toEqual({ approvalId: 'apr-1', deductionId: 'ded-1' });
 
     expect(
       await store.recordSubmission({
@@ -289,7 +292,7 @@ describe('the CaseWorkflowStore contract', () => {
         submittedAt: new Date(0),
         actorId: 'approver-1',
       }),
-    ).toEqual({ submissionId: 'sub-1' });
+    ).toEqual({ submissionId: 'sub-1', deductionId: 'ded-1' });
 
     await expect(
       store.recordOutcome({

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import type { CaseWorkflowStore } from '@recouple/pipeline';
+import type { PostgresStore } from '@recouple/store-postgres';
 import { storeFor, type Session } from './session';
-import type { TenantStore } from './store';
 import { NOTICE_ABOUT_PARAM, type NoticeKey } from './notices';
 
 /**
@@ -14,16 +13,30 @@ import { NOTICE_ABOUT_PARAM, type NoticeKey } from './notices';
  * role and no second answer to "what may this member see": a workflow read is
  * a read like any other, and RLS is what decides it.
  *
- * Typed as the intersection rather than the port alone because a route still
- * has to `close()` what it opened, and because the case page reads a case, its
- * fields and its workflow from one store rather than opening two. The store's
- * own type is carried through rather than narrowed, the way `pipelineDepsFor`
- * carries it: a caller that has more keeps it.
+ * Typed as the store rather than as the port alone because a route still has to
+ * `close()` what it opened, and because the case page reads a case, its fields
+ * and its workflow from one store rather than opening two. The store's own type
+ * is carried through rather than narrowed, the way `pipelineDepsFor` carries
+ * it: a caller that has more keeps it.
  */
-export type WorkflowStore = TenantStore & CaseWorkflowStore;
+export type WorkflowStore = PostgresStore;
 
 export function workflowStoreFor(session: Session): WorkflowStore {
   return storeFor(session);
+}
+
+/**
+ * Whether two ids name the same case.
+ *
+ * Case-insensitively, because one of them comes out of Postgres — which prints
+ * a `uuid` in lower case — and the other out of a URL, where `isUuid` accepts
+ * either. Comparing them literally would tell a reviewer who reached the page
+ * through an upper-case link that their approval had landed somewhere else,
+ * send them to the same case again, and say the form had been out of date.
+ * Hex is hex; folding the case is what makes the comparison about the id.
+ */
+export function sameCase(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /**
@@ -58,7 +71,16 @@ export function mayApprove(role: string): boolean {
  */
 export const NOTICE_PARAM = 'action';
 
-/** A 303 back to the case, saying what happened. */
+/**
+ * A 303 back to a case, saying what happened.
+ *
+ * Not necessarily the case the POST was addressed to. `approve` and
+ * `recordSubmission` act on the *decision's* case and answer with which one
+ * that was, so when a stale form names another of this tenant's cases the
+ * reviewer is sent to the case the write landed on and told so — rather than to
+ * the path's case, where nothing happened, or to the list, where they would
+ * have to find it.
+ */
 export function backToCase(
   requestUrl: string,
   deductionId: string,
@@ -66,27 +88,6 @@ export function backToCase(
   ...about: readonly string[]
 ): URL {
   const back = new URL(`/cases/${deductionId}`, requestUrl);
-  back.searchParams.set(NOTICE_PARAM, notice);
-  for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
-  return back;
-}
-
-/**
- * A 303 to the case list, saying what happened.
- *
- * Where a route goes when the case the write landed on is not the case in the
- * URL it was posted to: sending the reviewer back to the path's case would show
- * them a case where nothing happened, and this app cannot ask the store which
- * case it did happen on (`approve` and `recordSubmission` answer with an id of
- * their own row and nothing else). The list is where every case they may see
- * is, and the notice says to look for it there.
- */
-export function backToList(
-  requestUrl: string,
-  notice: NoticeKey,
-  ...about: readonly string[]
-): URL {
-  const back = new URL('/', requestUrl);
   back.searchParams.set(NOTICE_PARAM, notice);
   for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
   return back;

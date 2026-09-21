@@ -15,7 +15,7 @@ import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
 import { CONFIRMATION_MAX_LENGTH } from '../../../../lib/notices';
-import { backToCase, backToList, caseNotFound, workflowStoreFor } from '../../../../lib/workflow';
+import { backToCase, caseNotFound, sameCase, workflowStoreFor } from '../../../../lib/workflow';
 
 /**
  * The only way a dispute is filed today: a person, on the retailer's portal.
@@ -131,7 +131,7 @@ export async function POST(
 
   const store = workflowStoreFor(session);
   try {
-    const { submissionId } = await store.recordSubmission({
+    const { deductionId } = await store.recordSubmission({
       decisionId,
       packetId,
       approvalId,
@@ -142,13 +142,16 @@ export async function POST(
     });
     // The store files against the *decision's* case, which is not necessarily
     // the case in this URL: the ids come off a form, and a stale or forged one
-    // can name a decision of another case this tenant owns. Where the reviewer
-    // is sent next is read back rather than assumed from the path — a case page
-    // showing nothing, under a notice saying the dispute was filed, is the one
-    // answer nobody could act on.
-    const landed = await store.getWorkflow(id);
-    if (landed?.submission?.submissionId !== submissionId) {
-      return NextResponse.redirect(backToList(request.url, 'submit_other_case'), { status: 303 });
+    // can name a decision of another case this tenant owns. A case page showing
+    // nothing, under a notice saying the dispute was filed, is the one answer
+    // nobody could act on — so the reviewer goes where the filing actually
+    // landed, which `recordSubmission` answers with rather than being asked a
+    // second time.
+    if (!sameCase(deductionId, id)) {
+      return NextResponse.redirect(
+        backToCase(request.url, deductionId, 'submit_other_case'),
+        { status: 303 },
+      );
     }
     return NextResponse.redirect(backToCase(request.url, id, 'submitted'), { status: 303 });
   } catch (cause) {

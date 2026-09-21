@@ -720,7 +720,7 @@ export async function approve(
     readonly approverId: string;
     readonly note?: string;
   },
-): Promise<{ readonly approvalId: string }> {
+): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
   requireCaller(input.approverId, tenant.userId, 'approve');
   const packet = await readPacketBy(client, 'id', input.packetId);
   if (packet === undefined || packet.decisionId !== input.decisionId) {
@@ -807,7 +807,11 @@ export async function approve(
     packet_hash: packet.contentHash,
     approver_id: input.approverId,
   });
-  return { approvalId };
+  // The case this landed on, which the caller never named: the decision and the
+  // packet came off a form, and the case is the packet's. A caller that has to
+  // read it back has to trust a second query to tell it where its own write
+  // went (ADR 0020 §6, `CaseWorkflowStore.approve`).
+  return { approvalId, deductionId: packet.deductionId };
 }
 
 // ---------------------------------------------------------------------------
@@ -826,7 +830,7 @@ export async function recordSubmission(
     readonly submittedAt: Date;
     readonly actorId: string;
   },
-): Promise<{ readonly submissionId: string }> {
+): Promise<{ readonly submissionId: string; readonly deductionId: string }> {
   requireCaller(input.actorId, tenant.userId, 'submit');
   const packet = await readPacketBy(client, 'id', input.packetId);
   if (packet === undefined || packet.decisionId !== input.decisionId) {
@@ -953,7 +957,9 @@ export async function recordSubmission(
     recorded_by: input.actorId,
   });
   await setState(client, packet.deductionId, 'submitted');
-  return { submissionId };
+  // The case the filing was recorded against, for the same reason `approve`
+  // answers with one: it is the packet's case, not a case the caller named.
+  return { submissionId, deductionId: packet.deductionId };
 }
 
 // ---------------------------------------------------------------------------

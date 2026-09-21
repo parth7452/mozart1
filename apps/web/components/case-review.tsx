@@ -9,7 +9,7 @@ import {
   type StoredField,
 } from '@recouple/store-postgres';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
-import { resolveNotice } from '../lib/notices';
+import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
 import type { Viewer } from './case-list';
@@ -321,7 +321,12 @@ export function CaseReview({
                   </fieldset>
 
                   <label htmlFor="detail">Anything a later reader would need</label>
-                  <textarea id="detail" name="detail" rows={3} maxLength={2000} />
+                  <textarea
+                    id="detail"
+                    name="detail"
+                    rows={3}
+                    maxLength={DECLINE_DETAIL_MAX_LENGTH}
+                  />
 
                   <button type="submit">Record this decline</button>
                 </form>
