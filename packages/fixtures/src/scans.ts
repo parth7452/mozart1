@@ -22,6 +22,7 @@ import path from 'node:path';
 import { authoredDocuments, type FixtureDocument } from './cases';
 import { corpusDocuments } from './corpus';
 import { logisticsDocuments } from './logistics';
+import { denseDocuments } from './dense';
 
 const scanDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scans');
 
@@ -52,7 +53,12 @@ let cache: readonly FixtureDocument[] | undefined;
 export function scannedDocuments(): readonly FixtureDocument[] {
   if (cache !== undefined) return cache;
   const sources = new Map(
-    [...authoredDocuments(), ...corpusDocuments(), ...logisticsDocuments()].map(
+    [
+      ...authoredDocuments(),
+      ...corpusDocuments(),
+      ...logisticsDocuments(),
+      ...denseDocuments(),
+    ].map(
       (d) => [d.key, d] as const,
     ),
   );
