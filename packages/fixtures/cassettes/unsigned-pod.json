@@ -6,13 +6,13 @@
   "document": {
     "document_number": {
       "value": "RL-DEL-88214",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Report Number: RL-DEL-88214"
     },
     "ship_date": {
       "value": "08/28/2026",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Delivery Date: 08/28/2026"
     },
@@ -48,11 +48,29 @@
     },
     "signature_present": {
       "value": false,
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "No consignee signature was captured for this delivery."
     },
     "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gate_check_in_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_reference": {
       "value": null,
       "confidence": 0,
       "source_page": 1,
@@ -67,12 +85,12 @@
     "lines": []
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T03:41:43.518Z",
+  "recordedAt": "2026-09-20T17:53:53.587Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 3867,
+    "inputTokens": 4244,
     "outputTokens": 472,
-    "costMicros": 12454,
-    "latencyMs": 4066
+    "costMicros": 13208,
+    "latencyMs": 4229
   }
 }

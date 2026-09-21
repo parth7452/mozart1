@@ -2,19 +2,13 @@
   "key": "hl-case-06-notice-scan",
   "docType": "deduction_notice",
   "classifiedAs": "deduction_notice",
-  "classifierConfidence": 0.98,
+  "classifierConfidence": 0.99,
   "document": {
     "retailer_name": {
       "value": "Pine Ridge Distribution",
       "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Pine Ridge Distribution"
-    },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.85,
-      "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
     },
     "claim_id": {
       "value": "DN-2609-006",
@@ -34,6 +28,24 @@
       "source_page": 1,
       "source_quote": "Purchase order: PO-PRD-3356"
     },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "deduction_total": {
       "value": "$440.00",
       "confidence": 0.9,
@@ -46,6 +58,12 @@
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-14"
     },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "remittance_or_check": {
       "value": "RA-2609-006",
       "confidence": 0.9,
@@ -54,17 +72,23 @@
     },
     "lines": [
       {
+        "sku_upc": {
+          "value": "null",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": ""
+        },
         "description": {
-          "value": "Early-payment discount",
+          "value": "Early-payment discount 2%",
           "confidence": 0.6,
           "source_page": 1,
           "source_quote": "Customer took a 2% early-payment discount."
         },
         "unit_cost": {
-          "value": "$22,000.00",
-          "confidence": 0.5,
+          "value": "null",
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "$22,000.00"
+          "source_quote": ""
         },
         "deduction_amount": {
           "value": "$440.00",
@@ -79,16 +103,10 @@
           "source_quote": "Reason code: DISC"
         },
         "reason_description": {
-          "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date.",
-          "confidence": 0.9,
+          "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility ended August 21, 2026.",
+          "confidence": 0.85,
           "source_page": 1,
-          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date."
-        },
-        "sku_upc": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
+          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility\nended August 21, 2026."
         },
         "qty_invoiced": {
           "value": null,
@@ -104,25 +122,7 @@
         }
       }
     ],
-    "store_or_dc": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "dispute_deadline": {
+    "vendor_number": {
       "value": null,
       "confidence": 0,
       "source_page": 1,
@@ -130,20 +130,20 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T13:03:52.851Z",
+  "recordedAt": "2026-09-21T05:12:20.460Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5591,
-    "outputTokens": 850,
-    "costMicros": 19682,
-    "latencyMs": 6914
+    "inputTokens": 5734,
+    "outputTokens": 1068,
+    "costMicros": 22148,
+    "latencyMs": 7691
   },
   "ocr": {
     "provider": "reducto",
     "pages": [
       {
         "page": 1,
-        "text": "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n11 / 12\nCASE 06 / EARLY-PAYMENT DISCOUNT\nDeduction notice\nPine Ridge Distribution\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-006\nNotice date: 2026-09-14\nReason code: DISC\nInvoice: INV-260806\nInvoice date: 2026-08-11\nPurchase order: P0-PRD-3356\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-006\nCurrency: USD\nRECEIVED\nDeduction assessment\nCustomer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the\ninvoice date. Discount eligibility\nended August 21, 2026.\nOriginal invoice\nDeduction\nNet remitted\n$22,000.00\n$440.00\n$21,560.00\nCalculation: $22,000.00 x 2% = $440.00\nCustomer-stated basis\nCustomer remittance is dated September 14, 2026. The timing difference is included as an\nexception for validation.\nSupporting records requested for review\nInvoice terms, negotiated exceptions, payment initiation timestamp, receipt date, and cash-\napplication record.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-006, INV-260806, and\nRA-2609-006 in any\ndispute response. Supporting records are referenced for testing and are not included in this\nsample."
+        "text": "SYNTHETIC TEST DATA | Fictional entities and transactions | USD\n11 / 12\nCASE 06 / EARLY-PAYMENT DISCOUNT\nDeduction notice\nPine Ridge Distribution\nAccounts Payable - Supplier Claims\nNotice details\nTransaction references\nNotice: DN-2609-006\nNotice date: 2026-09-14\nReason code: DISC\nInvoice: INV-260806\nInvoice date: 2026-08-11\nPurchase order: PO-PRD-3356\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-006\nCurrency: USD\nRECEIVED\nDeduction assessment\nCustomer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the\ninvoice date. Discount eligibility\nended August 21, 2026.\nOriginal invoice\nDeduction\nNet remitted\n$22,000.00\n$440.00\n$21,560.00\nCalculation: $22,000.00 x 2% = $440.00\nCustomer-stated basis\nCustomer remittance is dated September 14, 2026. The timing difference is included as an\nexception for validation.\nSupporting records requested for review\nInvoice terms, negotiated exceptions, payment initiation timestamp, receipt date, and cash-\napplication record.\nClaim status and response reference\nOpen - deducted from payment; supplier review pending. Reference DN-2609-006, INV-260806, and\nRA-2609-006 in any\ndispute response. Supporting records are referenced for testing and are not included in this\nsample."
       }
     ],
     "blocks": [
@@ -169,7 +169,7 @@
           0.08223517939445592
         ],
         "kind": "Text",
-        "confidence": 0.4226402439177036
+        "confidence": 0.4226402647793293
       },
       {
         "text": "CASE 06 / EARLY-PAYMENT DISCOUNT\nDeduction notice\nPine Ridge Distribution\nAccounts Payable - Supplier Claims",
@@ -193,10 +193,10 @@
           0.16594177589247347
         ],
         "kind": "Section Header",
-        "confidence": 0.4832785800099373
+        "confidence": 0.48317792266607285
       },
       {
-        "text": "Transaction references\nNotice: DN-2609-006\nNotice date: 2026-09-14\nReason code: DISC\nInvoice: INV-260806\nInvoice date: 2026-08-11\nPurchase order: P0-PRD-3356\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-006\nCurrency: USD",
+        "text": "Transaction references\nNotice: DN-2609-006\nNotice date: 2026-09-14\nReason code: DISC\nInvoice: INV-260806\nInvoice date: 2026-08-11\nPurchase order: PO-PRD-3356\nSupplier: Northstar Pantry Co.\nSupplier account: NSP-1048\nRemittance: RA-2609-006\nCurrency: USD",
         "page": 1,
         "bbox": [
           0.06858614156840263,
@@ -217,7 +217,7 @@
           0.23652048604443082
         ],
         "kind": "Figure",
-        "confidence": 0.955855080485344
+        "confidence": 0.9554707884788514
       },
       {
         "text": "Deduction assessment\nCustomer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the\ninvoice date. Discount eligibility\nended August 21, 2026.",
@@ -256,7 +256,7 @@
         "confidence": 0.7407145977020264
       }
     ],
-    "credits": 2,
-    "latencyMs": 1449
+    "credits": 0,
+    "latencyMs": 1509
   }
 }

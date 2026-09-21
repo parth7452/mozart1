@@ -1,8 +1,8 @@
 {
   "key": "carrier-bol-scan",
   "docType": "bol",
-  "classifiedAs": "bol",
-  "classifierConfidence": 0.98,
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.72,
   "document": {
     "document_number": {
       "value": "MFL-553318",
@@ -18,7 +18,7 @@
     },
     "carrier_name": {
       "value": "Meridian Freight Lines",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Carrier: Meridian Freight Lines"
     },
@@ -54,15 +54,15 @@
     },
     "signed_by": {
       "value": "R. Alvarez",
-      "confidence": 0.9,
+      "confidence": 0.93,
       "source_page": 1,
       "source_quote": "Received By: R. Alvarez (signature on file)"
     },
     "signature_present": {
       "value": true,
-      "confidence": 0.85,
+      "confidence": 0.9,
       "source_page": 1,
-      "source_quote": "Signature: /s/ R. Alvarez      Date: 08/08/2026"
+      "source_quote": "Signature: /s/ R. Alvarez"
     },
     "lines": [
       {
@@ -85,16 +85,34 @@
           "source_quote": ""
         }
       }
-    ]
+    ],
+    "appointment_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gate_check_in_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_reference": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T13:03:30.216Z",
+  "recordedAt": "2026-09-21T05:11:55.361Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5349,
-    "outputTokens": 780,
-    "costMicros": 18498,
-    "latencyMs": 6386
+    "inputTokens": 5568,
+    "outputTokens": 726,
+    "costMicros": 18396,
+    "latencyMs": 6252
   },
   "ocr": {
     "provider": "reducto",
@@ -178,7 +196,7 @@
         "confidence": 0.9442345321178436
       }
     ],
-    "credits": 2,
-    "latencyMs": 1292
+    "credits": 0,
+    "latencyMs": 4857
   }
 }
