@@ -30,14 +30,25 @@ export const INNGEST_APP_ID = 'recouple';
 export const READ_REQUESTED = 'document/read.requested';
 
 /**
+ * The concurrency limit of the Inngest plan this app is on.
+ *
+ * Not a preference: a function whose keyless concurrency limit exceeds it is
+ * rejected when the app syncs, so the whole app fails to deploy. Recorded here
+ * because nothing else in this repository knows what plan we are on.
+ */
+export const INNGEST_PLAN_CONCURRENCY_LIMIT = 5;
+
+/**
  * How many documents one tenant may have being read at once.
  *
  * Keyed on the org so a supplier dropping fifty notices in at once queues behind
  * itself rather than in front of everybody else. The number is small on purpose:
  * a read is a model call, and the limit that matters for cost is the one we can
- * see.
+ * see. It is deliberately well under `READS_IN_FLIGHT` — at two, a second
+ * tenant can still get a document read while the first one's bulk upload is in
+ * flight, which a per-org limit equal to the fleet cap would not allow.
  */
-export const READS_IN_FLIGHT_PER_ORG = 4;
+export const READS_IN_FLIGHT_PER_ORG = 2;
 
 /**
  * How many documents this app may have being read at once, across every tenant.
@@ -49,8 +60,15 @@ export const READS_IN_FLIGHT_PER_ORG = 4;
  * would see is a vendor rate-limiting us or the pool timing out, neither of
  * which reads as "too much work at once". A ceiling that is visible in the
  * function's own configuration is the one we can reason about.
+ *
+ * It is also not ours alone to choose. Inngest refuses to sync an app whose
+ * function asks for more concurrency than the plan allows — "The function 'Read
+ * an uploaded document' has higher concurrency limits (16) than your plan limit
+ * of 5" — and a refused sync is not a slower read, it is no deployed function at
+ * all. So this must stay at or below `INNGEST_PLAN_CONCURRENCY_LIMIT`; raising
+ * it means raising the plan first, and moving the constant below with it.
  */
-export const READS_IN_FLIGHT = 16;
+export const READS_IN_FLIGHT = 5;
 
 /**
  * What the event carries: ids, and who asked.

@@ -189,6 +189,14 @@ completes, and knowing the plan's real ceiling. Until then, a large jump between
 Anthropic's invoice and the sum of `model_calls` is the symptom to look for, and
 a dense document is where it would come from.
 
+**The keyless concurrency limit is capped by the Inngest plan, not by us.**
+Inngest refuses to sync an app whose function asks for more concurrency than the
+plan allows ("The function 'Read an uploaded document' has higher concurrency
+limits (16) than your plan limit of 5"), and a refused sync is not a slower read
+but no deployed function at all, so `READS_IN_FLIGHT` is 5 — the plan's limit,
+recorded beside it as `INNGEST_PLAN_CONCURRENCY_LIMIT` — with the per-org limit
+at 2 underneath it so one tenant's bulk upload cannot hold every slot.
+
 **We now depend on a third party for the read to ever finish.** If Inngest is
 down, documents queue: they are stored, scanned and visible, and the case
 appears late. Unsetting the two variables puts every environment back to inline

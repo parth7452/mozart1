@@ -21,6 +21,9 @@ import { UnscannedDocumentError } from '@recouple/ingest';
 import { NonRetriableError } from 'inngest';
 import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
 import {
+  INNGEST_PLAN_CONCURRENCY_LIMIT,
+  READS_IN_FLIGHT,
+  READS_IN_FLIGHT_PER_ORG,
   READ_DOCUMENT_CONFIG,
   READ_REQUESTED,
   asJobFailure,
@@ -329,12 +332,18 @@ describe('how the runtime is asked to run the function', () => {
       idempotency: 'event.data.documentId',
       retries: 3,
       concurrency: [
-        { key: 'event.data.orgId', limit: 4 },
+        { key: 'event.data.orgId', limit: 2 },
         // Keyless: the ceiling for the whole app, not one per anything.
-        { limit: 16 },
+        { limit: 5 },
       ],
     });
     expect(READ_DOCUMENT_CONFIG.concurrency[1]).not.toHaveProperty('key');
+    // The keyless ceiling is the one the Inngest plan caps: a limit above the
+    // plan's 5 is refused at sync time and nothing deploys at all. The per-org
+    // limit stays under it so a second tenant can still make progress while one
+    // tenant's bulk upload is in flight.
+    expect(READS_IN_FLIGHT).toBeLessThanOrEqual(INNGEST_PLAN_CONCURRENCY_LIMIT);
+    expect(READS_IN_FLIGHT_PER_ORG).toBeLessThan(READS_IN_FLIGHT);
   });
 });
 
