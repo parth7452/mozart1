@@ -5,7 +5,7 @@ deductions — staffing and logistics first, retail CPG as upside. Not an
 autonomous agent: ingest → classify → plan evidence → decide → assemble packet
 → **a human approves and submits** → record outcome → invoice the contingency
 fee. Agentic loops are reserved for exactly two bounded steps (evidence
-planning, unknown-retailer cold start).
+planning, unknown-customer cold start).
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 
@@ -160,7 +160,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Five recorded suites and two waiting on cassettes, every one of them gated
+Five recorded suites and two waiting on cassettes, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -172,7 +172,7 @@ does):
 | dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% | 100% | 1/1 |
 | logistics | does the argument hold across a whole case | not yet recorded | — | — |
-| customer | does it work off a phone camera, on staffing and freight | not yet recorded | — | — |
+| customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -181,8 +181,11 @@ everything else here, and `packages/fixtures/customer/README.md` keeps the
 pack's own caveats verbatim. `pnpm eval` reports both unrecorded suites as
 skipped rather than failing, and `packages/evals/baseline.json` names them in
 `pendingSuites` so a suite with no numbers cannot be mistaken for a suite that
-passed. Record with `pnpm record:cassettes --suite customer` (it spends money),
-then `pnpm eval --record-baseline`.
+passed. A suite the baseline *has* measured is never skipped: if its cassettes
+are missing or short, the run fails, because a rate averaged over fewer
+documents is not the number the baseline is being compared against. Record with
+`pnpm record:cassettes --suite customer` (it spends money), then
+`pnpm eval --record-baseline`.
 
 About $0.021 per document across 26 of them. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —

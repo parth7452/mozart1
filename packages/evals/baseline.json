@@ -11,31 +11,36 @@
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 8
     },
     "held_out": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 12
     },
     "scanned": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 0.984375,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 4
     },
     "dense": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 1
     },
     "email_body": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 1
     }
   },
   "pendingSuites": {

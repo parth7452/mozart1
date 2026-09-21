@@ -78,9 +78,32 @@ console.log(
 
 const classifier = new ClaudeClassifier();
 const extractor = new ClaudeExtractor();
+
+/** A page that arrives with no text of its own: a scan, a photograph. */
+const needsOcr = (fixture: (typeof everything)[number]): boolean =>
+  fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
+
 const ocr = ocrFromEnv();
+const withoutTextLayer = documents.filter(needsOcr);
 if (ocr === undefined) {
-  console.warn('note: REDUCTO_API_KEY is not set — scans will be recorded without a text layer');
+  if (withoutTextLayer.length === 0) {
+    // Nothing here needs OCR, so the missing key costs this run nothing.
+    console.warn(
+      'note: REDUCTO_API_KEY is not set. Nothing in this selection needs OCR — every ' +
+        'document here carries its own text layer.',
+    );
+  } else {
+    // A cassette recorded with an empty text layer is worse than no cassette:
+    // no quote can be verified against a blank page, so the eval would score
+    // the document as if it had been read. These are refused, one by one,
+    // below.
+    console.error(
+      `REDUCTO_API_KEY is not set, and ${withoutTextLayer.length} of these ${documents.length} ` +
+        'documents have no text layer of their own:\n' +
+        `  ${withoutTextLayer.map((d) => d.key).join(', ')}\n` +
+        'They will be refused rather than recorded blank. Set REDUCTO_API_KEY to record them.',
+    );
+  }
 }
 
 let totalMicros = 0;
@@ -109,8 +132,15 @@ for (const fixture of documents) {
 
   // A document with no text layer gets one, so its quotes can be checked.
   let ocrResult: OcrResult | undefined;
-  const needsOcr = fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
-  if (needsOcr && ocr !== undefined) {
+  if (needsOcr(fixture)) {
+    if (ocr === undefined) {
+      console.error(
+        '  ocr       REFUSED   this page has no text layer and no OcrProvider is ' +
+          'configured. Set REDUCTO_API_KEY and re-run; nothing was recorded for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
     try {
       ocrResult = await ocr.ocr(payload);
       totalMicros += ocrResult.call.costMicros;
@@ -124,9 +154,13 @@ for (const fixture of documents) {
           `(${ocrResult.call.latencyMs}ms, ${ocrResult.call.detail ?? ''})`,
       );
     } catch (error) {
+      // Same reason as a missing provider: reading on would spend money on a
+      // blank page and record it as a document somebody read.
       console.error(
         `  ocr       FAILED ${error instanceof OcrError ? error.message : String(error)}`,
       );
+      process.exitCode = 1;
+      continue;
     }
   }
 

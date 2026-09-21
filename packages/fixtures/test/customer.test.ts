@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { parseMoneyToCents } from '@recouple/core-domain';
@@ -71,6 +74,8 @@ function pdfTextLayer(bytes: Uint8Array): string {
  * says it carries no visible marker; that is asserted here rather than believed.
  */
 const BANNED_MARKERS = ['SYNTHETIC', 'TRAINING SAMPLE', 'SPECIMEN', 'DO NOT USE', 'SAMPLE ONLY'];
+
+const labelsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'customer', 'labels');
 
 describe('the customer pack', () => {
   const documents = customerDocuments();
@@ -161,6 +166,31 @@ describe('the customer pack', () => {
     }
   });
 
+  it('keeps each label’s word polygons on the same text the fixture reads', () => {
+    // The pack ships the transcription twice: once in the `.txt` the fixture
+    // loads, and once inside the `.json` that every word polygon is positioned
+    // against. Edit one and the boxes a reviewer follows stop describing the
+    // text the eval scores — silently, because nothing else compares them.
+    //
+    // The only difference allowed is the closing newline the `.txt` carries and
+    // the JSON string does not (`build()` trims it); everything before it has
+    // to match exactly.
+    for (const document of documents) {
+      const label = JSON.parse(
+        readFileSync(path.join(labelsDir, `${document.documentId}.json`), 'utf8'),
+      ) as { transcription: string; words: readonly { text: string }[] };
+      const txt = readFileSync(path.join(labelsDir, `${document.documentId}.txt`), 'utf8');
+
+      expect(txt, `${document.documentId}.txt does not match its label’s transcription`).toBe(
+        `${label.transcription}\n`,
+      );
+      // And the transcription is what the fixture actually hands out, so a
+      // truth checked against `labelText` is checked against the labelled page.
+      expect(document.labelText, document.key).toBe(label.transcription);
+      expect(label.words.length, `${document.documentId} has no word polygons`).toBeGreaterThan(0);
+    }
+  });
+
   it('proves the label is the PDF’s own text layer rather than taking its word', () => {
     const pdfs = documents.filter((d) => d.mimeType === 'application/pdf');
     expect(pdfs).toHaveLength(3);
@@ -186,22 +216,43 @@ describe('the customer pack', () => {
   });
 
   it('asserts nothing that is not printed on the document it belongs to', () => {
-    // The drift guard. Every text expectation has to appear in that document's
+    // The drift guard. Every expectation has to be findable in that document's
     // own transcription, or the truth is describing a document we no longer
     // have. Two deliberate choices about how strictly to ask. Case matters,
     // because the ground truth is written in the page's own capitalisation and
     // scoring is what lowercases both sides. Line breaks do not: a sentence the
     // page wraps ("replaces the original / appointment") is one sentence, the
     // scorer collapses whitespace before comparing, and so does this.
+    //
+    // Money and quantities are checked too, and they are the ones that would
+    // rot silently: truth holds $600.00 as 60_000 cents, which no amount of
+    // editing the page can contradict on its own. Formatting the cents back to
+    // what a page prints is what ties the number to this document — a truth
+    // that says 60_000 for a page that now reads $650.00 is caught here rather
+    // than by a model failing to find it.
     const flatten = (value: string): string => value.replace(/\s+/g, ' ');
+    const withThousands = (n: number): string =>
+      String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const printedMoney = (cents: number): string =>
+      `$${withThousands(Math.floor(cents / 100))}.${String(cents % 100).padStart(2, '0')}`;
+
     for (const document of documents) {
       const page = flatten(document.labelText);
       for (const [field, expectation] of Object.entries(document.truth)) {
-        if (expectation.kind !== 'text') continue;
+        // A boolean is a reading of the page rather than a string on it:
+        // `signature_present` is true because a name is written on the line,
+        // and there is no text to go looking for.
+        if (expectation.kind === 'bool') continue;
+        const printed =
+          expectation.kind === 'money_cents'
+            ? printedMoney(expectation.value)
+            : expectation.kind === 'int'
+              ? String(expectation.value)
+              : flatten(String(expectation.value));
         expect(
           page,
-          `${document.key}.${field}: “${expectation.value}” is not on the page`,
-        ).toContain(flatten(expectation.value));
+          `${document.key}.${field}: “${printed}” is not on the page`,
+        ).toContain(printed);
       }
     }
   });
@@ -222,15 +273,21 @@ describe('the customer pack', () => {
 describe('the customer cases’ own ground truth', () => {
   const cases = customerCases();
 
-  it('adds up: gross − paid = deduction, on the page that prints all three', () => {
+  it('adds up: gross − paid = deduction, on the settlement page that prints all three', () => {
     for (const fixtureCase of cases) {
-      const remittance = fixtureCase.documents.find((d) => d.key === fixtureCase.remittanceKey);
-      expect(remittance, `${fixtureCase.caseId} names a remittance it does not hold`).toBeDefined();
+      // Two of the three settlements are remittances and STF-203's is a
+      // short-payment notice, so what this looks for is the page that prints
+      // the amounts, not a document type.
+      const settlement = fixtureCase.documents.find((d) => d.key === fixtureCase.settlementKey);
+      expect(
+        settlement,
+        `${fixtureCase.caseId} names a settlement page it does not hold`,
+      ).toBeDefined();
 
       // The three amounts are printed on that document, and our parser is what
       // turns them into cents — the same path the eval scores a model through.
       for (const printed of Object.values(fixtureCase.printed)) {
-        expect(remittance?.labelText, `${fixtureCase.caseId}: ${printed}`).toContain(printed);
+        expect(settlement?.labelText, `${fixtureCase.caseId}: ${printed}`).toContain(printed);
       }
       expect(parseMoneyToCents(fixtureCase.printed.gross)).toBe(fixtureCase.grossCents);
       expect(parseMoneyToCents(fixtureCase.printed.deduction)).toBe(fixtureCase.deductionCents);

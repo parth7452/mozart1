@@ -32,9 +32,9 @@
  * `"synthetic": true`; `customer/README.md` keeps its caveats verbatim. No
  * recovery described here has happened, and none of these numbers is evidence
  * about production accuracy. What this suite is for is the two things the retail
- * corpora cannot ask: does a reader survive a phone photograph of a real-shaped
- * page, and does the argument hold up when the deduction is about labour hours
- * rather than cartons.
+ * corpora cannot ask: does a reader survive a simulated phone photograph of a
+ * real-shaped page, and does the argument hold up when the deduction is about
+ * labour hours rather than cartons.
  *
  * ## Document types
  *
@@ -171,8 +171,15 @@ export interface CustomerFixtureCase extends FixtureCase {
   readonly decision: CustomerDecision;
   /** The pack's own statement of why, quoted. */
   readonly basis: string;
-  /** The document the three amounts below are printed on. */
-  readonly remittanceKey: string;
+  /**
+   * The document the three amounts below are printed on.
+   *
+   * A settlement page, not necessarily a remittance: STF-203's three amounts
+   * are printed on a short-payment *notice*, and naming the field after the
+   * remittance would have the fixture asserting a document type one of the
+   * three cases does not have.
+   */
+  readonly settlementKey: string;
   /** Gross, deduction and paid exactly as printed, for our parser to read. */
   readonly printed: {
     readonly gross: string;
@@ -399,7 +406,10 @@ const SPECS: Readonly<Record<string, DocumentSpec>> = {
 };
 
 /**
- * What the case's remittance prints, and what was paid, read off that page.
+ * What the case's settlement page prints, and what was paid, read off that page.
+ *
+ * Two of the three are remittances; STF-203's is the short-payment notice,
+ * which is why this is keyed on the settlement rather than on a remittance.
  *
  * `paidCents` is read from the document rather than computed as gross minus
  * deduction, so that "gross − paid = deduction" stays a claim the test can
@@ -409,7 +419,7 @@ const SETTLEMENT: Readonly<
   Record<
     string,
     {
-      remittanceKey: string;
+      settlementKey: string;
       gross: string;
       deduction: string;
       paid: string;
@@ -418,21 +428,21 @@ const SETTLEMENT: Readonly<
   >
 > = {
   'STF-201': {
-    remittanceKey: 'stf-201-short-pay-remittance',
+    settlementKey: 'stf-201-short-pay-remittance',
     gross: '$7,200.00',
     deduction: '$600.00',
     paid: '$6,600.00',
     paidCents: 660_000,
   },
   'LOG-202': {
-    remittanceKey: 'log-202-remittance-advice',
+    settlementKey: 'log-202-remittance-advice',
     gross: '$5,600.00',
     deduction: '$800.00',
     paid: '$4,800.00',
     paidCents: 480_000,
   },
   'STF-203': {
-    remittanceKey: 'stf-203-short-payment-notice',
+    settlementKey: 'stf-203-short-payment-notice',
     gross: '$4,950.00',
     deduction: '$450.00',
     paid: '$4,500.00',
@@ -553,7 +563,7 @@ export function customerCases(): readonly CustomerFixtureCase[] {
       recoverCents: entry.recover,
       decision: entry.decision,
       basis: entry.basis,
-      remittanceKey: settlement.remittanceKey,
+      settlementKey: settlement.settlementKey,
       printed: {
         gross: settlement.gross,
         deduction: settlement.deduction,
