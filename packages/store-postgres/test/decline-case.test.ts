@@ -421,10 +421,13 @@ describeDb('declining a case', () => {
     // It names the earliest notice, which is the one with nothing behind it —
     // not the later one, whose channel it declined to borrow.
     await expect(refusal).rejects.toMatchObject({ noticeDocumentId: first });
-    // And it says the one true thing about it: nobody can record that arrival
-    // now, because `documents` is append-only.
+    // And it says the one true thing about it. That sentence changed with ADR
+    // 0024 and it changed in one direction: nobody can set `upload_id` on an
+    // append-only `documents` row, but an operator can now record the arrival
+    // beside it, so the refusal names the command instead of naming a migration
+    // that had not been written.
     await expect(refusal).rejects.toThrow(/predates provenance recording/);
-    await expect(refusal).rejects.toThrow(/until a migration adds a way to record its arrival/);
+    await expect(refusal).rejects.toThrow(/pnpm link:provenance/);
 
     // Nothing written, on either count.
     const { rows } = await admin.query<{ declines: string; events: string }>(
