@@ -158,6 +158,8 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
     readonly reason: 'below_economic_floor' | 'duplicate_of_other';
     readonly estimatedRecoverableCents: number;
     readonly identifiers: LedgerIdentifiers;
+    readonly customerExternalId: string;
+    readonly customerName: string;
     readonly detail?: string;
   }): Promise<{ readonly declinedCandidateId: string; readonly written: boolean }> {
     const standing = this.declines.find(
@@ -179,6 +181,8 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
       externalIds: {
         ledger_invoice_id: input.identifiers.ledgerInvoiceId,
         invoice_number: input.identifiers.invoiceNumber,
+        customer_external_id: input.customerExternalId,
+        customer_name: input.customerName,
       },
       ...(input.detail !== undefined ? { detail: input.detail } : {}),
     });

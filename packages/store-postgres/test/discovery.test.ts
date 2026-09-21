@@ -236,6 +236,8 @@ describeDb('discovering a deduction in the ledger', () => {
       reason: 'below_economic_floor',
       estimatedRecoverableCents: 12,
       identifiers,
+      customerExternalId: 'cust-9',
+      customerName: 'Sysco Baltimore, LLC',
       detail: 'the gap of 12 cents is below the 2500-cent dispute floor',
     });
     expect(first.written).toBe(true);
@@ -245,6 +247,8 @@ describeDb('discovering a deduction in the ledger', () => {
       reason: 'below_economic_floor',
       estimatedRecoverableCents: 12,
       identifiers,
+      customerExternalId: 'cust-9',
+      customerName: 'Sysco Baltimore, LLC',
     });
     expect(second.written).toBe(false);
     expect(second.declinedCandidateId).toBe(first.declinedCandidateId);
@@ -273,9 +277,14 @@ describeDb('discovering a deduction in the ledger', () => {
     expect(row?.amount).toBe('12');
     expect(row?.decided_by).toBe(TRIAGE_DECIDED_BY);
     expect(row?.decided_by_version).toBe(TRIAGE_DECIDED_BY_VERSION);
+    // Who deducted, verbatim and recorded now, because a candidate that never
+    // became a case has no debtor_id and a per-debtor cut of coverage cannot be
+    // reconstructed from anything else on the row (ADR 0030 §7).
     expect(row?.external_ids).toEqual({
       ledger_invoice_id: 'inv-tiny',
       invoice_number: 'INV-TINY',
+      customer_external_id: 'cust-9',
+      customer_name: 'Sysco Baltimore, LLC',
     });
   });
 
@@ -317,6 +326,8 @@ describeDb('discovering a deduction in the ledger', () => {
         reason: 'below_economic_floor',
         estimatedRecoverableCents: 1,
         identifiers: { ledgerInvoiceId: 'x', invoiceNumber: 'y' },
+        customerExternalId: 'cust-x',
+        customerName: 'Somebody Else',
       }),
     ).rejects.toThrow(DiscoveryStoreError);
   });

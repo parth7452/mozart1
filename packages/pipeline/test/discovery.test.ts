@@ -140,9 +140,14 @@ describe('syncing a customer’s ledger', () => {
     expect(store.cases).toHaveLength(0);
     expect(store.declines[0]?.discoveredFrom).toBe('erp_sync');
     expect(store.declines[0]?.decidedBy).toBe('triage-rules');
+    // Who deducted goes on the row too, verbatim: a declined candidate has no
+    // deduction and so no debtor, and a per-debtor cut of coverage cannot be
+    // reconstructed from anything else later (ADR 0030 §7).
     expect(store.declines[0]?.externalIds).toEqual({
       ledger_invoice_id: 'inv-1',
       invoice_number: 'INV-1001',
+      customer_external_id: 'cust-9',
+      customer_name: 'Sysco Baltimore, LLC',
     });
   });
 

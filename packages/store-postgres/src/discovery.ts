@@ -105,7 +105,55 @@ export interface DeclineCandidateInput {
   readonly reason: 'below_economic_floor' | 'duplicate_of_other';
   readonly estimatedRecoverableCents: number;
   readonly identifiers: LedgerIdentifiers;
+  /**
+   * Who deducted, as the ledger names them — the vendor's own key and the
+   * customer name printed on the invoice, both verbatim.
+   *
+   * Recorded because a per-debtor cut of coverage (STRATEGY ADD-2, ADD-4) is
+   * impossible to reconstruct afterwards for a declined candidate that never
+   * became a case: `deduction_id` is null, so there is no `debtor_id`, and
+   * nothing else on the row says who the money was withheld by. Two strings
+   * written now, or a number nobody can ever compute.
+   *
+   * Untrusted, and treated as such (invariant 4): stored verbatim into
+   * `external_ids`, never matched into master data here and never used to mint
+   * a debtor. `customer_external_id` is a vendor's key, not a `debtor_id`;
+   * joining the two is identity resolution's job (STRATEGY §5.2), and the
+   * per-debtor view is deliberately not built here.
+   */
+  readonly customerExternalId: string;
+  readonly customerName: string;
   readonly detail?: string;
+}
+
+/**
+ * One row of `coverage_by_period_by_source` (migration 0023, ADR 0030).
+ *
+ * Every cents column is integer cents parsed exactly from the column's text
+ * (invariant 3). `coverageOfDiscovered` is the *view's* ratio, rounded to four
+ * places in the database: nothing here divides one bigint by another, because
+ * that is where integer cents stop being integer cents.
+ */
+export interface CoveragePeriodRow {
+  readonly orgId: string;
+  /** The month, as `YYYY-MM-DD` on its first day. */
+  readonly period: string;
+  /**
+   * The channel that found the money — or `'unknown'` where nothing recorded
+   * how the case's notice arrived. `'unknown'` is not an `UploadSource`: it is
+   * the absence of one, and it exists only in this view (ADR 0030 §3).
+   */
+  readonly discoveredFrom: string;
+  readonly openedCount: number;
+  readonly openedCents: number;
+  readonly filedCount: number;
+  readonly filedCents: number;
+  readonly declinedCount: number;
+  readonly declinedCents: number;
+  /** `openedCents + declinedCents`, as the view computed it. */
+  readonly discoveredCents: number;
+  /** Null where nothing was discovered in that period from that source. */
+  readonly coverageOfDiscovered: number | undefined;
 }
 
 export interface DeclinedLedgerCandidate {
@@ -470,6 +518,9 @@ export class PostgresDiscoveryStore {
     const externalIds = {
       ledger_invoice_id: input.identifiers.ledgerInvoiceId,
       invoice_number: input.identifiers.invoiceNumber,
+      // Verbatim, and stored rather than resolved (ADR 0030 §7).
+      customer_external_id: input.customerExternalId,
+      customer_name: input.customerName,
     };
 
     return this.withTenant(async (client) => {
@@ -523,6 +574,74 @@ export class PostgresDiscoveryStore {
   }
 
   /**
+   * Coverage for this tenant, per month, per channel that found the money
+   * (migration 0023, ADR 0030, STRATEGY §2 and ADD-2).
+   *
+   * Per source and never blended, which is the same rule the eval suites are
+   * under and for the same reason: one rate over every channel moves whenever
+   * the *mix* moves, so a tenant turning on an ERP sync would read as the
+   * product getting better. A caller that wants a tenant total sums these, or
+   * reads `coverage_by_period` and knows what it is looking at.
+   *
+   * The view is `security_invoker`, so this returns what the tenant whose
+   * claims are set can see and nothing else — no service role, no
+   * cross-tenant read, the same `withTenant` discipline as every other method
+   * here.
+   *
+   * **The ratio comes back from the database.** Every cents column is a bigint
+   * read as text and converted once, checked (invariant 3); the division is the
+   * view's, rounded there to four places. Dividing two bigints in TypeScript is
+   * how integer cents become a float, and this is a money path.
+   */
+  async coverageByPeriod(orgId: string): Promise<readonly CoveragePeriodRow[]> {
+    this.assertOwnTenant(orgId);
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        period: string;
+        discovered_from: string;
+        opened_count: string;
+        opened_cents: string;
+        filed_count: string;
+        filed_cents: string;
+        declined_count: string;
+        declined_cents: string;
+        discovered_cents: string;
+        coverage_of_discovered: string | null;
+      }>(
+        `select to_char(period, 'YYYY-MM-DD') as period,
+                discovered_from,
+                opened_count::text            as opened_count,
+                opened_cents::text            as opened_cents,
+                filed_count::text             as filed_count,
+                filed_cents::text             as filed_cents,
+                declined_count::text          as declined_count,
+                declined_cents::text          as declined_cents,
+                discovered_cents::text        as discovered_cents,
+                coverage_of_discovered::text  as coverage_of_discovered
+           from coverage_by_period_by_source
+          where org_id = $1
+          order by period desc, discovered_from asc`,
+        [orgId],
+      );
+      return rows.map((row) => ({
+        orgId,
+        period: row.period,
+        discoveredFrom: row.discovered_from,
+        openedCount: exactCentsOrThrow(row.opened_count, 'opened_count'),
+        openedCents: exactCentsOrThrow(row.opened_cents, 'opened_cents'),
+        filedCount: exactCentsOrThrow(row.filed_count, 'filed_count'),
+        filedCents: exactCentsOrThrow(row.filed_cents, 'filed_cents'),
+        declinedCount: exactCentsOrThrow(row.declined_count, 'declined_count'),
+        declinedCents: exactCentsOrThrow(row.declined_cents, 'declined_cents'),
+        discoveredCents: exactCentsOrThrow(row.discovered_cents, 'discovered_cents'),
+        ...(row.coverage_of_discovered !== null
+          ? { coverageOfDiscovered: ratio(row.coverage_of_discovered) }
+          : { coverageOfDiscovered: undefined }),
+      }));
+    });
+  }
+
+  /**
    * The org a caller names has to be the org this store acts as.
    *
    * RLS would refuse the write anyway — `tenant_insert` checks the org claim —
@@ -546,6 +665,22 @@ export class PostgresDiscoveryStore {
  * not a case workflow — a refusal that claimed to be one would be caught by a
  * route that has nothing to do with this.
  */
+/**
+ * The view's ratio, as a number, or a loud refusal.
+ *
+ * A `numeric` arrives as text. This parses it and never computes it: the
+ * division that produced it happened in the database, over bigint cents, and
+ * recomputing it here from two columns is exactly the float arithmetic
+ * invariant 3 exists to keep off a money path.
+ */
+function ratio(text: string): number {
+  const value = Number(text);
+  if (!Number.isFinite(value)) {
+    throw new DiscoveryStoreError(`coverage_of_discovered is not a number: ${JSON.stringify(text)}`);
+  }
+  return value;
+}
+
 function exactCentsOrThrow(text: string, column: string): number {
   if (!/^-?\d+$/.test(text)) {
     throw new DiscoveryStoreError(`${column} is not an integer: ${JSON.stringify(text)}`);
