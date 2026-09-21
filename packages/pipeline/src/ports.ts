@@ -97,6 +97,81 @@ export interface StoredDocument {
   readonly uploadId?: string;
 }
 
+/**
+ * What kind of document named this deduction (ADR 0026, migration 0021).
+ *
+ * Deliberately not a channel. `UploadSource` above is the *door the bytes came
+ * through*, observed at ingest and immutable since ADR 0024; this is what the
+ * document turned out to be once a model had read it. The same remittance
+ * arrives by `web_upload` today and by `edi_812` in Phase 2.5, so folding the
+ * two into one column would make the channel a coverage number is sliced by
+ * say something it does not mean. Coverage slices by both.
+ */
+export const DISCOVERED_VIA = [
+  'notice', // a deduction_notice: somebody filed a claim and told us about it
+  'remittance_line', // a remittance line paid an invoice short, and that is all
+] as const;
+
+export type DiscoveredVia = (typeof DISCOVERED_VIA)[number];
+
+/**
+ * The tenant's answer to "what counts as a deduction, and when is one document
+ * a second copy of another" — `org_settings`, migration 0021.
+ *
+ * Read per document rather than cached, because a tenant that lowers its floor
+ * should see the next remittance filed against the new one.
+ */
+export interface RemittanceSettings {
+  /** The absolute floor, in cents. Below it, a short-pay is noise. */
+  readonly toleranceCents: number;
+  /** The proportional floor, in basis points of the invoice gross. */
+  readonly toleranceBps: number;
+  /** How recently a case for the same invoice and amount merges rather than doubles. */
+  readonly dedupDays: number;
+}
+
+/**
+ * A line we declined to fight, that never became a case: what it was worth and
+ * which channel found it.
+ *
+ * `discoveredFrom` and `provenanceKind` come back rather than going in,
+ * because the store derives both from the document's own arrival. A channel a
+ * caller supplied is a number credited on somebody's say-so (ADR 0024), and
+ * this is the same column.
+ */
+export interface DeclinedLine {
+  readonly declinedCandidateId: string;
+  readonly discoveredFrom: UploadSource;
+  readonly provenanceKind: 'observed' | 'asserted';
+}
+
+/**
+ * A line could not be declined because nothing says how its document arrived.
+ *
+ * Deliberately its own class rather than `store-postgres`'s
+ * `ProvenanceUnknownError`, which is about a *case* — "case X cannot be
+ * declined" — and takes a `deductionId`. A below-tolerance line never became a
+ * case, and handing that class a made-up id to reuse it would put a fiction in
+ * a message a person reads. Same rule, different subject, and the subject is
+ * the part that says what to go and fix.
+ *
+ * Only reachable for a document stored before ingest recorded arrivals
+ * (2026-09-21). `pnpm link:provenance` is the way back, and
+ * `openCasesFromRemittance` catches this once per document rather than per
+ * line, so the cases a remittance opened are not lost over the lines it could
+ * not attribute.
+ */
+export class LineProvenanceUnknownError extends Error {
+  constructor(readonly documentId: string) {
+    super(
+      `document ${documentId} records no arrival — observed or asserted — so a line ` +
+        'declined from it cannot be attributed to the channel that found it. An operator ' +
+        'can record how it arrived with `pnpm link:provenance` (ADR 0024)',
+    );
+    this.name = 'LineProvenanceUnknownError';
+  }
+}
+
 export interface CaseRecord {
   readonly deductionId: string;
   readonly orgId: string;
@@ -113,6 +188,19 @@ export interface CaseRecord {
   /** `YYYY-MM-DD`, already parsed; undefined when the page said nothing readable. */
   readonly deductionDate?: string;
   readonly disputeDeadline?: string;
+  /**
+   * What kind of document named this deduction. `'notice'` for every case
+   * opened before ADR 0026, which is what the column's default says too.
+   */
+  readonly discoveredVia?: DiscoveredVia;
+  /**
+   * The supplier invoice this deduction was taken against, as printed. A lookup
+   * key and nothing else: it selects an existing case inside the dedup window,
+   * the way a printed retailer name may select a debtor and never mint one.
+   */
+  readonly invoiceNumber?: string;
+  /** The reason code exactly as printed, never mapped to a canonical one. */
+  readonly reasonCodeAsPrinted?: string;
 }
 
 export interface PipelineStore {
@@ -215,7 +303,93 @@ export interface PipelineStore {
     deductionAmountCents?: number;
     deductionDate?: string;
     disputeDeadline?: string;
+    /** Omitted means `'notice'`, which is the column's default and was the only way. */
+    discoveredVia?: DiscoveredVia;
+    /** As printed. Stored for lookup; never trusted for anything else. */
+    invoiceNumber?: string;
+    /** As printed. Never mapped — that mapping is playbook data (Phase 2). */
+    reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord>;
+
+  /**
+   * The tenant's remittance floor and dedup window (`org_settings`, 0021).
+   *
+   * A port method rather than a constant because it is per-tenant: a staffing
+   * agency invoicing $7,200 and a foodservice distributor invoicing $90 do not
+   * have the same floor, and a number in code would be one of them being wrong.
+   */
+  remittanceSettings(orgId: string): Promise<RemittanceSettings>;
+
+  /**
+   * The case a second document naming this invoice would merge into: same
+   * tenant, same invoice number, the **same exact** amount in cents, discovered
+   * within `withinDays`.
+   *
+   * Exact, deliberately. A notice for $600 and a remittance line for $600 on
+   * one invoice are one deduction arriving twice. A notice for $600 and a line
+   * for $150 on the same invoice are two, and merging them would silently drop
+   * $150 from the book — which is worse than the double-filing this prevents.
+   *
+   * Direction-free on purpose: it matches on the invoice and nothing about how
+   * either case was opened, so notice→remittance and remittance→notice are the
+   * same query.
+   */
+  findRecentCaseByInvoice(
+    orgId: string,
+    invoiceNumber: string,
+    amountCents: number,
+    withinDays: number,
+  ): Promise<CaseRecord | undefined>;
+
+  /**
+   * Runs `work` while this (org, invoice) is claimed, so the look-then-open
+   * above is one decision rather than two steps with a race between them.
+   *
+   * `withDocumentRead` already stops two deliveries of the *same document*
+   * reading it at once. It says nothing about a notice and a remittance —
+   * two different documents — arriving seconds apart and both finding no
+   * existing case for one invoice. This is the lock that does.
+   *
+   * It **waits** rather than giving up, which is the opposite of
+   * `withDocumentRead` and for the opposite reason: there is no model call
+   * inside it, only two short queries, so a waiter waits milliseconds — and a
+   * line that gave up would be a deduction silently dropped rather than a read
+   * harmlessly skipped. It cannot deadlock, because the claim is taken and
+   * released per line: a read holds at most one at a time.
+   */
+  withInvoiceClaim<T>(orgId: string, invoiceNumber: string, work: () => Promise<T>): Promise<T>;
+
+  /**
+   * Records a short-paid line we are not fighting, with no case attached.
+   *
+   * On `PipelineStore` rather than on `CaseWorkflowStore`, which is where
+   * `declineCase` lives, and the difference is the point of there being two
+   * ports: that one runs behind a person authorising money and needs a case;
+   * this is the pipeline, unattended, recording a line that never became one.
+   * `declined_candidates.deduction_id` is nullable for exactly this (migration
+   * 0014) — "coverage has no numerator without it".
+   *
+   * `discoveredFrom` and `provenanceKind` are **derived in the store** from
+   * the document's own arrival, observed or asserted, and are not parameters.
+   *
+   * @throws {LineProvenanceUnknownError} the document records no arrival either
+   *   way, so nothing says which channel found it.
+   */
+  recordDeclinedLine(input: {
+    readonly orgId: string;
+    /** The remittance the line was printed on. */
+    readonly documentId: string;
+    /** The short-pay, in cents. What this line was worth. */
+    readonly estimatedRecoverableCents: number;
+    /** The identifiers we had, so a later source can be matched to it. */
+    readonly externalIds: Readonly<Record<string, string>>;
+    /**
+     * The policy that decided, written so a later change can be evaluated
+     * against what the old one declined — `<cents>c/<bps>bps`.
+     */
+    readonly decidedByVersion: string;
+    readonly detail?: string;
+  }): Promise<DeclinedLine>;
   linkDocument(deductionId: string, documentId: string, role: 'notice' | 'evidence'): Promise<void>;
   transitionCase(deductionId: string, to: CaseState): Promise<CaseRecord>;
   appendEvent(input: {

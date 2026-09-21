@@ -30,10 +30,13 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DeclinedLine,
+  DiscoveredVia,
   DocumentReadLease,
   IngestSource,
   JobStore,
   PipelineStore,
+  RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
   UnreadDocument,
@@ -44,6 +47,7 @@ import type {
 } from '@recouple/pipeline';
 import {
   assertUnreadDocumentsQuery,
+  LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
 } from '@recouple/pipeline';
@@ -485,6 +489,18 @@ export interface StoredField {
    * "unchecked" and "checked and wrong" are not the same claim.
    */
   readonly quoteVerified: boolean | null;
+}
+
+/** A case row read by the dedup window: enough to build a `CaseRecord`. */
+interface CaseRow {
+  id: string;
+  org_id: string;
+  state: CaseState;
+  claim_id: string | null;
+  amount: string;
+  discovered_via: DiscoveredVia;
+  invoice_number: string | null;
+  reason_code_as_printed: string | null;
 }
 
 interface CaseSummaryRow {
@@ -1298,6 +1314,9 @@ export class PostgresStore
     deductionAmountCents?: number;
     deductionDate?: string;
     disputeDeadline?: string;
+    discoveredVia?: DiscoveredVia;
+    invoiceNumber?: string;
+    reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord> {
     return this.withTenant(async (client) => {
       // The name goes on the case as printed, always. Whether it also names a
@@ -1317,8 +1336,9 @@ export class PostgresStore
       try {
         ({ rows } = await client.query<{ id: string; state: CaseState }>(
           `insert into deductions (org_id, debtor_id, claim_id, retailer_name_as_printed,
-                                   deduction_amount_cents, deduction_date, dispute_deadline, state)
-           values ($1, $2, $3, $4, $5, $6, $7, 'discovered')
+                                   deduction_amount_cents, deduction_date, dispute_deadline,
+                                   discovered_via, invoice_number, reason_code_as_printed, state)
+           values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, 'notice'), $9, $10, 'discovered')
            returning id, state`,
           [
             input.orgId,
@@ -1328,6 +1348,12 @@ export class PostgresStore
             input.deductionAmountCents ?? 1,
             input.deductionDate ?? null,
             input.disputeDeadline ?? null,
+            // `coalesce` rather than a default in TypeScript: the column's
+            // default is what says a case nobody labelled was named by a notice,
+            // and there should be one place that says so (migration 0021).
+            input.discoveredVia ?? null,
+            input.invoiceNumber ?? null,
+            input.reasonCodeAsPrinted ?? null,
           ],
         ));
       } catch (error) {
@@ -1351,6 +1377,258 @@ export class PostgresStore
         ...(input.disputeDeadline !== undefined
           ? { disputeDeadline: input.disputeDeadline }
           : {}),
+        discoveredVia: input.discoveredVia ?? 'notice',
+        ...(input.invoiceNumber !== undefined ? { invoiceNumber: input.invoiceNumber } : {}),
+        ...(input.reasonCodeAsPrinted !== undefined
+          ? { reasonCodeAsPrinted: input.reasonCodeAsPrinted }
+          : {}),
+      };
+    });
+  }
+
+  /**
+   * The tenant's remittance floor and dedup window (`org_settings`, 0021).
+   *
+   * Read through RLS in the caller's transaction like everything else here, and
+   * read per document rather than cached: a tenant that lowers its floor should
+   * see the next remittance filed against the new one. A tenant with no
+   * `org_settings` row at all gets the column defaults rather than a throw —
+   * every path that creates a tenant writes one, and a remittance that refused
+   * to be read because a settings row was missing would be a read paid for and
+   * thrown away.
+   */
+  async remittanceSettings(orgId: string): Promise<RemittanceSettings> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        cents: string;
+        bps: number;
+        days: number;
+      }>(
+        `select remittance_tolerance_cents::text as cents,
+                remittance_tolerance_bps as bps,
+                remittance_dedup_days as days
+           from org_settings where org_id = $1`,
+        [orgId],
+      );
+      const row = rows[0];
+      if (row === undefined) return { toleranceCents: 500, toleranceBps: 50, dedupDays: 30 };
+      return {
+        toleranceCents: exactCents(row.cents, 'remittance_tolerance_cents'),
+        toleranceBps: row.bps,
+        dedupDays: row.days,
+      };
+    });
+  }
+
+  /**
+   * The case a second document naming this invoice would merge into.
+   *
+   * Exact on the amount, deliberately: a notice for $600 and a remittance line
+   * for $600 on one invoice are one deduction arriving twice, and a notice for
+   * $600 and a line for $150 on the same invoice are two. Merging the second
+   * pair would silently drop $150 from the book, which is worse than the
+   * double-filing this prevents (ADR 0026 §8).
+   *
+   * Oldest first. The earliest case is the one the deduction actually reached us
+   * as; a later one for the same invoice and amount is the copy. `id` breaks the
+   * tie for `declineCase`'s reason — `created_at` defaults to the transaction's
+   * start time, so two cases opened inside one transaction carry the identical
+   * timestamp and `limit 1` over a tie would be whichever row the plan reached
+   * first, which is an answer that changes when the planner does.
+   *
+   * RLS scopes it to this tenant; the `org_id` in the predicate is the index's
+   * leading column rather than the isolation.
+   */
+  async findRecentCaseByInvoice(
+    orgId: string,
+    invoiceNumber: string,
+    amountCents: number,
+    withinDays: number,
+  ): Promise<CaseRecord | undefined> {
+    if (!Number.isSafeInteger(withinDays) || withinDays < 0) {
+      throw new RangeError(`a dedup window of ${withinDays} days is not a window`);
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseRow>(
+        `select id, org_id, state, claim_id, deduction_amount_cents::text as amount,
+                discovered_via, invoice_number, reason_code_as_printed
+           from deductions
+          where org_id = $1
+            and invoice_number = $2
+            and deduction_amount_cents = $3
+            and created_at >= now() - ($4::double precision * interval '1 day')
+          order by created_at asc, id asc
+          limit 1`,
+        [orgId, invoiceNumber, amountCents, withinDays],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return {
+        deductionId: row.id,
+        orgId: row.org_id,
+        state: row.state,
+        ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+        deductionAmountCents: exactCents(row.amount, 'deduction_amount_cents'),
+        discoveredVia: row.discovered_via,
+        ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+        ...(row.reason_code_as_printed !== null
+          ? { reasonCodeAsPrinted: row.reason_code_as_printed }
+          : {}),
+      };
+    });
+  }
+
+  /**
+   * Runs `work` while this (org, invoice) is claimed, so the look-then-open in
+   * `openCasesFromRemittance` is one decision rather than two steps with a race
+   * between them.
+   *
+   * `withDocumentRead` above claims a *document*, which stops two deliveries of
+   * one remittance reading it at once. It says nothing about a notice and a
+   * remittance — two different documents — arriving seconds apart and both
+   * finding no case for one invoice. Under READ COMMITTED both would see no
+   * existing case and both would insert, and `unique (org_id, debtor_id,
+   * claim_id)` does not catch it: the two documents build different claim ids,
+   * and it does not fire at all while `debtor_id` is null.
+   *
+   * `pg_advisory_xact_lock` — the **waiting** form, which is the opposite of
+   * what `withDocumentRead` uses and for the opposite reason. There is no model
+   * call inside this: the lookup and the insert are two short queries, so a
+   * waiter waits milliseconds, while a caller that gave up would drop a
+   * deduction on the floor rather than harmlessly skip a read. It cannot
+   * deadlock, because the claim is taken and released per line — a read holds at
+   * most one at a time, so there is no second lock for a cycle to form around.
+   *
+   * Transaction-scoped for `withDocumentRead`'s reason: `DATABASE_URL` is
+   * Supabase's transaction pooler, and a session lock could be taken on one
+   * server connection and unlocked on another.
+   *
+   * The key is `hashtextextended(org || ':' || invoice, 1)`. Seed 1, not 0, so
+   * an invoice key cannot collide with a document key from `withDocumentRead` —
+   * two different things waiting on one number would be a stall nobody could
+   * explain. On its own pool, again like the read claim, so a connection held
+   * for the length of a line cannot starve the queries inside it.
+   */
+  async withInvoiceClaim<T>(
+    orgId: string,
+    invoiceNumber: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const client = await this.lockPool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 1))', [
+        `${orgId}:${invoiceNumber}`,
+      ]);
+      try {
+        const result = await work();
+        // Nothing is written on this connection; the commit is what releases the
+        // claim, and it happens once the work is finished either way.
+        await client.query('commit');
+        return result;
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Records a short-paid line we are not fighting, with no case attached.
+   *
+   * `declined_candidates.deduction_id` is nullable for exactly this (migration
+   * 0014): "ERP triage will decline thousands of short-pay lines that never
+   * reach extraction, and those are the rows coverage is measured against".
+   * These are those rows, arriving a phase earlier than expected.
+   *
+   * `discovered_from` and `provenance_kind` are derived from the document's own
+   * arrival by the same observed-or-asserted read `declineCase` uses, and are
+   * not parameters. At most one of the two can exist for a document — the
+   * database refuses a `document_arrivals` row for one that already names an
+   * upload — so this reads whichever is there rather than choosing between them
+   * (ADR 0024).
+   *
+   * @throws {LineProvenanceUnknownError} the document records no arrival either
+   *   way. Nothing is written: the transaction rolls back and the caller counts
+   *   the line as unattributed rather than crediting a channel to a guess.
+   */
+  async recordDeclinedLine(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly estimatedRecoverableCents: number;
+    readonly externalIds: Readonly<Record<string, string>>;
+    readonly decidedByVersion: string;
+    readonly detail?: string;
+  }): Promise<DeclinedLine> {
+    if (
+      !Number.isSafeInteger(input.estimatedRecoverableCents) ||
+      input.estimatedRecoverableCents < 0
+    ) {
+      throw new RangeError(
+        `${input.estimatedRecoverableCents} is not a number of cents a decline can be worth`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        observed_from: string | null;
+        asserted_from: string | null;
+      }>(
+        `select u.source as observed_from, au.source as asserted_from
+           from documents d
+           left join uploads u on u.id = d.upload_id
+           left join document_arrivals da on da.document_id = d.id
+           left join uploads au on au.id = da.upload_id
+          where d.id = $1`,
+        [input.documentId],
+      );
+      const found = rows[0];
+      const observedFrom = found?.observed_from ?? null;
+      const assertedFrom = found?.asserted_from ?? null;
+      const rawDiscoveredFrom = observedFrom ?? assertedFrom;
+      if (rawDiscoveredFrom === null) throw new LineProvenanceUnknownError(input.documentId);
+      if (!isDiscoveredFrom(rawDiscoveredFrom)) {
+        // Unreachable while `uploads_source_check` and 0014's `discovered_from`
+        // check hold the same list — the point of there being one
+        // `UPLOAD_SOURCES` behind both. If they drift, this names the value
+        // instead of failing on a check constraint with no clue which did it.
+        throw new Error(
+          `uploads.source returned ${JSON.stringify(rawDiscoveredFrom)}, which is not a ` +
+            'channel coverage can be attributed to',
+        );
+      }
+      const provenanceKind: ProvenanceKind = observedFrom !== null ? 'observed' : 'asserted';
+
+      const { rows: written } = await client.query<{ id: string }>(
+        `insert into declined_candidates
+           (org_id, deduction_id, discovered_from, provenance_kind, reason,
+            estimated_recoverable_cents, external_ids, decided_by, decided_by_version,
+            missing_evidence, detail)
+         values ($1, null, $2, $3, 'below_economic_floor', $4, $5::jsonb,
+                 'remittance_tolerance', $6, '{}', $7)
+         returning id`,
+        [
+          input.orgId,
+          rawDiscoveredFrom,
+          provenanceKind,
+          input.estimatedRecoverableCents,
+          JSON.stringify(input.externalIds),
+          input.decidedByVersion,
+          input.detail ?? null,
+        ],
+      );
+      const row = written[0];
+      if (row === undefined) throw new Error('insert into declined_candidates returned no row');
+      return {
+        declinedCandidateId: row.id,
+        discoveredFrom: rawDiscoveredFrom,
+        provenanceKind,
       };
     });
   }

@@ -67,8 +67,11 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DeclinedLine,
+  DiscoveredVia,
   HumanDecisionRecord,
   IngestSource,
+  RemittanceSettings,
   OutcomeRecord,
   PacketRecord,
   DocumentReadLease,
@@ -83,7 +86,11 @@ import type {
   UploadSource,
   WorkflowSubmissionChannel,
 } from '../ports';
-import { assertUnreadDocumentsQuery, ClassificationRefusedError } from '../ports';
+import {
+  assertUnreadDocumentsQuery,
+  ClassificationRefusedError,
+  LineProvenanceUnknownError,
+} from '../ports';
 import { DuplicateCaseError } from '../steps';
 
 /** A membership role, as `memberships.role` spells it. */
@@ -292,6 +299,9 @@ export class InMemoryStore
     deductionAmountCents?: number;
     deductionDate?: string;
     disputeDeadline?: string;
+    discoveredVia?: DiscoveredVia;
+    invoiceNumber?: string;
+    reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord> {
     const debtorId =
       input.retailerName === undefined
@@ -321,11 +331,148 @@ export class InMemoryStore
     const record: CaseRecord = {
       deductionId: randomUUID(),
       state: 'discovered',
+      // The column's default, modelled: a case that does not say how it was
+      // discovered was discovered by a notice, because until ADR 0026 there was
+      // no other way. A store that left it undefined would let a test pass on a
+      // case shape Postgres cannot produce.
+      discoveredVia: 'notice',
       ...input,
       ...(debtorId !== undefined ? { debtorId } : {}),
     };
     this.cases.set(record.deductionId, record);
+    this.caseOpenedAt.set(record.deductionId, new Date());
     return record;
+  }
+
+  /**
+   * The tenant's remittance floor and dedup window.
+   *
+   * Defaulted to migration 0021's own defaults, and writable, because the whole
+   * subject of a tolerance test is what happens on each side of it.
+   */
+  readonly remittanceSettingsByOrg = new Map<string, RemittanceSettings>();
+
+  async remittanceSettings(orgId: string): Promise<RemittanceSettings> {
+    return (
+      this.remittanceSettingsByOrg.get(orgId) ?? {
+        toleranceCents: 500,
+        toleranceBps: 50,
+        dedupDays: 30,
+      }
+    );
+  }
+
+  /**
+   * When each case was opened, which `deductions.created_at` is in Postgres.
+   *
+   * Public and writable for `documentCreatedAt`'s reason: "this case was opened
+   * forty days ago" is the whole subject of a dedup-window test, and a test that
+   * could not say so would have to wait for it.
+   */
+  readonly caseOpenedAt = new Map<string, Date>();
+
+  async findRecentCaseByInvoice(
+    orgId: string,
+    invoiceNumber: string,
+    amountCents: number,
+    withinDays: number,
+  ): Promise<CaseRecord | undefined> {
+    const cutoff = Date.now() - withinDays * 24 * 60 * 60 * 1000;
+    // Oldest first, the way the Postgres store orders it, so two candidates give
+    // the same answer in both: the case the deduction actually reached us as.
+    const candidates = [...this.cases.values()]
+      .filter(
+        (c) =>
+          c.orgId === orgId &&
+          c.invoiceNumber === invoiceNumber &&
+          c.deductionAmountCents === amountCents &&
+          (this.caseOpenedAt.get(c.deductionId)?.getTime() ?? 0) >= cutoff,
+      )
+      .sort(
+        (a, b) =>
+          (this.caseOpenedAt.get(a.deductionId)?.getTime() ?? 0) -
+          (this.caseOpenedAt.get(b.deductionId)?.getTime() ?? 0),
+      );
+    return candidates[0];
+  }
+
+  /** The invoices a `withInvoiceClaim` is holding right now. */
+  private readonly invoiceClaims = new Set<string>();
+
+  /**
+   * The per-invoice claim, as a set in one process.
+   *
+   * The Postgres store's is an advisory lock in the database, which is what
+   * makes it hold across two of them. Same contract: one holder at a time, and
+   * the claim released however the work ends. It **waits** rather than refusing,
+   * which is the opposite of `withDocumentRead` — there is no model call inside
+   * it, and a line that gave up would be a deduction silently dropped.
+   *
+   * A test is single-threaded enough that contention is the exception, so this
+   * polls rather than keeping a waiter queue: the point it models is that the
+   * second caller sees the first caller's writes, not how it was scheduled.
+   */
+  async withInvoiceClaim<T>(
+    orgId: string,
+    invoiceNumber: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${orgId}:${invoiceNumber}`;
+    while (this.invoiceClaims.has(key)) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    this.invoiceClaims.add(key);
+    try {
+      return await work();
+    } finally {
+      this.invoiceClaims.delete(key);
+    }
+  }
+
+  /** Every line declined under the tolerance, as `declined_candidates` holds it. */
+  readonly declinedLines: Array<
+    DeclinedLine & {
+      readonly orgId: string;
+      readonly documentId: string;
+      readonly estimatedRecoverableCents: number;
+      readonly externalIds: Readonly<Record<string, string>>;
+      readonly decidedByVersion: string;
+      readonly detail?: string;
+    }
+  > = [];
+
+  /**
+   * A short-paid line we are not fighting, with no case.
+   *
+   * The channel is derived here rather than taken, exactly as the Postgres store
+   * derives it: a document whose arrival nothing recorded cannot be attributed,
+   * and a store that quietly credited `web_upload` would make the contract suite
+   * a fiction in the one place it is about a number somebody reports.
+   */
+  async recordDeclinedLine(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly estimatedRecoverableCents: number;
+    readonly externalIds: Readonly<Record<string, string>>;
+    readonly decidedByVersion: string;
+    readonly detail?: string;
+  }): Promise<DeclinedLine> {
+    const discoveredFrom = await this.uploadSourceFor(input.documentId);
+    if (discoveredFrom === undefined) throw new LineProvenanceUnknownError(input.documentId);
+    const row = {
+      declinedCandidateId: randomUUID(),
+      discoveredFrom,
+      // This store models arrivals recorded at ingest and nothing else — it has
+      // no `document_arrivals` — so everything it can answer, it observed.
+      provenanceKind: 'observed' as const,
+      ...input,
+    };
+    this.declinedLines.push(row);
+    return {
+      declinedCandidateId: row.declinedCandidateId,
+      discoveredFrom: row.discoveredFrom,
+      provenanceKind: row.provenanceKind,
+    };
   }
 
   async linkDocument(

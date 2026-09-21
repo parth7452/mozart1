@@ -326,11 +326,14 @@ are not lost over the lines it could not attribute, and nothing is silently
 counted under a guess. It cannot happen to a document ingested since
 2026-09-21; `pnpm link:provenance` is the way back for one that predates it.
 
-`ProvenanceUnknownError` moves from `store-postgres` to
-`packages/pipeline/src/ports.ts` and is re-exported from its old home, so
-existing imports and every `instanceof` are unchanged. It is a refusal of the
-port's contract that both stores now make, which is where `DuplicateCaseError`
-already lives and for the same reason.
+The refusal is its own class, `LineProvenanceUnknownError`, in
+`packages/pipeline/src/ports.ts` beside `DuplicateCaseError` — not
+`store-postgres`'s `ProvenanceUnknownError`, which is left exactly as it is.
+That one is about a **case** ("case X cannot be declined") and takes a
+`deductionId`; a below-tolerance line has no case, and passing it a made-up one
+to reuse the class would put a fiction in a message a person reads. The two say
+the same thing about two different subjects, and the subject is the part that
+tells somebody what to go and fix.
 
 ## Consequences
 

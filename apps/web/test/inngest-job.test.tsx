@@ -250,6 +250,7 @@ describe('the read job', () => {
             haltedBecause: null,
             alreadyRead: true,
             beingRead: false,
+            remittanceCases: [],
           }),
         },
       });

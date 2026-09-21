@@ -209,6 +209,15 @@ export interface ReadDocumentJobResult {
    * than repeated from a record that does not exist yet.
    */
   readonly beingRead: boolean;
+  /**
+   * Every case a remittance's lines opened or merged into, in page order.
+   *
+   * Empty for every other document — including a remittance that short-paid
+   * nothing over the tenant's floor. `deductionId` stays null for a remittance
+   * on purpose: one advice opens many cases, and naming one of them as *the*
+   * case would be a choice the document did not make (ADR 0026).
+   */
+  readonly remittanceCases: readonly string[];
 }
 
 /**
@@ -306,6 +315,9 @@ export async function readDocumentJob(
         haltedBecause: null,
         alreadyRead: true,
         beingRead: false,
+        // A read that is answered from the record did not open anything. What
+        // the earlier one opened is on the cases themselves.
+        remittanceCases: [],
       } satisfies ReadDocumentJobResult;
     }
 
@@ -318,6 +330,10 @@ export async function readDocumentJob(
       haltedBecause: read.haltedBecause ?? null,
       alreadyRead: false,
       beingRead: false,
+      remittanceCases: [
+        ...(read.remittance?.opened ?? []).map((c) => c.deductionId),
+        ...(read.remittance?.mergedInto ?? []),
+      ],
     } satisfies ReadDocumentJobResult;
   });
 
@@ -332,6 +348,7 @@ export async function readDocumentJob(
       haltedBecause: null,
       alreadyRead: true,
       beingRead: true,
+      remittanceCases: [],
     };
   }
 
