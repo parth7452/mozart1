@@ -26,9 +26,10 @@ export const INVARIANTS: readonly Invariant[] = [
   {
     id: 2,
     title:
-      'Append-only truth: *_events, documents, uploads, decisions, approvals and audit_log take INSERT and SELECT only. Corrections are new events — except on uploads, where documents.upload_id is itself immutable, so a second arrival row is one nothing joins to and a wrong channel is a migration-backed decision (ADR 0024).',
+      'Append-only truth, including *_events, documents, uploads, document_arrivals, decisions, approvals and audit_log: INSERT and SELECT only. The list is not exhaustive and is not kept here — migration 0004 names the tables it loops over and each later migration names its own, and the suites read the end state back. Corrections are new events — except on uploads and document_arrivals, where documents.upload_id is itself immutable and an arrival is written once, so a second row is one nothing joins to and a wrong channel is a migration-backed decision (ADR 0024).',
     enforcedBy: [
       'postgres: revoked UPDATE/DELETE grants + app.block_mutations() trigger',
+      'postgres: migration 0004 applies both to the tables its loop names',
       'supabase/tests/01_append_only.sql',
       'supabase/tests/14_an_arrival_is_a_fact.sql',
     ],
@@ -56,7 +57,11 @@ export const INVARIANTS: readonly Invariant[] = [
   {
     id: 6,
     title: 'RLS on every table. The service-role key is only ever used in server-side jobs.',
-    enforcedBy: ['postgres: tenant_isolation policies', 'supabase/tests/04_rls.sql'],
+    enforcedBy: [
+      'postgres: tenant_isolation policies',
+      'supabase/tests/04_rls.sql',
+      'supabase/tests/15_every_table_has_rls.sql (every public table, by enumeration)',
+    ],
   },
   {
     id: 7,

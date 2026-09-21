@@ -256,6 +256,66 @@ describeDb('declining a case', () => {
     expect(rows[0]?.discovered_from).toBe(rows[0]?.upload_source);
   });
 
+  it('says whether that channel was observed at ingest or asserted afterwards', async () => {
+    // Two rows can carry the same `discovered_from` and have reached it two
+    // different ways: one the pipeline watched happen, one a person supplied
+    // through `document_arrivals` for a document stored before provenance
+    // existed. A coverage number over a period spanning 2026-09-21 mixes them,
+    // and `provenance_kind` is what lets it say so (ADR 0024 §4). Derived from
+    // which of the two joins answered — there is no parameter, for the reason
+    // `assumedDiscoveredFrom` no longer exists.
+    const { rows: observed } = await admin.query<{ provenance_kind: string }>(
+      `select provenance_kind from declined_candidates where deduction_id = $1`,
+      [deductionId],
+    );
+    expect(observed[0]?.provenance_kind).toBe('observed');
+
+    // The other half: a notice with no arrival on it, made declinable by an
+    // operator's assertion. Same channel, different route to it.
+    const legacy = await store.openCase({
+      orgId,
+      claimId: `APDP-ASSERTED-${suffix}`,
+      deductionAmountCents: 64_000,
+    });
+    const documentId = await attachNotice(legacy.deductionId, 'web_upload', {
+      recordArrival: false,
+    });
+    await store.recordDocumentArrival({
+      documentId,
+      source: 'web_upload',
+      recordedBy: analystId,
+      detail: 'pre-Postmark: the only door open',
+    });
+
+    const declined = await store.declineCase({
+      deductionId: legacy.deductionId,
+      reason: 'below_economic_floor',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    // The same channel as the row above, and distinguishable from it anyway.
+    expect(declined.discoveredFrom).toBe('web_upload');
+    expect(declined.provenanceKind).toBe('asserted');
+
+    const { rows: stored } = await admin.query<{
+      provenance_kind: string;
+      discovered_from: string;
+    }>(
+      `select provenance_kind, discovered_from from declined_candidates where deduction_id = $1`,
+      [legacy.deductionId],
+    );
+    expect(stored[0]?.discovered_from).toBe('web_upload');
+    expect(stored[0]?.provenance_kind).toBe('asserted');
+
+    // And the case's own timeline carries it too, so a reader of the events does
+    // not have to go to `declined_candidates` to find out which it was.
+    const { rows: events } = await admin.query<{ payload: { provenance_kind?: string } }>(
+      `select payload from deduction_events
+        where deduction_id = $1 and event_type = 'case.declined'`,
+      [legacy.deductionId],
+    );
+    expect(events[0]?.payload.provenance_kind).toBe('asserted');
+  });
+
   it('refuses a case whose notice records no arrival, rather than defaulting it', async () => {
     // The old fallback's replacement. A document stored before provenance
     // existed says nothing about where it came from, and `discovered_from` is

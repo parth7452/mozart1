@@ -27,12 +27,14 @@ on `app.block_mutations()` over the top. The mutable one — `organizations`,
 `uploads` is on the wrong list, and it was on the right one while nothing read
 the column. It is not the right one now:
 
-- **`declined_candidates` is append-only and `coverage_by_period` groups by
-  `discovered_from`.** A decline cannot be corrected; the row that decided what
-  it says can be. An `update uploads set source = 'erp_sync'` re-labels which
-  channel found a deduction *after* every decline attributed to it has been
-  counted, and moves a published coverage number with nothing anywhere recording
-  that anything moved. No `audit_log` row is written on any `uploads` path — that
+- **`declined_candidates` is append-only, and `discovered_from` is the column a
+  coverage number is sliced by.** (`coverage_by_period` itself groups by org and
+  month; the per-channel split is computed over `discovered_from` on top of the
+  same rows — `coverage-by-channel.test.ts` is where that query lives.) A decline
+  cannot be corrected; the row that decided what it says can be. An `update
+  uploads set source = 'erp_sync'` re-labels which channel found a deduction
+  *after* every decline attributed to it has been counted, and moves a published
+  coverage number with nothing anywhere recording that anything moved. No `audit_log` row is written on any `uploads` path — that
   table is written deliberately, by code, and no code writes it here — so the
   before and after are indistinguishable by inspection. The column reads exactly
   as it would have read if it had always said that.
@@ -187,6 +189,19 @@ provenance, and each is enforced rather than documented:
    database. It is written here, in an ADR, and it has to be typed out by the
    operator at the point of use. A default would turn "we know because we know
    the deployment" into "the database said so".
+6. **And it can only be one of the three doors that existed.** `uploads.source`
+   admits six channels. Three of them — `erp_sync`, `portal_fetch`, `edi_812` —
+   are Phases 1.5, 2 and 2.5, and each will write an `uploads` row at ingest like
+   every other path, so a document of theirs never reaches this table with
+   nothing recorded. Asserting one of those here would credit a channel that
+   could not have delivered the bytes. **The database enforces it**, not the
+   script: `app.arrival_only_when_unknown()` already reads the `uploads` row to
+   check its org, and refuses the insert by name when its `source` is not one of
+   `web_upload`, `email_in`, `email_body`. `ASSERTABLE_SOURCES` in
+   `store-postgres` refuses the same three before a round trip is spent, and the
+   script before that; the rule is in the database because that is the copy that
+   answers for the table owner and for anything that never went through the
+   store.
 
 `uploads.received_at` for an asserted arrival is set to the document's
 `created_at` rather than left to `now()`. When the bytes were stored is a fact the
@@ -206,6 +221,54 @@ row, and a `document.provenance_recorded` event on every case the document is
 attached to, so a case's own timeline says that its provenance was supplied by a
 person on a date rather than having been there all along.
 
+### 4. What a coverage number can say about itself
+
+The derivation in §3 means two `declined_candidates` rows can carry the same
+`discovered_from` and have reached it two different ways: one the pipeline
+watched happen, one a person supplied afterwards. A coverage number computed over
+a period that spans 2026-09-21 mixes them, and a reader of that number has no way
+to know in what proportion.
+
+An earlier draft of this ADR considered a column on `declined_candidates` to
+carry it and decided against, on the grounds that the table is append-only, that
+the rows already written could not acquire the new column's value, and that a
+column null for every historical row and meaningful for the next one is worse
+than a paragraph saying so.
+
+**That argument does not apply, because there is no history.** Production carries
+zero `declined_candidates` rows and zero `uploads` rows — nothing has been
+declined and nothing has recorded an arrival yet — so there is no row for a
+default to mislabel and none for a null to be ambiguous on. The window in which
+the column is free is open now and closes the first time somebody declines a
+case. Taking it now is strictly cheaper than arguing about a backfill later.
+
+So migration 0019 adds it:
+
+```
+provenance_kind text not null default 'observed'
+  check (provenance_kind in ('observed', 'asserted'))
+```
+
+`declineCase` sets it from **which of the two joins answered** — `u.source`, the
+`uploads` row the notice itself names, gives `observed`; `au.source`, reached
+through `document_arrivals`, gives `asserted`. It is not a parameter and no
+caller can pass it, for the same reason `discovered_from` stopped being one: a
+channel credited on a caller's say-so is a number that looks right. The query
+stopped pre-coalescing the two columns for exactly this reason — a `coalesce` in
+SQL answers which channel and throws away which join, and both are wanted.
+
+`declined_candidates` is append-only and stays so. Adding a column is DDL: it
+issues no UPDATE, fires no row trigger, changes no grant and touches no policy.
+The `no_update_delete` and `no_truncate` triggers migration 0014 put on the table
+are not dropped, recreated or referenced.
+
+What this does **not** claim: `provenance_kind` says how the channel was reached,
+not how reliable it is. An asserted arrival is still a person's assertion, and
+who made it, when, and why remains on the `document_arrivals` row, in
+`uploads.created_by`, and on the case's own `document.provenance_recorded` event.
+The column makes the *proportion* visible in one query; it does not make an
+assertion into an observation.
+
 ## Consequences
 
 **What this makes easy.** The channel that found a deduction is now a fact with
@@ -221,18 +284,14 @@ means the first `document_arrivals` row for a document is the last one.
 `--dry-run` exists for that reason, and the script prints the exact channel it is
 about to assert for each document before it writes anything.
 
-**What we live with, and it is the one that could mislead somebody.** A
-`declined_candidates` row attributed through an asserted arrival is
-*indistinguishable, in `declined_candidates`*, from one derived at ingest. Both
-carry a plain `discovered_from`. What tells them apart lives elsewhere: the
-`document_arrivals` row (who, when, and whatever they wrote in `detail`), the
-`uploads` row's `created_by`, and the `document.provenance_recorded` entry on the
-case's own timeline. Anyone computing a coverage number over a period that
-includes the pre-provenance documents should know to ask, and this paragraph is
-where they are told to. Adding a column to `declined_candidates` to carry it was
-considered and not done: that table is append-only, the rows already written
-could not acquire the new column's value, and a column that is null for every
-historical row and meaningful for the next one is worse than a sentence here.
+**What a coverage number says about itself.** A `declined_candidates` row
+attributed through an asserted arrival carries `provenance_kind = 'asserted'`,
+and one derived at ingest carries `'observed'` (§4), so the proportion is one
+`group by` rather than three joins and a paragraph. What the column does not
+carry — who asserted it, when, and why — is still on the `document_arrivals` row,
+in `uploads.created_by`, and on the case's own `document.provenance_recorded`
+event, which is the right place for it: the column is for counting, those are for
+auditing.
 
 **Migrations are re-runnable, and this one is.** `scripts/db-test.sh` applies
 every migration twice in a single run. Every statement here is `create or
@@ -251,8 +310,13 @@ the end state back after the second pass rather than assuming it.
   `document_arrivals` is created as a member of it rather than added to it later.
   No UPDATE or DELETE grant is created anywhere by this migration; the only
   grants issued are INSERT and SELECT, to roles that already read these rows.
-  CLAUDE.md's enumeration of invariant 2 gains `uploads` in the same change, so
-  the prose and the schema do not drift.
+  `declined_candidates` gains a column (§4) and stays append-only: `alter table
+  … add column` is DDL, it issues no UPDATE, and the table's own
+  `no_update_delete` / `no_truncate` triggers are not touched. CLAUDE.md's
+  enumeration of invariant 2 gains `uploads` and `document_arrivals` in the same
+  change, reworded as "including" rather than a closed list, because the list
+  that answers is migration 0004's loop and each later migration's own
+  statements — not a sentence in a document.
 - **3 (money is integer cents).** Untouched. No money column is read or written;
   `declineCase`'s `exactCents` path is not edited.
 - **4 (document content is untrusted).** Untouched, and deliberately reinforced:
@@ -276,8 +340,8 @@ the end state back after the second pass rather than assuming it.
 Reverting is a new migration — never an edit to 0019 once merged — that drops the
 two triggers on `uploads` and re-grants `update, delete` to `app_rw`, and, if the
 mapping is to go as well, drops `document_arrivals` and
-`app.arrival_only_when_unknown()` and restores `declineCase`'s derivation to
-`uploads.source` alone. `supabase/tests/14_an_arrival_is_a_fact.sql` goes with
+`app.arrival_only_when_unknown()`, drops `declined_candidates.provenance_kind`,
+and restores `declineCase`'s derivation to `uploads.source` alone. `supabase/tests/14_an_arrival_is_a_fact.sql` goes with
 it.
 
 The first half of that revert is a loosening — it hands `app_rw` back the ability

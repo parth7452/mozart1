@@ -38,6 +38,7 @@
  */
 
 import { Pool } from 'pg';
+import { UNREAD_DOCUMENTS_MAX_LIMIT } from '@recouple/pipeline';
 import {
   ArrivalAlreadyRecordedError,
   ASSERTABLE_SOURCES,
@@ -140,7 +141,15 @@ async function main(): Promise<void> {
   );
 
   try {
+    // Capped, like every other list here. A page at a time is what the store
+    // will answer with, and a run that hit the cap says so rather than letting
+    // an operator read "47 document(s)" as "all of them". Walking the rest is a
+    // second run: a document that has been recorded drops out of this query.
     const unrecorded = await store.documentsWithoutArrival();
+    const capped = unrecorded.length === UNREAD_DOCUMENTS_MAX_LIMIT;
+    const andMore = capped
+      ? ` (the most this lists in one run; re-run after recording these to see the rest)`
+      : '';
 
     if (listOnly) {
       for (const row of unrecorded) {
@@ -149,7 +158,7 @@ async function main(): Promise<void> {
             `cases: ${row.deductionIds.join(', ') || '(none)'}`,
         );
       }
-      console.log(`${unrecorded.length} document(s) record no arrival`);
+      console.log(`${unrecorded.length} document(s) record no arrival${andMore}`);
       return;
     }
 
@@ -203,7 +212,9 @@ async function main(): Promise<void> {
       console.log(`${targets.length} document(s) would be recorded; nothing was written`);
       return;
     }
-    console.log(`${recorded} recorded, ${skipped} already known, ${failed} refused`);
+    console.log(`${recorded} recorded, ${skipped} already known, ${failed} refused${
+      all ? andMore : ''
+    }`);
     // A refusal is a real finding — a document another tenant owns, an id that
     // does not exist, a member the policies turned down. The exit code says so
     // rather than leaving it in the scrollback.
