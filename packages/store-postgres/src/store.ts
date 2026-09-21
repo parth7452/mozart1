@@ -235,6 +235,21 @@ export const DISCOVERED_FROM = UPLOAD_SOURCES;
 
 export type DiscoveredFrom = UploadSource;
 
+/**
+ * Whether a word is a channel coverage can be grouped by.
+ *
+ * This is what `DISCOVERED_FROM` is for. `declineCase` reads the channel back
+ * out of `uploads.source`, which is `text` with a check constraint, and the
+ * driver hands it over as a plain string: without this the value would be
+ * *asserted* into the union on the way to `declined_candidates.discovered_from`
+ * — the one column every coverage number is grouped by — and a source added to
+ * one check constraint but not the other would be discovered as a failed insert
+ * with no idea which word caused it. Asked here, it is a refusal that names it.
+ */
+export function isDiscoveredFrom(value: unknown): value is DiscoveredFrom {
+  return typeof value === 'string' && (DISCOVERED_FROM as readonly string[]).includes(value);
+}
+
 export function isDeclineReason(value: unknown): value is DeclineReason {
   return typeof value === 'string' && (DECLINE_REASONS as readonly string[]).includes(value);
 }
@@ -295,10 +310,22 @@ export class AlreadyDeclinedError extends Error {
  * the case is left standing, which is the only outcome that cannot silently
  * move the number this log exists to produce (docs/STRATEGY.md, ADD-1).
  *
- * In practice this means one of two things: the case has no notice document at
- * all, or its notice was stored before ingest recorded provenance and has no
- * `uploads` row behind it. Both are fixable with a fact somebody has; neither
- * is fixable by this code choosing a plausible answer.
+ * In practice this means one of two things, and they are told apart by
+ * {@link noticeDocumentId} because they are not the same problem.
+ *
+ * The case has **no notice document at all** — a case assembled wrong, and
+ * attaching its notice fixes it.
+ *
+ * Or the case **predates provenance recording**: its notice was stored before
+ * `ingestDocument` wrote an `uploads` row, so `documents.upload_id` is null and
+ * nothing in the database says which channel found it. This one is not fixable
+ * from here, and the message says so rather than implying somebody could go and
+ * record it. `documents` is append-only — migration 0004 revokes UPDATE from
+ * `app_rw` and puts a `before update` trigger on the table for everyone else —
+ * and `uploads` has no column pointing back at a document. There is therefore
+ * no way to attach an arrival to bytes already stored without a migration, and
+ * a backfill script was not written for exactly that reason: it would have had
+ * nowhere honest to write. See docs/STATE-OF-PLAY.md.
  */
 export class ProvenanceUnknownError extends Error {
   constructor(
@@ -324,7 +351,11 @@ export interface DeclinedCandidate {
   readonly deductionId: string;
   readonly reason: DeclineReason;
   readonly estimatedRecoverableCents: number;
-  readonly discoveredFrom: string;
+  /**
+   * The channel that found the deduction, checked against the closed set on the
+   * way out of the database rather than asserted into it (`isDiscoveredFrom`).
+   */
+  readonly discoveredFrom: DiscoveredFrom;
   readonly decidedBy: string;
   readonly decidedByVersion: string;
   readonly missingEvidence: readonly string[];
@@ -1858,7 +1889,11 @@ export class PostgresStore
    * {@link ProvenanceUnknownError} instead of being counted under a guess.
    *
    * @throws {ProvenanceUnknownError} the case has no notice, or its notice has
-   *   no `uploads` row to say which channel found it
+   *   no `uploads` row to say which channel found it. The second of those is a
+   *   case that predates provenance recording, and it stays undeclinable until
+   *   a migration gives an already-stored document somewhere to record its
+   *   arrival — `documents` is append-only, so `upload_id` cannot be filled in
+   *   now.
    */
   async declineCase(input: {
     deductionId: string;
@@ -1887,6 +1922,27 @@ export class PostgresStore
       // wrong, the other a document stored before provenance existed — and a
       // refusal that could not tell them apart would send somebody to the wrong
       // place.
+      //
+      // The earliest notice wins, and `doc.id` breaks the tie. `created_at`
+      // defaults to `now()`, which is the transaction's start time, so two
+      // notices attached inside one transaction — or on a clock with coarse
+      // enough resolution — carry the identical timestamp, and `limit 1` over a
+      // tie is whichever row the plan reached first. That is a coverage number
+      // that changes when the planner does. The id is arbitrary but it is
+      // *fixed*, so the same case is attributed to the same channel every time
+      // it is asked, which is the property this column needs.
+      //
+      // Deliberately the earliest and not the earliest *with* an arrival: a
+      // case whose first notice predates provenance is refused below even when
+      // a later one records a channel. The first arrival is how the deduction
+      // reached us; the second is a copy of something we already had. Counting
+      // the copy's channel would credit whichever source re-sent a document,
+      // which is the same misattribution `ingestDocument` refuses when it
+      // declines to write a second `uploads` row for bytes it already has. A
+      // refusal somebody has to act on is the honest answer, and the test
+      // "refuses when the earliest notice predates provenance, even though a
+      // later one records a channel" in `decline-case.test.ts` keeps it from
+      // being quietly relaxed into "the earliest notice that knows".
       const { rows: caseRows } = await client.query<{
         amount: string;
         notice_document_id: string | null;
@@ -1902,7 +1958,7 @@ export class PostgresStore
                join documents doc on doc.id = dd.document_id
                left join uploads u on u.id = doc.upload_id
               where dd.deduction_id = d.id and dd.role = 'notice'
-              order by doc.created_at asc
+              order by doc.created_at asc, doc.id asc
               limit 1
            ) notice on true
           where d.id = $1
@@ -1954,12 +2010,32 @@ export class PostgresStore
           input.deductionId,
           found.notice_document_id === null
             ? 'it has no notice document, so nothing on it says which channel found this deduction'
-            : `its notice document ${found.notice_document_id} records no arrival, so nothing ` +
-              'says which channel found this deduction',
+            : // Said plainly, and said as a dead end, because it is one. The
+              // notice is there and its `uploads` row is not, which can only
+              // mean it was stored before ingest recorded arrivals. Nobody can
+              // put that right from the outside: `documents` is append-only, so
+              // `upload_id` cannot be filled in afterwards, and `uploads` has no
+              // way to point at a document instead. A message that said "record
+              // how it arrived" would send somebody looking for a button that
+              // cannot exist yet.
+              `its notice document ${found.notice_document_id} records no arrival. This case ` +
+              'predates provenance recording; it cannot be declined until a migration adds a ' +
+              'way to record its arrival',
           found.notice_document_id ?? undefined,
         );
       }
-      const discoveredFrom = found.discovered_from as DiscoveredFrom;
+      if (!isDiscoveredFrom(found.discovered_from)) {
+        // Unreachable while `uploads_source_check` and the `discovered_from`
+        // check in migration 0014 hold the same list — which is the point of
+        // there being one `UPLOAD_SOURCES` behind both. If they ever drift, the
+        // insert below fails on a check constraint with no clue which value did
+        // it; this fails first and names it. Loud, and before anything written.
+        throw new Error(
+          `uploads.source returned ${JSON.stringify(found.discovered_from)}, which is not a ` +
+            'channel coverage can be attributed to',
+        );
+      }
+      const discoveredFrom = found.discovered_from;
 
       // The column takes any text, so the check is here or nowhere. A value
       // nobody counts is worse than an empty list: it looks like a reason.

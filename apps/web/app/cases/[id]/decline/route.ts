@@ -114,7 +114,18 @@ export async function POST(
         `[recouple] decline: case ${id} in org ${session.org.orgId} has no recorded provenance`,
         cause,
       );
-      return say('decline_no_provenance');
+      // Two refusals, two sentences. A case with no notice is one somebody can
+      // put right by attaching it; a notice with no `uploads` row behind it is
+      // a document stored before ingest recorded arrivals, and nothing anyone
+      // can do from this app changes that — `documents` is append-only, so
+      // `upload_id` cannot be filled in now. The store tells them apart by
+      // whether it names a document, and repeating one sentence for both would
+      // send half the readers after a fix that does not exist.
+      return say(
+        cause.noticeDocumentId === undefined
+          ? 'decline_no_notice'
+          : 'decline_predates_provenance',
+      );
     }
     if (cause instanceof AlreadyDeclinedError) {
       // Not a fault: a second submit of a form that is still on screen. The
