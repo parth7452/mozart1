@@ -13,6 +13,7 @@ import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
 import type { Viewer } from './case-list';
+import { WorkspaceShell } from './workspace-shell';
 
 /** Which document a reviewer looks at first: the notice the case came from. */
 const DOC_ORDER: readonly string[] = [
@@ -151,19 +152,26 @@ export function CaseReview({
   const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
-    <>
-      <header className="top">
-        <h1>
-          <Link href="/">Recouple</Link>
-        </h1>
-        <span className="mono">{summary.claimId ?? summary.deductionId.slice(0, 8)}</span>
-        <span className="pill">{summary.state.replace(/_/g, ' ')}</span>
-        {due !== undefined ? <span className={`pill ${due.tone}`}>{due.label}</span> : null}
-        <span className="who">
-          {viewer.email} · {viewer.role.replace('_', ' ')}
-        </span>
-      </header>
-      <main>
+    <WorkspaceShell viewer={viewer} detail>
+      <main id="workspace-main" className="workspace-main case-main">
+        <Link className="back-link" href="/">
+          ← All deductions
+        </Link>
+        <div className="page-heading case-heading">
+          <div>
+            <p className="eyebrow">THE DETAILS BEHIND THE DEDUCTION</p>
+            <h1>{summary.claimId ?? summary.deductionId.slice(0, 8)}</h1>
+            <p className="page-description">
+              {who.name} · {money(summary.deductionAmountCents)} deducted
+            </p>
+          </div>
+          <div className="case-badges">
+            <span className={`pill state-${summary.state}`}>
+              {summary.state.replace(/_/g, ' ')}
+            </span>
+            {due !== undefined ? <span className={`pill ${due.tone}`}>{due.label}</span> : null}
+          </div>
+        </div>
         <div className="review">
           <div>
             <div className="card">
@@ -171,8 +179,7 @@ export function CaseReview({
                 {who.name}
                 {who.matched ? null : (
                   <span className="unmatched">not matched to a debtor</span>
-                )}{' '}
-                · {money(summary.deductionAmountCents)} deducted
+                )} · {money(summary.deductionAmountCents)} deducted
               </h2>
               {primary === undefined ? (
                 <p className="empty">No document has been read for this case yet.</p>
@@ -183,6 +190,7 @@ export function CaseReview({
                       looked at. The type is the document's own: a notice that
                       arrived in an email body is text, not a PDF. */}
                   <embed
+                    title="Original deduction document"
                     src={`/api/document/${primary[0]}`}
                     type={primary[1][0]?.mimeType ?? 'application/pdf'}
                     height={820}
@@ -336,10 +344,10 @@ export function CaseReview({
             <CaseTimeline workflow={workflow} viewerUserId={viewerUserId} />
 
             <div className="gate">
-              Nothing leaves this app. A dispute is filed by a person on the retailer&rsquo;s
-              portal and recorded here, and the database refuses a submission that has no approval
-              row for this exact decision — so the approve card is a second person&rsquo;s, and it
-              is the only way this case moves.
+              Nothing leaves this app. A dispute is filed by a person on the retailer&rsquo;s portal
+              and recorded here, and the database refuses a submission that has no approval row for
+              this exact decision — so the approve card is a second person&rsquo;s, and it is the
+              only way this case moves.
               <br />
               <br />
               Read so far: {money(Math.round(costMicros / 10_000))} of model spend on{' '}
@@ -349,6 +357,6 @@ export function CaseReview({
           </div>
         </div>
       </main>
-    </>
+    </WorkspaceShell>
   );
 }
