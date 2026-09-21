@@ -1,14 +1,32 @@
 # recouple
 
-Deductions recovery for CPG suppliers and their retail customers. A supplier
-ships to a retailer, the retailer short-pays the invoice with a coded reason, and
-somewhere between 5% and 15% of gross sales leaks out this way — most of it never
-challenged because challenging it is slow, deadline-bound paperwork.
+Deductions recovery for suppliers whose payers short-pay their invoices.
+
+A manufacturer ships to a broadline distributor and the distributor deducts for a
+promotion that was already agreed, a shortage, a shelf-life allowance — carrying
+its own markup and an admin fee on top. The shape generalises past any one
+payer: work delivered, invoice raised, less money arrives than was billed, and a
+coded reason attached. Only 20–30% of deductions are ever disputed, and about 40%
+of the disputed ones are won back, so the unchallenged majority is the prize —
+not the win rate on the filed minority.
 
 recouple is the paperwork, automated: ingest the notice → classify it → plan the
-evidence → decide → assemble a packet in the retailer's required format → **a
-human approves and files it** → detect the recovery → bill a share of what was
-actually recovered.
+evidence → decide → assemble a packet in the payer's required format → **a human
+approves and files it** → detect the recovery → bill a share of what was actually
+recovered.
+
+**The engine is payer-agnostic; the current wedge is foodservice.** Manufacturer
+chargebacks, deviated-pricing billbacks and OS&D against Sysco, US Foods, PFG and
+Gordon — a concentrated payer base facing a fragmented one (27,000 US food
+manufacturers, three-quarters under 100 employees), where no incumbent offers
+done-for-you disputing. Payers are playbook data rather than code, so apparel,
+automotive or grocery retail is a playbook and a fixture suite, not a rewrite.
+
+Every number in a packet traces to a verbatim quote on the page it came from,
+checked against that page before a human sees it, on an append-only hash-chained
+record. Post-audit claims in this channel reach back about two years, and that
+trail is what defends against one. We do not ask you to trust the AI; we show you
+the page.
 
 It is a deterministic, human-gated workflow, not an autonomous agent. Genuine
 agentic loops are reserved for two bounded steps: planning evidence, and

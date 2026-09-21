@@ -1,10 +1,31 @@
 # recouple — deductions agent platform (AI-written code touches money paths)
 
-A deterministic, human-gated document workflow for recovering invalid retailer
-deductions. Not an autonomous agent: ingest → classify → plan evidence → decide
-→ assemble packet → **a human approves and submits** → record outcome → invoice
-the contingency fee. Agentic loops are reserved for exactly two bounded steps
-(evidence planning, unknown-retailer cold start).
+A deterministic, human-gated document workflow for recovering invalid deductions:
+money a payer withholds from an invoice with a coded reason attached. Not an
+autonomous agent: ingest → classify → plan evidence → decide → assemble packet →
+**a human approves and submits** → record outcome → invoice the contingency fee.
+Agentic loops are reserved for exactly two bounded steps (evidence planning,
+unknown-payer cold start).
+
+**The engine is payer-agnostic; the go-to-market is not.** Who deducts — a
+broadline distributor, a retailer, a shipper — is versioned playbook data, never
+code: `reason-codes.ts` is the canonical taxonomy and a payer's own codes map
+into it. The current beachhead is foodservice manufacturers selling through
+broadline distributors (Sysco, US Foods, PFG, Gordon): manufacturer chargebacks,
+deviated-pricing billbacks, OS&D, shelf-life and swell allowances, validated
+against a promotional deal calendar. That is a focus decision still under
+discovery, not an architectural one. **No code should assume it.**
+
+Two things about that market do bind the code:
+
+- **Multi-tenancy is a product surface, not only hygiene.** Foodservice
+  manufacturers outsource deduction resolution to broker and sales agencies, so
+  one customer can hold many manufacturers' cases. `org_id` plus RLS is what
+  makes that one contract rather than many installs.
+- **Provenance is the post-audit defense.** Post-audit claims reach back about
+  two years. A packet whose every number traces to a verbatim quote on a stored
+  page, hash-chained, is what survives one — which is why invariant 2 is
+  append-only and why quote verification runs before a human sees a field.
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 
