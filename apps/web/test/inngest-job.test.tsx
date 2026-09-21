@@ -163,7 +163,7 @@ describe('the read job', () => {
     const { context, identities } = contextOver(store);
 
     const result = await runReadRequested(
-      { documentId, orgId: ORG_ID, userId: USER_ID },
+      { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId },
       context,
     );
 
@@ -187,7 +187,7 @@ describe('the read job', () => {
     const steps: string[] = [];
 
     const result = await readDocumentSteps(context)({
-      event: { data: { documentId, orgId: ORG_ID, userId: USER_ID } },
+      event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
       step: {
         run: async (id, work) => {
           steps.push(id);
@@ -216,7 +216,7 @@ describe('the read job', () => {
 
     try {
       await readDocumentSteps(context)({
-        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID } },
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
         step: { run: async (_id, work) => work() },
       });
 
@@ -240,7 +240,7 @@ describe('the read job', () => {
       // run and not the step, which is the opposite shape and also readable.
       lines.length = 0;
       await readDocumentSteps(context)({
-        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID } },
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
         step: {
           run: async () => ({
             documentId,
@@ -248,6 +248,7 @@ describe('the read job', () => {
             deductionId: null,
             haltedBecause: null,
             alreadyRead: true,
+            beingRead: false,
           }),
         },
       });
@@ -294,7 +295,12 @@ describe('the read job', () => {
 
     await expect(
       runReadRequested(
-        { documentId: '33333333-3333-3333-3333-333333333333', orgId: ORG_ID, userId: USER_ID },
+        {
+          documentId: '33333333-3333-3333-3333-333333333333',
+          orgId: ORG_ID,
+          userId: USER_ID,
+          readKey: '33333333-3333-3333-3333-333333333333',
+        },
         context,
       ),
     ).rejects.toThrow();
@@ -304,24 +310,33 @@ describe('the read job', () => {
   it('refuses a payload that does not name a tenant, a document and a member', () => {
     // An id is about to become a tenant claim. A payload missing one must not
     // read as "any tenant", and it must not be retried into existence either.
-    expect(() => parseReadRequested({ orgId: ORG_ID, userId: USER_ID })).toThrow(/documentId/);
-    expect(() =>
-      parseReadRequested({ documentId: ORG_ID, orgId: 'acme', userId: USER_ID }),
-    ).toThrow(/orgId/);
-    expect(() => parseReadRequested({ documentId: ORG_ID, orgId: ORG_ID })).toThrow(/userId/);
+    const whole = { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID, readKey: USER_ID };
+    expect(() => parseReadRequested({ ...whole, documentId: undefined })).toThrow(/documentId/);
+    expect(() => parseReadRequested({ ...whole, orgId: 'acme' })).toThrow(/orgId/);
+    expect(() => parseReadRequested({ ...whole, userId: undefined })).toThrow(/userId/);
     expect(() => parseReadRequested('a string')).toThrow(/payload/);
-    expect(() =>
-      parseReadRequested({
-        documentId: ORG_ID,
-        orgId: ORG_ID,
-        userId: USER_ID,
-        attachToCase: 'not-a-case',
-      }),
-    ).toThrow(/attachToCase/);
+    expect(() => parseReadRequested({ ...whole, attachToCase: 'not-a-case' })).toThrow(
+      /attachToCase/,
+    );
 
-    expect(
-      parseReadRequested({ documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID }),
-    ).toEqual({ documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID });
+    // The runtime's idempotency window is keyed on `readKey`, so an event with
+    // none is an event this app did not send — and letting it through would be
+    // letting it through silently, in the one place where a second delivery is
+    // a second document's worth of model calls.
+    expect(() => parseReadRequested({ ...whole, readKey: undefined })).toThrow(/readKey/);
+    expect(() => parseReadRequested({ ...whole, readKey: 'not-a-key' })).toThrow(/readKey/);
+
+    // `allowCaseOpen` decides whether a read may open a case (ADR 0016). A
+    // truthy string is not a yes.
+    expect(() => parseReadRequested({ ...whole, allowCaseOpen: 'true' })).toThrow(
+      /allowCaseOpen/,
+    );
+
+    expect(parseReadRequested(whole)).toEqual(whole);
+    expect(parseReadRequested({ ...whole, allowCaseOpen: false })).toEqual({
+      ...whole,
+      allowCaseOpen: false,
+    });
   });
 
   it('refuses an event naming somebody who is not a member of that org', async () => {
@@ -337,7 +352,7 @@ describe('the read job', () => {
 
     try {
       await expect(
-        runReadRequested({ documentId, orgId: ORG_ID, userId: stranger }, context),
+        runReadRequested({ documentId, orgId: ORG_ID, userId: stranger, readKey: documentId }, context),
       ).rejects.toBeInstanceOf(NonRetriableError);
     } finally {
       logged.mockRestore();
@@ -418,6 +433,7 @@ describe('how the runtime is asked to run the function', () => {
       name: 'Read an uploaded document',
       triggers: [{ event: 'document/read.requested' }],
       retries: 3,
+      idempotency: 'event.data.readKey',
       concurrency: [
         { key: 'event.data.orgId', limit: 2 },
         // Keyless: the ceiling for the whole app, not one per anything.
@@ -433,15 +449,17 @@ describe('how the runtime is asked to run the function', () => {
     expect(READS_IN_FLIGHT_PER_ORG).toBeLessThan(READS_IN_FLIGHT);
   });
 
-  it('asks the runtime for no idempotency window of its own', () => {
-    // It used to ask for one on `event.data.documentId`. A run that was invoked
-    // and then never came back to execute its step left the document unread,
-    // and the key swallowed the next 24 hours of events for it — including the
-    // one sent to recover it. The guard that stops a second read costing money
-    // is `readDocumentJob`'s, in the database: a document that already has an
-    // extraction is answered from what was recorded. That one holds for every
-    // delivery instead of for a window, and it does not refuse a re-drive.
-    expect(READ_DOCUMENT_CONFIG).not.toHaveProperty('idempotency');
+  it('keys its idempotency window on the request, not on the document', () => {
+    // It used to be `event.data.documentId`. A run that was invoked and then
+    // never came back to execute its step left the document unread, and that
+    // key swallowed the next 24 hours of events naming it — including the one
+    // sent to recover it. `readKey` says which *request to read* an event is:
+    // an upload sets it to the document id, so its own redelivery is one read,
+    // and a re-drive sets a fresh UUID, so the window has nothing to say about
+    // it. The key is a window and not the guarantee — the guarantee is the
+    // per-document lock `readDocumentJob` holds across its guard and its read.
+    expect(READ_DOCUMENT_CONFIG.idempotency).toBe('event.data.readKey');
+    expect(READ_DOCUMENT_CONFIG.idempotency).not.toContain('documentId');
   });
 });
 
@@ -509,7 +527,7 @@ describe('the endpoint Inngest calls', () => {
 
     const { POST } = await freshRoute();
     const response = await POST(
-      call({ event: { name: READ_REQUESTED, data: { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID } }, ctx: {}, steps: {} }),
+      call({ event: { name: READ_REQUESTED, data: { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID, readKey: ORG_ID } }, ctx: {}, steps: {} }),
       undefined,
     );
 
@@ -556,7 +574,7 @@ describe('the endpoint Inngest calls', () => {
     try {
       const { POST, GET, PUT } = await freshRoute();
       const signed = call({
-        event: { name: READ_REQUESTED, data: { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID } },
+        event: { name: READ_REQUESTED, data: { documentId: ORG_ID, orgId: ORG_ID, userId: USER_ID, readKey: ORG_ID } },
         ctx: {},
         steps: {},
       });

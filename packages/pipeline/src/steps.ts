@@ -407,7 +407,11 @@ export interface RecordedRead {
 }
 
 export async function recordedRead(
-  document: StoredDocument,
+  // Only the id: everything this asks is a question about records, not about
+  // bytes. Taking the narrower type is what lets a caller that has an id and no
+  // document — the queued upload path, which stops before the read — ask it
+  // without fetching the document to do so.
+  document: Pick<StoredDocument, 'documentId'>,
   deps: PipelineDeps,
   options: ReadOptions = {},
 ): Promise<RecordedRead | undefined> {

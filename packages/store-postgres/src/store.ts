@@ -29,6 +29,7 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DocumentReadLease,
   JobStore,
   PipelineStore,
   StoredDocument,
@@ -36,6 +37,7 @@ import type {
   UnreadDocumentsStore,
   WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
+import { assertUnreadDocumentsQuery } from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 
@@ -84,11 +86,37 @@ export interface PostgresStoreConfig {
  */
 const pools = new Map<string, Pool>();
 
-function poolFor(config: PostgresStoreConfig): Pool {
-  const key = `${config.connectionString}::${config.max ?? 4}`;
+/**
+ * Which of a connection string's two pools a caller wants.
+ *
+ * `work` is every query in this file: checked out, used, returned, all inside
+ * one transaction. `locks` is the one thing that is not — a connection held for
+ * the whole of a document's read, because that is what holding an advisory lock
+ * across the read means (`withDocumentRead`).
+ *
+ * They are separate pools and that is the entire point. Sharing one would
+ * deadlock: `max` is four, so four concurrent reads would hold all four
+ * connections waiting to take a lock's transaction, and the work each of them
+ * then does — fetch the document, record the classification, open the case —
+ * would queue for a connection that is never coming back. Not slower: stopped,
+ * with `pool.connect()` waiting for ever by default.
+ */
+type PoolPurpose = 'work' | 'locks';
+
+function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Pool {
+  const key = `${config.connectionString}::${config.max ?? 4}::${purpose}`;
   const existing = pools.get(key);
   if (existing !== undefined) return existing;
-  const pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
+  const pool = new Pool({
+    connectionString: config.connectionString,
+    max: config.max ?? 4,
+    // Lock connections are held for the length of a read, so exhausting that
+    // pool is a real possibility rather than a momentary one — and a
+    // `connect()` that waits for ever turns it into a worker that never
+    // returns and a reviewer watching a spinner. It fails instead, loudly, and
+    // a job that failed is a job the runtime retries.
+    ...(purpose === 'locks' ? { connectionTimeoutMillis: 30_000 } : {}),
+  });
   // A pool that throws on an idle client's error takes the process with it.
   pool.on('error', () => undefined);
   pools.set(key, pool);
@@ -449,6 +477,8 @@ export class PostgresStore
   implements PipelineStore, CaseWorkflowStore, JobStore, UnreadDocumentsStore
 {
   private readonly pool: Pool;
+  /** Held for the length of a read, so deliberately not the working pool. */
+  private readonly lockPool: Pool;
   private readonly role: string;
 
   private readonly blobs: BlobStore;
@@ -459,6 +489,7 @@ export class PostgresStore
     blobs?: BlobStore,
   ) {
     this.pool = poolFor(config);
+    this.lockPool = poolFor(config, 'locks');
     this.role = config.role ?? 'app_rw';
     // Durable by default. An in-memory blob store is a thing a test may choose,
     // not the behaviour a caller gets by forgetting to choose.
@@ -1040,6 +1071,104 @@ export class PostgresStore
   }
 
   /**
+   * Whether this tenant can see this document — `getDocument`'s answer without
+   * its cost.
+   *
+   * `select 1`, no columns and no bytes. A handler deciding between "go on" and
+   * "404" was fetching megabytes of a scanned notice out of object storage to
+   * learn one bit, and then throwing all of it away. The policies still decide
+   * and they still decide by the row not being there, so this says exactly what
+   * `getDocument` says about visibility and nothing about anything else.
+   */
+  async documentIsVisible(documentId: string): Promise<boolean> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query('select 1 from documents where id = $1', [documentId]);
+      return rows.length > 0;
+    });
+  }
+
+  /**
+   * Runs a document's read while holding that document's claim in the database,
+   * or does not run it at all.
+   *
+   * **Why the database and not a flag.** The guard `readDocumentJob` asks — has
+   * this document already been read — is a question about the past, and the
+   * read is what changes the answer. Between the two sits OCR, two model calls
+   * and an `openCase`, and two deliveries that overlap in that window both see
+   * "not read yet". The reviewer who found this ran two `readDocumentJob` calls
+   * at once and got four model calls, two `extraction_results` rows and two
+   * cases for one document: `unique (org_id, debtor_id, claim_id)` does not
+   * fire while `debtor_id` is null, which is every tenant's starting state (ADR
+   * 0019). A flag in one process would not have helped — the two deliveries are
+   * two invocations, on two machines.
+   *
+   * **Why a transaction-scoped lock and not a session one.** `DATABASE_URL` is
+   * Supabase's *transaction* pooler (apps/web/DEPLOY.md): a server connection
+   * is allocated for the length of a transaction and handed to somebody else
+   * afterwards. A session-level `pg_advisory_lock` outlives the transaction it
+   * was taken in, so under that pooler it would be taken on one server
+   * connection and the matching `pg_advisory_unlock` could run on another — the
+   * unlock quietly fails, and a connection in the pool goes on holding a lock
+   * for a document nobody is reading, which makes that document permanently
+   * unreadable. `pg_try_advisory_xact_lock` lives and dies with the transaction,
+   * which is exactly the unit the pooler guarantees, and it cannot leak: commit,
+   * rollback, a crashed process or a killed backend all release it. The cost is
+   * an open transaction for the length of the read, which is why it is on its
+   * own pool.
+   *
+   * **Why `try` and not the waiting form.** A caller that waited would hold a
+   * worker for the length of somebody else's model calls, to be told at the end
+   * of it that the document has been read. It is told that immediately instead,
+   * and spends nothing.
+   *
+   * The key is `hashtextextended(id, 0)`: advisory locks are keyed by bigint,
+   * and this is Postgres's own hash of the id rather than one this file
+   * invented. A collision between two different documents' ids would mean one
+   * of them waits for the other — a slower read, never a wrong one — and at
+   * 64 bits it is not a thing to plan for.
+   *
+   * Claims and role are set exactly as `withTenant` sets them, transaction-
+   * locally, so this connection cannot carry one tenant's claims anywhere
+   * either. No row is written here: the lock is the whole transaction.
+   */
+  async withDocumentRead<T>(
+    documentId: string,
+    work: () => Promise<T>,
+  ): Promise<DocumentReadLease<T>> {
+    const client = await this.lockPool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      const { rows } = await client.query<{ held: boolean | null }>(
+        'select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as held',
+        [documentId],
+      );
+      // `=== true` rather than truthiness: anything else is not a lock.
+      if (rows[0]?.held !== true) {
+        await client.query('rollback');
+        return { held: false };
+      }
+
+      try {
+        const result = await work();
+        // Nothing was written in this transaction; the commit is what releases
+        // the lock, and it happens once the work is finished either way.
+        await client.query('commit');
+        return { held: true, result };
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * The documents this tenant got through the door and nobody ever read.
    *
    * Three conditions, and each one is a thing that has to be true for the
@@ -1065,11 +1194,7 @@ export class PostgresStore
    * is a list nobody can afford to open.
    */
   async unreadDocuments(olderThanMinutes: number, limit = 50): Promise<readonly UnreadDocument[]> {
-    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes < 0) {
-      throw new Error(
-        `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
-      );
-    }
+    assertUnreadDocumentsQuery(olderThanMinutes, limit);
     return this.withTenant(async (client) => {
       const { rows } = await client.query<UnreadDocumentRow>(
         `select d.id,

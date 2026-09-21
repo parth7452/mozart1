@@ -96,6 +96,7 @@ const EVERY_KEY: readonly string[] = [
   'packet_role',
   'packet_wrong_state',
   'reread_already_read',
+  'reread_being_read',
   'reread_done',
   'reread_duplicate_case',
   'reread_failed',

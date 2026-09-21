@@ -326,6 +326,16 @@ export const NOTICES = {
     tone: 'good',
     text: 'that document had already been read, so it was not read again and nothing was spent on it',
   },
+  reread_being_read: {
+    // Not the same thing as "already read", and saying so would be a small lie
+    // in the one place a reviewer is watching for a case to appear: the read is
+    // running right now, somewhere, and there is nothing recorded yet to show
+    // them. The second press did not read it and did not wait for the first —
+    // it holds this document's claim in the database, and a press that cannot
+    // have it is answered rather than queued.
+    tone: 'good',
+    text: 'that document is already being read right now, so this did not start a second read; it leaves the list below when the first one finishes',
+  },
   reread_not_scanned_clean: {
     tone: 'bad',
     text: 'that document has no clean scan verdict, so nothing in it was read. The gate fails closed: no verdict is not a pass.',

@@ -234,13 +234,218 @@ describe('asking for a stored document to be read again', () => {
     expect(sent).toEqual([
       {
         name: 'document/read.requested',
-        data: { documentId, orgId: ORG_ID, userId: USER_ID },
+        data: {
+          documentId,
+          orgId: ORG_ID,
+          userId: USER_ID,
+          readKey: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+          ),
+          // This document has never been read, so the read this asks for is the
+          // one the upload would have done — case and all.
+          allowCaseOpen: true,
+        },
       },
     ]);
     expect(JSON.stringify(sent)).not.toContain(notice.filename);
     // Nothing was read in the request: that is the job's half.
     expect(store.modelCalls).toHaveLength(0);
     expect(store.cases.size).toBe(0);
+  });
+
+  it('tells a second press that the first one is still running, and reads nothing', async () => {
+    // Two presses in a row, the second before the first has finished — an
+    // impatient reviewer, or two tabs. The second does not get the document's
+    // claim, so it does not read it alongside the first: four model calls, two
+    // extractions and two cases is what that used to cost.
+    //
+    // And it is told what is actually true. "Already read" would be a small lie
+    // while the first read is still running, in the one place a reviewer is
+    // watching for the case to appear.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store);
+
+    let openTheGate = (): void => undefined;
+    const firstIsInside = new Promise<void>((resolve) => {
+      openTheGate = resolve;
+    });
+    const deps = stubbedDeps(store);
+    let classifyCalls = 0;
+    harness.deps = {
+      ...deps,
+      classifier: {
+        async classify(document: DocumentPayload): Promise<ClassificationResult> {
+          classifyCalls += 1;
+          if (classifyCalls === 1) await firstIsInside;
+          return deps.classifier.classify(document);
+        },
+      },
+    };
+
+    const first = POST(rereadRequest(documentId), params(documentId));
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(location(second).searchParams.get('reread')).toBe('reread_being_read');
+    expect(said(second)).toMatch(/already being read right now/);
+
+    openTheGate();
+    expect(said(await first)).toMatch(/has been read/);
+
+    expect(classifyCalls).toBe(1);
+    expect(store.modelCalls).toHaveLength(2);
+    expect(store.extractions).toHaveLength(1);
+    expect(store.cases.size).toBe(1);
+  });
+
+  it('carries a fresh key every press, so the runtime cannot swallow the second', async () => {
+    // The whole reason `readKey` is a field rather than `event.data.documentId`.
+    // The production stall was a run invoked and never executed; the recovery
+    // was a second event naming the same document; the runtime's idempotency
+    // window swallowed it for twenty-four hours. A re-drive is a different
+    // request and says so.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store);
+    const sent: { name: string; data: Record<string, unknown> }[] = [];
+    harness.runner = new InngestRunner({
+      async send(event: { name: string; data: Record<string, unknown> }) {
+        sent.push(event);
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+
+    await POST(rereadRequest(documentId), params(documentId));
+    await POST(rereadRequest(documentId), params(documentId));
+    await POST(rereadRequest(documentId), params(documentId));
+
+    const keys = sent.map((event) => event.data.readKey);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(3);
+    // And never the document id, which is the key that could not be recovered
+    // from.
+    expect(keys).not.toContain(documentId);
+  });
+
+  it('will not open a case for a document that was read and left without one', async () => {
+    // ADR 0016: a notice that arrived on an email whose sender could not be
+    // authenticated is read and deliberately left caseless. A button on our own
+    // case list must not be how a forged `From:` finally gets its case — so a
+    // re-drive of a document that has already been read may not open one, and
+    // is answered from what was recorded instead.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store);
+    await store.recordExtraction({
+      documentId,
+      docType: 'deduction_notice',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+    expect(store.cases.size).toBe(0);
+
+    const response = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(said(response)).toMatch(/had already been read/);
+    expect(store.cases.size).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.extractions).toHaveLength(1);
+  });
+
+  it('sends allowCaseOpen false to the job for that same document', async () => {
+    // The queued half of the rule above. Inline it is an argument to
+    // `readDocumentJob`; queued it has to travel in the event, or the job a
+    // minute later would default to yes and open the case this refused.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store);
+    await store.recordExtraction({
+      documentId,
+      docType: 'deduction_notice',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+    const sent: { name: string; data: Record<string, unknown> }[] = [];
+    harness.runner = new InngestRunner({
+      async send(event: { name: string; data: Record<string, unknown> }) {
+        sent.push(event);
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+
+    await POST(rereadRequest(documentId), params(documentId));
+
+    expect(sent[0]?.data.allowCaseOpen).toBe(false);
+  });
+
+  it('says the claim is already a case, rather than failing, when the store refuses one', async () => {
+    // The notice arrived twice — as a PDF and then as a scan, which are
+    // different bytes and so are not deduplicated by hash. The second read
+    // happens and the store refuses the second case (ADR 0019). Not a fault:
+    // the document and everything read from it are stored.
+    const store = harness.store as RouteTestStore;
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+
+    // The first copy, read, with the case it opened.
+    const first = await storedNotice(store);
+    await POST(rereadRequest(first), params(first));
+    expect(store.cases.size).toBe(1);
+
+    // The same claim on different bytes.
+    const rescanned = await ingestForJob(stubbedDeps(store), {
+      orgId: ORG_ID,
+      filename: notice.filename,
+      bytes: new Uint8Array([...notice.bytes, 0x0a]),
+      source: 'web_upload' as const,
+      pageText: notice.pageText,
+    });
+    expect(rescanned.documentId).not.toBe(first);
+
+    const response = await POST(rereadRequest(rescanned.documentId), params(rescanned.documentId));
+
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe('/');
+    expect(location(response).searchParams.get('reread')).toBe('reread_duplicate_case');
+    expect(said(response)).toMatch(/already a case/);
+    // Deliberately wordless about which claim: that is text off somebody else's
+    // page, and this notice arrives at a list with nothing to do with it.
+    expect(said(response)).not.toContain('APDP-99812');
+    // One case, and the second document's read is recorded rather than lost.
+    expect(store.cases.size).toBe(1);
+    expect(store.extractions).toHaveLength(2);
+    // Closed on the refusal too — once per press, and there were two.
+    expect(store.closed).toBe(2);
+  });
+
+  it('asks the store for one bit, not for the document’s bytes', async () => {
+    // Deciding between "go on" and "404" used to fetch every byte of the
+    // document out of object storage and throw all of it away — megabytes on a
+    // scanned notice, on every press.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store);
+    const fetched: string[] = [];
+    const visible: string[] = [];
+    store.getDocument = async (id: string) => {
+      fetched.push(id);
+      return store.documents.get(id);
+    };
+    const realVisible = store.documentIsVisible.bind(store);
+    store.documentIsVisible = async (id: string) => {
+      visible.push(id);
+      return realVisible(id);
+    };
+    harness.runner = new InngestRunner({
+      async send() {
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+
+    await POST(rereadRequest(documentId), params(documentId));
+
+    expect(visible).toEqual([documentId]);
+    // The queued path never reads the document at all, so nothing fetched it.
+    expect(fetched).toEqual([]);
   });
 
   it('says so, rather than 500ing, when the queue will not take the event', async () => {

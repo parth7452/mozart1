@@ -84,6 +84,29 @@ export interface ReadRequestedData {
   /** The member who uploaded it. The job reads as them, through RLS. */
   readonly userId: string;
   readonly attachToCase?: string;
+  /**
+   * What makes two events the same request to read, for the runtime's
+   * idempotency window.
+   *
+   * An upload sets it to the document id, so a redelivery of *that* event — the
+   * same upload, delivered twice — is one read rather than two. A deliberate
+   * re-drive sets a fresh `randomUUID()`, so it is a different request and the
+   * window does not swallow it. That distinction is the whole reason the key is
+   * a field rather than `event.data.documentId`: keying on the document made a
+   * stalled read unrecoverable for twenty-four hours, because the recovery was
+   * an event for the same document (ADR 0021).
+   *
+   * Not a secret and not a claim: it decides nothing about who may read what.
+   */
+  readonly readKey: string;
+  /**
+   * Whether the read this event asks for may open a case for a notice that has
+   * none. Absent means yes, which is what an upload is.
+   *
+   * A boolean, so it travels through a third party's queue the way the ids do
+   * — there is nothing of the document in it.
+   */
+  readonly allowCaseOpen?: boolean;
 }
 
 /** A store for a job: `PipelineStore` plus `getDocument`, plus its own closing. */
@@ -191,12 +214,36 @@ export function parseReadRequested(data: unknown): ReadRequestedData {
   const documentId = requireId(raw.documentId, 'documentId');
   const orgId = requireId(raw.orgId, 'orgId');
   const userId = requireId(raw.userId, 'userId');
+  // Required, like the ids: the runtime's idempotency expression reads it, and
+  // an event with none is an event this app did not send. Refusing it loudly
+  // is the same choice as refusing a payload with no org — a missing key must
+  // not read as "no window", silently, in the one place where a second read
+  // costs a second document's worth of model calls.
+  const readKey = requireId(raw.readKey, 'readKey');
 
-  if (raw.attachToCase !== undefined && raw.attachToCase !== null) {
-    const attachToCase = requireId(raw.attachToCase, 'attachToCase');
-    return { documentId, orgId, userId, attachToCase };
+  // Absent is the default and the default is true; only an explicit `false`
+  // narrows the read. Anything that is not a boolean is a payload we did not
+  // write, and a truthy string would turn a refusal into permission.
+  let allowCaseOpen: boolean | undefined;
+  if (raw.allowCaseOpen !== undefined && raw.allowCaseOpen !== null) {
+    if (typeof raw.allowCaseOpen !== 'boolean') {
+      throw new NonRetriableError(
+        `${READ_REQUESTED} needs allowCaseOpen to be a boolean; this one is ${JSON.stringify(raw.allowCaseOpen)}`,
+      );
+    }
+    allowCaseOpen = raw.allowCaseOpen;
   }
-  return { documentId, orgId, userId };
+
+  return {
+    documentId,
+    orgId,
+    userId,
+    readKey,
+    ...(raw.attachToCase !== undefined && raw.attachToCase !== null
+      ? { attachToCase: requireId(raw.attachToCase, 'attachToCase') }
+      : {}),
+    ...(allowCaseOpen !== undefined ? { allowCaseOpen } : {}),
+  };
 }
 
 /**
@@ -220,6 +267,7 @@ export async function runReadRequested(
       orgId: payload.orgId,
       actor: { userId: payload.userId },
       ...(payload.attachToCase !== undefined ? { attachToCase: payload.attachToCase } : {}),
+      ...(payload.allowCaseOpen !== undefined ? { allowCaseOpen: payload.allowCaseOpen } : {}),
     });
   } catch (error) {
     throw asJobFailure(error, { documentId: payload.documentId, orgId: payload.orgId });
@@ -273,7 +321,11 @@ export function readDocumentSteps(
       const read = await runReadRequested(event.data, context);
       console.log(
         '[recouple] read job: step read-document ' +
-          (read.alreadyRead ? 'found it already read and spent nothing' : 'finished the read') +
+          (read.beingRead
+            ? 'found another delivery reading it and spent nothing'
+            : read.alreadyRead
+              ? 'found it already read and spent nothing'
+              : 'finished the read') +
           `, ${where}, doc type ${read.docType ?? 'none'}, case ${read.deductionId ?? 'none'}, ` +
           `halted ${read.haltedBecause === null ? 'no' : 'yes'}`,
       );
@@ -320,33 +372,38 @@ const READ_CONCURRENCY: [ConcurrencyOption, ConcurrencyOption] = [
 /**
  * How the runtime is asked to run this function.
  *
- * Exported so a test can read it: these values are the difference between a
- * redelivered event costing nothing and it costing a second read of a document,
- * and none of them shows up in the behaviour of a stubbed `step.run`.
+ * Exported so a test can read it: these values decide what a delivery costs and
+ * how much of this app's money the runtime may spend at once, and none of them
+ * shows up in the behaviour of a stubbed `step.run`.
  *
- * **There is deliberately no `idempotency` key here.** There was one, on
- * `event.data.documentId`, and what it bought was one saved invocation. What it
- * cost showed up in production: a run was invoked once, the SDK answered with a
- * step plan, the runtime never called back to execute the step, nothing logged
- * an error, and the document stayed unread. The second event — the recovery —
- * was swallowed by that key's own 24-hour window. So a stall was unrecoverable
- * for a day, and the `upload_not_queued` notice's promise that re-uploading the
- * same file re-queues the read was simply false for that day.
+ * **The `idempotency` key is on `event.data.readKey`, not on the document id.**
+ * It was on the document id, and what that cost showed up in production: a run
+ * was invoked once, the SDK answered with a step plan, the runtime never called
+ * back to execute the step, nothing logged an error, and the document stayed
+ * unread. The second event — the recovery — named the same document, so that
+ * key's own 24-hour window swallowed it, and a stall was unrecoverable for a
+ * day.
  *
- * What actually stops a second read costing money is `readDocumentJob`'s own
- * guard, asked of the database under the tenant's claims: a document that
- * already has an extraction is answered from what was recorded, with no model
- * call, no second case and no second row of anything. That guard is tested
- * (`packages/pipeline/test/jobs.test.ts`), it holds for every delivery rather
- * than for a window, and it holds on the inline path too. A runtime key layered
- * over it was not a second layer of protection so much as a second layer of
- * refusal, and the thing it refused was the recovery.
+ * `readKey` says what the document id could not: which *request to read* this
+ * is. An upload sets it to the document id, so a redelivery of that upload's
+ * own event is still one read. A deliberate re-drive sets a fresh UUID, so it
+ * is a different request and the window has nothing to say about it. The thing
+ * the old key refused was the recovery; this one cannot refuse it.
+ *
+ * It is a window, not the guarantee. What actually stops a second read costing
+ * money is in the database, under the tenant's claims, and holds for every
+ * delivery on both paths: `readDocumentJob` runs its guard and the read while
+ * holding that document's advisory lock, so a document already read is answered
+ * from what was recorded and a document being read right now is answered
+ * immediately rather than read alongside
+ * (`PostgresStore.withDocumentRead`, `packages/pipeline/test/jobs.test.ts`).
  */
 export const READ_DOCUMENT_CONFIG = {
   id: 'read-document',
   name: 'Read an uploaded document',
   triggers: [{ event: READ_REQUESTED }],
   retries: 3 as const,
+  idempotency: 'event.data.readKey',
   concurrency: READ_CONCURRENCY,
 };
 

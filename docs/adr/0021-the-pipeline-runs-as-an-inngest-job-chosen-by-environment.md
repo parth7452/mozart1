@@ -2,8 +2,10 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Amended: 2026-09-21 — the function's `idempotency` key is removed, and a
-  document that was queued and never read is visible with a way to re-drive it.
+- Amended: 2026-09-21 — the function's `idempotency` key moves off the document
+  id and onto a per-request `readKey`; a document that was queued and never read
+  is visible with a way to re-drive it; and the read's own guard is held under a
+  per-document lock in the database, because a guard on its own loses a race.
 
 ## Context
 
@@ -81,7 +83,7 @@ case opens so a failed `openCase` cannot lose a read we paid for.
 **The serve route** is `apps/web/app/api/inngest/route.ts`, the Inngest Next.js
 adapter over one function: id `read-document` in app `recouple`
 (`recouple/read-document`), trigger `document/read.requested`, `retries: 3`,
-no `idempotency` key at all (see below), and two concurrency limits — one keyed
+`idempotency: 'event.data.readKey'` (see below), and two concurrency limits — one keyed
 on `event.data.orgId` so a tenant's bulk upload cannot starve another's, and one
 with no key at all, which is the ceiling on how many reads this app runs at
 once however many tenants want one. The per-org limit bounds a tenant; only the
@@ -129,8 +131,8 @@ reviewer a 500 for an upload that worked. Instead the failure is logged with its
 cause, and the reviewer is told the document is stored and that it is listed
 under "Documents waiting to be read" on the case list, where it can be re-driven
 by hand. That notice used to say to upload the same file again, which was true of
-the bytes and false of the read for as long as this function carried an
-idempotency key — see below.
+the bytes and false of the read for as long as this function's idempotency key
+was the document id — see below.
 
 A failed read is now visible and retried. Inngest records the error and retries
 three times; the steps are idempotent by construction (the same bytes dedupe to
@@ -138,13 +140,43 @@ the same document, `recordPages` is keyed on the document, and a document that
 already has a recorded extraction is answered from what was recorded rather than
 read again), so a retry finishes the work rather than duplicating it.
 
-A redelivered event does not open a second case, and does not pay for a second
-read. Two things stand behind that: `readDocumentJob` answers a document that
-already has an extraction from what was recorded, without classifying,
-extracting or opening anything; and `unique (org_id, debtor_id, claim_id)` is
-the database's backstop, which holds only once a human has linked the retailer,
-because a null `debtor_id` never collides (ADR 0019). The second is null for
-every case a new tenant opens, which is why the first one exists.
+**A second delivery does not open a second case and does not pay for a second
+read — and which of three things stops it depends on when the second one
+arrives.** The distinction is worth stating plainly, because "it costs nothing"
+was written here first and was only true of one of the three.
+
+*A delivery that arrives after the first has finished* is answered from the
+record: `readDocumentJob` sees an `extraction_results` row for the document and
+reports what was recorded without classifying, extracting or opening anything.
+That is the case retries and redeliveries usually are, and it holds on the
+inline path too.
+
+*A delivery that overlaps the first* is answered by a lock. The guard is a
+question about the past and the read is what changes the answer, so between the
+two sits OCR, two model calls and an `openCase` — and two deliveries inside that
+window both hear "not read yet". Proved, not theorised: two concurrent
+`readDocumentJob` calls on one document produced four model calls, two
+`extraction_results` rows and two cases. So the guard and the read now run
+together while the job holds that document's claim —
+`PostgresStore.withDocumentRead`, a `pg_try_advisory_xact_lock` on
+`hashtextextended(document_id, 0)`, taken as `app_rw` with the tenant's claims
+set, on its own pool so a connection held for the length of a read cannot starve
+the reads themselves. A delivery that does not get the claim is told so
+(`beingRead`) and spends nothing; it does not wait, because waiting would hold a
+worker for the length of somebody else's model calls to learn something it can
+be told immediately. *Transaction*-scoped and not session-scoped on purpose:
+`DATABASE_URL` is Supabase's transaction pooler, where a session lock can be
+taken on one server connection and unlocked on another — which would leave a
+document permanently unreadable. A transaction is the unit that pooler
+guarantees, and the lock cannot outlive one.
+
+*A redelivery of the same event* is also covered by the runtime, within its
+window, by `idempotency: 'event.data.readKey'` — see below.
+
+Behind all three is `unique (org_id, debtor_id, claim_id)`, the database's
+backstop, which holds only once a human has linked the retailer, because a null
+`debtor_id` never collides (ADR 0019). It is null for every case a new tenant
+opens, which is why the other three exist.
 
 The one thing that guard must not skip is a read that would do something the
 first one did not: attaching the document to a case it is not yet linked to (the
@@ -152,9 +184,9 @@ same BOL is evidence for two deductions), or opening a case for a notice that
 has none — an unauthenticated email's notice is read and deliberately left
 caseless (ADR 0016). Both re-read.
 
-**There was a third layer and it has been removed: `idempotency:
-'event.data.documentId'`.** Amended 2026-09-21, after production showed what it
-cost. A document was uploaded and queued; Inngest invoked
+**The runtime key moved off the document id and onto the request:
+`idempotency: 'event.data.readKey'`.** Amended 2026-09-21, after production
+showed what the old one cost. A document was uploaded and queued; Inngest invoked
 `recouple/read-document` once; the SDK answered 206 with a step plan; the
 runtime never called back to execute the step. Nothing threw, nothing was
 logged, and the reviewer's notice said "being read" indefinitely. A second
@@ -162,17 +194,38 @@ upload of the same bytes sent a second event, and that key's own twenty-four
 hour window swallowed it — so the recovery the `upload_not_queued` notice
 promised could not work, for a day, by design.
 
-What the key bought was one saved invocation on a redelivery. What the
-DB-backed guard buys is the thing that actually matters — no second model call,
-no second case — and it buys it on every delivery rather than inside a window,
-on the inline path as well as the queued one, and without refusing a re-drive
-somebody asked for on purpose. A window that suppresses the recovery is worse
-than no window. The guard is the layer; there is no second one, and the
-interaction that used to be written down here — the key suppressing a
-*deliberate* second event for the same BOL being attached to another case — goes
-with it.
+The document id was the wrong thing to key on, not the keying itself. Two
+different things name the same document: a redelivery of one request to read it,
+which should be one read, and a deliberate re-drive of a read that did not
+happen, which is a new request and must go through. `readKey` says which of the
+two an event is. An upload sets it to the document id, so that upload's own
+redelivery is still one read. The re-drive route sets a fresh `randomUUID()`, so
+the window has nothing to say about it, and the recovery the old key swallowed
+cannot be swallowed again. A window that suppresses the recovery is worse than
+no window; a window keyed on the request is not one.
 
-In its place the function logs its own step boundaries: run entered, step
+It is a window and not the guarantee. The guarantee is in the database, holds on
+every delivery rather than inside twenty-four hours, and holds on the inline path
+as well as the queued one: the record for a delivery that arrives late, the lock
+for one that overlaps.
+
+One interaction survives the change and is worth keeping written down rather than
+rediscovering. An upload's `readKey` *is* the document id, so within the window
+the runtime still suppresses a second upload of the same bytes — which is what a
+reviewer does when they attach the same BOL to a second deduction from that
+case's page. The read that upload wanted is a real one: the guard deliberately
+re-reads for a case the document is not yet linked to, so that an attachment is
+not lost. The window can delay its running, and the re-drive button does not
+recover this one — it attaches to nothing by design, and a document that has
+already been read does not appear on the "waiting to be read" list at all. What
+the amendment fixes is the case that was *unrecoverable*, a notice that was never
+read; this one still resolves itself when the window closes, and the reviewer can
+upload the file a third time then. Narrowing an upload's key to include
+`attachToCase` is the fix if a reviewer reports an attachment that never
+appeared, and it is a CEL expression worth changing against a real Inngest rather
+than guessing at here.
+
+Alongside it the function logs its own step boundaries: run entered, step
 entered, what the step concluded, run returned, each with the document and org
 ids and nothing else. A run line with no step line under it is exactly the stall
 above, and it is now visible in the platform's logs rather than invisible
@@ -189,9 +242,25 @@ the database, the document visible to the tenant or a 404, and then a re-drive
 through the same runner `runnerFromEnv` gives — the same
 `document/read.requested` event where there is a queue, the same
 `readDocumentJob` inline where there is not. It is safe to press twice for the
-same reason a redelivered event is: the guard answers a document that has
-already been read from what was recorded. Every refusal is a notice key and a
-redirect, never a 500.
+same reasons a second delivery is safe: a press that lands after the first has
+finished is answered from the record, and a press that lands while the first is
+still running does not get the document's claim and is answered rather than run.
+Every refusal is a notice key and a redirect, never a 500.
+
+Two things the button deliberately does not do. It does not fetch the document
+to decide whether the tenant may see it — `documentIsVisible` is a `select 1`
+under the same policies, because the alternative was pulling a scanned notice's
+bytes out of object storage on every press to learn one bit. And it does not let
+a re-drive open a case for a document that has already been read: it passes
+`allowCaseOpen: false` for those, so an unauthenticated email's notice — read and
+deliberately left caseless by ADR 0016 — cannot acquire a case by way of a button
+on our own case list. The rule *should* be read off the document's source, and
+cannot be: nothing writes the `uploads` table, so `documents.upload_id` is null
+on every row and no document in this database records where it came from.
+Persisting the source is a schema change and an ADR of its own; until then the
+rule holds for every document that was read, and the gap it leaves is a document
+whose first read failed before recording anything, which a re-drive treats as the
+never-read document it looks like.
 
 This is the visible half the original design was missing. Every step was
 separately re-runnable from the start; what did not exist was a way to see that

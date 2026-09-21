@@ -69,6 +69,8 @@ import type {
   HumanDecisionRecord,
   OutcomeRecord,
   PacketRecord,
+  DocumentReadLease,
+  DocumentReadLock,
   PipelineStore,
   StoredDocument,
   SubmissionRecord,
@@ -76,6 +78,7 @@ import type {
   UnreadDocumentsStore,
   WorkflowSubmissionChannel,
 } from '../ports';
+import { assertUnreadDocumentsQuery } from '../ports';
 import { DuplicateCaseError } from '../steps';
 
 /** A membership role, as `memberships.role` spells it. */
@@ -123,7 +126,9 @@ export interface StoredEvent {
   readonly payload: Record<string, unknown>;
 }
 
-export class InMemoryStore implements PipelineStore, CaseWorkflowStore, UnreadDocumentsStore {
+export class InMemoryStore
+  implements PipelineStore, CaseWorkflowStore, UnreadDocumentsStore, DocumentReadLock
+{
   readonly documents = new Map<string, StoredDocument>();
   /**
    * When each document was stored, which `documents.created_at` is in Postgres.
@@ -133,6 +138,8 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore, UnreadDo
    * say so would have to sleep for it.
    */
   readonly documentCreatedAt = new Map<string, Date>();
+  /** The documents a `withDocumentRead` is holding right now. */
+  private readonly readsInFlight = new Set<string>();
   readonly scans: Array<{ documentId: string; verdict: ScanVerdict }> = [];
   readonly classifications: Array<{ documentId: string; docType: DocType; confidence: number }> = [];
   readonly extractions: StoredExtraction[] = [];
@@ -325,6 +332,40 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore, UnreadDo
     return (links.find((l) => l.role === 'notice') ?? links[0])?.deductionId;
   }
 
+  /** The narrow question, answered off the same map `getDocument` reads. */
+  async documentIsVisible(documentId: string): Promise<boolean> {
+    return this.documents.has(documentId);
+  }
+
+  /**
+   * The read claim, as a set of the documents being read right now.
+   *
+   * The Postgres store's is an advisory lock in the database, which is what
+   * makes it hold across two processes; this one is a set in one process, which
+   * is what a test has. They are the same contract: one holder at a time, the
+   * claim released however the work ends, and a caller who does not get it told
+   * so rather than made to wait.
+   *
+   * `held: false` is deliberately not a queue. A caller that waited would hold
+   * a worker for the length of somebody else's model calls, to be told at the
+   * end of it that the document has been read — which is what it would have
+   * been told immediately.
+   */
+  async withDocumentRead<T>(
+    documentId: string,
+    work: () => Promise<T>,
+  ): Promise<DocumentReadLease<T>> {
+    if (this.readsInFlight.has(documentId)) return { held: false };
+    this.readsInFlight.add(documentId);
+    try {
+      return { held: true, result: await work() };
+    } finally {
+      // In a `finally`, not after the call: a read that throws must release the
+      // document, or one failed delivery makes it unreadable for ever.
+      this.readsInFlight.delete(documentId);
+    }
+  }
+
   /**
    * The documents that were stored and scanned clean and never read.
    *
@@ -334,11 +375,7 @@ export class InMemoryStore implements PipelineStore, CaseWorkflowStore, UnreadDo
    * that was more generous here would make the contract suite a fiction.
    */
   async unreadDocuments(olderThanMinutes: number, limit = 50): Promise<readonly UnreadDocument[]> {
-    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes < 0) {
-      throw new Error(
-        `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
-      );
-    }
+    assertUnreadDocumentsQuery(olderThanMinutes, limit);
     const now = Date.now();
     const cutoff = now - olderThanMinutes * 60_000;
 

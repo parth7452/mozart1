@@ -18,8 +18,10 @@ import { NOTICE_ABOUT_PARAM, type NoticeKey } from '../../../../lib/notices';
  * It is not a second way into the pipeline. It re-drives exactly what the
  * upload would have: the same event to the same function where there is a
  * queue, and the same `readDocumentJob` inline where there is not. And it is
- * safe to press twice, because that job answers a document which already has an
- * extraction from what was recorded, without a model call or a second case.
+ * safe to press twice — a press that lands while the first one is still running
+ * is serialised by that document's lock in the database and answered rather
+ * than run, and a press after it has finished is answered from what was
+ * recorded. Either way: no model call, no second case.
  *
  * The role check here is a better error message, not the enforcement. The two
  * things that enforce are underneath it: `app.member_may_write()` asked of the
@@ -70,27 +72,56 @@ export async function POST(
     // Is this document one this tenant can see? RLS decides, and it decides by
     // the document not being there — so a stale button, a mistyped id and
     // another tenant's document are one answer and it says nothing about which.
-    // This costs a fetch of the bytes, which is the price of asking the store a
-    // question it already answers rather than adding a narrower one for a
-    // button somebody presses by hand.
-    const document = await store.getDocument(id);
-    if (document === undefined) {
+    //
+    // `select 1`, not the document: this handler needs one bit, and fetching a
+    // scanned notice's bytes out of object storage to learn it is megabytes
+    // moved and thrown away on every press.
+    if (!(await store.documentIsVisible(id))) {
       return new NextResponse('no such document', {
         status: 404,
         headers: { 'content-type': 'text/plain; charset=utf-8' },
       });
     }
 
+    // May this re-drive open a case?
+    //
+    // Only for a document nothing has read yet. That is the state this button
+    // exists for — stored, scanned, and never read — and reading it is the read
+    // the upload would have done, case and all.
+    //
+    // A document that *has* been read has already had its answer about a case,
+    // and a re-drive must not overturn it. The answer that matters is ADR
+    // 0016's: a notice that arrived on an email whose sender could not be
+    // authenticated is read and deliberately left caseless, and a button on our
+    // own case list must not be the way a forged `From:` finally gets its case.
+    // With this false, `recordedRead` answers such a document from what was
+    // recorded instead of reading it again.
+    //
+    // It is derived from the read rather than from the document's `source`,
+    // which is what it should be derived from and is not available: nothing
+    // writes the `uploads` table, so `documents.upload_id` is null on every row
+    // and no document in this database says where it came from. Persisting the
+    // source is a schema change and an ADR of its own. Until then this is the
+    // conservative half of the rule — it holds for every document that was read
+    // — and the gap it leaves is a document whose *first* read failed before it
+    // recorded anything, which a re-drive treats as the never-read document it
+    // looks like.
+    const allowCaseOpen = (await store.latestExtraction(id)) === undefined;
+
     const outcome = await runnerFromEnv().reread(id, pipelineDepsFor(store), {
       orgId: session.org.orgId,
       actor: { userId: session.userId },
+      allowCaseOpen,
     });
 
     if (outcome.kind === 'queued') return say('reread_queued');
     if (outcome.kind === 'not_queued') return say('reread_not_queued');
 
-    // It ran here. Which of the three things it did is read off the result
-    // rather than off a sentence another package built.
+    // It ran here. Which of the things it did is read off the result rather
+    // than off a sentence another package built — and "already read" and "being
+    // read right now" are told apart, because while the first read is still
+    // running there is nothing recorded to show the reviewer yet.
+    if (outcome.result.beingRead) return say('reread_being_read');
     if (outcome.result.alreadyRead) return say('reread_already_read');
     return say('reread_done');
   } catch (cause) {
