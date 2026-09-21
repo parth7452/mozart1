@@ -29,8 +29,15 @@ begin
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');
 
-  insert into submissions (org_id, deduction_id, decision_id, channel, confirmation_number, submitted_at)
-    values (org, ded, dec, 'manual_portal', 'APDP-99812', now());
+  -- A manual filing names the packet that went out as well as the reference and
+  -- the date: migration 0018 refuses an incomplete one, because 0017 froze
+  -- those three columns and a row written blank could never be completed
+  -- (ADR 0023). Suite 13 is where that rule is asserted; here it is simply the
+  -- shape a filed record has.
+  insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                           confirmation_number, submitted_at)
+    values (org, ded, dec, 'manual_portal', digest('filed packet', 'sha256'),
+            'APDP-99812', now());
   perform test.ok((select count(*) from submissions where decision_id = dec) = 1,
     'submission is accepted once its approval row exists');
 
@@ -39,9 +46,15 @@ begin
        values (%L, %L, %L, ''credit_memo_offset'')', org, ded, dec),
     'no writeback approval row', 'a submit approval does not authorise a write-back');
 
+  -- Complete, so that `unique (decision_id, channel)` is what refuses it and
+  -- not migration 0018's completeness check: a second filing of the same
+  -- dispute is refused because it is a second filing, not because of how it
+  -- was filled in.
   perform test.expect_error(format(
-    'insert into submissions (org_id, deduction_id, decision_id, channel)
-       values (%L, %L, %L, ''manual_portal'')', org, ded, dec),
+    'insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                              confirmation_number, submitted_at)
+       values (%L, %L, %L, ''manual_portal'', %L, ''APDP-99813'', now())',
+    org, ded, dec, digest('filed packet', 'sha256')),
     'duplicate key', 'the same decision cannot be submitted twice on one channel');
 
   perform test.expect_error(format(
