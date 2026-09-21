@@ -8,12 +8,15 @@
 
 import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
 import {
+  CorrespondenceSchema,
   DeductionNoticeSchema,
   InvoiceSchema,
   locateQuote,
   OcrError,
   PurchaseOrderSchema,
+  restoreDocument,
   ShipmentDocumentSchema,
+  type DeductionNotice,
   type DocType,
   type ExtractedField,
   type ExtractionResult,
@@ -358,6 +361,88 @@ async function recordExtraction(
   });
 }
 
+/** What a read whose rows will not rebuild into their own document is called. */
+const STORED_WITHOUT_PROVENANCE = 'document.stored_without_provenance';
+
+/**
+ * Fields the read had a value for that the stored rows will not give back.
+ *
+ * `extraction_results` is the record of record, and every store answers
+ * `latestExtraction` by rebuilding the document from it (`restoreDocument`).
+ * `flattenExtraction` writes no row for a value whose page is missing or whose
+ * quote is blank — provenance is not optional — so a *required* field read
+ * without provenance is a field that goes in and does not come out, and the
+ * document that comes back no longer satisfies its schema.
+ *
+ * Named by path with the `.value` leg trimmed off, and empty when the round
+ * trip is faithful, which is the normal case.
+ */
+export function fieldsLostOnStorage(result: ExtractionResult): readonly string[] {
+  const restored = restoreDocument(result.docType, result.fields);
+  if (restored.validated) return [];
+  return [
+    ...new Set(restored.issues.map((issue) => fieldPathOf(issue.path.split('.')))),
+  ].sort();
+}
+
+/**
+ * A validation path as a field path: `lines.0.deduction_amount.value` is the
+ * field `lines[0].deduction_amount`.
+ *
+ * One function, because the same field is named at the write (the event) and at
+ * the read (the finding), and a reviewer comparing the two should not have to
+ * work out that they mean the same thing.
+ */
+function fieldPathOf(segments: readonly string[]): string {
+  const withoutLeaf = segments.at(-1) === 'value' ? segments.slice(0, -1) : [...segments];
+  return withoutLeaf.reduce(
+    (path, segment) =>
+      path === '' ? segment : /^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`,
+    '',
+  );
+}
+
+/**
+ * Says so when the rows just written will not rebuild into a typed document.
+ *
+ * Loudly, but not fatally: a scan whose one unquoted field is a date still has
+ * to open a case, because refusing the read would lose the other twenty fields
+ * and the money on the page along with them. So this records the divergence and
+ * returns — the read stands, and the case page reconciles over what it has and
+ * names what it could not read (`reconcileCase`).
+ *
+ * The event is a `deduction_events` row, which needs a case; a read that opened
+ * none still logs. Nothing in the payload is document text: field paths come
+ * from the schema and the problems come from Zod.
+ */
+async function reportProvenanceGap(
+  document: StoredDocument,
+  result: ExtractionResult,
+  deps: PipelineDeps,
+  deductionId?: string,
+): Promise<void> {
+  const lost = fieldsLostOnStorage(result);
+  if (lost.length === 0) return;
+
+  console.warn(
+    `[recouple] read: document ${document.documentId} stored a ${result.docType} that does not ` +
+      `rebuild into its own type; fields without usable provenance: ${lost.join(', ')}`,
+  );
+  if (deductionId === undefined) return;
+
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId,
+    eventType: STORED_WITHOUT_PROVENANCE,
+    payload: {
+      document_id: document.documentId,
+      doc_type: result.docType,
+      schema_version: result.schemaVersion,
+      fields: lost,
+    },
+  });
+}
+
 /** A model call, told which case it was spent on. */
 function withCase(call: ModelCallRecord, deductionId?: string): ModelCallRecord {
   return deductionId === undefined ? call : { ...call, deductionId };
@@ -581,6 +666,7 @@ export async function readDocument(
       classification.confidence,
     );
     await recordExtraction(document, extraction, deps, deductionId);
+    await reportProvenanceGap(document, extraction, deps, deductionId);
   };
 
   // The case is opened before anything is recorded, because the notice that
@@ -852,21 +938,38 @@ export async function reconcileCase(
   const stored = byType.get('deduction_notice');
   if (stored === undefined) return undefined;
 
+  const unusable: Finding[] = [];
   const notice = DeductionNoticeSchema.safeParse(stored.document);
-  if (!notice.success) {
-    // Nothing is reconciled against a notice we cannot read as a notice, and
-    // nothing pretends it was. The fields are still stored and still shown; it
-    // is the arithmetic over them that is refused.
-    return {
-      lines: [],
-      claimedTotalCents: null,
-      lineSumCents: null,
-      findings: [unusableDocument('deduction_notice', stored)],
-      internallyConsistent: false,
-    };
+  let noticeData: DeductionNotice;
+
+  if (notice.success) {
+    noticeData = notice.data;
+  } else {
+    const unreadable = unreadableFields(notice.error, stored.document);
+    if (unreadable === undefined) {
+      // A notice whose shape is wrong in some way that is not a missing value —
+      // a number where a string belongs, a group that is not an array. Nothing
+      // is reconciled against that, and nothing pretends it was. The fields are
+      // still stored and still shown; it is the arithmetic that is refused.
+      return {
+        lines: [],
+        claimedTotalCents: null,
+        lineSumCents: null,
+        findings: [unusableDocument('deduction_notice', stored)],
+        internallyConsistent: false,
+      };
+    }
+    // Every failure is a required field that came back with no value, which is
+    // what a field stored without provenance looks like from here
+    // (`fieldsLostOnStorage` says the same thing at the write). The rest of the
+    // notice is intact and is worth more than the refusal: reconciliation runs,
+    // and the fields that could not be read are named. `reconcileNotice` reads
+    // no field object directly, so an absent one is a missing finding rather
+    // than a throw.
+    noticeData = stored.document as DeductionNotice;
+    unusable.push(unreadableNotice(unreadable));
   }
 
-  const unusable: Finding[] = [];
   const supporting = <T>(
     docType: DocType,
     schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
@@ -881,18 +984,112 @@ export async function reconcileCase(
 
   const invoice = supporting('invoice', InvoiceSchema);
   const po = supporting('po', PurchaseOrderSchema);
-  const shipment =
-    supporting('bol', ShipmentDocumentSchema) ?? supporting('pod', ShipmentDocumentSchema);
+  // Both are asked, and neither short-circuits the other: a `pod` on the case
+  // that will not parse is a document a reviewer has to be told about whether
+  // or not a `bol` happened to answer first.
+  const bol = supporting('bol', ShipmentDocumentSchema);
+  const pod = supporting('pod', ShipmentDocumentSchema);
+  const shipment = bol ?? pod;
+  // Correspondence is where a customer said in writing what they later charged
+  // for — a moved appointment, a waived fee. Without it every
+  // `reconcileAppointment` finding is unreachable from the case page, which is
+  // most of what a freight case turns on.
+  const correspondence = supporting('correspondence', CorrespondenceSchema);
 
   const reconciliation = reconcileNotice({
-    notice: notice.data,
+    notice: noticeData,
     ...(invoice !== undefined ? { invoice } : {}),
     ...(po !== undefined ? { po } : {}),
     ...(shipment !== undefined ? { shipment } : {}),
+    ...(correspondence !== undefined ? { correspondence: [correspondence] } : {}),
   });
 
   if (unusable.length === 0) return reconciliation;
-  return { ...reconciliation, findings: [...unusable, ...reconciliation.findings] };
+  const findings = [...unusable, ...reconciliation.findings];
+  return {
+    ...reconciliation,
+    findings,
+    // Recomputed, because a blocking finding added here is as blocking as one
+    // `reconcileNotice` raised: a notice whose money we could not read is not
+    // an internally consistent claim.
+    internallyConsistent: !findings.some((finding) => finding.severity === 'blocking'),
+  };
+}
+
+/**
+ * Fields a stored document failed its schema on *only* because they came back
+ * with no value, or `undefined` when anything else was wrong with it.
+ *
+ * The distinction is the whole of B1. A required field stored without
+ * provenance gets no `extraction_results` row (`flatten.ts`), so the rebuilt
+ * document states it as absent and Zod rejects the document — one unquoted date
+ * on a scan used to cost the case every line of its reconciliation. Any other
+ * failure is a shape we do not understand, and that one is still refused.
+ */
+function unreadableFields(
+  error: { issues: readonly { code: string; path: readonly PropertyKey[] }[] },
+  document: unknown,
+): readonly string[] | undefined {
+  const fields = new Set<string>();
+  for (const issue of error.issues) {
+    if (issue.code !== 'invalid_type') return undefined;
+    // Asked of the document rather than read off the message: "no value" is a
+    // fact about the object, and a Zod message is a string that changes with
+    // the library.
+    if (valueAtPath(document, issue.path) !== null) return undefined;
+    const segments = issue.path.map(String);
+    // The failure is on the `value` inside a field object. A path with nothing
+    // in front of it is the document itself, not a field of it, and that is not
+    // something to reconcile around.
+    if (segments.at(-1) !== 'value' || segments.length < 2) return undefined;
+    fields.add(fieldPathOf(segments));
+  }
+  return fields.size === 0 ? undefined : [...fields].sort();
+}
+
+function valueAtPath(document: unknown, path: readonly PropertyKey[]): unknown {
+  let node: unknown = document;
+  for (const key of path) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = (node as Record<PropertyKey, unknown>)[key];
+  }
+  return node;
+}
+
+/**
+ * Money we could not read is a different kind of missing from a date we could
+ * not read.
+ *
+ * A notice with no readable deduction amount has nothing to reconcile *to*: the
+ * arithmetic that says whether the claim adds up is over these fields, and a
+ * sum with a hole in it agreeing with a total is not agreement. Anything else
+ * missing — a date, a claim id, a reason code — leaves the money intact, so the
+ * reconciliation is still worth doing and the gap is still worth saying.
+ */
+function isMoneyField(fieldPath: string): boolean {
+  const leaf = fieldPath.split('.').at(-1) ?? fieldPath;
+  return leaf === 'unit_cost' || leaf.includes('_amount') || leaf.includes('_total');
+}
+
+/**
+ * The notice was reconciled, and these fields were not in it.
+ *
+ * Blocking when one of them carries money, a warning otherwise — never silence,
+ * and never the empty reconciliation that a refusal used to produce.
+ */
+function unreadableNotice(fields: readonly string[]): Finding {
+  const money = fields.filter(isMoneyField);
+  return {
+    code: 'stored_document_not_typed',
+    severity: money.length > 0 ? 'blocking' : 'warning',
+    message:
+      `the stored deduction_notice came back without ${fields.join(', ')} — ` +
+      'stored with no page or no quote, so there is no row to rebuild it from. ' +
+      (money.length > 0
+        ? `${money.join(', ')} carries money, so the reconciliation below cannot be trusted ` +
+          'to add up'
+        : 'the rest of the notice reconciled normally'),
+  };
 }
 
 /**
@@ -900,6 +1097,11 @@ export async function reconcileCase(
  *
  * Said out loud, with what the rebuild objected to, because the alternative is
  * a page that silently reconciles less than the case contains.
+ *
+ * No `fieldPath`: that is a path into a document (`lines[0].unit_cost`), and
+ * what is wrong here is the document itself. A doc type in that slot is a path
+ * the reviewer UI cannot find a field for, and naming the document is the
+ * message's job — which it does.
  */
 function unusableDocument(docType: DocType, stored: RestoredExtraction): Finding {
   const why = stored.issues
@@ -912,7 +1114,6 @@ function unusableDocument(docType: DocType, stored: RestoredExtraction): Finding
     message:
       `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
       `reconciliation${why === '' ? '' : ` (${why})`}`,
-    fieldPath: docType,
   };
 }
 

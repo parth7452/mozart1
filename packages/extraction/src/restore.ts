@@ -18,9 +18,19 @@
  * output goes through: absent fields are filled with `absentField()`, unknown
  * paths are dropped with an issue rather than passed on, and the result is
  * *validated* against the document type's schema rather than cast to it. What
- * a store returns is then the same object, field for field, as what the model's
- * read produced — which is the only way a test against the in-memory store says
- * anything about production.
+ * a store returns is then the same object as what the model's read produced,
+ * except where a field was stored without provenance or its confidence was
+ * rounded to four decimals — which is the only way a test against the in-memory
+ * store says anything about production.
+ *
+ * Those two exceptions are real and neither is papered over. `confidence` is
+ * `numeric(5,4)`, so 0.98765 comes back 0.9877 and the object is the same
+ * document with a coarser number on it. Provenance is the sharper one:
+ * `flattenExtraction` writes no row for a value whose page or quote is missing,
+ * so a *required* field stored that way comes back stated as absent and the
+ * rebuilt document no longer satisfies its schema. That is reported — at the
+ * write, by `readDocument`, and at the read, by `validated` and `issues` — and
+ * it is never allowed to stand for "this document has no lines".
  */
 
 import type { DocType, ExtractedField } from './ports';

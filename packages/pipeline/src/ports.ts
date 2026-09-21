@@ -169,10 +169,19 @@ export interface PipelineStore {
    * in-memory store say anything about production: a field the document did
    * not carry comes back stated as absent, never as a missing key.
    *
+   * What comes back is the same object the reader produced, except where a
+   * field was stored without provenance or its confidence was rounded to four
+   * decimals. `confidence` is `numeric(5,4)`. Provenance is the one that
+   * matters: `flattenExtraction` writes no row for a value with no page or no
+   * quote, so a *required* field stored that way comes back absent and the
+   * rebuilt document no longer satisfies its schema — which `readDocument`
+   * reports at the write and this reports at the read.
+   *
    * `validated` is whether the rebuilt object still satisfies its schema, and
    * `issues` say what was wrong with it when it does not. A document that does
-   * not validate is still evidence — its fields are stored and shown — but
-   * nothing downstream may treat it as typed.
+   * not validate is still evidence — its fields are stored and shown, and
+   * `reconcileCase` still reconciles what it can over it — but nothing
+   * downstream may treat it as typed.
    */
   latestExtraction(documentId: string): Promise<RestoredExtraction | undefined>;
 

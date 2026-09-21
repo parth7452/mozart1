@@ -44,6 +44,7 @@
     }
   },
   "pendingSuites": {
+    "authored_pending": "not yet recorded: 1 fixture documents, no cassettes. `pnpm record:cassettes --suite authored_pending` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer.",
     "logistics": "not yet recorded: 5 fixture documents, no cassettes. `pnpm record:cassettes --suite logistics` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer.",
     "customer": "not yet recorded: 15 fixture documents, no cassettes. `pnpm record:cassettes --suite customer` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }

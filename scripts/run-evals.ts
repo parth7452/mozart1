@@ -7,6 +7,7 @@
  *
  *   pnpm eval                  # score and compare against the baseline
  *   pnpm eval --record-baseline  # write a new baseline (a reviewed decision)
+ *   pnpm eval --record-pending   # refresh only `pendingSuites`, no metric moves
  */
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -38,6 +39,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 const baselinePath = path.join(here, '..', 'packages', 'evals', 'baseline.json');
 const recordBaseline = process.argv.includes('--record-baseline');
+/**
+ * Rewrites `pendingSuites` and nothing else.
+ *
+ * A suite can land without its cassettes, and `pendingSuites` is what stops a
+ * suite with no numbers reading like a suite that passed. Keeping it current
+ * used to mean `--record-baseline`, which rewrites every metric in the file —
+ * so the honest bookkeeping and the one edit a baseline may never make were the
+ * same command, and the bookkeeping is what got skipped. This does the
+ * bookkeeping alone: every other key is read and written back exactly as it
+ * was, and a diff that touches anything but `pendingSuites` is a bug in this.
+ */
+const recordPending = process.argv.includes('--record-pending');
 
 const cassettes = new Map<string, Cassette>();
 if (existsSync(cassetteDir)) {
@@ -311,6 +324,28 @@ const describeShortfall = (s: (typeof shortfalls)[number]): string =>
   `  ${s.suite.padEnd(12)} baseline scored ` +
   `${s.baselineDocuments === null ? 'this suite (no count recorded)' : `${s.baselineDocuments} document(s)`}, ` +
   `this run scored ${s.currentDocuments}.`;
+
+if (recordPending) {
+  if (baseline === null) {
+    console.error(
+      '\nThere is no baseline to refresh. Record one with `pnpm eval --record-baseline` first.',
+    );
+    process.exit(1);
+  }
+  // Read again from disk and put the one key back, rather than re-serialising
+  // the summarised run: what is not `pendingSuites` has to come out the other
+  // side unchanged, and the way to be sure of that is not to touch it.
+  const current = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+  current.pendingSuites = pendingRecord;
+  writeFileSync(baselinePath, `${JSON.stringify(current, null, 2)}\n`);
+  const named = Object.keys(pendingRecord);
+  console.log(
+    `\npendingSuites refreshed in packages/evals/baseline.json: ` +
+      `${named.length === 0 ? 'none' : named.join(', ')}`,
+  );
+  console.log('No metric was touched; the diff should name that key and nothing else.');
+  process.exit(0);
+}
 
 if (recordBaseline) {
   if (shortfalls.length > 0) {

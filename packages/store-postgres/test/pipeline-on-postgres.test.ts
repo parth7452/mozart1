@@ -291,6 +291,108 @@ describeDb('the pipeline against a real database', () => {
     );
   });
 
+  it('agrees with the in-memory store about a document that no longer validates', async () => {
+    // The half of the contract the round-trip test does not reach. Two stores
+    // that agree on a document which *does* rebuild say nothing about the one
+    // that does not — and `validated` and `issues` are what `reconcileCase`
+    // grades a notice on, so a disagreement there is a case page that reads one
+    // way in a test and another in production.
+    //
+    // A required field read without a page or a quote gets no
+    // `extraction_results` row at all (`flatten.ts`), so both stores are asked
+    // the same question: rebuild a notice from rows that are missing one.
+    const fixture = fixtureFor('oakridge-premium-notice.pdf');
+    const reader = await new FixtureExtractor().extract(
+      {
+        documentId: randomUUID(),
+        orgId,
+        filename: fixture.filename,
+        mimeType: 'application/pdf',
+        base64: '',
+        byteSize: fixture.bytes.length,
+        pageText: fixture.pageText,
+      },
+      'deduction_notice',
+    );
+    const withoutDate = reader.fields.filter((f) => f.fieldPath !== 'deduction_date');
+    expect(withoutDate.length).toBe(reader.fields.length - 1);
+
+    const document = await store.putDocument({
+      orgId,
+      sha256: `unvalidated-${randomUUID()}`,
+      filename: 'stored-without-provenance.pdf',
+      mimeType: 'application/pdf',
+      byteSize: fixture.bytes.length,
+      bytes: fixture.bytes,
+      requiresSplit: false,
+    });
+    const written = {
+      documentId: document.documentId,
+      docType: 'deduction_notice' as const,
+      extractor: reader.extractor,
+      schemaVersion: reader.schemaVersion,
+      fields: withoutDate,
+      document: reader.document,
+    };
+    await store.recordClassification(document.documentId, 'deduction_notice', 0.99);
+    await store.recordExtraction(written);
+
+    const memory = new InMemoryStore();
+    await memory.recordClassification(document.documentId, 'deduction_notice', 0.99);
+    await memory.recordExtraction(written);
+
+    const fromPostgres = await store.latestExtraction(document.documentId);
+    const fromMemory = await memory.latestExtraction(document.documentId);
+
+    expect(fromPostgres?.validated).toBe(false);
+    expect(fromPostgres?.issues).toEqual([
+      { path: 'deduction_date.value', problem: 'Invalid input: expected string, received null' },
+    ]);
+    expect(fromMemory).toEqual(fromPostgres);
+  });
+
+  it('reconciles a notice whose date was stored without provenance', async () => {
+    // What the review page does with that document. Before this it answered
+    // every such case with no lines, no totals and a blocking finding — the
+    // whole reconciliation lost to one field the reader could not point at.
+    const notice = fixtureFor('walmart-apdp-notice.pdf');
+    const undated: PipelineDeps = {
+      ...deps,
+      extractor: {
+        name: 'fixture-undated',
+        async extract(document: DocumentPayload, docType: DocType) {
+          const read = await new FixtureExtractor().extract(document, docType);
+          return {
+            ...read,
+            fields: read.fields.filter((f) => f.fieldPath !== 'deduction_date'),
+          };
+        },
+      },
+    };
+
+    // Different bytes, so this is a new document rather than a dedupe of the
+    // notice the suite already uploaded.
+    const result = await processUpload(
+      { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) },
+      undated,
+    );
+    const undatedCase = result.case?.deductionId as string;
+
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from extraction_results
+        where document_id = $1 and field_path = 'deduction_date'`,
+      [result.ingest.document.documentId],
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+
+    const reconciliation = await reconcileCase(undatedCase, deps);
+    expect(reconciliation?.claimedTotalCents).toBe(312_000);
+    expect(reconciliation?.lines).not.toHaveLength(0);
+    const said = reconciliation?.findings.find((f) => f.code === 'stored_document_not_typed');
+    expect(said?.severity).toBe('warning');
+    expect(said?.message).toContain('deduction_date');
+  });
+
   it('records what every model call cost', async () => {
     expect(await store.totalCostMicros()).toBeGreaterThan(0);
   });

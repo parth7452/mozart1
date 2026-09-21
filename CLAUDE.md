@@ -105,8 +105,8 @@ append-only tables.
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
-| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key |
-| `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
+| `pipeline` | `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
@@ -182,9 +182,12 @@ everything else here, and `packages/fixtures/customer/README.md` keeps the
 pack's own caveats verbatim. `pnpm eval` reports every unrecorded suite as
 skipped rather than failing, and `packages/evals/baseline.json` names them in
 `pendingSuites` so a suite with no numbers cannot be mistaken for a suite that
-passed. A suite the baseline *has* measured is never skipped: if its cassettes
-are missing or short, the run fails, because a rate averaged over fewer
-documents is not the number the baseline is being compared against. Record with
+passed. `pnpm eval --record-pending` is how that list is kept honest: it
+rewrites `pendingSuites` and nothing else, so the bookkeeping no longer needs
+the one command a baseline may never be moved with. A suite the baseline *has*
+measured is never skipped: if its cassettes are missing or short, the run
+fails, because a rate averaged over fewer documents is not the number the
+baseline is being compared against. Record with
 `pnpm record:cassettes --suite customer` (it spends money), then
 `pnpm eval --record-baseline`.
 
@@ -371,6 +374,38 @@ whether an inbound email authenticated is **not persisted anywhere**
 (`InboundEmail.authenticated` decides it at ingest and is never written down),
 and the answer that cannot let a forged `From:` acquire a case is the one to
 give when the database does not know.
+
+**A field with no provenance is not a document with no lines.**
+`flattenExtraction` writes no `extraction_results` row for a value it cannot
+point at — no page, or no quote — because provenance is not optional. That was
+only ever meant to cost the field. It cost the case: the rebuild had nothing to
+put back, the notice stopped satisfying `DeductionNoticeSchema`, and
+`reconcileCase` answered a whole case with no lines, no totals and a blocking
+`stored_document_not_typed`. One smudged date on a scan was enough, and the
+recorded corpus already carries the pattern twice — `hl-case-01-notice-scan`
+reports a `gln` it cannot quote and `hl-case-05-notice` a `store_or_dc` — on
+optional fields, where it costs the field and nothing else. On a required one
+it costs the case.
+
+Both seams say so now. At the write, `readDocument` puts the rows it is about
+to store back through `restoreDocument`; if what comes back is not typed it
+records `document.stored_without_provenance` on the case, naming the fields and
+nothing off the page, and logs. It does **not** refuse the read — a scan with
+one unquoted date still has to open a case. At the read, `reconcileCase` tells
+a required field that came back with no value apart from a shape it does not
+understand: the first is reconciled over anyway and downgraded to a warning
+naming the fields, the second is still refused outright. It stays blocking when
+one of the lost fields carries money (`*_amount*`, `*_total*`, `unit_cost`),
+because the arithmetic that says whether a claim adds up is over exactly those.
+Both ends name a field the same way — `lines[0].deduction_amount` — so the
+event on the case and the finding on the page are recognisably one thing.
+
+Two smaller holes went with it. `reconcileCase` asked for a `pod` only when
+there was no `bol`, so an unreadable delivery record went unmentioned whenever
+another one happened to parse; both are asked now. And it never passed a
+`correspondence` document to `reconcileNotice` at all, which made every
+`appointment_superseded` and `charge_waived_in_writing` finding unreachable
+from a case page — most of what a freight case turns on.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
