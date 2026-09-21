@@ -427,7 +427,7 @@ describe('what a failed read says to Inngest', () => {
     // The expensive member of that group, and the one this was found on: the
     // refusal arrives *after* OCR, classification and extraction have all been
     // paid for, so each retry is another three model calls to be told the same
-    // thing. A check constraint is a pure function of the row (ADR 0025).
+    // thing. A check constraint is a pure function of the row (ADR 0027).
     const refused = new ClassificationRefusedError(
       '77777777-7777-7777-7777-777777777777',
       'correspondence',

@@ -1,4 +1,10 @@
--- 0020 — The database knows every document type the reader does (ADR 0025).
+-- 0021 — The database knows every document type the reader does (ADR 0027).
+--
+-- Applied to production on 2026-09-21 as
+-- `recouple_0020_the_database_knows_every_document_type`, before the renumber.
+-- The file moved because another session's migration took 0020 and the same
+-- timestamp prefix in the same hour, which the Supabase CLI would read as one
+-- version; the SQL below is unchanged.
 --
 -- `DOC_TYPES` in packages/extraction/src/ports.ts has twelve values. The check
 -- constraint migration 0004 wrote on `document_classifications.doc_type` lists
@@ -58,7 +64,7 @@ $$;
 comment on constraint document_classifications_doc_type_check on document_classifications is
   'Exactly the twelve values of DOC_TYPES in packages/extraction/src/ports.ts, '
   'kept identical to it by packages/store-postgres/test/doc-types.test.ts, '
-  'which reads this constraint out of pg_constraint (ADR 0025). One of the '
+  'which reads this constraint out of pg_constraint (ADR 0027). One of the '
   'twelve, correspondence, was missing from 0004: a read that classified a '
   'document as one spent two model calls and then could not store the answer.';
 
@@ -66,4 +72,4 @@ comment on column document_classifications.doc_type is
   'What the classifier said the document is, from DOC_TYPES. Append-only like '
   'the rest of the table: a re-classification is a new row and the latest wins '
   '(`document_state`). Widening this set needs a migration and an ADR, because '
-  'the database is the referee for what the reader may say (ADR 0025).';
+  'the database is the referee for what the reader may say (ADR 0027).';

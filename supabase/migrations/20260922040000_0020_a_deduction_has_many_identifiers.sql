@@ -201,7 +201,7 @@ create trigger no_truncate before truncate on deduction_identifiers
 -- It is a function rather than a bare statement for one reason: a backfill that
 -- exists only as a line inside a migration cannot be tested. Running it against
 -- a scratch database proves nothing, because a scratch database has no rows at
--- migration time. `supabase/tests/15_…` calls this function over rows it seeded
+-- migration time. `supabase/tests/17_…` calls this function over rows it seeded
 -- itself, so what the suite exercises is the statement that actually ran in
 -- production rather than a second copy of it written out in the test.
 --

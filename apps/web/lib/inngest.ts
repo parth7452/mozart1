@@ -436,7 +436,7 @@ export function readDocumentFunction(client: Inngest, context: JobContext) {
  * extraction have all been paid for: `correspondence` was in `DOC_TYPES` and
  * not in migration 0004's constraint, the failure arrived as a driver error
  * nothing here recognised, and one dispatch-note JPEG was read and billed four
- * times before the run gave up (ADR 0025). Two branches catch it — the typed
+ * times before the run gave up (ADR 0027). Two branches catch it — the typed
  * `ClassificationRefusedError` a store raises for exactly this, and a bare
  * SQLSTATE 23514 from anywhere else on the read, because there is no check
  * constraint on this path whose verdict a retry could change.
@@ -496,7 +496,7 @@ export function asJobFailure(
  * a store has not translated. Retrying it cannot help — a check constraint is a
  * pure function of the row, and the row will be the same one in thirty seconds
  * — and on this path a retry is another OCR, another classification and another
- * extraction (ADR 0025).
+ * extraction (ADR 0027).
  *
  * Read structurally off the driver's error rather than by matching its message,
  * so nothing here depends on the wording of a sentence that quotes the offending

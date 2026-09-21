@@ -325,7 +325,7 @@ export const UNREAD_DOCUMENTS_MAX_LIMIT = 200;
  * 0004's check constraint, and because the failure arrived as a driver error
  * that nothing recognised, the queue retried it three times — re-running OCR,
  * classification and extraction, and paying for each, to be told the same thing
- * four times over (ADR 0025).
+ * four times over (ADR 0027).
  *
  * So a store translates it here rather than letting `error.code === '23514'`
  * travel, and `asJobFailure` in `apps/web/lib/inngest.ts` turns it into a
@@ -345,7 +345,7 @@ export class ClassificationRefusedError extends Error {
     super(
       `the database refused doc type ${docType} for document ${documentId}: ` +
         'it is not one the document_classifications check constraint admits. ' +
-        'DOC_TYPES and that constraint have drifted (ADR 0025)',
+        'DOC_TYPES and that constraint have drifted (ADR 0027)',
     );
     this.name = 'ClassificationRefusedError';
   }
