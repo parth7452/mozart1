@@ -160,6 +160,22 @@ form.upload button.primary { margin-top: 0; }
 }
 .card.decline button:hover { background: #fdeceb; }
 
+/* Documents waiting to be read.
+   Quieter than the upload button above it: this is a recovery for something
+   that went wrong in the plumbing, not the way work normally arrives. */
+.card.unread .empty { padding: 0 0 14px; font-size: 13px; line-height: 1.5; }
+.card.unread button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.card.unread button:hover { background: var(--bg); }
+
 .card label { display: block; margin-top: 10px; font-size: 13px; font-weight: 600; }
 .card select,
 .card textarea {

@@ -32,6 +32,8 @@ import type {
   JobStore,
   PipelineStore,
   StoredDocument,
+  UnreadDocument,
+  UnreadDocumentsStore,
   WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
 import * as workflow from './workflow';
@@ -335,6 +337,15 @@ interface DocumentRow {
   storage_ref: string;
 }
 
+/** A document that was stored and scanned clean and has no extraction. */
+interface UnreadDocumentRow {
+  id: string;
+  filename: string;
+  created_at: Date;
+  age_minutes: number;
+  on_case: boolean;
+}
+
 /**
  * Documents carry their bytes in object storage, not in Postgres. The store
  * keeps them in memory for the length of a pipeline run so the reader models can
@@ -434,7 +445,9 @@ export class InMemoryBlobStore implements BlobStore {
   }
 }
 
-export class PostgresStore implements PipelineStore, CaseWorkflowStore, JobStore {
+export class PostgresStore
+  implements PipelineStore, CaseWorkflowStore, JobStore, UnreadDocumentsStore
+{
   private readonly pool: Pool;
   private readonly role: string;
 
@@ -1024,6 +1037,66 @@ export class PostgresStore implements PipelineStore, CaseWorkflowStore, JobStore
       return rows[0];
     });
     return row === undefined ? undefined : this.toStoredDocument(row);
+  }
+
+  /**
+   * The documents this tenant got through the door and nobody ever read.
+   *
+   * Three conditions, and each one is a thing that has to be true for the
+   * document to be stuck rather than merely new:
+   *
+   *  - **The latest scan verdict is `clean`.** The same latest-wins subquery
+   *    `latestScan` uses, because a document whose last verdict is `infected`
+   *    or `error` was refused by the gate on purpose and is not waiting for
+   *    anything (invariant 4). A document with no verdict at all is not here
+   *    either — nothing may read it, so nothing is owed.
+   *  - **No `extraction_results` row.** The same record `readDocumentJob`'s own
+   *    guard consults, so a document this list offers is exactly a document a
+   *    re-drive would actually read, and one it does not offer is one a re-drive
+   *    would answer from what was recorded.
+   *  - **Older than the caller's threshold.** A document uploaded ten seconds
+   *    ago is not stuck, it is being read, and a list that says otherwise would
+   *    teach a reviewer to ignore it.
+   *
+   * Read-only, and RLS-scoped like everything else here: "this tenant's
+   * documents" is the policies' answer rather than a `where org_id = …` this
+   * query remembered to write. Bytes are deliberately not fetched — this is a
+   * list, and a list that loads every stuck document's bytes to print its name
+   * is a list nobody can afford to open.
+   */
+  async unreadDocuments(olderThanMinutes: number, limit = 50): Promise<readonly UnreadDocument[]> {
+    if (!Number.isFinite(olderThanMinutes) || olderThanMinutes < 0) {
+      throw new Error(
+        `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<UnreadDocumentRow>(
+        `select d.id,
+                coalesce(d.filename, '') as filename,
+                d.created_at,
+                floor(extract(epoch from (now() - d.created_at)) / 60)::int as age_minutes,
+                exists (select 1 from deduction_documents dd where dd.document_id = d.id)
+                  as on_case
+           from documents d
+          where d.created_at <= now() - ($1::double precision * interval '1 minute')
+            and (select s.status from document_scans s
+                  where s.document_id = d.id order by s.id desc limit 1) = 'clean'
+            and not exists (select 1 from extraction_results e where e.document_id = d.id)
+          order by d.created_at asc
+          limit $2`,
+        [olderThanMinutes, limit],
+      );
+      return rows.map((row) => ({
+        documentId: row.id,
+        filename: row.filename,
+        createdAt: new Date(row.created_at).toISOString(),
+        // Never negative: a clock that has stepped backwards should read as
+        // "just now", not as a document from the future.
+        ageMinutes: Math.max(0, row.age_minutes),
+        onCase: row.on_case,
+      }));
+    });
   }
 
   async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {

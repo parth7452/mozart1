@@ -200,6 +200,94 @@ describe('the read job', () => {
     expect(result.deductionId).toBe([...store.cases.keys()][0]);
   });
 
+  it('logs both the run and the step, so a stall between them is visible', async () => {
+    // The production failure this is for: invoked once, answered with a step
+    // plan, and then never called back to run the step. Nothing threw, nothing
+    // was logged, and the document stayed unread while the reviewer was told it
+    // was being read. A run line with no step line under it is that, and it can
+    // be seen now.
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      await readDocumentSteps(context)({
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID } },
+        step: { run: async (_id, work) => work() },
+      });
+
+      expect(lines).toHaveLength(4);
+      expect(lines[0]).toContain('run entered');
+      expect(lines[1]).toContain('step read-document entered');
+      expect(lines[2]).toContain('finished the read');
+      expect(lines[3]).toContain('run returned');
+      // Every line names the two ids an operator would search on.
+      for (const line of lines) {
+        expect(line).toContain(`document ${documentId}`);
+        expect(line).toContain(`org ${ORG_ID}`);
+      }
+      // And not one word of the document: not the filename somebody else chose,
+      // not the claim id printed on the page (invariant 4).
+      const all = lines.join('\n');
+      expect(all).not.toContain(notice.filename);
+      expect(all).not.toContain('APDP-99812');
+
+      // The step memoised — a retry of a run whose step already ran — logs the
+      // run and not the step, which is the opposite shape and also readable.
+      lines.length = 0;
+      await readDocumentSteps(context)({
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID } },
+        step: {
+          run: async () => ({
+            documentId,
+            docType: 'deduction_notice',
+            deductionId: null,
+            haltedBecause: null,
+            alreadyRead: true,
+          }),
+        },
+      });
+      expect(lines.map((line) => line.includes('step read-document'))).toEqual([false, false]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('names a malformed payload’s ids as unknown rather than repeating them', async () => {
+    // The first line is written before the payload is parsed, on purpose: a
+    // malformed event is exactly when knowing a run was entered is worth
+    // something. What is not an id is not printed — the payload is the one
+    // input here this app did not write.
+    const store = jobStore();
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        readDocumentSteps(context)({
+          event: { data: { documentId: '<script>alert(1)</script>', orgId: ORG_ID } },
+          step: { run: async (_id, work) => work() },
+        }),
+      ).rejects.toThrow();
+
+      expect(lines[0]).toBe(
+        `[recouple] read job: run entered, document unknown org ${ORG_ID}`,
+      );
+      expect(lines.join('\n')).not.toContain('script');
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it('closes the store even when the read fails', async () => {
     const store = jobStore();
     const { context } = contextOver(store);
@@ -321,7 +409,7 @@ describe('what a failed read says to Inngest', () => {
 });
 
 describe('how the runtime is asked to run the function', () => {
-  it('is these four values, and a change to any of them is a change to cost', () => {
+  it('is these values, and a change to any of them is a change to cost', () => {
     // None of this shows up in the behaviour of a stubbed `step.run`, and every
     // line of it is the difference between a redelivered event costing nothing
     // and it costing another read.
@@ -329,7 +417,6 @@ describe('how the runtime is asked to run the function', () => {
       id: 'read-document',
       name: 'Read an uploaded document',
       triggers: [{ event: 'document/read.requested' }],
-      idempotency: 'event.data.documentId',
       retries: 3,
       concurrency: [
         { key: 'event.data.orgId', limit: 2 },
@@ -344,6 +431,17 @@ describe('how the runtime is asked to run the function', () => {
     // tenant's bulk upload is in flight.
     expect(READS_IN_FLIGHT).toBeLessThanOrEqual(INNGEST_PLAN_CONCURRENCY_LIMIT);
     expect(READS_IN_FLIGHT_PER_ORG).toBeLessThan(READS_IN_FLIGHT);
+  });
+
+  it('asks the runtime for no idempotency window of its own', () => {
+    // It used to ask for one on `event.data.documentId`. A run that was invoked
+    // and then never came back to execute its step left the document unread,
+    // and the key swallowed the next 24 hours of events for it — including the
+    // one sent to recover it. The guard that stops a second read costing money
+    // is `readDocumentJob`'s, in the database: a document that already has an
+    // extraction is answered from what was recorded. That one holds for every
+    // delivery instead of for a window, and it does not refuse a re-drive.
+    expect(READ_DOCUMENT_CONFIG).not.toHaveProperty('idempotency');
   });
 });
 

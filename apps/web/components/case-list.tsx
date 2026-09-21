@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import type { UnreadDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { deadline, money, retailer } from '../lib/format';
 import { resolveNotice } from '../lib/notices';
+import { UnreadDocuments } from './unread-documents';
 
 export interface Viewer {
   readonly email: string;
@@ -22,6 +24,7 @@ export function CaseList({
   cases,
   today,
   mayUpload,
+  unread,
   notice,
   noticeAbout,
 }: {
@@ -30,6 +33,14 @@ export function CaseList({
   today: Date;
   /** Whether this member's role may add a document; the database decides too. */
   mayUpload: boolean;
+  /**
+   * Documents that were stored and scanned clean and never read.
+   *
+   * Shown only to a member who may write, because the only thing to do about
+   * one is ask for it to be read — and a reader who cannot ask would be looking
+   * at a list of things they are not allowed to fix.
+   */
+  unread?: readonly UnreadDocument[] | undefined;
   /**
    * What happened to the last upload, as a notice *key* — never the sentence
    * itself, which arrives in a query string anybody can write
@@ -72,6 +83,7 @@ export function CaseList({
             </div>
           </form>
         ) : null}
+        {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <div className="card">
           <h2 className="section" style={{ marginTop: 0 }}>
             {cases.length === 0

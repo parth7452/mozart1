@@ -419,8 +419,13 @@ describe('uploading where the read runs as a job', () => {
       const response = await POST(uploadRequest(notice.bytes, notice.filename));
 
       expect(response.status).toBe(303);
-      expect(said(response)).toMatch(/stored but could not be queued for reading/);
-      expect(said(response)).toMatch(/uploading the same file again re-queues it/);
+      expect(said(response)).toMatch(/stored and scanned but could not be queued for reading/);
+      // And it points at the list that can recover it, rather than at a second
+      // upload. The second upload was the advice until the read function's
+      // idempotency key made it a lie: the same event for a document that had
+      // stalled was swallowed for twenty-four hours.
+      expect(said(response)).toMatch(/Documents waiting to be read/);
+      expect(said(response)).not.toMatch(/re-queues it/);
 
       // The document is in, unread, and the failure went somewhere an operator
       // will see it — with the cause, not just a sentence.

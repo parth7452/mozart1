@@ -302,11 +302,34 @@ do something new, attaching it to a case it is not on yet or opening a case for 
 notice that has none. The same guard runs on the inline path, where the same
 thing happens when a file is uploaded twice.
 
+**That guard is the whole of the idempotency story, on purpose.** The function
+carried `idempotency: 'event.data.documentId'` until 2026-09-21, when production
+showed a run invoked once, answered with a step plan and never called back to
+execute the step — no error, no log, and the reviewer's notice saying "being
+read" for ever. The second event sent to recover it was swallowed by that key's
+own 24-hour window, which made the `upload_not_queued` notice's promise that
+re-uploading re-queues the read false for a day. The key bought one saved
+invocation; the DB-backed guard buys the thing that matters, on every delivery
+rather than inside a window, on both paths, and without refusing a re-drive
+somebody asked for. It is gone, and the function now logs its own step
+boundaries — run entered, step entered, what it concluded, run returned, ids
+only — so a run line with no step line under it is a visible stall.
+
 If `client.send` fails the document is not orphaned: it is stored, scanned, and
-the reviewer is told it will be read when the queue is reachable and that
-re-uploading the same file re-queues it. And `/api/inngest` refuses to serve at
-all — 503, logged — when `INNGEST_DEV` is set in a production build, because dev
-mode turns off the signature check that is the endpoint's only authentication.
+the reviewer is told where to find it. That place is the case list's **Documents
+waiting to be read** — every document of the tenant's that is stored, scanned
+clean, has no `extraction_results` row and is older than five minutes
+(`PostgresStore.unreadDocuments`, through `withTenant` as `app_rw`, no new
+table) — with a "Read again" button per row posting to
+`/documents/[id]/reread`. That route refuses cross-site, resolves the session,
+checks the id and the role, asks `memberMayWrite` of the database, 404s a
+document the tenant cannot see, and then re-drives through whichever runner
+`runnerFromEnv` gives: the same event where there is a queue, the same
+`readDocumentJob` inline where there is not. Pressing it twice costs nothing —
+the guard above answers the second press from what was recorded. And
+`/api/inngest` refuses to serve at all — 503, logged — when `INNGEST_DEV` is set
+in a production build, because dev mode turns off the signature check that is
+the endpoint's only authentication.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
