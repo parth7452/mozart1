@@ -71,6 +71,11 @@ export function CaseTable({
                     <Link href={`/cases/${row.deductionId}`} className="mono claim-link">
                       {row.claimId ?? row.deductionId.slice(0, 8)}
                     </Link>
+                    {row.invoiceNumber === undefined ? null : (
+                      <div className="unmatched" style={{ marginLeft: 0 }}>
+                        invoice {row.invoiceNumber}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span className="customer-name">{who.name}</span>

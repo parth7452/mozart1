@@ -30,6 +30,8 @@ function summary(
     disputeDeadline: '2026-12-07',
     debtorName: 'Walmart (APDP)',
     retailerKey: 'walmart_apdp',
+    // The column's default, and what every case opened before ADR 0028 is.
+    discoveredVia: 'notice',
     documentCount: 4,
     createdAt: '2026-09-10T00:00:00Z',
     ...overrides,
@@ -215,6 +217,35 @@ describe('the case list', () => {
     expect(html).toContain('Walmart (APDP)');
     expect(html).not.toContain('WALMART STORES, INC.');
     expect(html).not.toContain('not matched');
+  });
+
+  it('shows the invoice a remittance-originated case was opened against', () => {
+    // A case a remittance line opened has no claim anybody filed: its claim id
+    // is the advice's own payment reference and invoice number (ADR 0028 §7),
+    // which is not what a person looks a case up by. The invoice is.
+    const html = renderToStaticMarkup(
+      <CaseList
+        mayUpload
+        viewer={viewer}
+        cases={[
+          summary({
+            discoveredVia: 'remittance_line',
+            claimId: 'ACH-CW-880412:INV-271003',
+            invoiceNumber: 'INV-271003',
+            reasonCodeAsPrinted: 'SHORT',
+          }),
+        ]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('invoice INV-271003');
+  });
+
+  it('says nothing about an invoice for a case that has none', () => {
+    const html = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(html).not.toContain('invoice');
   });
 
   it('offers the upload to a member who may write, and not to one who may not', () => {
@@ -432,6 +463,49 @@ describe('the review page', () => {
     expect(html).toContain('WALMART STORES, INC.');
     expect(html).toContain('not matched to a debtor');
     expect(html).not.toContain('Retailer unknown');
+  });
+
+  it('heads a remittance-originated case with its invoice and the code as printed', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary({
+          discoveredVia: 'remittance_line',
+          invoiceNumber: 'INV-271003',
+          reasonCodeAsPrinted: 'OT-UNAUTH',
+        })}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('invoice INV-271003');
+    // As printed, never mapped: turning a payer's code into a canonical one is
+    // versioned playbook data with provenance, not a view's job.
+    expect(html).toContain('code OT-UNAUTH');
+  });
+
+  it('escapes an invoice number and a reason code the way it escapes every other printed string', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary({
+          discoveredVia: 'remittance_line',
+          invoiceNumber: '<script>alert(1)</script>',
+          reasonCodeAsPrinted: '<img src=x onerror=1>',
+        })}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('still says "Retailer unknown" when the notice named nobody', () => {

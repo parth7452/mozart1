@@ -3,6 +3,7 @@ import type { CaseSummary } from '@recouple/store-postgres';
 import { caseMetrics, filterCases } from '../lib/case-presentation';
 
 const row = (overrides: Partial<CaseSummary> = {}): CaseSummary => ({
+  discoveredVia: 'notice',
   deductionId: 'test-claim-id',
   state: 'classified',
   deductionAmountCents: 12345,
