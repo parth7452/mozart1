@@ -15,3 +15,6 @@ apps/web/.cache
 apps/web/preview
 apps/web/next-env.d.ts
 apps/web/.env.local
+
+# Isolated agent worktrees (Claude Code); never committed
+.claude/worktrees/
