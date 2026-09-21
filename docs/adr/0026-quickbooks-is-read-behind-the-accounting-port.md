@@ -58,6 +58,14 @@ identity resolution (STRATEGY §5.2) can tell the sources apart. The port types
 are the whole vocabulary: if a consumer needs a QBO field we do not map, the
 fix is a new field on the port, not a cast.
 
+A field the port declares required is required. `DocNumber`, `CustomerRef.name`
+and `CurrencyRef.value` can in principle be absent from a QBO payload, and the
+adapter then fails loudly naming the row rather than emitting
+`invoiceNumber: ''` or `currency: ''` — a blank there reconciles against nothing
+and nobody notices for a quarter. The same rule covers a payment line that links
+two invoices to a single `Amount`: nothing in the response says how it split, so
+it is refused rather than halved.
+
 ### Money is parsed, never multiplied
 
 The JSON number is converted through a deterministic string path and then
@@ -119,6 +127,13 @@ news and the second is an outage that looks like good news. So:
 | 429 | `QboRateLimited`, carrying `retryAfterMs` |
 | unreadable shape, or an amount that will not round-trip | `QboMalformedResponse`, carrying the field path |
 | anything else | `QboRequestFailed`, carrying the status and Intuit's `Fault` |
+| a window that is not two calendar days in `YYYY-MM-DD` | `QboInvalidWindow` |
+
+The last one is not an API failure; it is a caller error, and it is checked
+before a request is built because `LedgerWindow.from`/`.to` are interpolated
+into QBO's query language between single quotes. An unvalidated date string
+there is query injection into a customer's ledger, so it gets a type of its own
+rather than being reported as something QuickBooks did.
 
 Nothing in this package catches its own error and returns `[]`. "Do NOT swallow
 errors. Fail loud" (CLAUDE.md) is not advice here; a swallowed error is a
