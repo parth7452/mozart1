@@ -39,6 +39,9 @@ importers:
       '@recouple/pipeline':
         specifier: workspace:*
         version: link:packages/pipeline
+      '@recouple/qbo':
+        specifier: workspace:*
+        version: link:packages/qbo
       '@recouple/store-postgres':
         specifier: workspace:*
         version: link:packages/store-postgres
@@ -190,6 +193,15 @@ importers:
       '@recouple/fixtures':
         specifier: workspace:*
         version: link:../fixtures
+
+  packages/qbo:
+    dependencies:
+      '@recouple/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@recouple/core-domain':
+        specifier: workspace:*
+        version: link:../core-domain
 
   packages/store-postgres:
     dependencies:

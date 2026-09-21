@@ -1,0 +1,22 @@
+{
+  "QueryResponse": {
+    "Invoice": [
+      {
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "901",
+        "SyncToken": "0",
+        "DocNumber": "INV-90001",
+        "TxnDate": "2026-08-14",
+        "DueDate": "2026-09-13",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "58", "name": "Sysco Baltimore, LLC" },
+        "TotalAmt": 1234.567,
+        "Balance": 1234.567
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 1
+  },
+  "time": "2026-09-21T09:20:11.004-07:00"
+}
