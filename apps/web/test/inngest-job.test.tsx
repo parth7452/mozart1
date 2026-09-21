@@ -10,6 +10,7 @@ import {
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import {
   CaseNotFoundError,
+  ClassificationRefusedError,
   DocumentNotFoundError,
   DuplicateCaseError,
   InvalidJobPayloadError,
@@ -420,6 +421,60 @@ describe('what a failed read says to Inngest', () => {
     expect(notFound).toBeInstanceOf(Error);
     expect(notFound).not.toBeInstanceOf(NonRetriableError);
     expect((notFound as Error).message).toContain('DocumentNotFoundError');
+  });
+
+  it('does not retry a row the database refused on its contents', () => {
+    // The expensive member of that group, and the one this was found on: the
+    // refusal arrives *after* OCR, classification and extraction have all been
+    // paid for, so each retry is another three model calls to be told the same
+    // thing. A check constraint is a pure function of the row (ADR 0027).
+    const refused = new ClassificationRefusedError(
+      '77777777-7777-7777-7777-777777777777',
+      'correspondence',
+    );
+    const wrapped = asJobFailure(refused, ids);
+    expect(wrapped).toBeInstanceOf(NonRetriableError);
+    // It names the value the database would not take, which is the whole
+    // diagnosis: a doc type is one of twelve constants, not text off the page.
+    expect((wrapped as Error).message).toContain('ClassificationRefusedError');
+    expect((wrapped as Error).message).toContain('correspondence');
+  });
+
+  it('does not retry a bare check-constraint violation either', () => {
+    // The net under the typed error, for a 23514 raised somewhere no store has
+    // translated. Read structurally off the driver's error — `code` — rather
+    // than by matching a message that quotes the offending row.
+    const driverError = Object.assign(
+      new Error(
+        'new row for relation "document_classifications" violates check constraint ' +
+          '"document_classifications_doc_type_check"',
+      ),
+      {
+        code: '23514',
+        // What a driver actually attaches, and every bit of it is off the page.
+        detail: 'Failing row contains (…, dispatch-note.jpg, correspondence, …).',
+      },
+    );
+
+    const wrapped = asJobFailure(driverError, ids);
+    expect(wrapped).toBeInstanceOf(NonRetriableError);
+
+    // And the driver's own message goes nowhere near the queue: the run history
+    // belongs to a third party and keeps what it is given (invariant 4).
+    const message = (wrapped as Error).message;
+    expect(message).not.toContain('Failing row contains');
+    expect(message).not.toContain('dispatch-note.jpg');
+    expect(message).not.toContain('violates check constraint');
+    expect(message).toContain(ids.documentId);
+    expect((wrapped as { cause?: unknown }).cause).toBeUndefined();
+
+    // Not swallowed. The original, in full, is on the local log.
+    expect(logged).toHaveBeenCalledWith(expect.stringMatching(/read job failed/), driverError);
+
+    // A code that is not 23514 is not this: a unique violation on a read is a
+    // redelivery that raced, and asking again is the right answer to it.
+    const unique = asJobFailure(Object.assign(new Error('duplicate key'), { code: '23505' }), ids);
+    expect(unique).not.toBeInstanceOf(NonRetriableError);
   });
 });
 

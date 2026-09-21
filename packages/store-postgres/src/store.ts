@@ -32,7 +32,7 @@ import type {
 import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
-import { AmbiguousIdentityError, DuplicateCaseError } from '@recouple/pipeline';
+import { AmbiguousIdentityError, ClassificationRefusedError, DuplicateCaseError } from '@recouple/pipeline';
 import type {
   CaseOutcome,
   CaseRecord,
@@ -1108,17 +1108,56 @@ export class PostgresStore
     });
   }
 
+  /**
+   * What the classifier said, written down — or a named refusal when the
+   * database will not have it.
+   *
+   * The translation is gated on the constraint's *name*, not on the SQLSTATE.
+   * There are two check constraints on this table — the doc type's and the
+   * column's `confidence between 0 and 1` — and they raise the same 23514.
+   * Nothing validates a confidence at runtime before it gets here:
+   * `ClassificationResult` is an interface, so it is a promise the compiler
+   * checks and the classifier keeps, and the only clamp in the codebase is
+   * inside `packages/extraction/src/claude.ts`. A second classifier answering
+   * 1.4, or NaN, would be reported as doc-type drift and sent to somebody to
+   * go and widen a constraint that is not the one that refused it. So the
+   * confidence check rethrows untouched, and only
+   * `document_classifications_doc_type_check` is named.
+   *
+   * A refused doc type is settled — a check constraint answers the same on
+   * every attempt — and the caller that most needs to know that is the queue,
+   * which would otherwise pay for the OCR, the classification and the
+   * extraction three more times to be told the same thing (ADR 0027). A
+   * confidence out of range is settled too, but it is a different bug with a
+   * different fix, and `asJobFailure`'s bare-23514 branch is what stops it
+   * being retried.
+   *
+   * Nothing is swallowed: the insert still fails, and it fails with more
+   * information than the driver gave, not less. The driver's own message quotes
+   * the offending row, so it is neither carried into the new message nor
+   * chained as `cause` (invariant 4).
+   */
   async recordClassification(
     documentId: string,
     docType: DocType,
     confidence: number,
   ): Promise<void> {
     await this.withTenant(async (client) => {
-      await client.query(
-        `insert into document_classifications (org_id, document_id, doc_type, confidence)
-         values ($1, $2, $3, $4)`,
-        [this.tenant.orgId, documentId, docType, confidence],
-      );
+      try {
+        await client.query(
+          `insert into document_classifications (org_id, document_id, doc_type, confidence)
+           values ($1, $2, $3, $4)`,
+          [this.tenant.orgId, documentId, docType, confidence],
+        );
+      } catch (error) {
+        if (
+          sqlState(error) === '23514' &&
+          constraintName(error) === 'document_classifications_doc_type_check'
+        ) {
+          throw new ClassificationRefusedError(documentId, docType);
+        }
+        throw error;
+      }
     });
   }
 
@@ -2834,6 +2873,21 @@ export class PostgresStore
 function sqlState(error: unknown): string | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * Which constraint refused the row, as the driver reports it.
+ *
+ * A SQLSTATE says what kind of refusal it was; only the name says which rule.
+ * Read off the error's `constraint` field rather than out of its message,
+ * because the message quotes the offending row (invariant 4) and its wording is
+ * the server's to change. An error that carries no name answers `undefined`,
+ * which matches nothing — so a caller comparing against a name gets the
+ * conservative answer and rethrows.
+ */
+function constraintName(error: unknown): string | undefined {
+  const name = (error as { constraint?: unknown } | null)?.constraint;
+  return typeof name === 'string' ? name : undefined;
 }
 
 /**

@@ -375,6 +375,28 @@ async function recordExtraction(
   deductionId?: string,
 ): Promise<void> {
   await deps.store.recordModelCall(withCase(result.call, deductionId));
+  await recordExtractionRows(document, result, deps, deductionId);
+}
+
+/**
+ * The extracted fields, without the call that produced them.
+ *
+ * Split out so `readDocument` can record all three of a read's model calls
+ * together, before the first row that the database might refuse. The extract
+ * call is the most expensive of the three and it was the one being lost: on the
+ * `correspondence` failure the OCR and classify calls were committed, the
+ * classification insert raised, and `recordExtraction` — which would have
+ * recorded the extract call — never ran, so the read that cost the most was the
+ * read least visible in `model_calls` (ADR 0027). That is the same rule
+ * `openCaseFromNotice` already follows: a failure after the money is spent must
+ * not lose the record of spending it.
+ */
+async function recordExtractionRows(
+  document: StoredDocument,
+  result: ExtractionResult,
+  deps: PipelineDeps,
+  deductionId?: string,
+): Promise<void> {
   await deps.store.recordExtraction({
     documentId: document.documentId,
     ...(deductionId !== undefined ? { deductionId } : {}),
@@ -682,7 +704,16 @@ export async function readDocument(
   // either side of `openCaseFromNotice`: the argument is the case the spend and
   // the fields belong to, or undefined when there is no case to belong to.
   const recordTheRead = async (deductionId?: string): Promise<void> => {
-    for (const call of [...readable.calls, classification.call]) {
+    // All three calls first — the OCR, the classification and the extraction —
+    // and only then the rows they produced. By the time this closure runs the
+    // money is already spent, and every statement after this loop is one the
+    // database can refuse: `recordClassification` refuses a doc type its check
+    // constraint has never heard of, which is what happened to a
+    // `correspondence` JPEG in production, and what was lost with it was the
+    // record of the most expensive of the three (ADR 0027). Spend is recorded
+    // before anything that can reject it, on the same rule `openCaseFromNotice`
+    // already follows below.
+    for (const call of [...readable.calls, classification.call, extraction.call]) {
       await deps.store.recordModelCall(withCase(call, deductionId));
     }
     await deps.store.recordClassification(
@@ -690,7 +721,7 @@ export async function readDocument(
       classification.docType,
       classification.confidence,
     );
-    await recordExtraction(document, extraction, deps, deductionId);
+    await recordExtractionRows(document, extraction, deps, deductionId);
     await reportProvenanceGap(document, extraction, deps, deductionId);
   };
 
