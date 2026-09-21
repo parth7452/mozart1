@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata = {
-  title: 'Recouple',
+  title: 'Mozart | Deductions workspace',
   description: 'Deductions recovery: a reviewer approves, then it is submitted.',
 };
 

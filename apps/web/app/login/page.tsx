@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { supabaseForRequest } from '../../lib/supabase';
 import { env } from '../../lib/env';
+import { Wordmark } from '../../components/workspace-shell';
+import { SignInButton } from '../../components/sign-in-button';
 
 /**
  * A magic link, because a password is one more secret for a finance team to keep
@@ -42,21 +44,90 @@ export default async function LoginPage({
   }
 
   return (
-    <main className="login">
-      <h1>Recouple</h1>
-      <p>Sign in with the address your workspace invited.</p>
-      <form action={sendLink}>
-        <input type="email" name="email" placeholder="you@company.com" autoComplete="email" required />
-        <button className="primary" type="submit">
-          Email me a sign-in link
-        </button>
-      </form>
-      {params.sent !== undefined ? (
-        <p className="notice sent">
-          If that address belongs to a workspace, a sign-in link is on its way.
+    <main className="login-page">
+      <section className="login-story" aria-label="Mozart Financial">
+        <a
+          className="brand-link"
+          href="https://mozart.financial/"
+          aria-label="Mozart Financial home"
+        >
+          <Wordmark />
+        </a>
+        <div className="login-story-content">
+          <p className="eyebrow">REVENUE, RECONCILED.</p>
+          <h2>
+            Your revenue.
+            <br />
+            <span>Orchestrated.</span>
+          </h2>
+          <p>
+            The work behind every recovered dollar,
+            <br />
+            brought into harmony.
+          </p>
+          <div className="score-art" aria-hidden="true">
+            {[30, 52, 38, 74, 94, 64, 44, 80, 100, 58, 35, 68, 85, 48, 28].map((height, i) => (
+              <i key={i} style={{ height: `${height}%` }} />
+            ))}
+          </div>
+        </div>
+        <div className="login-story-footer">
+          <span>EVIDENCE FIRST. ALWAYS.</span>
+          <span>01 / MOZART</span>
+        </div>
+      </section>
+      <section className="login-panel">
+        <a className="login-back" href="https://mozart.financial/">
+          ← Back to Mozart Financial
+        </a>
+        <div className="login">
+          <div className="login-emblem" aria-hidden="true">
+            m<span>.</span>
+          </div>
+          <p className="eyebrow">YOUR DEDUCTIONS WORKSPACE</p>
+          <h1>Welcome back.</h1>
+          <p className="login-intro" id="sign-in-description">
+            Sign in with the address your workspace invited.
+          </p>
+          <form action={sendLink}>
+            <label htmlFor="email">Work email</label>
+            <input
+              id="email"
+              type="email"
+              name="email"
+              placeholder="you@company.com"
+              autoComplete="email"
+              aria-describedby="sign-in-description"
+              required
+            />
+            <SignInButton />
+          </form>
+          {params.sent !== undefined ? (
+            <p className="notice sent" role="status">
+              If that address belongs to a workspace, a sign-in link is on its way.
+            </p>
+          ) : null}
+          {params.denied !== undefined ? (
+            <p className="notice bad" role="alert">
+              {params.denied}
+            </p>
+          ) : null}
+          <p className="login-fineprint">
+            A secure link, straight to your inbox.
+            <br />
+            No password to remember.
+          </p>
+          <div className="login-help">
+            New to Mozart?{' '}
+            <a href="https://mozart.financial/#contact">
+              Get in touch <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </div>
+        <p className="login-footer">
+          Your team stays in control. Nothing is submitted without approval.
         </p>
-      ) : null}
-      {params.denied !== undefined ? <p className="notice bad">{params.denied}</p> : null}
+      </section>
     </main>
   );
 }

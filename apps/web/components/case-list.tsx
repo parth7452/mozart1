@@ -1,7 +1,9 @@
-import Link from 'next/link';
 import type { UnreadDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
-import { deadline, money, retailer } from '../lib/format';
+import { money } from '../lib/format';
+import { caseMetrics } from '../lib/case-presentation';
+import { WorkspaceShell } from './workspace-shell';
+import { CaseTable } from './case-table';
 import { resolveNotice } from '../lib/notices';
 import { UnreadDocuments } from './unread-documents';
 
@@ -50,24 +52,100 @@ export function CaseList({
   /** The validated fragments the key's text names, in order. */
   noticeAbout?: readonly string[] | undefined;
 }) {
-  const total = cases.reduce((sum, row) => sum + row.deductionAmountCents, 0);
+  const metrics = caseMetrics(cases, today);
+  const total = metrics.totalCents;
   const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
-    <>
-      <header className="top">
-        <h1>Recouple</h1>
-        <span className="pill">{viewer.orgName}</span>
-        <span className="who">
-          {viewer.email} · {viewer.role.replace('_', ' ')}
-        </span>
-      </header>
-      <main>
+    <WorkspaceShell viewer={viewer}>
+      <main id="workspace-main" className="workspace-main">
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">REVENUE, RECONCILED.</p>
+            <h1>
+              Your deductions.
+              <br className="mobile-break" /> In focus.
+            </h1>
+            <p className="page-description">
+              From the first notice to the final outcome. Every detail, in one place.
+            </p>
+          </div>
+          {mayUpload ? (
+            <a className="button-link" href="#add-document">
+              <span aria-hidden="true">＋</span> Add a document
+            </a>
+          ) : null}
+        </div>
+        <section className="metrics" aria-label="Deduction overview">
+          <div className="metric featured">
+            <span className="metric-label">TOTAL DEDUCTED</span>
+            <strong>{money(total)}</strong>
+            <span className="metric-note">
+              Across {cases.length} recorded case{cases.length === 1 ? '' : 's'}
+            </span>
+            <span className="metric-bars" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">OPEN CASES</span>
+            <strong>{metrics.openCount.toLocaleString('en-US')}</strong>
+            <span className="metric-note">Working toward an outcome</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">APPROVAL STAGE</span>
+            <strong>{metrics.approvalStageCount.toLocaleString('en-US')}</strong>
+            <span className="metric-note">Review and submission</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">DEADLINES TO WATCH</span>
+            <strong>
+              {metrics.deadlineCount.toLocaleString('en-US')}
+              <span className="metric-dot" aria-hidden="true" />
+            </strong>
+            <span className="metric-note">Due within 14 days or overdue · unfiled</span>
+          </div>
+        </section>
         {said === undefined ? null : (
           <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
         )}
+        <section className="card ledger" aria-label="Deduction ledger">
+          <div className="ledger-heading">
+            <div>
+              <h2>Deduction ledger</h2>
+              <p className="ledger-summary">
+                {cases.length === 0
+                  ? 'No cases yet'
+                  : `${cases.length} case${cases.length === 1 ? '' : 's'} · ${money(total)} deducted`}
+              </p>
+            </div>
+            <span className="ledger-tag">ALL DEDUCTIONS</span>
+          </div>
+          {cases.length === 0 ? (
+            <p className="empty">
+              A case opens when a deduction notice arrives — by upload, or by email to this
+              workspace&rsquo;s inbound address. Nothing is submitted anywhere until a person
+              approves it.
+            </p>
+          ) : (
+            <CaseTable cases={cases} todayISO={today.toISOString()} />
+          )}
+        </section>
         {mayUpload ? (
-          <form className="card upload" action="/upload" method="post" encType="multipart/form-data">
+          <form
+            id="add-document"
+            className="card upload"
+            action="/upload"
+            method="post"
+            encType="multipart/form-data"
+          >
             <label htmlFor="file">
               <strong>Add a document</strong>
               <span>
@@ -76,7 +154,13 @@ export function CaseList({
               </span>
             </label>
             <div>
-              <input id="file" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" required />
+              <input
+                id="file"
+                type="file"
+                name="file"
+                accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff"
+                required
+              />
               <button className="primary" type="submit">
                 Read it
               </button>
@@ -84,65 +168,11 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
-        <div className="card">
-          <h2 className="section" style={{ marginTop: 0 }}>
-            {cases.length === 0
-              ? 'No cases yet'
-              : `${cases.length} case${cases.length === 1 ? '' : 's'} · ${money(total)} deducted`}
-          </h2>
-          {cases.length === 0 ? (
-            <p className="empty">
-              A case opens when a deduction notice arrives — by upload, or by email to this
-              workspace&rsquo;s inbound address. Nothing is submitted anywhere until a person
-              approves it.
-            </p>
-          ) : (
-            <table className="cases">
-              <thead>
-                <tr>
-                  <th>Claim</th>
-                  <th>Retailer</th>
-                  <th className="money">Deducted</th>
-                  <th>State</th>
-                  <th>Evidence</th>
-                  <th>Deadline</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cases.map((row) => {
-                  const due = deadline(row.disputeDeadline, today);
-                  // '—' when nothing was read; the printed name, flagged, when
-                  // extraction read one but no debtor answers to it (ADR 0019).
-                  const who = retailer(row, '—');
-                  return (
-                    <tr key={row.deductionId}>
-                      <td>
-                        <Link href={`/cases/${row.deductionId}`} className="mono">
-                          {row.claimId ?? row.deductionId.slice(0, 8)}
-                        </Link>
-                      </td>
-                      <td>
-                        {who.name}
-                        {who.matched ? null : <span className="unmatched">not matched</span>}
-                      </td>
-                      <td className="money">{money(row.deductionAmountCents)}</td>
-                      <td>
-                        <span className="pill">{row.state.replace(/_/g, ' ')}</span>
-                      </td>
-                      <td>
-                        {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}
-                      </td>
-                      <td>
-                        {due === undefined ? '—' : <span className={`pill ${due.tone}`}>{due.label}</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <footer className="workspace-footer">
+          <span>YOUR REVENUE. ORCHESTRATED.</span>
+          <span>mozart.</span>
+        </footer>
       </main>
-    </>
+    </WorkspaceShell>
   );
 }
