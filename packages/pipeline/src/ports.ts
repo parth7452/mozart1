@@ -200,10 +200,27 @@ export interface PipelineStore {
    * idea of what "08/14/2026" means. The store resolves `debtorId` from
    * `retailerName` against the tenant's own debtors and aliases, and never
    * creates a debtor.
+   *
+   * `claimId`, `invoiceNumber`, the amount and the deduction date are also what
+   * the store asks `resolveIdentity` before it creates anything (ADR 0025): an
+   * exact identifier match is a `DuplicateCaseError`, two of them an
+   * `AmbiguousIdentityError`, and a probable one opens the case and says so on
+   * an event. `invoiceNumber` is carried for that question alone — no column
+   * holds it — so a store that does not resolve identity may ignore it.
+   *
+   * `source` is the channel the *notice* arrived through, and it is the source
+   * the `deduction_identifiers` row is written under. It is derived from the
+   * document's own `uploads` row by the caller (`openCaseFromNotice`), never
+   * taken from a route's say-so, for the reason `declineCase` derives
+   * `discovered_from`: a channel credited on a caller's word is a number that
+   * looks right. Absent means the document predates provenance, and then no
+   * identifier row is written rather than one written under a guess.
    */
   openCase(input: {
     orgId: string;
     claimId?: string;
+    invoiceNumber?: string;
+    source?: UploadSource;
     retailerName?: string;
     deductionAmountCents?: number;
     deductionDate?: string;

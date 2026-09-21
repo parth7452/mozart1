@@ -82,9 +82,23 @@ describeDb('the pipeline against a real database', () => {
   const otherOrgId = randomUUID();
   const analystId = randomUUID();
   const otherAnalystId = randomUUID();
+  /**
+   * A third tenant, for the one document that has to be read twice.
+   *
+   * Since ADR 0025 the same claim id arriving twice in one tenant is a
+   * duplicate whether or not a debtor resolved — the identifier catches what
+   * `unique (org_id, debtor_id, claim_id)` never could. The provenance-gap test
+   * needs its own case from the same notice, and identifiers are per org, so it
+   * gets its own tenant rather than a second case nothing should open. Not the
+   * `other` tenant: that one is what "shows another tenant nothing at all"
+   * asks about, and it has to stay empty.
+   */
+  const gapOrgId = randomUUID();
+  const gapAnalystId = randomUUID();
   const slug = `it-${orgId.slice(0, 8)}`;
   let store: PostgresStore;
   let otherStore: PostgresStore;
+  let gapStore: PostgresStore;
   let deps: PipelineDeps;
 
   beforeAll(async () => {
@@ -97,19 +111,30 @@ describeDb('the pipeline against a real database', () => {
       otherOrgId,
       `${slug}-other`,
     ]);
-    await admin.query(`insert into org_settings (org_id) values ($1), ($2)`, [orgId, otherOrgId]);
+    await admin.query(`insert into organizations (id, slug, name) values ($1, $2, 'Gap')`, [
+      gapOrgId,
+      `${slug}-gap`,
+    ]);
+    await admin.query(`insert into org_settings (org_id) values ($1), ($2), ($3)`, [
+      orgId,
+      otherOrgId,
+      gapOrgId,
+    ]);
 
     // Writes need a member with a writer role (migration 0010), so the tenant
     // context carries one — as every real request path does.
-    await admin.query(`insert into users (id, email) values ($1, $2), ($3, $4)`, [
+    await admin.query(`insert into users (id, email) values ($1, $2), ($3, $4), ($5, $6)`, [
       analystId,
       `analyst-${analystId}@example.test`,
       otherAnalystId,
       `analyst-${otherAnalystId}@example.test`,
+      gapAnalystId,
+      `analyst-${gapAnalystId}@example.test`,
     ]);
     await admin.query(
-      `insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst'), ($3, $4, 'analyst')`,
-      [orgId, analystId, otherOrgId, otherAnalystId],
+      `insert into memberships (org_id, user_id, role)
+       values ($1, $2, 'analyst'), ($3, $4, 'analyst'), ($5, $6, 'analyst')`,
+      [orgId, analystId, otherOrgId, otherAnalystId, gapOrgId, gapAnalystId],
     );
 
     store = new PostgresStore(
@@ -119,6 +144,10 @@ describeDb('the pipeline against a real database', () => {
     otherStore = new PostgresStore(
       { connectionString: connectionString as string },
       { orgId: otherOrgId, userId: otherAnalystId },
+    );
+    gapStore = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId: gapOrgId, userId: gapAnalystId },
     );
     deps = {
       store,
@@ -135,6 +164,7 @@ describeDb('the pipeline against a real database', () => {
     await closeAllPools();
     await store?.close();
     await otherStore?.close();
+    await gapStore?.close();
     await admin.end();
   });
 
@@ -356,8 +386,14 @@ describeDb('the pipeline against a real database', () => {
     // every such case with no lines, no totals and a blocking finding — the
     // whole reconciliation lost to one field the reader could not point at.
     const notice = fixtureFor('walmart-apdp-notice.pdf');
+    // In a tenant of its own (see `gapOrgId`): since ADR 0025 the same claim id
+    // arriving twice in one tenant is a duplicate whether or not a debtor
+    // resolved. The same notice under another tenant is a different deduction,
+    // which is what this test needs and what the database says — identifiers
+    // are per org.
     const undated: PipelineDeps = {
       ...deps,
+      store: gapStore,
       extractor: {
         name: 'fixture-undated',
         async extract(document: DocumentPayload, docType: DocType) {
@@ -373,7 +409,7 @@ describeDb('the pipeline against a real database', () => {
     // Different bytes, so this is a new document rather than a dedupe of the
     // notice the suite already uploaded.
     const result = await processUpload(
-      { ...upload(notice), bytes: new Uint8Array([...notice.bytes, 0x0a]) },
+      { ...upload(notice), orgId: gapOrgId, bytes: new Uint8Array([...notice.bytes, 0x0a]) },
       undated,
     );
     const undatedCase = result.case?.deductionId as string;
@@ -385,7 +421,7 @@ describeDb('the pipeline against a real database', () => {
     );
     expect(Number(rows[0]?.n)).toBe(0);
 
-    const reconciliation = await reconcileCase(undatedCase, deps);
+    const reconciliation = await reconcileCase(undatedCase, undated);
     expect(reconciliation?.claimedTotalCents).toBe(312_000);
     expect(reconciliation?.lines).not.toHaveLength(0);
     const said = reconciliation?.findings.find((f) => f.code === 'stored_document_not_typed');

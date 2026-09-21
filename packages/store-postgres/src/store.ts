@@ -19,12 +19,20 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
-import type { CanonicalReasonCode, CaseState, DebtorCandidate } from '@recouple/core-domain';
+import { cents, resolveDebtorId, resolveIdentity, tryParsePrintedDate } from '@recouple/core-domain';
+import type {
+  ArrivalIdentity,
+  CanonicalReasonCode,
+  CaseState,
+  DebtorCandidate,
+  IdentifierKind,
+  KnownDeduction,
+  KnownIdentifier,
+} from '@recouple/core-domain';
 import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
-import { DuplicateCaseError } from '@recouple/pipeline';
+import { AmbiguousIdentityError, DuplicateCaseError } from '@recouple/pipeline';
 import type {
   CaseOutcome,
   CaseRecord,
@@ -58,6 +66,28 @@ import { exactCents } from './workflow';
  * about one store and wrong about the other.
  */
 export { DuplicateCaseError };
+
+/**
+ * The arrival could be more than one of the tenant's deductions, so no case is
+ * opened and a person is asked (ADR 0025 §6). Defined with the steps, for the
+ * same reason `DuplicateCaseError` is.
+ */
+export { AmbiguousIdentityError };
+
+/**
+ * The one sentence a duplicate claim is reported with, wherever it was caught.
+ *
+ * Three things can now catch it — `resolveIdentity` before anything is
+ * inserted, `unique (org_id, debtor_id, claim_id)` on the case, and
+ * `unique (org_id, source, identifier_kind, identifier)` on the identifier —
+ * and a reviewer is told the same thing by all three. Which check fired is our
+ * business; which case already holds the claim is theirs. The wording is
+ * unchanged from ADR 0019's, so nothing that reads it has to learn a second
+ * one.
+ */
+function duplicateCaseMessage(claimId: string, existingDeductionId: string): string {
+  return `claim ${claimId} is already open for this debtor as case ${existingDeductionId}`;
+}
 
 export interface TenantContext {
   readonly orgId: string;
@@ -1252,9 +1282,115 @@ export class PostgresStore
     return rows.map((row) => ({ debtorId: row.id, names: row.names }));
   }
 
+  /**
+   * Every identifier this tenant has recorded, and which deduction each names.
+   *
+   * Read through RLS in the caller's transaction, so it can only ever be this
+   * tenant's (invariant 6), and matched in TypeScript rather than in SQL:
+   * `resolveIdentity` normalises both sides, so an index on the raw column
+   * would not serve the lookup anyway, and one implementation of the fold is
+   * better than a second one written in SQL that would drift from it (ADR 0025,
+   * the choice ADR 0019 §4 made for debtors). A tenant has thousands of these,
+   * not millions; when that stops being true the answer is an expression index
+   * measured against a query somebody has, not guessed at here.
+   */
+  private async knownIdentifiers(client: PoolClient): Promise<KnownIdentifier[]> {
+    const { rows } = await client.query<{
+      deduction_id: string;
+      source: string;
+      identifier_kind: IdentifierKind;
+      identifier: string;
+    }>(
+      `select deduction_id, source, identifier_kind, identifier
+         from deduction_identifiers
+        where org_id = $1`,
+      [this.tenant.orgId],
+    );
+    return rows.map((row) => ({
+      deductionId: row.deduction_id,
+      source: row.source,
+      kind: row.identifier_kind,
+      identifier: row.identifier,
+    }));
+  }
+
+  /**
+   * The deductions an arrival could still be, as far as matching cares.
+   *
+   * A case that is already won, lost, partial or written off is finished: an
+   * arrival that looks like one is a new deduction to open, not a case to hold
+   * for a merge nobody can act on. The identifiers above are *not* filtered
+   * that way — an exact claim-id match on a closed case is the same duplicate
+   * `unique (org_id, debtor_id, claim_id)` has always refused, and it is
+   * refused the same way here.
+   *
+   * The invoice number comes off `deduction_identifiers`, because `deductions`
+   * has no such column: until another source records one, this is empty and the
+   * probable branch simply never fires — which is the correct behaviour, not a
+   * gap. `openCase` deliberately does not write an `invoice_number` identifier
+   * of its own: two deductions taken against one invoice is a real shape (ADR
+   * 0025 §6 names it), and the table's per-source uniqueness would refuse the
+   * second one's case outright.
+   */
+  private async knownOpenDeductions(client: PoolClient): Promise<KnownDeduction[]> {
+    const { rows } = await client.query<{
+      id: string;
+      deduction_amount_cents: string;
+      deduction_date: string | null;
+      debtor_id: string | null;
+      invoice_number: string | null;
+    }>(
+      `select d.id,
+              d.deduction_amount_cents,
+              to_char(d.deduction_date, 'YYYY-MM-DD') as deduction_date,
+              d.debtor_id,
+              (select i.identifier
+                 from deduction_identifiers i
+                where i.org_id = d.org_id
+                  and i.deduction_id = d.id
+                  and i.identifier_kind = 'invoice_number'
+                order by i.first_seen_at asc, i.id asc
+                limit 1) as invoice_number
+         from deductions d
+        where d.org_id = $1
+          and d.state not in ('won', 'lost', 'partial', 'written_off')`,
+      [this.tenant.orgId],
+    );
+    return rows.map((row) => ({
+      deductionId: row.id,
+      amountCents: cents(Number(row.deduction_amount_cents)),
+      ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+      ...(row.deduction_date !== null ? { deductionDate: row.deduction_date } : {}),
+      ...(row.debtor_id !== null ? { debtorId: row.debtor_id } : {}),
+    }));
+  }
+
+  /**
+   * Which deduction this arrival is, if the tenant already holds it.
+   *
+   * Asked *before* anything is inserted, and answered by `resolveIdentity` —
+   * deterministic code with no I/O and no model, because this is the one
+   * operation that can quietly destroy a disputable deduction (ADR 0025 §5).
+   * `undefined` when the arrival names nothing that could match, which saves
+   * two queries on a notice whose claim id was unreadable.
+   */
+  private async resolveArrival(
+    client: PoolClient,
+    arrival: ArrivalIdentity,
+  ): Promise<ReturnType<typeof resolveIdentity> | undefined> {
+    if (arrival.identifiers.length === 0 && arrival.invoiceNumber === undefined) return undefined;
+    return resolveIdentity(
+      arrival,
+      await this.knownIdentifiers(client),
+      await this.knownOpenDeductions(client),
+    );
+  }
+
   async openCase(input: {
     orgId: string;
     claimId?: string;
+    invoiceNumber?: string;
+    source?: UploadSource;
     retailerName?: string;
     deductionAmountCents?: number;
     deductionDate?: string;
@@ -1269,6 +1405,46 @@ export class PostgresStore
         input.retailerName === undefined
           ? undefined
           : resolveDebtorId(input.retailerName, await this.debtorCandidates(client));
+
+      // Is this a deduction we already have? Asked before anything is created,
+      // because the two failures are not symmetric: a second case for one
+      // deduction is visible and the money is still disputable, a wrong merge
+      // is not (ADR 0025). An exact identifier match is the same refusal
+      // `unique (org_id, debtor_id, claim_id)` gives — and that constraint
+      // stays, as the last line of defence behind this.
+      const amountCents =
+        input.deductionAmountCents !== undefined &&
+        Number.isSafeInteger(input.deductionAmountCents) &&
+        input.deductionAmountCents > 0
+          ? cents(input.deductionAmountCents)
+          : undefined;
+      const resolution = await this.resolveArrival(client, {
+        identifiers:
+          input.claimId !== undefined && input.claimId.trim() !== ''
+            ? [{ kind: 'claim_id', identifier: input.claimId }]
+            : [],
+        ...(input.invoiceNumber !== undefined ? { invoiceNumber: input.invoiceNumber } : {}),
+        ...(amountCents !== undefined ? { amountCents } : {}),
+        ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
+        ...(debtorId !== undefined ? { debtorId } : {}),
+      });
+
+      if (resolution?.kind === 'exact') {
+        throw new DuplicateCaseError(
+          duplicateCaseMessage(input.claimId ?? resolution.matchedOn.identifier, resolution.deductionId),
+          resolution.deductionId,
+          input.claimId ?? resolution.matchedOn.identifier,
+        );
+      }
+      if (resolution?.kind === 'ambiguous') {
+        throw new AmbiguousIdentityError(
+          `this arrival matches ${resolution.deductionIds.length} cases on ` +
+            `${resolution.basis.join(', ')} — ${resolution.deductionIds.join(', ')} — ` +
+            'and which one it is, if it is either, is a question for a person',
+          resolution.deductionIds,
+          resolution.basis,
+        );
+      }
 
       // A failed statement aborts the whole transaction, and the lookup that
       // explains the failure is itself a statement. The savepoint is what lets
@@ -1298,6 +1474,55 @@ export class PostgresStore
       await client.query('release savepoint before_open_case');
       const row = rows[0];
       if (row === undefined) throw new Error('insert into deductions returned no row');
+
+      // The claim id, said in the place every later source will say its own
+      // name (ADR 0025). Same transaction as the `deductions` row on purpose:
+      // a case whose identifier was written by a second statement that did not
+      // run is a case the next arrival cannot match against, and the arrival is
+      // the thing that would then be duplicated. Verbatim, never normalised —
+      // comparison normalises, storage does not (§4).
+      //
+      // No source, no row: `deduction_identifiers.source` is not nullable and
+      // the only documents that cannot name one are those stored before
+      // provenance existed (ADR 0024). `openCaseFromNotice` records that on
+      // `case.discovered` rather than filing the identifier under a guessed
+      // channel.
+      if (input.claimId !== undefined && input.claimId.trim() !== '' && input.source !== undefined) {
+        await client.query('savepoint before_identifier');
+        try {
+          await client.query(
+            `insert into deduction_identifiers
+               (org_id, deduction_id, source, identifier_kind, identifier)
+             values ($1, $2, $3, 'claim_id', $4)`,
+            [input.orgId, row.id, input.source, input.claimId],
+          );
+        } catch (error) {
+          // `unique (org_id, source, identifier_kind, identifier)` — which the
+          // resolution above should already have caught, so getting here means
+          // two arrivals raced. It is the same duplicate, and it is reported
+          // the same way rather than as a driver error.
+          await client.query('rollback to savepoint before_identifier');
+          throw await this.explainDuplicateIdentifier(client, error, input.claimId, input.source);
+        }
+        await client.query('release savepoint before_identifier');
+      }
+
+      // Probable, never merged: losing a deduction is the worse error, so the
+      // case opens and the pair is named for a reviewer (ADR 0025 §6). The
+      // basis names which facts agreed and never their values — document text
+      // does not go on an event (invariant 4).
+      if (resolution?.kind === 'probable') {
+        await client.query(
+          `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+           values ($1, $2, 'case.possible_duplicate', $3::jsonb, now())`,
+          [
+            input.orgId,
+            row.id,
+            JSON.stringify({ of: resolution.deductionId, basis: resolution.basis }),
+          ],
+        );
+      }
+
       return {
         deductionId: row.id,
         orgId: input.orgId,
@@ -1341,11 +1566,35 @@ export class PostgresStore
     );
     const existing = rows[0]?.id;
     if (existing === undefined) return error;
-    return new DuplicateCaseError(
-      `claim ${claimId} is already open for this debtor as case ${existing}`,
-      existing,
-      claimId,
+    return new DuplicateCaseError(duplicateCaseMessage(claimId, existing), existing, claimId);
+  }
+
+  /**
+   * The same, for the identifier table's own unique constraint.
+   *
+   * Reachable only by a race — `resolveIdentity` has already looked and found
+   * nothing — and a race that lands here is still the same fact: this claim id,
+   * from this source, is already a case. Reported with the same class and the
+   * same sentence, so a reviewer cannot tell which of the three checks caught
+   * it and does not need to.
+   */
+  private async explainDuplicateIdentifier(
+    client: PoolClient,
+    error: unknown,
+    claimId: string,
+    source: UploadSource,
+  ): Promise<unknown> {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code !== '23505') return error;
+    const { rows } = await client.query<{ deduction_id: string }>(
+      `select deduction_id from deduction_identifiers
+        where org_id = $1 and source = $2 and identifier_kind = 'claim_id' and identifier = $3
+        limit 1`,
+      [this.tenant.orgId, source, claimId],
     );
+    const existing = rows[0]?.deduction_id;
+    if (existing === undefined) return error;
+    return new DuplicateCaseError(duplicateCaseMessage(claimId, existing), existing, claimId);
   }
 
   async linkDocument(

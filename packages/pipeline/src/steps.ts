@@ -70,6 +70,31 @@ export class DuplicateCaseError extends Error {
 }
 
 /**
+ * The arrival looks like more than one deduction we already hold, and choosing
+ * between them is not ours to do (ADR 0025 §6).
+ *
+ * Beside `DuplicateCaseError` for the same reason: it is part of the
+ * `PipelineStore.openCase` contract rather than of any one store. Two matches
+ * count as none — the rule `resolveDebtorId` applies to debtors — because the
+ * two failures are not symmetric. A duplicate case is visible and the money is
+ * still disputable; a wrong merge destroys a disputable deduction quietly, and
+ * post-audit claims reach back about two years. So the case is not opened and
+ * the candidates are named, for a person.
+ */
+export class AmbiguousIdentityError extends Error {
+  constructor(
+    message: string,
+    /** Every case the arrival could be. Ids only — never what agreed. */
+    readonly deductionIds: readonly string[],
+    /** Which facts agreed (`'claim_id'`, `'invoice_number'`), never their values. */
+    readonly basis: readonly string[],
+  ) {
+    super(message);
+    this.name = 'AmbiguousIdentityError';
+  }
+}
+
+/**
  * A caller named a case to attach this document to, and that case is not one
  * this tenant can see.
  *
@@ -859,10 +884,23 @@ export async function openCaseFromNotice(
   // no case — but the reason goes on the event rather than on the floor.
   const deductionDate = printedDate(extraction.document, 'deduction_date');
   const disputeDeadline = printedDate(extraction.document, 'dispute_deadline');
+  // No column holds the invoice number; it is carried so the store can ask
+  // whether this is a deduction we already have (ADR 0025 §6 — invoice number
+  // *and* amount *and* date, never one of them alone).
+  const invoiceNumber = fieldValue(extraction.document, ['invoice_number', 'value']);
+  // Which door the notice came through, asked of the database rather than
+  // assumed. It is the `source` the identifier is recorded under, and a
+  // document stored before provenance existed answers `undefined` — which is an
+  // answer, not a default (ADR 0024).
+  const source = await deps.store.uploadSourceFor(document.documentId);
 
   const opened = await deps.store.openCase({
     orgId: document.orgId,
     ...(typeof claimId === 'string' ? { claimId } : {}),
+    ...(typeof invoiceNumber === 'string' && invoiceNumber.trim() !== ''
+      ? { invoiceNumber }
+      : {}),
+    ...(source !== undefined ? { source } : {}),
     ...(retailer.name !== undefined ? { retailerName: retailer.name } : {}),
     ...(total !== undefined ? { deductionAmountCents: total } : {}),
     ...(deductionDate.date !== undefined ? { deductionDate: deductionDate.date } : {}),
@@ -883,6 +921,13 @@ export async function openCaseFromNotice(
       debtor_id: opened.debtorId ?? null,
       deduction_date: deductionDate.date ?? null,
       dispute_deadline: disputeDeadline.date ?? null,
+      // A claim id we could not record as an identifier, because nothing says
+      // which channel the notice arrived through and `deduction_identifiers`
+      // is source-qualified. Said out loud rather than filed under a guessed
+      // channel: only documents stored before provenance existed land here.
+      ...(typeof claimId === 'string' && source === undefined
+        ? { claim_identifier_unrecorded: 'the notice names no arrival, so no source could be given' }
+        : {}),
       ...(retailer.problem !== undefined ? { retailer_name_unread: retailer.problem } : {}),
       ...(deductionDate.problem !== undefined
         ? { deduction_date_unread: deductionDate.problem }
