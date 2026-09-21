@@ -26,10 +26,11 @@ export const INVARIANTS: readonly Invariant[] = [
   {
     id: 2,
     title:
-      'Append-only truth: *_events, documents and audit_log take INSERT and SELECT only. Corrections are new events.',
+      'Append-only truth: *_events, documents, uploads, decisions, approvals and audit_log take INSERT and SELECT only. Corrections are new events — except on uploads, where documents.upload_id is itself immutable, so a second arrival row is one nothing joins to and a wrong channel is a migration-backed decision (ADR 0024).',
     enforcedBy: [
       'postgres: revoked UPDATE/DELETE grants + app.block_mutations() trigger',
       'supabase/tests/01_append_only.sql',
+      'supabase/tests/14_an_arrival_is_a_fact.sql',
     ],
   },
   {
