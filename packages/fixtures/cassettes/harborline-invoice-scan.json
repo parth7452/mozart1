@@ -1,0 +1,136 @@
+{
+  "key": "harborline-invoice-scan",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "invoice_number": {
+      "value": "HF-20418",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Number: HF-20418"
+    },
+    "invoice_date": {
+      "value": "08/01/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Date: 08/01/2026"
+    },
+    "po_number": {
+      "value": "7741-88203",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Purchase Order: 7741-88203"
+    },
+    "customer_name": {
+      "value": "Walmart Stores, Inc.",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Bill To: Walmart Stores, Inc."
+    },
+    "invoice_total": {
+      "value": "$18,720.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Total: $18,720.00"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "000-4471-08",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-08"
+        },
+        "qty": {
+          "value": 30,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "30"
+        },
+        "unit_cost": {
+          "value": "$624.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$624.00"
+        },
+        "extended_amount": {
+          "value": "$18,720.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$18,720.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:14:53.854Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4949,
+    "outputTokens": 511,
+    "costMicros": 15008,
+    "latencyMs": 4776
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "HARBORLINE FOODS LLC\nINVOICE\nInvoice Number: HF-20418\nInvoice Date: 08/01/2026\nBill To: Walmart Stores, Inc.\nPurchase Order: 7741-88203\n<table><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Extended</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>30</td><td>$624.00</td><td>$18,720.00</td></tr></table>\nInvoice Total: $18,720.00\nTerms: Net 60"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "HARBORLINE FOODS LLC\nINVOICE",
+        "page": 1,
+        "bbox": [
+          0.055389404318379125,
+          0.07308926745291029,
+          0.23168630346025454,
+          0.10187191466480605
+        ],
+        "kind": "Title",
+        "confidence": 0.8443122178316116
+      },
+      {
+        "text": "Invoice Number: HF-20418\nInvoice Date: 08/01/2026\nBill To: Walmart Stores, Inc.\nPurchase Order: 7741-88203",
+        "page": 1,
+        "bbox": [
+          0.05573233374330501,
+          0.1174003053877614,
+          0.3133450734862341,
+          0.18373667929855328
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9804319381713867
+      },
+      {
+        "text": "<table><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Extended</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td>30</td><td>$624.00</td><td>$18,720.00</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.05800294220190544,
+          0.18739400788710472,
+          0.6834958190791085,
+          0.23373101874019048
+        ],
+        "kind": "Table",
+        "confidence": 0.9060081094503403
+      },
+      {
+        "text": "Invoice Total: $18,720.00\nTerms: Net 60",
+        "page": 1,
+        "bbox": [
+          0.061276359428740934,
+          0.24614722216832158,
+          0.28335433662359744,
+          0.2809304919439852
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8985451459884644
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 5638
+  }
+}
