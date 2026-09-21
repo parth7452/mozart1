@@ -127,7 +127,10 @@ begin
              select oid from pg_constraint
               where conrelid = 'document_classifications'::regclass
                 and conname = 'document_classifications_doc_type_check')),
-           '''([a-z_]+)''::text', 'g') as t(m);
+           -- Digits too: `edi_812` is a channel today and a plausible type
+           -- tomorrow, and a pattern that silently skipped it would read as a
+           -- constraint that does not admit it.
+           '''([a-z0-9_]+)''::text', 'g') as t(m);
   perform test.ok(
     admitted = (select array_agg(x order by x) from unnest(doc_types) as u(x)),
     'and the values it admits are exactly the twelve, read back from pg_constraint');

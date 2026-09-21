@@ -38,7 +38,9 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * 1. the sets are equal, read off `pg_constraint` — so adding a thirteenth type
  *    to the code without a migration fails CI, before production;
  * 2. a type the database will not take raises `ClassificationRefusedError`
- *    rather than a driver error nothing can tell apart from an outage;
+ *    rather than a driver error nothing can tell apart from an outage — and the
+ *    *other* check constraint on the table, which raises the same SQLSTATE,
+ *    does not get that name put on it;
  * 3. a read that ends that way records exactly one set of model calls, because
  *    what it cost is true whether or not it finished, and it is not paid for a
  *    second time.
@@ -187,7 +189,10 @@ describeDb('the document types the database admits', () => {
     // cannot speak about — say so rather than passing vacuously.
     expect(def, 'document_classifications_doc_type_check exists').toBeDefined();
 
-    const admitted = [...(def as string).matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]);
+    // Digits too: `edi_812` is a channel today and a plausible type tomorrow,
+    // and a pattern that silently skipped it would fail as though the
+    // constraint did not admit it.
+    const admitted = [...(def as string).matchAll(/'([a-z0-9_]+)'::text/g)].map((m) => m[1]);
 
     // Set equality, asserted in both directions separately so a failure says
     // which way the drift went — they are different bugs with different fixes.
@@ -240,6 +245,33 @@ describeDb('the document types the database admits', () => {
       [documentId],
     );
     expect(Number(rows[0]?.n), 'and nothing was stored').toBe(0);
+  });
+
+  it('does not call a confidence out of range a doc-type drift', async () => {
+    // The other check constraint on this table, raising the same SQLSTATE.
+    // Nothing validates a confidence at runtime before the insert —
+    // `ClassificationResult` is an interface, and the only clamp lives in the
+    // Claude classifier — so a second classifier answering 1.4 or NaN reaches
+    // here. Translating every 23514 would report that as "DOC_TYPES and the
+    // constraint have drifted" and send somebody to widen a constraint that is
+    // not the one that refused the row.
+    const documentId = await aDocument();
+    const refusal = store.recordClassification(documentId, 'correspondence', 2);
+
+    await expect(refusal).rejects.toThrow();
+    await expect(refusal).rejects.not.toBeInstanceOf(ClassificationRefusedError);
+    // It comes through as what it is, and it is still a 23514 that
+    // `asJobFailure`'s bare-code branch will not retry.
+    await expect(refusal).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'document_classifications_confidence_check',
+    });
+
+    // And the doc type on that same insert is a perfectly good one, so nothing
+    // about it was the problem.
+    await expect(
+      store.recordClassification(documentId, 'correspondence', 0.9),
+    ).resolves.toBeUndefined();
   });
 
   it('records one set of model calls for a read the database refuses, and one only', async () => {
