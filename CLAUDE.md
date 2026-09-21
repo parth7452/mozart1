@@ -482,6 +482,27 @@ back-fills nothing; who asserted it, when and why stay on the `document_arrivals
 row, in `uploads.created_by` and on the case's `document.provenance_recorded`
 event, because the column is for counting and those are for auditing.
 
+**The database knows every document type the reader does** (ADR 0025, migration
+0020). `DOC_TYPES` had twelve values and migration 0004's check constraint
+listed eleven, so a dispatch-note JPEG classified `correspondence` — the type a
+waiver or an approved reschedule arrives as — was OCR'd, classified, extracted
+and then refused at the read's last statement. The refusal arrived as a driver
+error nothing recognised, so the queue retried it: four reads, one document, no
+case. The constraint now names all twelve;
+`packages/store-postgres/test/doc-types.test.ts` reads it out of `pg_constraint`
+and asserts set equality with `DOC_TYPES` in both directions, so a thirteenth
+type is a two-file change CI insists on, and
+`supabase/tests/16_every_document_type.sql` proves each of the twelve actually
+inserts and that the table is no less append-only than it was. A refusal is now
+a typed
+`ClassificationRefusedError` — a document id and one of twelve constants, never
+text off the page — and `asJobFailure` maps it, and any bare SQLSTATE 23514, to
+`NonRetriableError`: a check constraint answers the same every time, and on
+this path a retry costs three model calls to hear it again. All three calls are
+recorded before the first row the database can refuse, so the extraction — the
+expensive one, previously written on the far side of the statement that raised —
+is no longer the read least visible in `model_calls`.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

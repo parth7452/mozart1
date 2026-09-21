@@ -24,7 +24,7 @@ import type { CanonicalReasonCode, CaseState, DebtorCandidate } from '@recouple/
 import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
-import { DuplicateCaseError } from '@recouple/pipeline';
+import { ClassificationRefusedError, DuplicateCaseError } from '@recouple/pipeline';
 import type {
   CaseOutcome,
   CaseRecord,
@@ -1078,17 +1078,43 @@ export class PostgresStore
     });
   }
 
+  /**
+   * What the classifier said, written down — or a named refusal when the
+   * database will not have it.
+   *
+   * 23514 on this insert means one thing: `doc_type` is not a value
+   * `document_classifications_doc_type_check` admits, because that constraint
+   * and the column's `confidence between 0 and 1` are the only two on the
+   * table, and a confidence outside that range is caught by
+   * `ClassificationResult` long before here. Either way it is settled — a
+   * check constraint answers the same on every attempt — and the caller that
+   * most needs to know that is the queue, which would otherwise pay for the
+   * OCR, the classification and the extraction three more times to be told the
+   * same thing (ADR 0025).
+   *
+   * Nothing is swallowed: the insert still fails, and it fails with more
+   * information than the driver gave, not less. The driver's own message quotes
+   * the offending row, so it is neither carried into the new message nor
+   * chained as `cause` (invariant 4).
+   */
   async recordClassification(
     documentId: string,
     docType: DocType,
     confidence: number,
   ): Promise<void> {
     await this.withTenant(async (client) => {
-      await client.query(
-        `insert into document_classifications (org_id, document_id, doc_type, confidence)
-         values ($1, $2, $3, $4)`,
-        [this.tenant.orgId, documentId, docType, confidence],
-      );
+      try {
+        await client.query(
+          `insert into document_classifications (org_id, document_id, doc_type, confidence)
+           values ($1, $2, $3, $4)`,
+          [this.tenant.orgId, documentId, docType, confidence],
+        );
+      } catch (error) {
+        if (sqlState(error) === '23514') {
+          throw new ClassificationRefusedError(documentId, docType);
+        }
+        throw error;
+      }
     });
   }
 

@@ -148,6 +148,13 @@ export interface PipelineStore {
   recordScan(documentId: string, verdict: ScanVerdict): Promise<void>;
   latestScan(documentId: string): Promise<ScanVerdict | undefined>;
 
+  /**
+   * Writes down what the classifier said this document is.
+   *
+   * Raises {@link ClassificationRefusedError} when the database refuses the
+   * type — see that class for why a store is expected to translate rather than
+   * let the driver's error through.
+   */
   recordClassification(
     documentId: string,
     docType: DocType,
@@ -307,6 +314,42 @@ export interface UnreadDocumentsStore {
  * for. A screen, not a database dump.
  */
 export const UNREAD_DOCUMENTS_MAX_LIMIT = 200;
+
+/**
+ * The database refused the document type a classifier answered with.
+ *
+ * This is not a fault in the document and not a transient one. It means the
+ * list of types the reader may answer with and the list the database will
+ * store have drifted apart, and the answer will be the same on every retry.
+ * That mattered: `correspondence` was in `DOC_TYPES` and not in migration
+ * 0004's check constraint, and because the failure arrived as a driver error
+ * that nothing recognised, the queue retried it three times — re-running OCR,
+ * classification and extraction, and paying for each, to be told the same thing
+ * four times over (ADR 0025).
+ *
+ * So a store translates it here rather than letting `error.code === '23514'`
+ * travel, and `asJobFailure` in `apps/web/lib/inngest.ts` turns it into a
+ * `NonRetriableError`.
+ *
+ * What it carries is an id and one of the twelve constants of `DOC_TYPES` —
+ * a closed set, not text off the page — so the message is safe to log and safe
+ * to hand to the queue (invariant 4). The driver's own message, which quotes
+ * the offending value, is not carried and is not chained: `cause` would take it
+ * along with the rest of the row.
+ */
+export class ClassificationRefusedError extends Error {
+  constructor(
+    readonly documentId: string,
+    readonly docType: DocType,
+  ) {
+    super(
+      `the database refused doc type ${docType} for document ${documentId}: ` +
+        'it is not one the document_classifications check constraint admits. ' +
+        'DOC_TYPES and that constraint have drifted (ADR 0025)',
+    );
+    this.name = 'ClassificationRefusedError';
+  }
+}
 
 /**
  * `unreadDocuments` was asked a question it will not answer.

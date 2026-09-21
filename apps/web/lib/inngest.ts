@@ -3,6 +3,7 @@ import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
 import {
   CaseNotFoundError,
+  ClassificationRefusedError,
   DuplicateCaseError,
   InvalidJobPayloadError,
   readDocumentJob,
@@ -429,6 +430,17 @@ export function readDocumentFunction(client: Inngest, context: JobContext) {
  * the row it names was visible. Three tries and then a failure somebody can see
  * is the right answer to a document that really is not there.
  *
+ * **A row the database refused on its contents is settled too**, and this is
+ * the group's most expensive member. A check constraint gives the same answer
+ * every time, and the read reaches one only after OCR, classification and
+ * extraction have all been paid for: `correspondence` was in `DOC_TYPES` and
+ * not in migration 0004's constraint, the failure arrived as a driver error
+ * nothing here recognised, and one dispatch-note JPEG was read and billed four
+ * times before the run gave up (ADR 0025). Two branches catch it — the typed
+ * `ClassificationRefusedError` a store raises for exactly this, and a bare
+ * SQLSTATE 23514 from anywhere else on the read, because there is no check
+ * constraint on this path whose verdict a retry could change.
+ *
  * **What the message says.** The class name and the ids this job already holds,
  * and never the original message. `DuplicateCaseError` interpolates the claim id
  * — which is text off the page — and an extractor's error can quote the page
@@ -449,7 +461,9 @@ export function asJobFailure(
     error instanceof InvalidJobPayloadError ||
     error instanceof CaseNotFoundError ||
     error instanceof DuplicateCaseError ||
-    error instanceof UnscannedDocumentError;
+    error instanceof UnscannedDocumentError ||
+    error instanceof ClassificationRefusedError ||
+    isCheckConstraintViolation(error);
 
   const name = error instanceof Error ? error.name : typeof error;
   const caseId =
@@ -459,13 +473,41 @@ export function asJobFailure(
         ? error.deductionId
         : undefined;
 
+  // A doc type is one of twelve constants, not text off the page, so it may be
+  // said — and it is the one thing that makes this failure actionable without
+  // opening the platform's logs: it names the value the database would not
+  // take, which is the value missing from the constraint.
+  const refusedType = error instanceof ClassificationRefusedError ? error.docType : undefined;
+
   const message =
     `${name} reading document ${ids.documentId} for org ${ids.orgId}` +
-    (caseId !== undefined ? ` (case ${caseId})` : '');
+    (caseId !== undefined ? ` (case ${caseId})` : '') +
+    (refusedType !== undefined ? ` (doc type ${refusedType} refused by the database)` : '');
 
   console.error(`[recouple] read job failed: ${message}`, error);
 
   return settled ? new NonRetriableError(message) : new Error(message);
+}
+
+/**
+ * A Postgres CHECK constraint refused the row: SQLSTATE 23514.
+ *
+ * The net under `ClassificationRefusedError`, for a violation raised somewhere
+ * a store has not translated. Retrying it cannot help — a check constraint is a
+ * pure function of the row, and the row will be the same one in thirty seconds
+ * — and on this path a retry is another OCR, another classification and another
+ * extraction (ADR 0025).
+ *
+ * Read structurally off the driver's error rather than by matching its message,
+ * so nothing here depends on the wording of a sentence that quotes the offending
+ * row. Duck-typed rather than `instanceof DatabaseError` because this file must
+ * not import `pg`: the class it would compare against is the one bundled with
+ * whichever copy of the driver the store resolved, and an `instanceof` across
+ * two copies is quietly false.
+ */
+function isCheckConstraintViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === '23514';
 }
 
 function requireId(value: unknown, field: string): string {
