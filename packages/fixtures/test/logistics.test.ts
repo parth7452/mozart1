@@ -98,6 +98,9 @@ describe('every suite reaches the recorder and the eval gate', () => {
     const suites = new Set(everyDocument().map((d) => d.suite));
     expect([...suites].sort()).toEqual([
       'authored',
+      // Authored, and deliberately not in `authored`: it has no cassette, and a
+      // suite's baseline row is a count of documents that were scored.
+      'authored_pending',
       'customer',
       'dense',
       'email_body',

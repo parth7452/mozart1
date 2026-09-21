@@ -199,6 +199,43 @@ const PO_TARGET = {
   ],
 };
 
+/**
+ * A deduction taken against the invoice as a whole: one line, and no item to
+ * name on it. `sku_upc` is `absent()` here for the same reason every other
+ * optional field is — the document does not carry it — and that is exactly the
+ * shape that has to survive being written to the store and read back, because
+ * a field with a null value gets no `extraction_results` row at all.
+ */
+const NOTICE_OAKRIDGE_PREMIUM = {
+  retailer_name: f('Oakridge Manufacturing Co.', 'OAKRIDGE MANUFACTURING CO.'),
+  vendor_number: f('NS-4412', 'Vendor Number: NS-4412'),
+  claim_id: f('SP-4417', 'Claim Number: SP-4417'),
+  invoice_number: f('NS-260914', 'Invoice Number: NS-260914'),
+  po_number: absent(),
+  store_or_dc: absent(),
+  gln: absent(),
+  asn_number: absent(),
+  lines: [
+    {
+      sku_upc: absent(),
+      description: f('Weekend shift premium, unauthorised', 'Weekend shift premium, unauthorised'),
+      qty_invoiced: absent(),
+      qty_received: absent(),
+      unit_cost: absent(),
+      deduction_amount: f('$1,275.00', '$1,275.00'),
+      reason_code: f('PREMIUM-NOAUTH', 'PREMIUM-NOAUTH'),
+      reason_description: f(
+        'Premium hours billed without prior written authorisation',
+        'PREMIUM-NOAUTH: Premium hours billed without prior written authorisation',
+      ),
+    },
+  ],
+  deduction_total: f('$1,275.00', 'Total Short Paid: $1,275.00'),
+  deduction_date: f('09/14/2026', 'Deduction Date: 09/14/2026'),
+  dispute_deadline: f('10/14/2026', 'Dispute Deadline: 10/14/2026'),
+  remittance_or_check: f('ACH-771902', 'Payment Reference: ACH-771902'),
+};
+
 export const EXPECTED_EXTRACTIONS: Readonly<Record<string, unknown>> = {
   'walmart-apdp-notice': NOTICE_WALMART,
   'walmart-po': PO_WALMART,
@@ -208,6 +245,7 @@ export const EXPECTED_EXTRACTIONS: Readonly<Record<string, unknown>> = {
   'unsigned-pod': POD_UNSIGNED,
   'target-price-notice': NOTICE_TARGET,
   'target-po': PO_TARGET,
+  'oakridge-premium-notice': NOTICE_OAKRIDGE_PREMIUM,
 };
 
 export function expectedExtraction(document: FixtureDocument): unknown {
