@@ -215,7 +215,7 @@ export interface ReadDocumentJobResult {
    * Empty for every other document — including a remittance that short-paid
    * nothing over the tenant's floor. `deductionId` stays null for a remittance
    * on purpose: one advice opens many cases, and naming one of them as *the*
-   * case would be a choice the document did not make (ADR 0026).
+   * case would be a choice the document did not make (ADR 0028).
    */
   readonly remittanceCases: readonly string[];
 }

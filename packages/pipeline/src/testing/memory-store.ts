@@ -336,7 +336,7 @@ export class InMemoryStore
       deductionId: randomUUID(),
       state: 'discovered',
       // The column's default, modelled: a case that does not say how it was
-      // discovered was discovered by a notice, because until ADR 0026 there was
+      // discovered was discovered by a notice, because until ADR 0028 there was
       // no other way. A store that left it undefined would let a test pass on a
       // case shape Postgres cannot produce.
       discoveredVia: 'notice',
@@ -351,7 +351,7 @@ export class InMemoryStore
   /**
    * The tenant's remittance floor and dedup window.
    *
-   * Defaulted to migration 0021's own defaults, and writable, because the whole
+   * Defaulted to migration 0022's own defaults, and writable, because the whole
    * subject of a tolerance test is what happens on each side of it.
    */
   readonly remittanceSettingsByOrg = new Map<string, RemittanceSettings>();

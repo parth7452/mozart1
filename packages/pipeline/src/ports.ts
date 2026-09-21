@@ -196,7 +196,7 @@ export interface CaseRecord {
   readonly disputeDeadline?: string;
   /**
    * What kind of document named this deduction. `'notice'` for every case
-   * opened before ADR 0026, which is what the column's default says too.
+   * opened before ADR 0028, which is what the column's default says too.
    */
   readonly discoveredVia?: DiscoveredVia;
   /**

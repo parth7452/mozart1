@@ -56,7 +56,7 @@ is asymmetric on purpose: an exact identifier match resolves, a probable one is
 held for a person, and nothing else merges. That is the mechanism this change's
 dedup has to be built out of rather than beside, and §6 is where it is.
 
-**ADR 0026 / `detectShortPays` — the *other* short-pay detector.**
+**`detectShortPays` — the *other* short-pay detector.**
 `packages/core-domain/src/short-pay.ts` also finds short-pays, over a customer's
 own **ledger** (Phase 1.5): an invoice for $100,000 against which $92,000
 arrived. This one reads a **document the customer sent us**. They will

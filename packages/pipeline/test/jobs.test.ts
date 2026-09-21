@@ -663,7 +663,7 @@ describe('two deliveries of the same document at the same time', () => {
       'docType',
       'haltedBecause',
       'documentId',
-      // Case ids, for a remittance that opened many (ADR 0026). Ids only, like
+      // Case ids, for a remittance that opened many (ADR 0028). Ids only, like
       // every other key here — the invoice numbers a remittance read produced
       // stay on the cases and the events, which are not a third party's run
       // history.
