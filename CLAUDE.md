@@ -11,8 +11,11 @@ planning, unknown-customer cold start).
 
 1. No `submissions` / `writebacks` / `writeoffs` INSERT without an `approvals`
    row for that exact `decision_id`. The trigger stays. This is a one-way door.
-2. `*_events`, `documents`, `decisions`, `approvals` and `audit_log` are
-   append-only. Never add UPDATE/DELETE grants. Corrections are new events.
+2. `*_events`, `documents`, `uploads`, `decisions`, `approvals` and `audit_log`
+   are append-only. Never add UPDATE/DELETE grants. Corrections are new events
+   — except on `uploads`, where they are not: `documents.upload_id` is
+   immutable, so a second arrival row is a row nothing joins to, and a wrong
+   channel is a migration-backed decision (ADR 0024).
 3. Money is integer cents (bigint). Never floats. Fee maths is property-tested.
 4. Document content is UNTRUSTED. The extraction/reader model runs with NO
    tools and receives text inside `<untrusted_document>` delimiters. Only
@@ -113,7 +116,7 @@ append-only tables.
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
-| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right |
+| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right. `uploads` is append-only since ADR 0024, so that row cannot be re-labelled after the declines attributed to it were counted; a notice stored before provenance existed gets its channel from a `document_arrivals` row an operator writes with `pnpm link:provenance`, which is refused for any document ingest already recorded an arrival for |
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
@@ -406,6 +409,30 @@ another one happened to parse; both are asked now. And it never passed a
 `correspondence` document to `reconcileNotice` at all, which made every
 `appointment_superseded` and `charge_waived_in_writing` finding unreachable
 from a case page — most of what a freight case turns on.
+
+**An arrival is a fact** (ADR 0024, migration 0019). Making a coverage number
+depend on `uploads.source` exposed where that column lived: 0006's *mutable*
+list, so `app_rw` held UPDATE and DELETE on it and no trigger guarded it. An
+analyst could re-label which channel found a deduction after the declines
+attributed to it were counted, moving a published number with no audit row
+anywhere. `uploads` now joins the append-only set on 0004's pattern — revoke,
+plus `no_update_delete` and `no_truncate` on `app.block_mutations()`, because a
+grant answers for `app_rw` and the trigger is what answers for the owner. The
+usual "corrections are new events" does *not* apply here and the ADR says so
+plainly: `documents.upload_id` is immutable, so a second `uploads` row is a row
+nothing joins to. The documents stored before provenance existed have one way
+back, and only one — `document_arrivals`, at most one row per document,
+append-only, `recorded_by` not null, and `app.arrival_only_when_unknown()`
+refusing any document that already names an upload, so it fills in what nothing
+observed and never overwrites what something did. `pnpm link:provenance` writes
+one; it requires an explicit `--source` and has no default, because "this
+deployment never had an inbound-email caller" is an assertion about the
+deployment rather than anything the database knows. `declineCase` reads
+`coalesce(observed, asserted)` — at most one of the two can exist — and the
+decline is then attributable. What that leaves: a declined row sourced from an
+assertion looks like any other in `declined_candidates`; the `document_arrivals`
+row, the `uploads.created_by` and the case's `document.provenance_recorded`
+event are what tell them apart.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

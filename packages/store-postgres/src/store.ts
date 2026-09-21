@@ -257,6 +257,67 @@ export function isDeclineReason(value: unknown): value is DeclineReason {
 }
 
 /**
+ * The channels an operator may assert for a document stored before provenance
+ * was recorded.
+ *
+ * The three `IngestSource` names, and not the full six, because this is only
+ * ever asked about a document that is *already in the database with no arrival
+ * on it* — and the only doors that existed while such a document could be
+ * stored are the web upload and the two email ones. `erp_sync`, `portal_fetch`
+ * and `edi_812` are Phases 1.5, 2 and 2.5: when they land they write an
+ * `uploads` row at ingest like every other path, so a document of theirs never
+ * reaches this table. Offering them here would be offering an operator a
+ * channel that could not have delivered the bytes they are looking at.
+ */
+export const ASSERTABLE_SOURCES: readonly IngestSource[] = ['web_upload', 'email_in', 'email_body'];
+
+export function isAssertableSource(value: unknown): value is IngestSource {
+  return typeof value === 'string' && (ASSERTABLE_SOURCES as readonly string[]).includes(value);
+}
+
+/**
+ * Raised when a document already says how it arrived.
+ *
+ * `recordDocumentArrival` fills in what nothing knows; it never overwrites what
+ * something does. Two different things reach here and the caller is told which,
+ * because they mean different things to whoever ran the script: `origin:
+ * 'ingest'` is a document the pipeline recorded an arrival for, which is the
+ * normal case and means there was nothing to repair; `origin: 'asserted'` is a
+ * document somebody already recorded an arrival for by hand, which means the
+ * run is a repeat and the first answer stands.
+ *
+ * The database refuses both regardless — `app.arrival_only_when_unknown()` for
+ * the first, `unique (document_id)` for the second (ADR 0024 §3). This class is
+ * how the store says so before spending a round trip on being refused.
+ */
+export class ArrivalAlreadyRecordedError extends Error {
+  constructor(
+    readonly documentId: string,
+    readonly origin: 'ingest' | 'asserted',
+    readonly uploadId: string,
+  ) {
+    super(
+      origin === 'ingest'
+        ? `document ${documentId} already records arrival ${uploadId} from ingest`
+        : `document ${documentId} already has an arrival asserted for it (${uploadId})`,
+    );
+    this.name = 'ArrivalAlreadyRecordedError';
+  }
+}
+
+/** An arrival supplied after the fact, and what it was written against. */
+export interface DocumentArrival {
+  readonly arrivalId: string;
+  readonly documentId: string;
+  readonly uploadId: string;
+  readonly source: IngestSource;
+  readonly recordedBy: string;
+  readonly detail?: string;
+  /** The cases the document is attached to, each of which got an event. */
+  readonly deductionIds: readonly string[];
+}
+
+/**
  * The evidence a decline can say was missing.
  *
  * Unlike `reason`, `declined_candidates.missing_evidence` is an unconstrained
@@ -320,14 +381,16 @@ export class AlreadyDeclinedError extends Error {
  *
  * Or the case **predates provenance recording**: its notice was stored before
  * `ingestDocument` wrote an `uploads` row, so `documents.upload_id` is null and
- * nothing in the database says which channel found it. This one is not fixable
- * from here, and the message says so rather than implying somebody could go and
- * record it. `documents` is append-only — migration 0004 revokes UPDATE from
- * `app_rw` and puts a `before update` trigger on the table for everyone else —
- * and `uploads` has no column pointing back at a document. There is therefore
- * no way to attach an arrival to bytes already stored without a migration, and
- * a backfill script was not written for exactly that reason: it would have had
- * nowhere honest to write. See docs/STATE-OF-PLAY.md.
+ * nothing in the database says which channel found it. That used to be a dead
+ * end — `documents` is append-only, so `upload_id` cannot be filled in
+ * afterwards, and `uploads` has no column pointing back at a document — and the
+ * message said so. Migration 0019 is the migration it was waiting for: a
+ * `document_arrivals` row, written once, by a named person, with the channel
+ * typed out rather than defaulted, and refused outright for any document that
+ * already says how it arrived (ADR 0024 §3). `pnpm link:provenance` is how one
+ * is written, and this refusal names it — as an operator's job, not the
+ * reviewer's, because asserting a channel that nothing observed is a decision
+ * somebody signs.
  */
 export class ProvenanceUnknownError extends Error {
   constructor(
@@ -694,6 +757,199 @@ export class PostgresStore
         [documentId],
       );
       return rows[0]?.source;
+    });
+  }
+
+  /**
+   * Records, after the fact, which channel a pre-provenance document came
+   * through (ADR 0024 §3).
+   *
+   * `documents.upload_id` is set by `ingestDocument` and has been since
+   * 2026-09-21. The rows stored before that have it null and nothing anywhere
+   * says how they arrived, so `declineCase` refuses their cases rather than
+   * attributing a decline to a guess — and migration 0019 freezes `uploads`,
+   * which closes the last lever that could have papered over it. This is the
+   * one way back, and it is built to be an assertion rather than an invention:
+   *
+   * - the `source` is an argument, typed by an operator at the point of use and
+   *   never defaulted, because the fact that would justify a value ("this
+   *   deployment has never had an inbound-email caller") is an assertion about
+   *   the deployment and not a derivation from anything here;
+   * - `recordedBy` is stored, so the assertion has a name on it for as long as
+   *   the row exists;
+   * - and it never overwrites. A document that already says how it arrived is
+   *   refused here, and refused again by the database if this check is ever
+   *   raced past.
+   *
+   * The `uploads` row's `received_at` is the document's own `created_at`
+   * rather than `now()`: when the bytes were stored is a fact this database
+   * holds and is the closest thing it has to when they arrived, whereas `now()`
+   * would be a statement about when somebody ran a script, recorded in a column
+   * that means something else.
+   *
+   * One transaction: the arrival, the mapping, and a `document.provenance_recorded`
+   * event on every case the document is attached to — so a case's own timeline
+   * says its provenance was supplied by a person on a date, rather than reading
+   * as though it had been there all along.
+   *
+   * @throws {ArrivalAlreadyRecordedError} the document already records an
+   *   arrival, from ingest or from an earlier assertion. Nothing is written.
+   */
+  async recordDocumentArrival(input: {
+    readonly documentId: string;
+    readonly source: IngestSource;
+    readonly recordedBy: string;
+    readonly detail?: string;
+  }): Promise<DocumentArrival> {
+    if (!isAssertableSource(input.source)) {
+      // Before anything is written, and named. The column would take any of the
+      // six `uploads.source` admits; only three of them could have delivered a
+      // document that is already stored with no arrival on it.
+      throw new Error(
+        `${JSON.stringify(input.source)} is not a channel an arrival can be asserted from ` +
+          `(${ASSERTABLE_SOURCES.join(', ')})`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      // No `for update` on the document: `app_rw` holds no UPDATE on
+      // `documents` (0004), so asking for a row lock there would be refused
+      // outright. Two operators racing on the same document are separated by
+      // `unique (document_id)` on `document_arrivals` instead — the second gets
+      // a duplicate-key error rather than a second arrival — which is the same
+      // rule that makes the assertion write-once in the first place.
+      const { rows: docRows } = await client.query<{
+        upload_id: string | null;
+        created_at: Date | string;
+      }>(
+        `select d.upload_id, d.created_at from documents d where d.id = $1`,
+        [input.documentId],
+      );
+      const document = docRows[0];
+      if (document === undefined) {
+        throw new Error(`document ${input.documentId} is not visible to this tenant`);
+      }
+      if (document.upload_id !== null) {
+        throw new ArrivalAlreadyRecordedError(input.documentId, 'ingest', document.upload_id);
+      }
+
+      const { rows: existing } = await client.query<{ upload_id: string }>(
+        `select upload_id from document_arrivals where document_id = $1`,
+        [input.documentId],
+      );
+      const asserted = existing[0];
+      if (asserted !== undefined) {
+        throw new ArrivalAlreadyRecordedError(input.documentId, 'asserted', asserted.upload_id);
+      }
+
+      const { rows: uploadRows } = await client.query<{ id: string }>(
+        `insert into uploads (org_id, source, created_by, received_at)
+         values ($1, $2, $3, $4)
+         returning id`,
+        [this.tenant.orgId, input.source, input.recordedBy, document.created_at],
+      );
+      const uploadId = uploadRows[0]?.id;
+      if (uploadId === undefined) throw new Error('insert into uploads returned no row');
+
+      const { rows: arrivalRows } = await client.query<{ id: string }>(
+        `insert into document_arrivals
+           (org_id, document_id, upload_id, recorded_by, detail)
+         values ($1, $2, $3, $4, $5)
+         returning id`,
+        [
+          this.tenant.orgId,
+          input.documentId,
+          uploadId,
+          input.recordedBy,
+          input.detail ?? null,
+        ],
+      );
+      const arrivalId = arrivalRows[0]?.id;
+      if (arrivalId === undefined) throw new Error('insert into document_arrivals returned no row');
+
+      // Every case the document is on, not only the ones where it is the
+      // notice: a decline reads the notice, but a reviewer looking at any case
+      // this document is attached to should see that somebody supplied its
+      // provenance rather than find the channel having changed silently.
+      const { rows: caseRows } = await client.query<{ deduction_id: string }>(
+        `select distinct deduction_id from deduction_documents
+          where document_id = $1 order by deduction_id`,
+        [input.documentId],
+      );
+      for (const row of caseRows) {
+        await client.query(
+          `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+           values ($1, $2, 'document.provenance_recorded', $3::jsonb, now())`,
+          [
+            this.tenant.orgId,
+            row.deduction_id,
+            JSON.stringify({
+              document_id: input.documentId,
+              upload_id: uploadId,
+              arrival_id: arrivalId,
+              source: input.source,
+              recorded_by: input.recordedBy,
+              // Said in the event itself, so a reader of the timeline does not
+              // have to know that `document_arrivals` exists to know that this
+              // channel was supplied rather than observed.
+              asserted_after_the_fact: true,
+              ...(input.detail !== undefined ? { detail: input.detail } : {}),
+            }),
+          ],
+        );
+      }
+
+      return {
+        arrivalId,
+        documentId: input.documentId,
+        uploadId,
+        source: input.source,
+        recordedBy: input.recordedBy,
+        ...(input.detail !== undefined ? { detail: input.detail } : {}),
+        deductionIds: caseRows.map((row) => row.deduction_id),
+      };
+    });
+  }
+
+  /**
+   * The documents of this tenant that record no arrival at all.
+   *
+   * What `pnpm link:provenance` lists before it asserts anything, and what it
+   * walks with `--all-unrecorded`. Ordered oldest first, because these are by
+   * definition the oldest documents here and an operator reading the list is
+   * reading a history.
+   */
+  async documentsWithoutArrival(): Promise<
+    readonly {
+      readonly documentId: string;
+      readonly filename: string;
+      readonly createdAt: string;
+      readonly deductionIds: readonly string[];
+    }[]
+  > {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        filename: string;
+        created_at: Date | string;
+        deduction_ids: string[] | null;
+      }>(
+        `select d.id,
+                coalesce(d.filename, '') as filename,
+                d.created_at,
+                (select array_agg(distinct dd.deduction_id::text)
+                   from deduction_documents dd where dd.document_id = d.id) as deduction_ids
+           from documents d
+           left join document_arrivals da on da.document_id = d.id
+          where d.upload_id is null and da.id is null
+          order by d.created_at asc, d.id asc`,
+      );
+      return rows.map((row) => ({
+        documentId: row.id,
+        filename: row.filename,
+        createdAt:
+          typeof row.created_at === 'string' ? row.created_at : row.created_at.toISOString(),
+        deductionIds: row.deduction_ids ?? [],
+      }));
     });
   }
 
@@ -1926,12 +2182,17 @@ export class PostgresStore
    * default: a case whose notice records no arrival raises
    * {@link ProvenanceUnknownError} instead of being counted under a guess.
    *
+   * Since ADR 0024 the channel is read as `coalesce(observed, asserted)`: the
+   * `uploads` row the notice names, or — for a notice stored before ingest
+   * recorded arrivals — the one an operator supplied through
+   * `document_arrivals`. At most one of the two can exist for a document, so
+   * that is a read of whichever is there rather than a precedence rule.
+   *
    * @throws {ProvenanceUnknownError} the case has no notice, or its notice has
-   *   no `uploads` row to say which channel found it. The second of those is a
-   *   case that predates provenance recording, and it stays undeclinable until
-   *   a migration gives an already-stored document somewhere to record its
-   *   arrival — `documents` is append-only, so `upload_id` cannot be filled in
-   *   now.
+   *   nothing — observed or asserted — to say which channel found it. The
+   *   second of those is a case that predates provenance recording; it becomes
+   *   declinable once somebody records how its notice arrived with
+   *   `pnpm link:provenance`, and not before.
    */
   async declineCase(input: {
     deductionId: string;
@@ -1981,6 +2242,17 @@ export class PostgresStore
       // "refuses when the earliest notice predates provenance, even though a
       // later one records a channel" in `decline-case.test.ts` keeps it from
       // being quietly relaxed into "the earliest notice that knows".
+      //
+      // `coalesce(observed, asserted)` since ADR 0024: a document ingest
+      // recorded an arrival for answers from `documents.upload_id`, and one
+      // stored before provenance existed answers from the `document_arrivals`
+      // row an operator supplied with `pnpm link:provenance`. Observed first,
+      // and the order is not a preference — the database refuses a
+      // `document_arrivals` row for a document that already has an
+      // `upload_id`, so at most one of the two is ever non-null and the
+      // `coalesce` is reading whichever exists rather than choosing between
+      // them. `unique (document_id)` means the extra join multiplies nothing,
+      // so which notice is picked is exactly what it was.
       const { rows: caseRows } = await client.query<{
         amount: string;
         notice_document_id: string | null;
@@ -1991,10 +2263,13 @@ export class PostgresStore
                 notice.source as discovered_from
            from deductions d
            left join lateral (
-             select doc.id as document_id, u.source
+             select doc.id as document_id,
+                    coalesce(u.source, au.source) as source
                from deduction_documents dd
                join documents doc on doc.id = dd.document_id
                left join uploads u on u.id = doc.upload_id
+               left join document_arrivals da on da.document_id = doc.id
+               left join uploads au on au.id = da.upload_id
               where dd.deduction_id = d.id and dd.role = 'notice'
               order by doc.created_at asc, doc.id asc
               limit 1
@@ -2050,15 +2325,16 @@ export class PostgresStore
             ? 'it has no notice document, so nothing on it says which channel found this deduction'
             : // Said plainly, and said as a dead end, because it is one. The
               // notice is there and its `uploads` row is not, which can only
-              // mean it was stored before ingest recorded arrivals. Nobody can
-              // put that right from the outside: `documents` is append-only, so
-              // `upload_id` cannot be filled in afterwards, and `uploads` has no
-              // way to point at a document instead. A message that said "record
-              // how it arrived" would send somebody looking for a button that
-              // cannot exist yet.
+              // mean it was stored before ingest recorded arrivals. Nothing a
+              // reviewer can do on a case page changes that — `documents` is
+              // append-only, so `upload_id` cannot be filled in afterwards —
+              // but since ADR 0024 there is one thing an *operator* can do, and
+              // naming it is the difference between a dead end and a job. It is
+              // deliberately not phrased as something the reader can do
+              // themselves: asserting a channel is a decision with a name on it.
               `its notice document ${found.notice_document_id} records no arrival. This case ` +
-              'predates provenance recording; it cannot be declined until a migration adds a ' +
-              'way to record its arrival',
+              'predates provenance recording; an operator can record how it arrived with ' +
+              '`pnpm link:provenance` (ADR 0024) and it can be declined after that',
           found.notice_document_id ?? undefined,
         );
       }

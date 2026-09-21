@@ -325,11 +325,12 @@ describe('declining a case from the web', () => {
     expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
     expect(said(response)).toMatch(/was not declined/);
     // And it says which of the two refusals this is, because they ask
-    // different things of the reader. This one is the dead end: the notice is
-    // there, its arrival was never recorded, and `documents` is append-only so
-    // nobody can record it now.
+    // different things of the reader. This one is the notice whose arrival was
+    // never recorded: nothing on this page can set `upload_id`, so the sentence
+    // does not offer the reviewer a button — it says an operator can record it
+    // (ADR 0024) and the case can be declined afterwards.
     expect(said(response)).toMatch(/predates provenance recording/);
-    expect(said(response)).toMatch(/until a migration adds a way to record its arrival/);
+    expect(said(response)).toMatch(/recorded by an operator/);
     // Not the sentence for the other fault, which would send them to attach a
     // notice that is already attached.
     expect(said(response)).not.toMatch(/Attach the notice/);
