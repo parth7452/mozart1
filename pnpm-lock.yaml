@@ -125,9 +125,17 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.3)(tsx@4.23.13)(yaml@2.9.1)
 
-  packages/adapters: {}
+  packages/adapters:
+    dependencies:
+      '@recouple/core-domain':
+        specifier: workspace:*
+        version: link:../core-domain
 
-  packages/core-domain: {}
+  packages/core-domain:
+    dependencies:
+      '@recouple/adapters':
+        specifier: workspace:*
+        version: link:../adapters
 
   packages/decision:
     dependencies:
