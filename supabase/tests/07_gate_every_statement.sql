@@ -31,8 +31,14 @@ begin
   set role app_rw;
   perform test.as_member(org, analyst);
 
-  insert into submissions (org_id, deduction_id, decision_id, channel)
-    values (org, ded, dec, 'manual_portal') returning id into sub;
+  -- Complete when written: migration 0018 refuses a manual filing that does not
+  -- say what went out, under what reference and when, because 0017 froze those
+  -- three columns and a row written blank could never be completed (ADR 0023).
+  insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                           confirmation_number, submitted_at)
+    values (org, ded, dec, 'manual_portal', digest('filed packet', 'sha256'),
+            'APDP-70001', now())
+    returning id into sub;
   perform test.ok(sub is not null, 'an approved submission is filed');
 
   -- The hole this suite exists for: the gate used to cover INSERT only, so a

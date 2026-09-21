@@ -76,8 +76,13 @@ begin
     values (org, dec, approver, 'submit');
   set role app_rw;
   perform test.as_member(org, analyst);
-  insert into submissions (org_id, deduction_id, decision_id, channel)
-    values (org, ded, dec, 'manual_portal');
+  -- Complete when written (ADR 0023, migration 0018): a manual filing names the
+  -- packet that went out, the reference that came back and the date it was
+  -- filed. Coverage counts a filed case; this is what one looks like.
+  insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                           confirmation_number, submitted_at)
+    values (org, ded, dec, 'manual_portal', digest('filed packet', 'sha256'),
+            'APDP-10001', now());
 
   select coverage_of_seen into coverage from coverage_by_period where org_id = org;
   perform test.ok(coverage > 0 and coverage < 1,
