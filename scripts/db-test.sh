@@ -22,10 +22,19 @@ fi
 
 psql_run() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q --no-psqlrc -f "$1"; }
 
-echo "== migrations"
-for f in "$ROOT"/supabase/migrations/*.sql; do
-  echo "-- $(basename "$f")"
-  psql_run "$f"
+# Every migration is applied twice, in order, and the second pass has to be a
+# no-op. Re-running is not a hypothetical: the suites are gated on a database
+# that already carries the schema, Supabase re-applies against a branch, and
+# `create or replace` / `if not exists` is what every migration here is written
+# with. A migration that is only safe the first time now fails on the spot
+# rather than the next time somebody points db:test at a database that has it.
+echo "== migrations (applied twice: they are idempotent, and this is where that is proved)"
+for pass in 1 2; do
+  echo "-- pass $pass"
+  for f in "$ROOT"/supabase/migrations/*.sql; do
+    echo "--   $(basename "$f")"
+    psql_run "$f"
+  done
 done
 
 echo "== harness"
