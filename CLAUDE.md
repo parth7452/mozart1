@@ -1,11 +1,31 @@
 # recouple — deductions agent platform (AI-written code touches money paths)
 
-A deterministic, human-gated document workflow for recovering invalid customer
-deductions — staffing and logistics first, retail CPG as upside. Not an
-autonomous agent: ingest → classify → plan evidence → decide → assemble packet
-→ **a human approves and submits** → record outcome → invoice the contingency
-fee. Agentic loops are reserved for exactly two bounded steps (evidence
-planning, unknown-customer cold start).
+A deterministic, human-gated document workflow for recovering invalid deductions:
+money a payer withholds from an invoice with a coded reason attached. Not an
+autonomous agent: ingest → classify → plan evidence → decide → assemble packet →
+**a human approves and submits** → record outcome → invoice the contingency fee.
+Agentic loops are reserved for exactly two bounded steps (evidence planning,
+unknown-payer cold start).
+
+**The engine is payer-agnostic; the go-to-market is not.** Who deducts — a
+broadline distributor, a retailer, a shipper — is versioned playbook data, never
+code: `reason-codes.ts` is the canonical taxonomy and a payer's own codes map
+into it. The current beachhead is foodservice manufacturers selling through
+broadline distributors (Sysco, US Foods, PFG, Gordon): manufacturer chargebacks,
+deviated-pricing billbacks, OS&D, shelf-life and swell allowances, validated
+against a promotional deal calendar. That is a focus decision still under
+discovery, not an architectural one. **No code should assume it.**
+
+Two things about that market do bind the code:
+
+- **Multi-tenancy is a product surface, not only hygiene.** Foodservice
+  manufacturers outsource deduction resolution to broker and sales agencies, so
+  one customer can hold many manufacturers' cases. `org_id` plus RLS is what
+  makes that one contract rather than many installs.
+- **Provenance is the post-audit defense.** Post-audit claims reach back about
+  two years. A packet whose every number traces to a verbatim quote on a stored
+  page, hash-chained, is what survives one — which is why invariant 2 is
+  append-only and why quote verification runs before a human sees a field.
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 
@@ -168,19 +188,19 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Five recorded suites and three waiting on cassettes, every one of them scored
+Six recorded suites and two waiting on cassettes, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
 | --- | --- | --- | --- | --- |
-| authored | does the pipeline work | 100% | 100% | 8/8 |
-| held_out | does it generalise | 100% | 100% | 12/12 |
-| scanned | does it survive a scan | 100% | 98.4% | 4/4 |
-| dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
-| email_body | does it work with no page at all | 100% | 100% | 1/1 |
+| authored | does the pipeline work | 100% / 100% | 100% | 8/8 |
+| held_out | does it generalise | 100% / 100% | 100% | 12/12 |
+| scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
+| dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
+| email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
+| logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | not yet recorded | — | — |
-| logistics | does the argument hold across a whole case | not yet recorded | — | — |
 | customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -199,7 +219,22 @@ baseline is being compared against. Record with
 `pnpm record:cassettes --suite customer` (it spends money), then
 `pnpm eval --record-baseline`.
 
-About $0.021 per document across 26 of them. Extraction streams with a 32,000
+Classification is 39/39. The two misses in the corpus are both the same field
+pair on one document: `commitments[0].supersedes` and `.establishes` on the
+LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
+revision 2 replaces revision 1" and the model reports the change in prose
+instead of the identifiers. Its scanned twin returns null for both rather than
+the wrong answer, which is the better failure of the two.
+
+The `scanned` suite was four documents until 2026-09-21, three of them deduction
+notices, and the renderer stamped a fake "RECEIVED" box on every one — added
+content that contradicted the ground truth each scan inherits from its source.
+`carrier-bol-scan` classified `pod` four recordings running because of it. The
+stamp is gone, the suite is twelve documents spanning nine document types, and
+a single flip now costs 8 points rather than 25.
+
+About $0.0235 per document across 39 of them, and 311 of 821 fields carry a
+bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
 than storing a truncated document as a complete one.

@@ -16,6 +16,7 @@ apps/web/preview
 apps/web/next-env.d.ts
 apps/web/.env.local
 
+# Isolated agent worktrees (Claude Code); never committed
 # Worktrees Claude Code opens inside the repository it is working in. They are
 # checkouts, not sources.
 .claude/worktrees/

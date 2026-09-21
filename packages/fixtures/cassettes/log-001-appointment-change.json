@@ -1,0 +1,265 @@
+{
+  "key": "log-001-appointment-change",
+  "docType": "correspondence",
+  "classifiedAs": "correspondence",
+  "classifierConfidence": 0.95,
+  "document": {
+    "message_reference": {
+      "value": "MSG-BSC-0811-338",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Message ID: MSG-BSC-0811-338"
+    },
+    "sent_at": {
+      "value": "August 11, 2026, 2:05 PM Eastern",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Sent: August 11, 2026, 2:05 PM Eastern"
+    },
+    "sender": {
+      "value": "Maya Chen <transport@brookfieldsupply.example>",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "From: Maya Chen <transport@brookfieldsupply.example>"
+    },
+    "sender_organisation": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Brookfield Supply Co. | Transportation message export"
+    },
+    "recipient": {
+      "value": "Evan Brooks <dispatch@alderfreight.example>",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "To: Evan Brooks <dispatch@alderfreight.example>"
+    },
+    "subject": {
+      "value": "Approved reschedule - LD-260812-77 / AP-BSC-771",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Subject: Approved reschedule - LD-260812-77 / AP-BSC-771"
+    },
+    "references": [
+      {
+        "label": {
+          "value": "Effective revision",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "AP-BSC-771 revision 2"
+        },
+        "value": {
+          "value": "AP-BSC-771 revision 2",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "AP-BSC-771 revision 2"
+        }
+      },
+      {
+        "label": {
+          "value": "Linked load / PO",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        },
+        "value": {
+          "value": "LD-260812-77 / PO-BSC-8841",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        }
+      },
+      {
+        "label": {
+          "value": "Export reference",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Export reference: MSG-BSC-0811-338"
+        },
+        "value": {
+          "value": "MSG-BSC-0811-338",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Export reference: MSG-BSC-0811-338"
+        }
+      },
+      {
+        "label": {
+          "value": "Compensation reference",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "RC-771"
+        },
+        "value": {
+          "value": "RC-771",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        }
+      }
+    ],
+    "commitments": [
+      {
+        "commitment_text": {
+          "value": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "effective_at": {
+          "value": "August 13, 2026 at 2:00 PM Eastern",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "supersedes": {
+          "value": "August 12",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "Our Richmond receiving dock will be unavailable for the original August 12 appointment due to\nscheduled dock maintenance."
+        },
+        "establishes": {
+          "value": "August 13, 2026 at 2:00 PM Eastern delivery",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "attributed_to": {
+          "value": "customer-requested",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "This is a customer-requested change."
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "Appointment AP-BSC-771 revision 2 replaces revision 1.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "effective_at": {
+          "value": "August 13, 2026, 2:00 PM Eastern",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Revised appointment\nAugust 13, 2026, 2:00 PM Eastern"
+        },
+        "supersedes": {
+          "value": "revision 1",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "establishes": {
+          "value": "AP-BSC-771 revision 2",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "attributed_to": {
+          "value": "customer-requested",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "This is a customer-requested change."
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "No carrier late-delivery charge applies for moving delivery to this revised appointment.",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "No\ncarrier late-delivery charge applies for moving delivery to this revised appointment."
+        },
+        "effective_at": {
+          "value": "August 13, 2026, 2:00 PM Eastern",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "Revised appointment\nAugust 13, 2026, 2:00 PM Eastern"
+        },
+        "supersedes": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "waives_charge": {
+          "value": true,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "No\ncarrier late-delivery charge applies for moving delivery to this revised appointment."
+        },
+        "attributed_to": {
+          "value": "customer-requested",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "This is a customer-requested change."
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "The agreed $4,800.00 compensation under RC-771 remains unchanged.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        },
+        "effective_at": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "supersedes": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        },
+        "attributed_to": {
+          "value": "null",
+          "confidence": 0.3,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T04:58:53.656Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5085,
+    "outputTokens": 2725,
+    "costMicros": 37420,
+    "latencyMs": 18392
+  }
+}

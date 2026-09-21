@@ -10,6 +10,12 @@
       "source_page": 1,
       "source_quote": "Summit Basket Retail"
     },
+    "vendor_number": {
+      "value": "NSP-1048",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Supplier account: NSP-1048"
+    },
     "claim_id": {
       "value": "DN-2609-003",
       "confidence": 0.98,
@@ -18,19 +24,37 @@
     },
     "invoice_number": {
       "value": "INV-260803",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260803"
     },
     "po_number": {
       "value": "PO-SBR-6631",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-SBR-6631"
     },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "deduction_total": {
       "value": "$2,000.00",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "$2,000.00"
     },
@@ -40,9 +64,15 @@
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-07"
     },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "remittance_or_check": {
       "value": "RA-2609-003",
-      "confidence": 0.95,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-003"
     },
@@ -58,7 +88,13 @@
           "value": "assorted snack bars",
           "confidence": 0.8,
           "source_page": 1,
-          "source_quote": "Products: assorted snack bars, SKU family NS-300."
+          "source_quote": "Products: assorted snack\nbars, SKU family NS-300."
+        },
+        "unit_cost": {
+          "value": "null",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": ""
         },
         "deduction_amount": {
           "value": "$2,000.00",
@@ -74,7 +110,7 @@
         },
         "reason_description": {
           "value": "Customer deducted an 8% promotional allowance from the full invoice for a summer feature event.",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "Customer deducted an 8% promotional allowance from the full invoice for a summer feature event."
         },
@@ -89,53 +125,17 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
-        },
-        "unit_cost": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
         }
       }
-    ],
-    "vendor_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "store_or_dc": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "dispute_deadline": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    }
+    ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:49:15.323Z",
+  "recordedAt": "2026-09-20T17:54:47.367Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4956,
-    "outputTokens": 743,
-    "costMicros": 17342,
-    "latencyMs": 6130
+    "inputTokens": 5099,
+    "outputTokens": 1090,
+    "costMicros": 21098,
+    "latencyMs": 8304
   }
 }

@@ -54,13 +54,13 @@
     },
     "dispute_deadline": {
       "value": "11/07/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Dispute Deadline: 11/07/2026"
     },
     "remittance_or_check": {
       "value": "09/08/2026",
-      "confidence": 0.5,
+      "confidence": 0.6,
       "source_page": 1,
       "source_quote": "Please see the deduction below, taken against your remittance of 09/08/2026."
     },
@@ -70,7 +70,7 @@
           "value": "000-4471-08",
           "confidence": 0.98,
           "source_page": 1,
-          "source_quote": "000-4471-08"
+          "source_quote": "000-4471-08    Case Pack Olive Oil       48     40      $62.40      $499.20"
         },
         "description": {
           "value": "Case Pack Olive Oil",
@@ -80,13 +80,13 @@
         },
         "qty_invoiced": {
           "value": 48,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "48"
         },
         "qty_received": {
           "value": 40,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "40"
         },
@@ -98,13 +98,13 @@
         },
         "deduction_amount": {
           "value": "$499.20",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$499.20"
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Reason Code 24 — Shortage on receipt"
         },
@@ -120,7 +120,7 @@
           "value": "000-4471-22",
           "confidence": 0.98,
           "source_page": 1,
-          "source_quote": "000-4471-22"
+          "source_quote": "000-4471-22    Case Pack Balsamic        24     24      $41.10        $0.00"
         },
         "description": {
           "value": "Case Pack Balsamic",
@@ -130,13 +130,13 @@
         },
         "qty_invoiced": {
           "value": 24,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "24"
         },
         "qty_received": {
           "value": 24,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "24"
         },
@@ -180,12 +180,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T19:56:38.645Z",
+  "recordedAt": "2026-09-20T17:57:39.137Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 2707,
-    "outputTokens": 1508,
-    "costMicros": 20494,
-    "latencyMs": 10112
+    "inputTokens": 2850,
+    "outputTokens": 1627,
+    "costMicros": 21970,
+    "latencyMs": 11583
   }
 }

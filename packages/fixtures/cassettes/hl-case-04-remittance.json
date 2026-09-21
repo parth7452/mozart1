@@ -26,7 +26,7 @@
       "value": "$8,880.00",
       "confidence": 0.95,
       "source_page": 1,
-      "source_quote": "Net payment\n$8,880.00"
+      "source_quote": "Net payment $8,880.00"
     },
     "lines": [
       {
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:49:36.299Z",
+  "recordedAt": "2026-09-20T17:55:07.464Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4352,
-    "outputTokens": 524,
-    "costMicros": 13944,
-    "latencyMs": 4540
+    "outputTokens": 522,
+    "costMicros": 13924,
+    "latencyMs": 4229
   }
 }

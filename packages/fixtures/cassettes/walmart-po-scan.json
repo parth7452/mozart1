@@ -1,0 +1,124 @@
+{
+  "key": "walmart-po-scan",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "document": {
+    "po_number": {
+      "value": "7741-88203",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Number: 7741-88203"
+    },
+    "po_date": {
+      "value": "07/28/2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Date: 07/28/2026"
+    },
+    "buyer_name": {
+      "value": "Walmart Stores, Inc.",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Buyer: Walmart Stores, Inc."
+    },
+    "ship_to": {
+      "value": "DC 6094 - Sanger, TX",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Ship To: DC 6094 - Sanger, TX"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "000-4471-08",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "000-4471-08"
+        },
+        "qty_ordered": {
+          "value": 30,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "30"
+        },
+        "unit_cost": {
+          "value": "$624.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$624.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:14:42.061Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4908,
+    "outputTokens": 411,
+    "costMicros": 13926,
+    "latencyMs": 4310
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "WALMART STORES, INC.\nPURCHASE ORDER\nPO Number: 7741-88203\nPO Date: 07/28/2026\nBuyer: Walmart Stores, Inc.\nShip To: DC 6094 - Sanger, TX\nSupplier: Harborline Foods LLC (Vendor 481207)\n<table><tr><th>Item</th><th>Description</th><th>Qty</th><th>Ordered</th><th>Unit Cost</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td></td><td>30</td><td>$624.00</td></tr></table>\nTotal PO Value: $18,720.00"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "WALMART STORES, INC.\nPURCHASE ORDER",
+        "page": 1,
+        "bbox": [
+          0.07709300081091411,
+          0.05960603696970066,
+          0.2544050012665011,
+          0.08726709771865362
+        ],
+        "kind": "Text",
+        "confidence": 0.6793251782655716
+      },
+      {
+        "text": "PO Number: 7741-88203\nPO Date: 07/28/2026\nBuyer: Walmart Stores, Inc.\nShip To: DC 6094 - Sanger, TX\nSupplier: Harborline Foods LLC (Vendor 481207)",
+        "page": 1,
+        "bbox": [
+          0.07340473103151476,
+          0.10628287199523868,
+          0.48495311062281865,
+          0.18983469615883425
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9754303932189942
+      },
+      {
+        "text": "<table><tr><th>Item</th><th>Description</th><th>Qty</th><th>Ordered</th><th>Unit Cost</th></tr><tr><td>000-4471-08</td><td>Case Pack Olive Oil</td><td></td><td>30</td><td>$624.00</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.07157935005637381,
+          0.20186292009698464,
+          0.6466868601392474,
+          0.2409450114133604
+        ],
+        "kind": "Table",
+        "confidence": 0.9070244640111924
+      },
+      {
+        "text": "Total PO Value: $18,720.00",
+        "page": 1,
+        "bbox": [
+          0.07375480397757045,
+          0.25244314521177913,
+          0.30489053603196126,
+          0.26600381169365805
+        ],
+        "kind": "Text",
+        "confidence": 0.73455491065979
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 6909
+  }
+}

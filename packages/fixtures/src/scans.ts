@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { authoredDocuments, type FixtureDocument } from './cases';
 import { corpusDocuments } from './corpus';
+import { logisticsDocuments } from './logistics';
+import { denseDocuments } from './dense';
 
 const scanDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scans');
 
@@ -30,6 +32,14 @@ export const SCAN_TARGETS: Readonly<Record<string, string>> = {
   'carrier-bol': 'rotated 2.1°, JPEG quality 55, heavier speckle',
   'hl-case-01-notice': 'rotated −2.3°, JPEG quality 60',
   'hl-case-06-notice': 'rotated 1.7°, JPEG quality 50, heaviest degradation',
+  'walmart-po': 'rotated 1.1°, JPEG quality 64',
+  'harborline-invoice': 'rotated −1.9°, JPEG quality 58',
+  'unsigned-pod': 'rotated 2.4°, JPEG quality 52, heavier speckle',
+  'hl-case-03-remittance': 'rotated −0.9°, JPEG quality 66',
+  'crosswind-dense-remittance': 'rotated 1.5°, JPEG quality 54, 42 rows',
+  'log-001-rate-confirmation': 'rotated −2.1°, JPEG quality 60',
+  'log-001-appointment-change': 'rotated 1.8°, JPEG quality 57',
+  'log-001-proof-of-delivery': 'rotated −1.2°, JPEG quality 62',
 };
 
 let cache: readonly FixtureDocument[] | undefined;
@@ -43,7 +53,14 @@ let cache: readonly FixtureDocument[] | undefined;
 export function scannedDocuments(): readonly FixtureDocument[] {
   if (cache !== undefined) return cache;
   const sources = new Map(
-    [...authoredDocuments(), ...corpusDocuments()].map((d) => [d.key, d] as const),
+    [
+      ...authoredDocuments(),
+      ...corpusDocuments(),
+      ...logisticsDocuments(),
+      ...denseDocuments(),
+    ].map(
+      (d) => [d.key, d] as const,
+    ),
   );
 
   cache = Object.keys(SCAN_TARGETS).flatMap((sourceKey) => {
