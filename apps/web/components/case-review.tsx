@@ -174,6 +174,26 @@ export function CaseReview({
                 )}{' '}
                 · {money(summary.deductionAmountCents)} deducted
               </h2>
+              {/* What the document printed about this deduction beyond its
+                  amount. A remittance-line case has both (ADR 0028); a notice
+                  case has the invoice where its notice printed one. Both are
+                  untrusted text, shown as printed and never mapped — turning a
+                  payer's code into a canonical one is playbook data. */}
+              {summary.invoiceNumber === undefined &&
+              summary.reasonCodeAsPrinted === undefined ? null : (
+                <p className="mono" style={{ marginTop: -6 }}>
+                  {summary.invoiceNumber === undefined
+                    ? null
+                    : `invoice ${summary.invoiceNumber}`}
+                  {summary.invoiceNumber !== undefined &&
+                  summary.reasonCodeAsPrinted !== undefined
+                    ? ' · '
+                    : null}
+                  {summary.reasonCodeAsPrinted === undefined
+                    ? null
+                    : `code ${summary.reasonCodeAsPrinted}`}
+                </p>
+              )}
               {primary === undefined ? (
                 <p className="empty">No document has been read for this case yet.</p>
               ) : (

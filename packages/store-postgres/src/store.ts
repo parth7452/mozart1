@@ -222,6 +222,23 @@ export interface CaseSummary {
    * (ADR 0019).
    */
   readonly retailerNameAsPrinted?: string;
+  /**
+   * What kind of document named this deduction (ADR 0028). `'notice'` for every
+   * case opened before that, which is what the column's default says too.
+   */
+  readonly discoveredVia: DiscoveredVia;
+  /**
+   * The invoice this deduction was taken against, as the document printed it.
+   *
+   * Read back from `deduction_identifiers` rather than from a column on the
+   * case: a deduction's names live there (ADR 0025), and a second copy here
+   * would be the one a view showed while the matcher read the other. The
+   * earliest one wins where a case carries more than one, so the list does not
+   * change when the planner does.
+   */
+  readonly invoiceNumber?: string;
+  /** The reason code exactly as printed, never mapped (playbook data, Phase 2). */
+  readonly reasonCodeAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
 }
@@ -533,6 +550,9 @@ interface CaseSummaryRow {
   debtor_name: string | null;
   retailer_key: string | null;
   retailer_name_as_printed: string | null;
+  discovered_via: DiscoveredVia;
+  invoice_number: string | null;
+  reason_code_as_printed: string | null;
   document_count: number;
 }
 
@@ -2599,8 +2619,17 @@ export class PostgresStore
       const { rows } = await client.query<CaseSummaryRow>(
         `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
                 d.deduction_date, d.dispute_deadline, d.created_at,
-                d.retailer_name_as_printed,
+                d.retailer_name_as_printed, d.discovered_via, d.reason_code_as_printed,
                 b.display_name as debtor_name, b.retailer_key,
+                -- The invoice, from the table that holds a deduction's names
+                -- (ADR 0025). Earliest first with id breaking the tie, for
+                -- declineCase's reason: first_seen_at defaults to the
+                -- transaction's start time, so two rows written in one
+                -- transaction carry the identical timestamp and limit 1 over a
+                -- tie is whichever row the plan reached first.
+                (select i.identifier from deduction_identifiers i
+                  where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
+                  order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
                 (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
                   ::int as document_count
            from deductions d
@@ -2623,6 +2652,11 @@ export class PostgresStore
           ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
           ...(row.retailer_name_as_printed !== null
             ? { retailerNameAsPrinted: row.retailer_name_as_printed }
+            : {}),
+          discoveredVia: row.discovered_via,
+          ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+          ...(row.reason_code_as_printed !== null
+            ? { reasonCodeAsPrinted: row.reason_code_as_printed }
             : {}),
           documentCount: row.document_count,
           createdAt: isoDate(row.created_at) ?? '',

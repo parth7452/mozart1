@@ -120,6 +120,17 @@ export function CaseList({
                         <Link href={`/cases/${row.deductionId}`} className="mono">
                           {row.claimId ?? row.deductionId.slice(0, 8)}
                         </Link>
+                        {/* A case a remittance line opened has no claim anybody
+                            filed — its claim id is the advice's own payment
+                            reference and invoice number (ADR 0028). The invoice
+                            is what a person actually looks it up by, so it is
+                            shown under the link. Untrusted text, escaped by
+                            React like every other printed string here. */}
+                        {row.invoiceNumber === undefined ? null : (
+                          <div className="unmatched" style={{ marginLeft: 0 }}>
+                            invoice {row.invoiceNumber}
+                          </div>
+                        )}
                       </td>
                       <td>
                         {who.name}
