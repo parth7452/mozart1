@@ -362,7 +362,7 @@ async function recordExtraction(
  * `correspondence` failure the OCR and classify calls were committed, the
  * classification insert raised, and `recordExtraction` — which would have
  * recorded the extract call — never ran, so the read that cost the most was the
- * read least visible in `model_calls` (ADR 0025). That is the same rule
+ * read least visible in `model_calls` (ADR 0027). That is the same rule
  * `openCaseFromNotice` already follows: a failure after the money is spent must
  * not lose the record of spending it.
  */
@@ -685,7 +685,7 @@ export async function readDocument(
     // database can refuse: `recordClassification` refuses a doc type its check
     // constraint has never heard of, which is what happened to a
     // `correspondence` JPEG in production, and what was lost with it was the
-    // record of the most expensive of the three (ADR 0025). Spend is recorded
+    // record of the most expensive of the three (ADR 0027). Spend is recorded
     // before anything that can reject it, on the same rule `openCaseFromNotice`
     // already follows below.
     for (const call of [...readable.calls, classification.call, extraction.call]) {

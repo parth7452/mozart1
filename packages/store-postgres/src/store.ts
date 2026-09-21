@@ -1097,7 +1097,7 @@ export class PostgresStore
    * A refused doc type is settled — a check constraint answers the same on
    * every attempt — and the caller that most needs to know that is the queue,
    * which would otherwise pay for the OCR, the classification and the
-   * extraction three more times to be told the same thing (ADR 0025). A
+   * extraction three more times to be told the same thing (ADR 0027). A
    * confidence out of range is settled too, but it is a different bug with a
    * different fix, and `asJobFailure`'s bare-23514 branch is what stops it
    * being retried.

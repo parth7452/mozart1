@@ -1,4 +1,4 @@
-# 0025 — The database knows every document type the reader does
+# 0027 — The database knows every document type the reader does
 
 - Status: accepted
 - Date: 2026-09-21
@@ -64,7 +64,7 @@ because only one of them is about `correspondence`.
 
 ## Decision
 
-**1. The constraint lists every value `DOC_TYPES` does.** Migration 0020 drops
+**1. The constraint lists every value `DOC_TYPES` does.** Migration 0021 drops
 and re-adds `document_classifications_doc_type_check` with all twelve, so
 `correspondence` is storable. This is the only place in `supabase/migrations/`
 that constrains a `doc_type` — `grep -rn "doc_type" supabase/migrations/` finds
@@ -191,7 +191,7 @@ they replay is the first one this repository has read.
 
 ## Rollback
 
-Reverting is a new migration (never an edit to 0020 once merged) that drops
+Reverting is a new migration (never an edit to 0021 once merged) that drops
 `document_classifications_doc_type_check` and re-adds it with the eleven values
 0004 had. It would fail on any `correspondence` row already stored, so the
 revert has to say what happens to those rows, and there is no honest answer —

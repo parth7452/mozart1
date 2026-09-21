@@ -1,4 +1,4 @@
-\echo '-- 15 a deduction has many identifiers and one row'
+\echo '-- 17 a deduction has many identifiers and one row'
 begin;
 do $test$
 declare

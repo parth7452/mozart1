@@ -30,7 +30,7 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * will store. They drifted: `correspondence` was added to the first and not to
  * the second, and a dispatch-note JPEG classified as one was read, extracted,
  * refused at its last statement, and then read three more times because nothing
- * recognised the refusal as settled (ADR 0025).
+ * recognised the refusal as settled (ADR 0027).
  *
  * Three things are asserted here, and only the first of them is about
  * `correspondence`:
@@ -318,7 +318,7 @@ describeDb('the document types the database admits', () => {
     // `recordTheRead` records the calls before the first row the database can
     // refuse. The extract call is the one that used to be lost: it was recorded
     // alongside the extraction rows, on the far side of the statement that
-    // raised (ADR 0025).
+    // raised (ADR 0027).
     const spend = async (): Promise<Record<string, number>> => {
       // By provider as well as purpose: an OCR pass is told apart by its
       // provider, not by a purpose of its own, so `extract` alone would count
@@ -358,7 +358,7 @@ describeDb('the document types the database admits', () => {
     // the first attempt, so the second read has a text layer and never reaches
     // the provider. That is the cheapest a retry can be here, and it is still
     // two model calls for an answer that cannot change — four retries is what
-    // this cost in production (ADR 0025).
+    // this cost in production (ADR 0027).
     expect(await spend()).toEqual({
       'reducto:extract': 1,
       'anthropic:classify': 2,

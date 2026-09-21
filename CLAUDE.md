@@ -61,6 +61,9 @@ what enforces each one.
 - Plan mode first for any multi-file change. Small task files per phase.
 - branch → PR → tests + eval run → review → merge.
 - Never edit a **merged** migration; add a new one.
+- Before taking an ADR, migration or suite number, `git fetch` and check
+  `origin/main` and open PRs; two sessions merging in the same hour is how 0025
+  got taken twice.
 - Every new agent decision path needs a recorded fixture/cassette for both the
   Claude and the Jev call.
 - Any schema change to append-only tables, any new outbound side effect, and any
@@ -482,8 +485,8 @@ back-fills nothing; who asserted it, when and why stay on the `document_arrivals
 row, in `uploads.created_by` and on the case's `document.provenance_recorded`
 event, because the column is for counting and those are for auditing.
 
-**The database knows every document type the reader does** (ADR 0025, migration
-0020). `DOC_TYPES` had twelve values and migration 0004's check constraint
+**The database knows every document type the reader does** (ADR 0027, migration
+0021). `DOC_TYPES` had twelve values and migration 0004's check constraint
 listed eleven, so a dispatch-note JPEG classified `correspondence` — the type a
 waiver or an approved reschedule arrives as — was OCR'd, classified, extracted
 and then refused at the read's last statement. The refusal arrived as a driver

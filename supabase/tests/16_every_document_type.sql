@@ -12,7 +12,7 @@ declare
   -- nothing else is". The *other* direction — that this list is still what the
   -- code says — is `packages/store-postgres/test/doc-types.test.ts`, which
   -- imports DOC_TYPES and reads this constraint back out of pg_constraint
-  -- (ADR 0025). Neither test alone is the guard; the two together are.
+  -- (ADR 0027). Neither test alone is the guard; the two together are.
   doc_types text[] := array[
     'deduction_notice', 'remittance_advice', 'invoice', 'po', 'bol', 'pod',
     'asn', 'correspondence', 'promo_agreement', 'price_agreement',
@@ -32,7 +32,7 @@ begin
   -- 1. The type production failed on
   -- -------------------------------------------------------------------------
   -- A dispatch-note JPEG classified `correspondence` cost two model calls and
-  -- then could not be stored, four times over (ADR 0025). It stores now.
+  -- then could not be stored, four times over (ADR 0027). It stores now.
   insert into document_classifications (org_id, document_id, doc_type, confidence)
     values (org, doc, 'correspondence', 0.9100);
   perform test.ok(
@@ -88,7 +88,7 @@ begin
   -- -------------------------------------------------------------------------
   -- 4. The table is no less append-only than it was
   -- -------------------------------------------------------------------------
-  -- Migration 0020 adds no grant. Widening a CHECK says which rows may be
+  -- Migration 0021 adds no grant. Widening a CHECK says which rows may be
   -- inserted and nothing about whether a row may be changed once written, and
   -- this is where that is read back rather than asserted in a comment
   -- (invariant 2).
@@ -103,7 +103,7 @@ begin
   -- 5. Applying the migration twice leaves one constraint
   -- -------------------------------------------------------------------------
   -- scripts/db-test.sh applies every migration twice in one run, so by the time
-  -- this suite executes 0020 has been applied to a database that already
+  -- this suite executes 0021 has been applied to a database that already
   -- carried it. Drop-then-add is what makes that a no-op; a second
   -- `add constraint` under a generated name would leave two rules with one
   -- meaning, and only one of them named in an error.

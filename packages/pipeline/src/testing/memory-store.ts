@@ -226,11 +226,11 @@ export class InMemoryStore
    * The same refusal Postgres gives, so a test against this store is evidence
    * about production and not about this store.
    *
-   * The database admits exactly `DOC_TYPES` and nothing else (migration 0020),
+   * The database admits exactly `DOC_TYPES` and nothing else (migration 0021),
    * and a store that quietly accepted a thirteenth would make the in-memory
    * half of every pipeline test pass on a read the real one cannot record —
    * which is the shape the `correspondence` failure had in the first place
-   * (ADR 0025).
+   * (ADR 0027).
    */
   async recordClassification(
     documentId: string,
