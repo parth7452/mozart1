@@ -35,6 +35,7 @@ import type {
   DebtorCandidate,
   PacketDocument,
 } from '@recouple/core-domain';
+import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
@@ -73,6 +74,7 @@ import type {
   DocumentReadLease,
   DocumentReadLock,
   PipelineStore,
+  RestoredExtraction,
   StoredDocument,
   SubmissionRecord,
   UnreadDocument,
@@ -232,11 +234,27 @@ export class InMemoryStore
     this.extractions.push(input);
   }
 
-  async latestExtraction(
-    documentId: string,
-  ): Promise<{ docType: DocType; document: unknown } | undefined> {
+  /**
+   * Rebuilt from the stored *fields*, not handed back from memory.
+   *
+   * The object this store was given at write time is the one the reader
+   * produced, and returning it would make every test that reads a document
+   * back pass on a document Postgres cannot produce: the database keeps one row
+   * per field and no row at all for an absent one. So this goes through the
+   * same `restoreDocument` the Postgres store does, and the two answer
+   * identically — which is the only thing that makes an in-memory test evidence
+   * about production.
+   */
+  async latestExtraction(documentId: string): Promise<RestoredExtraction | undefined> {
     const found = this.extractions.filter((e) => e.documentId === documentId).at(-1);
-    return found === undefined ? undefined : { docType: found.docType, document: found.document };
+    if (found === undefined) return undefined;
+    const rebuilt = restoreDocument(found.docType, found.fields);
+    return {
+      docType: found.docType,
+      document: rebuilt.document,
+      validated: rebuilt.validated,
+      issues: rebuilt.issues,
+    };
   }
 
   async recordModelCall(call: ModelCallRecord): Promise<void> {

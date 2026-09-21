@@ -59,8 +59,14 @@ export interface Reconciliation {
 
 /**
  * The value of a field, or undefined when the document does not carry it.
- * An optional field arrives as a null *value* inside the field object, so both
- * shapes mean the same thing here. `??` leaves false and 0 alone.
+ *
+ * An optional field arrives as a null *value* inside the field object, and a
+ * document rebuilt by something that dropped the absences arrives with no field
+ * object at all. Both mean the same thing here, and neither may throw: this
+ * file runs on every render of a review page, over documents read back out of a
+ * store, and a shape it did not expect has to become a missing finding rather
+ * than a 500. Nothing below reads `.value` directly — that is the rule.
+ * `??` leaves false and 0 alone.
  */
 function valueOf<T>(field: FieldValue<T | null> | null | undefined): T | undefined {
   if (field === null || field === undefined) return undefined;
@@ -160,20 +166,21 @@ function reconcileAppointment(
         severity: 'supports_dispute',
         message:
           `${valueOf(message.sender_organisation) ?? 'the customer'} confirmed in writing ` +
-          `(${message.message_reference.value}) that ${establishes ?? 'a later appointment'} ` +
+          `(${valueOf(message.message_reference) ?? 'in a message on this case'}) ` +
+          `that ${establishes ?? 'a later appointment'} ` +
           `replaced ${supersedes ?? 'the earlier appointment'}` +
           (cited !== undefined ? `; the delivery record cites ${cited}` : '') +
-          `: “${commitment.commitment_text.value}”`,
+          `: “${valueOf(commitment.commitment_text) ?? ''}”`,
         fieldPath: 'correspondence.commitments',
       });
 
-      if (commitment.waives_charge.value === true) {
+      if (valueOf(commitment.waives_charge) === true) {
         findings.push({
           code: 'charge_waived_in_writing',
           severity: 'supports_dispute',
           message:
             `${valueOf(message.sender_organisation) ?? 'the customer'} stated in writing that ` +
-            `a charge would not apply: “${commitment.commitment_text.value}”`,
+            `a charge would not apply: “${valueOf(commitment.commitment_text) ?? ''}”`,
           fieldPath: 'correspondence.commitments',
         });
       }
@@ -227,7 +234,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
     const path = `lines[${index}]`;
     // An invoice-level deduction (allowance, compliance charge, discount) has no
     // item identifier. It is still a line, and still has to add up.
-    const sku = line.sku_upc.value ?? `line ${index + 1}`;
+    const sku = valueOf(line.sku_upc) ?? `line ${index + 1}`;
     const claimed = money(line.deduction_amount, `${path}.deduction_amount`, findings);
     if (claimed !== undefined) claimedAmounts.push(claimed);
 
@@ -307,7 +314,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
 
     lines.push({
       sku,
-      reasonCode: line.reason_code.value,
+      reasonCode: valueOf(line.reason_code) ?? '',
       claimedCents: claimed ?? null,
       expectedShortageCents: expected,
       deltaCents:
@@ -331,28 +338,32 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
   // Three-way match, where the supporting documents exist.
   if (input.invoice !== undefined) {
     const invoiceBySku = new Map(
-      input.invoice.lines.map((l) => [normaliseSku(l.sku_upc.value), l] as const),
+      input.invoice.lines.flatMap((l) => {
+        const itemised = valueOf(l.sku_upc);
+        return itemised === undefined ? [] : [[normaliseSku(itemised), l] as const];
+      }),
     );
     input.notice.lines.forEach((line, index) => {
       // Nothing to match a line against when the deduction names no item.
-      if (line.sku_upc.value === null) return;
-      const invoiceLine = invoiceBySku.get(normaliseSku(line.sku_upc.value));
+      const sku = valueOf(line.sku_upc);
+      if (sku === undefined) return;
+      const invoiceLine = invoiceBySku.get(normaliseSku(sku));
       if (invoiceLine === undefined) {
         findings.push({
           code: 'item_not_on_invoice',
           severity: 'supports_dispute',
-          message: `${line.sku_upc.value} was deducted but does not appear on the invoice`,
+          message: `${sku} was deducted but does not appear on the invoice`,
           fieldPath: `lines[${index}].sku_upc`,
         });
         return;
       }
       const noticeQty = valueOf(line.qty_invoiced);
-      const invoiceQty = invoiceLine.qty.value;
-      if (noticeQty !== undefined && noticeQty !== invoiceQty) {
+      const invoiceQty = valueOf(invoiceLine.qty);
+      if (noticeQty !== undefined && invoiceQty !== undefined && noticeQty !== invoiceQty) {
         findings.push({
           code: 'invoiced_quantity_differs',
           severity: 'warning',
-          message: `${line.sku_upc.value}: the notice says ${noticeQty} invoiced, the invoice says ${invoiceQty}`,
+          message: `${sku}: the notice says ${noticeQty} invoiced, the invoice says ${invoiceQty}`,
           fieldPath: `lines[${index}].qty_invoiced`,
         });
       }
@@ -360,10 +371,16 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
   }
 
   if (input.po !== undefined) {
-    const poBySku = new Map(input.po.lines.map((l) => [normaliseSku(l.sku_upc.value), l] as const));
+    const poBySku = new Map(
+      input.po.lines.flatMap((l) => {
+        const ordered = valueOf(l.sku_upc);
+        return ordered === undefined ? [] : [[normaliseSku(ordered), l] as const];
+      }),
+    );
     input.notice.lines.forEach((line, index) => {
-      if (line.sku_upc.value === null) return;
-      const poLine = poBySku.get(normaliseSku(line.sku_upc.value));
+      const sku = valueOf(line.sku_upc);
+      if (sku === undefined) return;
+      const poLine = poBySku.get(normaliseSku(sku));
       if (poLine === undefined) return;
       const noticeCost = money(line.unit_cost, `lines[${index}].unit_cost`, findings);
       const poCost = money(poLine.unit_cost, `po.lines.unit_cost`, findings);
@@ -371,16 +388,17 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
         findings.push({
           code: 'unit_cost_differs_from_po',
           severity: 'supports_dispute',
-          message: `${line.sku_upc.value}: the deduction uses ${formatCents(noticeCost)} but the PO agreed ${formatCents(poCost)}`,
+          message: `${sku}: the deduction uses ${formatCents(noticeCost)} but the PO agreed ${formatCents(poCost)}`,
           fieldPath: `lines[${index}].unit_cost`,
         });
       }
       const noticeQty = valueOf(line.qty_invoiced);
-      if (noticeQty !== undefined && noticeQty > poLine.qty_ordered.value) {
+      const orderedQty = valueOf(poLine.qty_ordered);
+      if (noticeQty !== undefined && orderedQty !== undefined && noticeQty > orderedQty) {
         findings.push({
           code: 'invoiced_above_po_quantity',
           severity: 'warning',
-          message: `${line.sku_upc.value}: ${noticeQty} invoiced against a PO for ${poLine.qty_ordered.value}`,
+          message: `${sku}: ${noticeQty} invoiced against a PO for ${orderedQty}`,
           fieldPath: `lines[${index}].qty_invoiced`,
         });
       }
@@ -390,7 +408,9 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
   if (input.shipment !== undefined) {
     const shipped = valueOf(input.shipment.total_cartons_shipped);
     const received = valueOf(input.shipment.total_cartons_received);
-    const signed = input.shipment.signature_present.value;
+    // Undefined is not "signed": a delivery document whose signature field we
+    // cannot read is not evidence that anybody signed for anything.
+    const signed = valueOf(input.shipment.signature_present) ?? false;
 
     if (!signed) {
       findings.push({

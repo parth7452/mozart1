@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
 import type { CanonicalReasonCode, CaseState, DebtorCandidate } from '@recouple/core-domain';
+import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import { DuplicateCaseError } from '@recouple/pipeline';
@@ -33,6 +34,7 @@ import type {
   IngestSource,
   JobStore,
   PipelineStore,
+  RestoredExtraction,
   StoredDocument,
   UnreadDocument,
   UnreadDocumentsStore,
@@ -361,6 +363,21 @@ export interface DeclinedCandidate {
   readonly missingEvidence: readonly string[];
   readonly detail?: string;
   readonly decidedAt: string;
+}
+
+/**
+ * The columns a typed document is rebuilt from: the value and its provenance.
+ *
+ * Not `StoredField` — that is what the review page lists, and carries the
+ * document, the box and the quote check with it. This is only what
+ * `restoreDocument` needs.
+ */
+interface StoredFieldRowForRebuild {
+  readonly field_path: string;
+  readonly value_json: unknown;
+  readonly confidence: string;
+  readonly source_page: number;
+  readonly source_quote: string;
 }
 
 /** One stored field, with everything a reviewer needs to check it. */
@@ -814,9 +831,7 @@ export class PostgresStore
     });
   }
 
-  async latestExtraction(
-    documentId: string,
-  ): Promise<{ docType: DocType; document: unknown } | undefined> {
+  async latestExtraction(documentId: string): Promise<RestoredExtraction | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ doc_type: DocType }>(
         `select doc_type from document_classifications
@@ -827,14 +842,37 @@ export class PostgresStore
       if (docType === undefined) return undefined;
 
       // The typed object is rebuilt from the field rows: they are the record of
-      // record, and reassembling from them proves nothing was lost on the way in.
-      const { rows: fields } = await client.query<{ field_path: string; value_json: unknown }>(
-        `select field_path, value_json from extraction_results
+      // record, and reassembling from them proves nothing was lost on the way
+      // in. Provenance comes back with it, because the document the reader
+      // produced carries a page and a quote on every field and this has to be
+      // that same document — `restoreDocument` validates it against the schema
+      // rather than casting, and a field the document did not carry is filled
+      // back in as an explicit absence rather than left out as a missing key.
+      const { rows: fields } = await client.query<StoredFieldRowForRebuild>(
+        `select field_path, value_json, confidence, source_page, source_quote
+           from extraction_results
           where document_id = $1 order by id asc`,
         [documentId],
       );
       if (fields.length === 0) return undefined;
-      return { docType, document: rebuildDocument(fields) };
+      const rebuilt = restoreDocument(
+        docType,
+        fields.map((row) => ({
+          fieldPath: row.field_path,
+          value: row.value_json,
+          // `numeric` arrives as a string from the driver, as everywhere else
+          // this table is read.
+          confidence: Number(row.confidence),
+          sourcePage: row.source_page,
+          sourceQuote: row.source_quote,
+        })),
+      );
+      return {
+        docType,
+        document: rebuilt.document,
+        validated: rebuilt.validated,
+        issues: rebuilt.issues,
+      };
     });
   }
 
@@ -2228,50 +2266,4 @@ function isoDate(value: Date | string | null | undefined): string | undefined {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-/** Segments that would reach the prototype chain rather than the object. */
-const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
-
-/**
- * Rebuilds a nested document from flat field rows (`lines[0].sku_upc` → nested).
- *
- * Paths written by `recordExtraction` are schema-derived, but this reads them
- * back out of the database and walks them as object keys, so it refuses the
- * segments that would climb the prototype chain instead of trusting where the
- * row came from.
- */
-function rebuildDocument(
-  rows: readonly { field_path: string; value_json: unknown }[],
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const row of rows) {
-    const segments = row.field_path.split('.');
-    if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment.replace(/\[\d+\]$/, '')))) {
-      continue;
-    }
-    let node: Record<string, unknown> = out;
-    segments.forEach((segment, index) => {
-      const match = /^([^[]+)\[(\d+)\]$/.exec(segment);
-      const last = index === segments.length - 1;
-      if (match?.[1] !== undefined && match[2] !== undefined) {
-        const key = match[1];
-        const row_index = Number(match[2]);
-        const array = (node[key] as unknown[] | undefined) ?? [];
-        node[key] = array;
-        const existing = (array[row_index] as Record<string, unknown> | undefined) ?? {};
-        array[row_index] = existing;
-        node = existing;
-        return;
-      }
-      if (last) {
-        node[segment] = { value: row.value_json };
-        return;
-      }
-      const existing = (node[segment] as Record<string, unknown> | undefined) ?? {};
-      node[segment] = existing;
-      node = existing;
-    });
-  }
-  return out;
 }

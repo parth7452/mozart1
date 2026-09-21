@@ -16,6 +16,7 @@ import {
   type FixtureDocument,
 } from '@recouple/fixtures';
 import { processUpload, reconcileCase, type PipelineDeps } from '@recouple/pipeline';
+import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
@@ -213,6 +214,81 @@ describeDb('the pipeline against a real database', () => {
     expect(reconciliation?.claimedTotalCents).toBe(312_000);
     expect(reconciliation?.lines[0]?.verdict).toBe('matches');
     expect(reconciliation?.findings.map((f) => f.code)).toContain('delivery_confirms_shortage');
+  });
+
+  it('reconciles a line with no SKU, read back out of the database', async () => {
+    // A deduction taken against the invoice as a whole — a compliance charge, a
+    // service premium — carries no item identifier, so `flattenExtraction`
+    // writes no `sku_upc` row for it. Production case
+    // eef4fec8-940c-4f80-8313-4a754661d700 then 500ed on its review page,
+    // because the document the store handed back had no `sku_upc` key at all
+    // and `reconcileNotice` read straight through it.
+    const notice = fixtureFor('oakridge-premium-notice.pdf');
+    const result = await processUpload(upload(notice), deps);
+    const premiumCase = result.case?.deductionId as string;
+    expect(result.case?.claimId).toBe('SP-4417');
+
+    const documentId = result.ingest.document.documentId;
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from extraction_results
+        where document_id = $1 and field_path = 'lines[0].sku_upc'`,
+      [documentId],
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+
+    // What the review page does, against the real rows: reconcile the case.
+    const reconciliation = await reconcileCase(premiumCase, deps);
+    expect(reconciliation?.claimedTotalCents).toBe(127_500);
+    expect(reconciliation?.lines[0]?.sku).toBe('line 1');
+    expect(reconciliation?.findings.filter((f) => f.severity === 'blocking')).toEqual([]);
+
+    // And what comes back out is the document the reader had: the absent field
+    // is there, stated as absent, rather than missing from the object.
+    const stored = await store.latestExtraction(documentId);
+    expect(stored?.validated).toBe(true);
+    const line = (stored?.document as { lines: { sku_upc: { value: string | null } }[] }).lines[0];
+    expect(line?.sku_upc).toEqual({ value: null, confidence: 0, source_page: 1, source_quote: '' });
+  });
+
+  it('answers latestExtraction exactly as the in-memory store does', async () => {
+    // The two stores are one contract. If they disagree about the shape of a
+    // document read back, every test that runs against the in-memory one is
+    // testing a document production never sees — which is how a line with no
+    // SKU reached a page as a missing key rather than an absent field.
+    const documentId = (
+      await admin.query<{ id: string }>(
+        `select id from documents where org_id = $1 and filename = $2`,
+        [orgId, 'oakridge-premium-notice.pdf'],
+      )
+    ).rows[0]?.id as string;
+
+    const fixture = fixtureFor('oakridge-premium-notice.pdf');
+    const extraction = await new FixtureExtractor().extract(
+      {
+        documentId,
+        orgId,
+        filename: fixture.filename,
+        mimeType: 'application/pdf',
+        base64: '',
+        byteSize: fixture.bytes.length,
+        pageText: fixture.pageText,
+      },
+      'deduction_notice',
+    );
+
+    const memory = new InMemoryStore();
+    await memory.recordExtraction({
+      documentId,
+      docType: extraction.docType,
+      extractor: extraction.extractor,
+      schemaVersion: extraction.schemaVersion,
+      fields: extraction.fields,
+      document: extraction.document,
+    });
+
+    expect(await memory.latestExtraction(documentId)).toEqual(
+      await store.latestExtraction(documentId),
+    );
   });
 
   it('records what every model call cost', async () => {

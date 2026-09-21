@@ -185,6 +185,7 @@ const pct = (n: number | null) => (n === null ? '   —' : `${(n * 100).toFixed(
 
 const SUITE_LABELS: Record<string, string> = {
   authored: 'authored here — does the pipeline work',
+  authored_pending: 'authored here, no cassette yet — shapes the numbers do not cover',
   held_out: 'written elsewhere — does it generalise',
   scanned: 'rasterised + degraded — does it survive a scan',
   dense: 'dozens of rows — does it survive a real remittance',
@@ -200,6 +201,7 @@ const SUITE_LABELS: Record<string, string> = {
  */
 const SUITE_ORDER = [
   'authored',
+  'authored_pending',
   'held_out',
   'scanned',
   'dense',

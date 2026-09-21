@@ -14,6 +14,7 @@ import type {
   Extractor,
   ModelCallRecord,
   OcrProvider,
+  ReassemblyIssue,
 } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 
@@ -65,6 +66,14 @@ export interface UploadRecord {
    * the sender is not one of our users, and `From:` is forgeable anyway.
    */
   readonly createdBy?: string;
+}
+
+/** What every store returns for a document that has been read. */
+export interface RestoredExtraction {
+  readonly docType: DocType;
+  readonly document: unknown;
+  readonly validated: boolean;
+  readonly issues: readonly ReassemblyIssue[];
 }
 
 export interface StoredDocument {
@@ -153,7 +162,19 @@ export interface PipelineStore {
     fields: readonly ExtractedField[];
     document: unknown;
   }): Promise<void>;
-  latestExtraction(documentId: string): Promise<{ docType: DocType; document: unknown } | undefined>;
+  /**
+   * The document as it was stored, rebuilt and validated by `restoreDocument`
+   * rather than assembled ad hoc by each store. Every implementation answers
+   * this identically for the same rows, which is what lets a test against the
+   * in-memory store say anything about production: a field the document did
+   * not carry comes back stated as absent, never as a missing key.
+   *
+   * `validated` is whether the rebuilt object still satisfies its schema, and
+   * `issues` say what was wrong with it when it does not. A document that does
+   * not validate is still evidence — its fields are stored and shown — but
+   * nothing downstream may treat it as typed.
+   */
+  latestExtraction(documentId: string): Promise<RestoredExtraction | undefined>;
 
   recordModelCall(call: ModelCallRecord): Promise<void>;
 

@@ -105,7 +105,7 @@ append-only tables.
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
-| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key |
 | `pipeline` | Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
@@ -160,7 +160,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Five recorded suites and two waiting on cassettes, every one of them scored
+Five recorded suites and three waiting on cassettes, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -171,6 +171,7 @@ does):
 | scanned | does it survive a scan | 100% | 98.4% | 4/4 |
 | dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% | 100% | 1/1 |
+| authored_pending | shapes the numbers do not cover yet | not yet recorded | — | — |
 | logistics | does the argument hold across a whole case | not yet recorded | — | — |
 | customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
 
@@ -178,7 +179,7 @@ does):
 twelve of them simulated camera photographs. It is the market the product is
 sold into rather than the one the other suites are drawn from. Synthetic, like
 everything else here, and `packages/fixtures/customer/README.md` keeps the
-pack's own caveats verbatim. `pnpm eval` reports both unrecorded suites as
+pack's own caveats verbatim. `pnpm eval` reports every unrecorded suite as
 skipped rather than failing, and `packages/evals/baseline.json` names them in
 `pendingSuites` so a suite with no numbers cannot be mistaken for a suite that
 passed. A suite the baseline *has* measured is never skipped: if its cassettes

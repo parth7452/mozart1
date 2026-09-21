@@ -8,14 +8,19 @@
 
 import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
 import {
+  DeductionNoticeSchema,
+  InvoiceSchema,
   locateQuote,
   OcrError,
+  PurchaseOrderSchema,
+  ShipmentDocumentSchema,
   type DocType,
   type ExtractedField,
   type ExtractionResult,
   type ModelCallRecord,
   type OcrBlock,
   reconcileNotice,
+  type Finding,
   type Reconciliation,
 } from '@recouple/extraction';
 import {
@@ -29,7 +34,13 @@ import {
   type PostmarkInboundPayload,
   type ScanVerdict,
 } from '@recouple/ingest';
-import type { CaseRecord, IngestSource, PipelineDeps, StoredDocument } from './ports';
+import type {
+  CaseRecord,
+  IngestSource,
+  PipelineDeps,
+  RestoredExtraction,
+  StoredDocument,
+} from './ports';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -816,30 +827,93 @@ export { RejectedUploadError };
 /**
  * Reconciles a case from whatever typed documents it already has. Returns
  * undefined when there is no notice yet — there is nothing to reconcile against.
+ *
+ * Every document is parsed against its own schema before it is used, rather
+ * than cast. The store rebuilds and validates what it returns
+ * (`restoreDocument`), so this normally agrees with it immediately; what the
+ * parse is here for is the case where it does not. A stored document that no
+ * longer satisfies its schema is not quietly reconciled as if it did, and it is
+ * not quietly dropped either — it becomes a finding, because a reviewer reading
+ * this page needs to know that a document on the case could not be used.
  */
 export async function reconcileCase(
   deductionId: string,
   deps: PipelineDeps,
 ): Promise<Reconciliation | undefined> {
   const documents = await deps.store.documentsForCase(deductionId);
-  const byType = new Map<DocType, unknown>();
+  const byType = new Map<DocType, RestoredExtraction>();
 
   for (const document of documents) {
     const extraction = await deps.store.latestExtraction(document.documentId);
     if (extraction === undefined) continue;
-    if (!byType.has(extraction.docType)) byType.set(extraction.docType, extraction.document);
+    if (!byType.has(extraction.docType)) byType.set(extraction.docType, extraction);
   }
 
-  const notice = byType.get('deduction_notice');
-  if (notice === undefined) return undefined;
+  const stored = byType.get('deduction_notice');
+  if (stored === undefined) return undefined;
 
-  const shipment = byType.get('bol') ?? byType.get('pod');
-  return reconcileNotice({
-    notice: notice as never,
-    ...(byType.has('invoice') ? { invoice: byType.get('invoice') as never } : {}),
-    ...(byType.has('po') ? { po: byType.get('po') as never } : {}),
-    ...(shipment !== undefined ? { shipment: shipment as never } : {}),
+  const notice = DeductionNoticeSchema.safeParse(stored.document);
+  if (!notice.success) {
+    // Nothing is reconciled against a notice we cannot read as a notice, and
+    // nothing pretends it was. The fields are still stored and still shown; it
+    // is the arithmetic over them that is refused.
+    return {
+      lines: [],
+      claimedTotalCents: null,
+      lineSumCents: null,
+      findings: [unusableDocument('deduction_notice', stored)],
+      internallyConsistent: false,
+    };
+  }
+
+  const unusable: Finding[] = [];
+  const supporting = <T>(
+    docType: DocType,
+    schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
+  ): T | undefined => {
+    const found = byType.get(docType);
+    if (found === undefined) return undefined;
+    const parsed = schema.safeParse(found.document);
+    if (parsed.success) return parsed.data;
+    unusable.push(unusableDocument(docType, found));
+    return undefined;
+  };
+
+  const invoice = supporting('invoice', InvoiceSchema);
+  const po = supporting('po', PurchaseOrderSchema);
+  const shipment =
+    supporting('bol', ShipmentDocumentSchema) ?? supporting('pod', ShipmentDocumentSchema);
+
+  const reconciliation = reconcileNotice({
+    notice: notice.data,
+    ...(invoice !== undefined ? { invoice } : {}),
+    ...(po !== undefined ? { po } : {}),
+    ...(shipment !== undefined ? { shipment } : {}),
   });
+
+  if (unusable.length === 0) return reconciliation;
+  return { ...reconciliation, findings: [...unusable, ...reconciliation.findings] };
+}
+
+/**
+ * A document on the case that could not be read back as its own type.
+ *
+ * Said out loud, with what the rebuild objected to, because the alternative is
+ * a page that silently reconciles less than the case contains.
+ */
+function unusableDocument(docType: DocType, stored: RestoredExtraction): Finding {
+  const why = stored.issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path}: ${issue.problem}`)
+    .join('; ');
+  return {
+    code: 'stored_document_not_typed',
+    severity: docType === 'deduction_notice' ? 'blocking' : 'warning',
+    message:
+      `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
+      `reconciliation${why === '' ? '' : ` (${why})`}`,
+    fieldPath: docType,
+  };
 }
 
 // ---------------------------------------------------------------------------
