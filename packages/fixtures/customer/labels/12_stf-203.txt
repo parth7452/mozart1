@@ -1,0 +1,16 @@
+WORKFORCE INVOICE
+Oakmere Workforce LLC / Billing
+INVOICE
+OW-260903 | September 3, 2026 | USD | Net 30
+CUSTOMER
+Faircrest Assembly Ltd. | Assignment AS-203 | PO FC-203
+STANDARD HOURS
+150 hours x $30.00 = $4,500.00
+WEEKEND PREMIUM
+30 of the above hours x $15.00 additional premium = $450.00
+TOTAL
+$4,950.00
+PERIOD
+August 24-30, 2026. Weekend hours are included in 150 standard hours, not
+additional hours.
+STF-203 | OW-260903 | Page 1 of 1

@@ -1,0 +1,15 @@
+STAFFING INVOICE
+Elmbridge Staffing LLC / Billing
+INVOICE
+ES-260901 | September 1, 2026 | Net 30 | USD
+BILL TO
+Briarfield Packaging Co. | PO BF-201 | Assignment AS-201
+HOURS BILLED
+Regular: 180 hours x $30.00 = $5,400.00
+OVERTIME
+40 hours x $45.00 = $1,800.00
+TOTAL
+$7,200.00 | Period August 24-28, 2026
+NOTE
+Overtime rate includes the $30.00 base rate plus a $15.00 premium.
+STF-201 | ES-260901 | Page 1 of 1

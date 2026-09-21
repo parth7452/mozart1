@@ -6,8 +6,13 @@
  * packages/fixtures/cassettes/, and prints what each call cost. CI replays those
  * cassettes; nothing in the test suite calls a model.
  *
- *   pnpm record:cassettes            # every fixture
- *   pnpm record:cassettes walmart    # only fixtures whose key matches
+ *   pnpm record:cassettes                     # every fixture
+ *   pnpm record:cassettes walmart             # only fixtures whose key matches
+ *   pnpm record:cassettes --suite customer    # only one suite
+ *
+ * The suite filter exists because a suite is the unit that gets recorded: a new
+ * corpus lands whole, and re-recording the other 26 documents to get 15 is
+ * money spent on nothing.
  */
 
 import { writeFileSync } from 'node:fs';
@@ -35,15 +40,41 @@ import { everyDocument } from '@recouple/fixtures';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 
-const filter = process.argv[2];
-const documents = everyDocument().filter(
-  (d) => filter === undefined || d.key.includes(filter),
+const args = process.argv.slice(2);
+const suiteAt = args.findIndex((a) => a === '--suite' || a.startsWith('--suite='));
+let suite: string | undefined;
+if (suiteAt !== -1) {
+  const inline = args[suiteAt] as string;
+  suite = inline.startsWith('--suite=') ? inline.slice('--suite='.length) : args[suiteAt + 1];
+  if (suite === undefined || suite === '') {
+    console.error('--suite needs a suite name, for example `--suite customer`');
+    process.exit(1);
+  }
+  args.splice(suiteAt, inline.startsWith('--suite=') ? 1 : 2);
+}
+const filter = args[0];
+
+const everything = everyDocument();
+const documents = everything.filter(
+  (d) =>
+    (filter === undefined || d.key.includes(filter)) && (suite === undefined || d.suite === suite),
 );
 
 if (documents.length === 0) {
-  console.error(`no fixture documents match ${JSON.stringify(filter)}`);
+  const asked = [
+    ...(suite !== undefined ? [`suite ${JSON.stringify(suite)}`] : []),
+    ...(filter !== undefined ? [`key containing ${JSON.stringify(filter)}`] : []),
+  ].join(' and ');
+  console.error(
+    `no fixture documents match ${asked}. Suites: ${[...new Set(everything.map((d) => d.suite))].sort().join(', ')}`,
+  );
   process.exit(1);
 }
+
+console.log(
+  `recording ${documents.length} of ${everything.length} fixture documents` +
+    `${suite !== undefined ? ` in suite ${suite}` : ''}${filter !== undefined ? ` matching ${filter}` : ''}`,
+);
 
 const classifier = new ClaudeClassifier();
 const extractor = new ClaudeExtractor();
