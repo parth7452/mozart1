@@ -1,4 +1,5 @@
 export * from './dates';
+export * from './identity';
 export * from './money';
 export * from './packet';
 export * from './retailers';
