@@ -2,11 +2,11 @@
   "key": "hl-case-02-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.99,
+  "classifierConfidence": 0.98,
   "document": {
     "payer_name": {
       "value": "Cedar Point Grocers",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Cedar Point Grocers"
     },
@@ -24,15 +24,15 @@
     },
     "payment_total": {
       "value": "$17,100.00",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
-      "source_quote": "$17,100.00"
+      "source_quote": "Net payment"
     },
     "lines": [
       {
         "invoice_number": {
           "value": "INV-260802",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "INV-260802"
         },
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:49:07.767Z",
+  "recordedAt": "2026-09-20T17:54:37.603Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4344,
-    "outputTokens": 512,
-    "costMicros": 13808,
-    "latencyMs": 4900
+    "outputTokens": 510,
+    "costMicros": 13788,
+    "latencyMs": 4290
   }
 }

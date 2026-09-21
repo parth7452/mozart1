@@ -1,0 +1,302 @@
+{
+  "key": "log-001-rate-confirmation-scan",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
+  "document": {
+    "agreement_type": {
+      "value": "RATE CONFIRMATION",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "RATE CONFIRMATION"
+    },
+    "counterparty": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.92,
+      "source_page": 1,
+      "source_quote": "Customer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC"
+    },
+    "effective_from": {
+      "value": "August 10, 2026",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Rate confirmation: RC-771 | Accepted: August 10, 2026"
+    },
+    "approved_by": {
+      "value": "Maya Chen, Transportation Coordinator",
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "Customer representative: Maya Chen, Transportation Coordinator."
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "Linehaul",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Linehaul"
+        },
+        "amount": {
+          "value": "$4,200.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$4,200.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Fuel surcharge",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Fuel surcharge"
+        },
+        "amount": {
+          "value": "$600.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$600.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Total carrier compensation",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Total carrier compensation"
+        },
+        "amount": {
+          "value": "$4,800.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$4,800.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after the effective confirmed appointment, and the delay is carrier-caused.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after\nthe effective confirmed appointment, and the delay is carrier-caused."
+        },
+        "amount": {
+          "value": "$600.00",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Written appointment changes approved by the customer transportation team replace earlier appointments. A customer-requested reschedule is not a carrier-caused delay.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Written appointment changes approved by the customer transportation team replace earlier\nappointments. A customer-requested reschedule is not a carrier-caused delay."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Timeliness is determined by receiving gate check-in, not unloading completion.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Timeliness is determined by receiving gate check-in, not unloading completion."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:16:40.463Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5087,
+    "outputTokens": 1319,
+    "costMicros": 23364,
+    "latencyMs": 10330
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "RATE CONFIRMATION\nBrookfield Supply Co. | Transportation\nAGREEMENT\nRate confirmation: RC-771 | Accepted: August 10, 2026\nCustomer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC\nLoad: LD-260812-77 | Purchase order: P0-BSC-8841\nRoute: Newark, NJ to Richmond, VA | Equipment: 53-foot dry van\nAGREED COMPENSATION\nLinehaul\n$4,200.00\nFuel surcharge\n$600.00\nTotal carrier compensation\n$4,800.00\nAPPOINTMENT AND DEDUCTION TERMS\nOriginal delivery appointment: August 12, 2026 at 10:00 AM Eastern, AP-BSC-771 revision 1. A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after the effective confirmed appointment, and the delay is carrier-caused. Written appointment changes approved by the customer transportation team replace earlier appointments. A customer-requested reschedule is not a carrier-caused delay. Timeliness is determined by receiving gate check-in, not unloading completion.\nRECORDED ACCEPTANCE\nCustomer representative: Maya Chen, Transportation Coordinator. Carrier representative: Evan Brooks, Dispatch Supervisor. Acceptance recorded August 10, 2026 at 3:20 PM Eastern. Acceptance record: RC-771-ACK | Retain with shipment documents. Case LOG-001 | Load LD-260812-77 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "RATE CONFIRMATION",
+        "page": 1,
+        "bbox": [
+          0.05426759848369049,
+          0.07480880871185336,
+          0.2009127750428587,
+          0.08725336460331812
+        ],
+        "kind": "Title",
+        "confidence": 0.7767165303230286
+      },
+      {
+        "text": "Brookfield Supply Co. | Transportation",
+        "page": 1,
+        "bbox": [
+          0.054986161902401146,
+          0.08488743551626823,
+          0.3858096102092545,
+          0.10537305324801266
+        ],
+        "kind": "Text",
+        "confidence": 0.6101466685533523
+      },
+      {
+        "text": "AGREEMENT",
+        "page": 1,
+        "bbox": [
+          0.055081904536962,
+          0.10919803694699501,
+          0.13314572835299063,
+          0.11966930714246204
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8699405491352081
+      },
+      {
+        "text": "Rate confirmation: RC-771 | Accepted: August 10, 2026\nCustomer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC\nLoad: LD-260812-77 | Purchase order: P0-BSC-8841\nRoute: Newark, NJ to Richmond, VA | Equipment: 53-foot dry van",
+        "page": 1,
+        "bbox": [
+          0.052224430408609815,
+          0.10778312641750289,
+          0.6625591856447857,
+          0.18730700629613772
+        ],
+        "kind": "Key Value",
+        "confidence": 0.863842749595642
+      },
+      {
+        "text": "AGREED COMPENSATION",
+        "page": 1,
+        "bbox": [
+          0.05882869950595324,
+          0.18684698612210268,
+          0.22439440153481796,
+          0.20038428383246482
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8783150374889375
+      },
+      {
+        "text": "Linehaul\n$4,200.00\nFuel surcharge\n$600.00\nTotal carrier compensation\n$4,800.00",
+        "page": 1,
+        "bbox": [
+          0.059547262924663905,
+          0.20042920181532983,
+          0.2912454770857991,
+          0.29812078621899873
+        ],
+        "kind": "Text",
+        "confidence": 0.840302550792694
+      },
+      {
+        "text": "APPOINTMENT AND DEDUCTION TERMS",
+        "page": 1,
+        "bbox": [
+          0.06408961025008471,
+          0.29638835305986516,
+          0.3346267705592652,
+          0.3129459860192034
+        ],
+        "kind": "Section Header",
+        "confidence": 0.9130563408136367
+      },
+      {
+        "text": "Original delivery appointment: August 12, 2026 at 10:00 AM Eastern, AP-BSC-771 revision 1. A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after the effective confirmed appointment, and the delay is carrier-caused. Written appointment changes approved by the customer transportation team replace earlier appointments. A customer-requested reschedule is not a carrier-caused delay. Timeliness is determined by receiving gate check-in, not unloading completion.",
+        "page": 1,
+        "bbox": [
+          0.06343421720429752,
+          0.29648515910359846,
+          0.8893222111904991,
+          0.41237000396463536
+        ],
+        "kind": "Text",
+        "confidence": 0.9331112921237945
+      },
+      {
+        "text": "RECORDED ACCEPTANCE",
+        "page": 1,
+        "bbox": [
+          0.06937618397345591,
+          0.4125194719696615,
+          0.2349418860023207,
+          0.42605676968002354
+        ],
+        "kind": "Section Header",
+        "confidence": 0.9005942106246949
+      },
+      {
+        "text": "Customer representative: Maya Chen, Transportation Coordinator. Carrier representative: Evan Brooks, Dispatch Supervisor. Acceptance recorded August 10, 2026 at 3:20 PM Eastern. Acceptance record: RC-771-ACK | Retain with shipment documents. Case LOG-001 | Load LD-260812-77 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.06872079092766874,
+          0.41744881441175646,
+          0.6209131040078594,
+          0.5090083434030059
+        ],
+        "kind": "Text",
+        "confidence": 0.7230039924383164
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4473
+  }
+}

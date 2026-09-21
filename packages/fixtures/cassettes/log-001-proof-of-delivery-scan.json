@@ -1,0 +1,253 @@
+{
+  "key": "log-001-proof-of-delivery-scan",
+  "docType": "pod",
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.98,
+  "document": {
+    "document_number": {
+      "value": "POD-771",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Proof of delivery: POD-771"
+    },
+    "ship_date": {
+      "value": "August 13, 2026",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Delivery date: August 13, 2026"
+    },
+    "carrier_name": {
+      "value": "Alder Freight Services LLC",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Carrier: Alder Freight Services LLC"
+    },
+    "po_number": {
+      "value": "PO-BSC-8841",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Purchase order: PO-BSC-8841"
+    },
+    "ship_to": {
+      "value": "Brookfield Supply Co. Richmond receiving record",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Brookfield Supply Co. | Richmond receiving record"
+    },
+    "appointment_at": {
+      "value": "August 13, 2026, 2:00 PM Eastern",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "August 13, 2026, 2:00 PM Eastern"
+    },
+    "gate_check_in_at": {
+      "value": "August 13, 2026, 1:42 PM Eastern",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "August 13, 2026, 1:42 PM Eastern"
+    },
+    "appointment_reference": {
+      "value": "AP-BSC-771 revision 2",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Appointment: AP-BSC-771 revision 2"
+    },
+    "signed_by": {
+      "value": "Jordan Ellis, Receiving Clerk",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Received by: Jordan Ellis, Receiving Clerk."
+    },
+    "signature_present": {
+      "value": true,
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "Electronic acknowledgment recorded August 13, 2026 at 2:25 PM Eastern."
+    },
+    "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "total_cartons_shipped": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "total_cartons_received": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:17:27.009Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5632,
+    "outputTokens": 1007,
+    "costMicros": 21334,
+    "latencyMs": 9063
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "PROOF OF DELIVERY\nBrookfield Supply Co. | Richmond receiving record\nSHIPMENT REFERENCES\nProof of delivery: POD-771 | Delivery date: August 13, 2026\nCarrier: Alder Freight Services LLC | Load: LD-260812-77\nPurchase order: PO-BSC-8841 | BOL: BOL-771\nAppointment: AP-BSC-771 revision 2\nRECEIVING TIMESTAMPS\nConfirmed appointment\nAugust 13, 2026, 2:00 PM Eastern\nGate check-in\nAugust 13, 2026, 1:42 PM Eastern\nDock assignment\nAugust 13, 2026, 1:55 PM Eastern\nUnloading completed\nAugust 13, 2026, 2:25 PM Eastern\nGate departure\nAugust 13, 2026, 2:38 PM Eastern\nQUANTITY AND CONDITION\nPallets shipped\n24\nPallets received\n24\nCondition\nAccepted; no visible damage\nExceptions\nNone recorded\nRECEIVING ACKNOWLEDGMENT\nReceived by: Jordan Ellis, Receiving Clerk. Electronic acknowledgment recorded August 13, 2026 at 2:25 PM Eastern. Receiving record GR-771 links the gate check-in timestamp to this load and appointment. Receiving acknowledgment: GR-771-ACK | Record status: Complete. Case LOG-001 | Load LD-260812-77 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "PROOF OF DELIVERY",
+        "page": 1,
+        "bbox": [
+          0.061496295528032,
+          0.07103654564944539,
+          0.21122389212041115,
+          0.08168017815869655
+        ],
+        "kind": "Title",
+        "confidence": 0.7361813306808471
+      },
+      {
+        "text": "Brookfield Supply Co. | Richmond receiving record",
+        "page": 1,
+        "bbox": [
+          0.06190772028901916,
+          0.08188396294794421,
+          0.49371760931965497,
+          0.09980814886301989
+        ],
+        "kind": "Text",
+        "confidence": 0.5540129780769348
+      },
+      {
+        "text": "SHIPMENT REFERENCES",
+        "page": 1,
+        "bbox": [
+          0.061654661390651636,
+          0.10317375946595418,
+          0.2290963800766826,
+          0.11410218413462098
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8123828560113907
+      },
+      {
+        "text": "Proof of delivery: POD-771 | Delivery date: August 13, 2026\nCarrier: Alder Freight Services LLC | Load: LD-260812-77\nPurchase order: PO-BSC-8841 | BOL: BOL-771\nAppointment: AP-BSC-771 revision 2",
+        "page": 1,
+        "bbox": [
+          0.05986692279308141,
+          0.11010117083973284,
+          0.5858800232920526,
+          0.1811549175551886
+        ],
+        "kind": "Key Value",
+        "confidence": 0.870305848121643
+      },
+      {
+        "text": "RECEIVING TIMESTAMPS",
+        "page": 1,
+        "bbox": [
+          0.06450851252811622,
+          0.18322820459854913,
+          0.2404677035605639,
+          0.19484266194932098
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8071635961532593
+      },
+      {
+        "text": "Confirmed appointment\nAugust 13, 2026, 2:00 PM Eastern\nGate check-in\nAugust 13, 2026, 1:42 PM Eastern\nDock assignment\nAugust 13, 2026, 1:55 PM Eastern\nUnloading completed\nAugust 13, 2026, 2:25 PM Eastern\nGate departure\nAugust 13, 2026, 2:38 PM Eastern",
+        "page": 1,
+        "bbox": [
+          0.06062446676223543,
+          0.19521858772256445,
+          0.353271559471397,
+          0.3591614132976618
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7697647929191589
+      },
+      {
+        "text": "QUANTITY AND CONDITION",
+        "page": 1,
+        "bbox": [
+          0.06925459102093173,
+          0.36037779236326795,
+          0.26292790414703127,
+          0.3722770418734554
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8292278051376343
+      },
+      {
+        "text": "Pallets shipped\n24\nPallets received\n24",
+        "page": 1,
+        "bbox": [
+          0.06894275715670899,
+          0.3760755365587014,
+          0.2107961407335972,
+          0.436560329693342
+        ],
+        "kind": "Text",
+        "confidence": 0.6145587861537933
+      },
+      {
+        "text": "Condition",
+        "page": 1,
+        "bbox": [
+          0.07141457101611406,
+          0.44298650674373447,
+          0.1495918080916035,
+          0.4530289113745321
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6346930041909218
+      },
+      {
+        "text": "Accepted; no visible damage\nExceptions\nNone recorded",
+        "page": 1,
+        "bbox": [
+          0.0682390901339794,
+          0.4541339050758795,
+          0.31180255465809814,
+          0.5041737872458719
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7933618187904358
+      },
+      {
+        "text": "RECEIVING ACKNOWLEDGMENT",
+        "page": 1,
+        "bbox": [
+          0.07314843250884544,
+          0.5056660982840245,
+          0.28453586772859685,
+          0.5178501399536276
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8585668921470642
+      },
+      {
+        "text": "Received by: Jordan Ellis, Receiving Clerk. Electronic acknowledgment recorded August 13, 2026 at 2:25 PM Eastern. Receiving record GR-771 links the gate check-in timestamp to this load and appointment. Receiving acknowledgment: GR-771-ACK | Record status: Complete. Case LOG-001 | Load LD-260812-77 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.07285129238608647,
+          0.5121391080138994,
+          0.8408523617790647,
+          0.6008107309234232
+        ],
+        "kind": "Text",
+        "confidence": 0.602999570965767
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 6609
+  }
+}

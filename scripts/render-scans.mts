@@ -35,6 +35,14 @@ const TARGETS = [
   { key: 'carrier-bol', rotate: 2.1, quality: 55, speckle: 0.16, blur: 0.6 },
   { key: 'hl-case-01-notice', rotate: -2.3, quality: 60, speckle: 0.13, blur: 0.5 },
   { key: 'hl-case-06-notice', rotate: 1.7, quality: 50, speckle: 0.18, blur: 0.7 },
+  { key: 'walmart-po', rotate: 1.1, quality: 64, speckle: 0.12, blur: 0.45 },
+  { key: 'harborline-invoice', rotate: -1.9, quality: 58, speckle: 0.15, blur: 0.55 },
+  { key: 'unsigned-pod', rotate: 2.4, quality: 52, speckle: 0.17, blur: 0.65 },
+  { key: 'hl-case-03-remittance', rotate: -0.9, quality: 66, speckle: 0.11, blur: 0.4 },
+  { key: 'crosswind-dense-remittance', rotate: 1.5, quality: 54, speckle: 0.14, blur: 0.5 },
+  { key: 'log-001-rate-confirmation', rotate: -2.1, quality: 60, speckle: 0.13, blur: 0.5 },
+  { key: 'log-001-appointment-change', rotate: 1.8, quality: 57, speckle: 0.15, blur: 0.6 },
+  { key: 'log-001-proof-of-delivery', rotate: -1.2, quality: 62, speckle: 0.12, blur: 0.45 },
 ] as const;
 
 function html(lines: readonly string[], opts: (typeof TARGETS)[number]): string {
@@ -79,17 +87,10 @@ function html(lines: readonly string[], opts: (typeof TARGETS)[number]): string 
       linear-gradient(0deg, rgba(0,0,0,0.5) 0 1px, transparent 1px 240px);
     background-size: 37px 41px, 53px 47px, 61px 59px, 43px 67px, 100% 240px;
   }
-  .stamp {
-    position: absolute; right: 74px; top: 232px;
-    border: 3px solid #5a1f22; color: #5a1f22; opacity: 0.62;
-    padding: 6px 16px; font-size: 22px; letter-spacing: 2px; font-weight: 700;
-    transform: rotate(-8deg); border-radius: 4px;
-  }
   .wrap { filter: grayscale(1) contrast(0.88) brightness(1.06) blur(${opts.blur}px); }
 </style></head>
 <body><div class="wrap"><div class="sheet">
 ${body}
-<div class="stamp">RECEIVED</div>
 </div></div></body></html>`;
 }
 

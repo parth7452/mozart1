@@ -1,0 +1,75 @@
+{
+  "key": "log-001-short-pay-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "payer_name": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.93,
+      "source_page": 1,
+      "source_quote": "Brookfield Supply Co. | Accounts Payable"
+    },
+    "payment_reference": {
+      "value": "ACH-91844",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment reference: ACH-91844"
+    },
+    "payment_date": {
+      "value": "September 18, 2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Payment date: September 18, 2026"
+    },
+    "payment_total": {
+      "value": "$4,200.00",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Net payment\n$4,200.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "INV-AFS-260814",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "INV-AFS-260814"
+        },
+        "gross_amount": {
+          "value": "$4,800.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Gross invoice\n$4,800.00"
+        },
+        "deduction_amount": {
+          "value": "$600.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Deduction: LATE-DEL\n$600.00"
+        },
+        "net_amount": {
+          "value": "$4,200.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Net payment\n$4,200.00"
+        },
+        "reason_code": {
+          "value": "LATE-DEL",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Deduction: LATE-DEL"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T04:58:14.302Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4298,
+    "outputTokens": 564,
+    "costMicros": 14236,
+    "latencyMs": 5018
+  }
+}

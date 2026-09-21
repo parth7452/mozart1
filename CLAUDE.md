@@ -1,18 +1,46 @@
 # recouple — deductions agent platform (AI-written code touches money paths)
 
-A deterministic, human-gated document workflow for recovering invalid customer
-deductions — staffing and logistics first, retail CPG as upside. Not an
-autonomous agent: ingest → classify → plan evidence → decide → assemble packet
-→ **a human approves and submits** → record outcome → invoice the contingency
-fee. Agentic loops are reserved for exactly two bounded steps (evidence
-planning, unknown-customer cold start).
+A deterministic, human-gated document workflow for recovering invalid deductions:
+money a payer withholds from an invoice with a coded reason attached. Not an
+autonomous agent: ingest → classify → plan evidence → decide → assemble packet →
+**a human approves and submits** → record outcome → invoice the contingency fee.
+Agentic loops are reserved for exactly two bounded steps (evidence planning,
+unknown-payer cold start).
+
+**The engine is payer-agnostic; the go-to-market is not.** Who deducts — a
+broadline distributor, a retailer, a shipper — is versioned playbook data, never
+code: `reason-codes.ts` is the canonical taxonomy and a payer's own codes map
+into it. The current beachhead is foodservice manufacturers selling through
+broadline distributors (Sysco, US Foods, PFG, Gordon): manufacturer chargebacks,
+deviated-pricing billbacks, OS&D, shelf-life and swell allowances, validated
+against a promotional deal calendar. That is a focus decision still under
+discovery, not an architectural one. **No code should assume it.**
+
+Two things about that market do bind the code:
+
+- **Multi-tenancy is a product surface, not only hygiene.** Foodservice
+  manufacturers outsource deduction resolution to broker and sales agencies, so
+  one customer can hold many manufacturers' cases. `org_id` plus RLS is what
+  makes that one contract rather than many installs.
+- **Provenance is the post-audit defense.** Post-audit claims reach back about
+  two years. A packet whose every number traces to a verbatim quote on a stored
+  page, hash-chained, is what survives one — which is why invariant 2 is
+  append-only and why quote verification runs before a human sees a field.
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 
 1. No `submissions` / `writebacks` / `writeoffs` INSERT without an `approvals`
    row for that exact `decision_id`. The trigger stays. This is a one-way door.
-2. `*_events`, `documents`, `decisions`, `approvals` and `audit_log` are
-   append-only. Never add UPDATE/DELETE grants. Corrections are new events.
+2. Append-only, *including* `*_events`, `documents`, `uploads`,
+   `document_arrivals`, `decisions`, `approvals` and `audit_log` — the list is
+   not exhaustive and is not kept in prose: migration 0004's loop names the
+   tables it covers, each later migration names its own, and
+   `supabase/tests/01_append_only.sql` and `14_an_arrival_is_a_fact.sql` read
+   the end state back. Never add UPDATE/DELETE grants. Corrections are new
+   events — except on `uploads` and `document_arrivals`, where they are not:
+   `documents.upload_id` is immutable and an arrival is written once, so a
+   second row is a row nothing joins to, and a wrong channel is a
+   migration-backed decision (ADR 0024).
 3. Money is integer cents (bigint). Never floats. Fee maths is property-tested.
 4. Document content is UNTRUSTED. The extraction/reader model runs with NO
    tools and receives text inside `<untrusted_document>` delimiters. Only
@@ -113,7 +141,7 @@ append-only tables.
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
-| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right |
+| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right. `uploads` is append-only since ADR 0024, so that row cannot be re-labelled after the declines attributed to it were counted; a notice stored before provenance existed gets its channel from a `document_arrivals` row an operator writes with `pnpm link:provenance`, which the database refuses for any document ingest already recorded an arrival for and for any channel but the three doors that existed then. `provenance_kind` says which of the two answered — derived like `discovered_from`, never passed in — so a coverage number can report the split rather than needing three joins to find it |
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
@@ -160,19 +188,19 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Five recorded suites and three waiting on cassettes, every one of them scored
+Six recorded suites and two waiting on cassettes, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
 | --- | --- | --- | --- | --- |
-| authored | does the pipeline work | 100% | 100% | 8/8 |
-| held_out | does it generalise | 100% | 100% | 12/12 |
-| scanned | does it survive a scan | 100% | 98.4% | 4/4 |
-| dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
-| email_body | does it work with no page at all | 100% | 100% | 1/1 |
+| authored | does the pipeline work | 100% / 100% | 100% | 8/8 |
+| held_out | does it generalise | 100% / 100% | 100% | 12/12 |
+| scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
+| dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
+| email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
+| logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | not yet recorded | — | — |
-| logistics | does the argument hold across a whole case | not yet recorded | — | — |
 | customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -191,7 +219,22 @@ baseline is being compared against. Record with
 `pnpm record:cassettes --suite customer` (it spends money), then
 `pnpm eval --record-baseline`.
 
-About $0.021 per document across 26 of them. Extraction streams with a 32,000
+Classification is 39/39. The two misses in the corpus are both the same field
+pair on one document: `commitments[0].supersedes` and `.establishes` on the
+LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
+revision 2 replaces revision 1" and the model reports the change in prose
+instead of the identifiers. Its scanned twin returns null for both rather than
+the wrong answer, which is the better failure of the two.
+
+The `scanned` suite was four documents until 2026-09-21, three of them deduction
+notices, and the renderer stamped a fake "RECEIVED" box on every one — added
+content that contradicted the ground truth each scan inherits from its source.
+`carrier-bol-scan` classified `pod` four recordings running because of it. The
+stamp is gone, the suite is twelve documents spanning nine document types, and
+a single flip now costs 8 points rather than 25.
+
+About $0.0235 per document across 39 of them, and 311 of 821 fields carry a
+bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
 than storing a truncated document as a complete one.
@@ -365,7 +408,7 @@ Two things follow. `declineCase` **derives** `discovered_from` from the case's
 notice instead of taking `assumedDiscoveredFrom: 'web_upload'` from whichever
 route was calling — the parameter is gone, and a case whose notice records no
 arrival raises `ProvenanceUnknownError` rather than being counted under a
-guess, because `coverage_by_period` is grouped by that column and a wrong
+guess, because that column is the one a coverage number is sliced by and a wrong
 number there reads exactly like a right one. And the "Read again" button asks
 the document: `web_upload` may open a case, which closes the gap where an
 upload whose first read recorded fields and then failed could never get one.
@@ -406,6 +449,38 @@ another one happened to parse; both are asked now. And it never passed a
 `correspondence` document to `reconcileNotice` at all, which made every
 `appointment_superseded` and `charge_waived_in_writing` finding unreachable
 from a case page — most of what a freight case turns on.
+
+**An arrival is a fact** (ADR 0024, migration 0019). Making a coverage number
+depend on `uploads.source` exposed where that column lived: 0006's *mutable*
+list, so `app_rw` held UPDATE and DELETE on it and no trigger guarded it. An
+analyst could re-label which channel found a deduction after the declines
+attributed to it were counted, moving a published number with no audit row
+anywhere. `uploads` now joins the append-only set on 0004's pattern — revoke,
+plus `no_update_delete` and `no_truncate` on `app.block_mutations()`, because a
+grant answers for `app_rw` and the trigger is what answers for the owner. The
+usual "corrections are new events" does *not* apply here and the ADR says so
+plainly: `documents.upload_id` is immutable, so a second `uploads` row is a row
+nothing joins to. The documents stored before provenance existed have one way
+back, and only one — `document_arrivals`, at most one row per document,
+append-only, `recorded_by` not null, and `app.arrival_only_when_unknown()`
+refusing any document that already names an upload, so it fills in what nothing
+observed and never overwrites what something did. `pnpm link:provenance` writes
+one; it requires an explicit `--source`, has no default, and the *database*
+refuses anything but the three doors that existed before provenance was recorded
+— `web_upload`, `email_in`, `email_body` — because `erp_sync`, `portal_fetch`
+and `edi_812` will each write an arrival at ingest and so could not have
+delivered a document that has none. That the deployment "never had an
+inbound-email caller" is an assertion about the deployment rather than anything
+the database knows, which is why the channel is typed rather than defaulted.
+`declineCase` reads observed-or-asserted — at most one of the two can exist — and
+the decline is then attributable, and says which way it got there:
+`declined_candidates.provenance_kind` is `'observed'` when the notice's own
+`uploads` row answered and `'asserted'` when a `document_arrivals` row did, set
+from which join answered and never passed in. It was added in 0019 rather than
+later because production has no declines and no recorded uploads, so the default
+back-fills nothing; who asserted it, when and why stay on the `document_arrivals`
+row, in `uploads.created_by` and on the case's `document.provenance_recorded`
+event, because the column is for counting and those are for auditing.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

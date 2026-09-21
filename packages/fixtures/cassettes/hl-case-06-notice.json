@@ -12,25 +12,25 @@
     },
     "claim_id": {
       "value": "DN-2609-006",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-006"
     },
     "invoice_number": {
       "value": "INV-260806",
-      "confidence": 0.99,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Invoice: INV-260806"
     },
     "po_number": {
       "value": "PO-PRD-3356",
-      "confidence": 0.99,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Purchase order: PO-PRD-3356"
     },
     "deduction_total": {
       "value": "$440.00",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "$440.00"
     },
@@ -42,7 +42,7 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-006",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-006"
     },
@@ -50,19 +50,19 @@
       {
         "deduction_amount": {
           "value": "$440.00",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "$440.00"
         },
         "reason_code": {
           "value": "DISC",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "Reason code: DISC"
         },
         "reason_description": {
           "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility ended August 21, 2026.",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility\nended August 21, 2026."
         },
@@ -130,12 +130,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-18T12:49:59.313Z",
+  "recordedAt": "2026-09-20T17:55:30.793Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4956,
+    "inputTokens": 5099,
     "outputTokens": 672,
-    "costMicros": 16632,
-    "latencyMs": 6476
+    "costMicros": 16918,
+    "latencyMs": 5947
   }
 }

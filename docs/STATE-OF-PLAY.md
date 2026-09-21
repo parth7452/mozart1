@@ -142,44 +142,92 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 3. **Cassettes for LOG-001 and `authored_pending`**, once the key is in place.
    LOG-001's findings are reachable from a case page now, so recording it
    measures the argument rather than five unread documents.
-4. ~~Provenance at ingest~~ — done. What is left of it is below.
+4. ~~Provenance at ingest~~ — done, and so are both follow-ups it left (ADR
+   0024, migration 0019). Apply 0019 to production with the next deploy: until
+   then `uploads` is still editable there, and the pre-provenance cases there
+   still have no way to record how they arrived.
 
 ## Follow-ups this change created
 
-1. **The pre-provenance cases cannot be declined, and no script can fix that.**
-   Cases opened before ingest recorded arrivals have notices with
-   `documents.upload_id` null, and `declineCase` refuses them by name rather
-   than attributing the decline to a guessed channel. A backfill was considered
-   and deliberately not written, because there is nowhere honest to write it:
-   `documents` is append-only (migration 0004 revokes UPDATE from `app_rw` and
-   puts a `before update` trigger on the table for every other role), so
-   `upload_id` cannot be filled in afterwards, and `uploads` has no column that
-   points back at a document. A script could have inserted `uploads` rows, but
-   nothing would have linked them to the bytes they claimed to describe — the
-   backfill would have looked like a fix and changed nothing the derivation
-   reads. **This needs an ADR and a migration**: somewhere for an already-stored
-   document to record the arrival it came from, written once and never
-   rewritten. Until then the refusal says so in as many words — "this case
-   predates provenance recording; it cannot be declined until a migration adds
-   a way to record its arrival" — rather than sending somebody after a button
-   that does not exist.
+Both of these are **done**, in ADR 0024 and migration 0019 — one change, because
+freezing the table is what settled how the other had to be answered. What each
+one was, and what it became:
 
-   Note for whoever writes it: the deployment history is the fact that would
-   justify a value. `ingestInboundEmail` has never had a production caller, so
-   every pre-provenance production document arrived by web upload. That is an
-   assertion about this deployment, not a derivation from anything in the
-   database, so it belongs in an ADR and in an operator's explicit `--source`,
-   never in a default.
+1. ~~**The pre-provenance cases cannot be declined, and no script can fix
+   that.**~~ **done.** Cases opened before ingest recorded arrivals have notices
+   with `documents.upload_id` null, and `declineCase` refused them by name
+   rather than attributing the decline to a guessed channel. There was nowhere
+   honest for a backfill to write: `documents` is append-only, so `upload_id`
+   cannot be filled in afterwards, and `uploads` had no column pointing back at
+   a document. Migration 0019 adds the one thing that was missing —
+   `document_arrivals`, at most one row per document, append-only,
+   `recorded_by` not null, and `app.arrival_only_when_unknown()` refusing any
+   document that already names an upload, so it records what nothing observed
+   and never overwrites what something did. A nullable `uploads.document_id` was
+   the obvious alternative and is rejected in the ADR: wrong cardinality (one
+   email, three attachments), two links that can disagree, and unfillable in any
+   case because the arrival is written *before* the bytes are stored.
 
-2. **`uploads.source` is mutable; ADR + migration to make `uploads` append-only
-   now that coverage depends on it.** `uploads` is in migration 0006's `mutable`
-   list, so `app_rw` holds UPDATE and DELETE on it and there is no
-   `no_update_delete` trigger. That was harmless while nothing read the column.
-   It is not harmless now: `declined_candidates.discovered_from` is derived from
-   `uploads.source`, the declined row is append-only and cannot be corrected,
-   and an UPDATE to `uploads.source` would silently re-label which channel found
-   a deduction *after* the declines attributed to it were counted — changing a
-   published coverage number with no record that anything moved. An arrival is a
-   fact about the past, like every other row the invariants protect; it should
-   be insert-and-select only, and a correction should be a new row rather than
-   an edit.
+   `pnpm link:provenance` is how a person writes one, and the note this
+   follow-up left for whoever wrote it was followed exactly: `--source` is
+   required and has no default, because "`ingestInboundEmail` has never had a
+   production caller, so every pre-provenance production document arrived by web
+   upload" is an assertion about this deployment rather than a derivation from
+   anything in the database. It lives in ADR 0024 §3 and in an operator's typed
+   argument — and the *database* refuses any other channel, not just the script:
+   `app.arrival_only_when_unknown()` already reads the `uploads` row to check its
+   org, so it also refuses one whose `source` is not `web_upload`, `email_in` or
+   `email_body`. The other three channels write an arrival at ingest, so they
+   could not have delivered a document that records none. `declineCase` reads
+   observed-or-asserted and the refusal now names the command rather than naming
+   a migration nobody had written.
+
+   The thing this was going to leave behind did not have to be left. An earlier
+   draft accepted that a `declined_candidates` row attributed through an asserted
+   arrival would be indistinguishable *in that table* from one derived at ingest,
+   on the grounds that the table is append-only and a column meaningful only for
+   new rows is worse than a paragraph. Production has zero declines and zero
+   recorded uploads, so there is no history for a default to mislabel: 0019 adds
+   `provenance_kind` (`'observed'` / `'asserted'`, ADR 0024 §4) while the window
+   is open, set by `declineCase` from which of the two joins answered. Who
+   asserted it, when and why are still on the `document_arrivals` row, in
+   `uploads.created_by` and on the case's `document.provenance_recorded` event —
+   the column is for counting, those are for auditing.
+
+2. ~~**`uploads.source` is mutable; ADR + migration to make `uploads`
+   append-only now that coverage depends on it.**~~ **done.** `uploads` was in
+   migration 0006's `mutable` list, so `app_rw` held UPDATE and DELETE on it and
+   there was no `no_update_delete` trigger — harmless while nothing read the
+   column, and not harmless once `declined_candidates.discovered_from` was
+   derived from it: an UPDATE would re-label which channel found a deduction
+   *after* the declines attributed to it were counted, moving a published
+   coverage number with no record that anything moved. Migration 0019 moves it
+   to the append-only set on 0004's pattern — revoke UPDATE/DELETE/TRUNCATE from
+   `app_rw` and `app_ro`, plus `no_update_delete` and `no_truncate` on
+   `app.block_mutations()`, because the revoke answers for the application roles
+   and the trigger is what answers for the table owner.
+
+   One correction to how this item was written. "A correction should be a new
+   row rather than an edit" is the rule everywhere else here and it does **not**
+   hold on this table: `documents.upload_id` is itself immutable, so a second
+   `uploads` row is a row nothing joins to and nothing counts. A source recorded
+   wrongly at ingest is uncorrectable in place *and* uncorrectable by a new row;
+   fixing one is a migration-backed decision, which is the same dead end
+   `ProvenanceUnknownError` has always named. ADR 0024 §2 says so plainly rather
+   than leaving the usual sentence to imply otherwise. The cost is small because
+   `uploads.source` is set from the entry point rather than typed by anyone, so
+   a wrong value is a bug in orchestrator code, not an operator's typo.
+
+   `supabase/tests/14_an_arrival_is_a_fact.sql` reads the end state back after
+   `db-test`'s second pass: UPDATE, DELETE and TRUNCATE refused for `app_rw` by
+   grant and for the owner by trigger, INSERT still working for a writer, the
+   grants exactly INSERT and SELECT, a `read_only` member still refused by RLS,
+   RLS on and cross-tenant reads empty on `document_arrivals`, nobody holding
+   EXECUTE on the definer guard, a refused arrival leaving no orphan `uploads`
+   row, and both values of `provenance_kind` landing on the right decline.
+   `supabase/tests/15_every_table_has_rls.sql` is the general form of one of
+   those: every table in `public` carries `relrowsecurity`, by enumeration, so a
+   future table cannot ship without it.
+
+Nothing in production has been migrated for this yet — Supabase
+`hvheqbgkvwhlqutklwfh` still carries 0018.

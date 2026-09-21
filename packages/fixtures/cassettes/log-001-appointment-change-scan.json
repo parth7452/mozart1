@@ -1,0 +1,412 @@
+{
+  "key": "log-001-appointment-change-scan",
+  "docType": "correspondence",
+  "classifiedAs": "correspondence",
+  "classifierConfidence": 0.95,
+  "document": {
+    "message_reference": {
+      "value": "MSG-BSC-0811-338",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Message ID: MSG-BSC-0811-338"
+    },
+    "sent_at": {
+      "value": "August 11, 2026, 2:05 PM Eastern",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Sent: August 11, 2026, 2:05 PM Eastern"
+    },
+    "sender": {
+      "value": "Maya Chen <transport@brookfieldsupply.example>",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "From: Maya Chen <transport@brookfieldsupply.example>"
+    },
+    "sender_organisation": {
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Brookfield Supply Co. | Transportation message export"
+    },
+    "recipient": {
+      "value": "Evan Brooks <dispatch@alderfreight.example>",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "To: Evan Brooks <dispatch@alderfreight.example>"
+    },
+    "subject": {
+      "value": "Approved reschedule - LD-260812-77 / AP-BSC-771",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Subject: Approved reschedule - LD-260812-77 / AP-BSC-771"
+    },
+    "references": [
+      {
+        "label": {
+          "value": "Linked load",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        },
+        "value": {
+          "value": "LD-260812-77",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        }
+      },
+      {
+        "label": {
+          "value": "Linked PO",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        },
+        "value": {
+          "value": "PO-BSC-8841",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "LD-260812-77 / PO-BSC-8841"
+        }
+      },
+      {
+        "label": {
+          "value": "Effective revision",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "AP-BSC-771 revision 2"
+        },
+        "value": {
+          "value": "AP-BSC-771 revision 2",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "AP-BSC-771 revision 2"
+        }
+      },
+      {
+        "label": {
+          "value": "Compensation agreement",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        },
+        "value": {
+          "value": "RC-771",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "under RC-771 remains unchanged."
+        }
+      },
+      {
+        "label": {
+          "value": "Case",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Case LOG-001 | Load LD-260812-77 | Page 1 of 1"
+        },
+        "value": {
+          "value": "LOG-001",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Case LOG-001 | Load LD-260812-77 | Page 1 of 1"
+        }
+      }
+    ],
+    "commitments": [
+      {
+        "commitment_text": {
+          "value": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "effective_at": {
+          "value": "August 13, 2026 at 2:00 PM Eastern",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Please deliver on August 13, 2026 at 2:00 PM Eastern instead."
+        },
+        "attributed_to": {
+          "value": "customer-requested",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "This is a customer-requested change."
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "Appointment AP-BSC-771 revision 2 replaces revision 1.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "supersedes": {
+          "value": "revision 1",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "establishes": {
+          "value": "AP-BSC-771 revision 2",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Appointment AP-BSC-771 revision 2 replaces revision 1."
+        },
+        "effective_at": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "attributed_to": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "No carrier late-delivery charge applies for moving delivery to this revised appointment.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "No carrier late-delivery charge applies for moving delivery to this revised appointment."
+        },
+        "waives_charge": {
+          "value": true,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "No carrier late-delivery charge applies for moving delivery to this revised appointment."
+        },
+        "effective_at": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "attributed_to": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "The agreed $4,800.00 compensation under RC-771 remains unchanged.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "The agreed $4,800.00 compensation under RC-771 remains unchanged."
+        },
+        "effective_at": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "attributed_to": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T15:17:09.723Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5668,
+    "outputTokens": 2941,
+    "costMicros": 40746,
+    "latencyMs": 20403
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "APPOINTMENT CHANGE CONFIRMATION\nBrookfield Supply Co. | Transportation message export\nMESSAGE METADATA\nMessage ID: MSG-BSC-0811-338 | Sent: August 11, 2026, 2:05 PM Eastern\nFrom: Maya Chen <transport@brookfieldsupply.example>\nTo: Evan Brooks <dispatch@alderfreight.example>\nSubject: Approved reschedule - LD-260812-77 / AP-BSC-771\nCUSTOMER INSTRUCTION\nOur Richmond receiving dock will be unavailable for the original August 12 appointment due to scheduled dock maintenance. Please deliver on August 13, 2026 at 2:00 PM Eastern instead. This is a customer-requested change. Appointment AP-BSC-771 revision 2 replaces revision 1. No carrier late-delivery charge applies for moving delivery to this revised appointment. The agreed $4,800.00 compensation under RC-771 remains unchanged.\nAPPOINTMENT RECORD\nOriginal appointment\nAugust 12, 2026, 10:00 AM Eastern\nRevised appointment\nAugust 13, 2026, 2:00 PM Eastern\nEffective revision\nAP-BSC-771 revision 2\nLinked load / PO\nLD-260812-77 / PO-BSC-8841\nCARRIER ACKNOWLEDGMENT\nReply recorded August 11, 2026 at 2:17 PM Eastern: Confirmed. Dispatch updated to August 13 at 2:00 PM Eastern. Evan Brooks Export reference: MSG-BSC-0811-338 | Thread status: Confirmed. Case LOG-001 | Load LD-260812-77 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "APPOINTMENT CHANGE CONFIRMATION",
+        "page": 1,
+        "bbox": [
+          0.08202702069093139,
+          0.056028042632337204,
+          0.3558135980359619,
+          0.07151856096794093
+        ],
+        "kind": "Title",
+        "confidence": 0.7386410862207413
+      },
+      {
+        "text": "Brookfield Supply Co. | Transportation message export",
+        "page": 1,
+        "bbox": [
+          0.08261490154684181,
+          0.06979217709113242,
+          0.5500534207021612,
+          0.09661402696110524
+        ],
+        "kind": "Text",
+        "confidence": 0.5290410161018372
+      },
+      {
+        "text": "MESSAGE METADATA",
+        "page": 1,
+        "bbox": [
+          0.08141371147905838,
+          0.08899597033793867,
+          0.22271398734892767,
+          0.10068966420040285
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8207012474536896
+      },
+      {
+        "text": "Message ID: MSG-BSC-0811-338 | Sent: August 11, 2026, 2:05 PM Eastern\nFrom: Maya Chen <transport@brookfieldsupply.example>\nTo: Evan Brooks <dispatch@alderfreight.example>\nSubject: Approved reschedule - LD-260812-77 / AP-BSC-771",
+        "page": 1,
+        "bbox": [
+          0.07655567263792125,
+          0.1015749172562791,
+          0.6911351333036491,
+          0.17918616032500048
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8354682207107544
+      },
+      {
+        "text": "CUSTOMER INSTRUCTION",
+        "page": 1,
+        "bbox": [
+          0.07812073130486723,
+          0.16917566780163887,
+          0.2548615635473328,
+          0.18228689287816963
+        ],
+        "kind": "Section Header",
+        "confidence": 0.9071062862873077
+      },
+      {
+        "text": "Our Richmond receiving dock will be unavailable for the original August 12 appointment due to scheduled dock maintenance. Please deliver on August 13, 2026 at 2:00 PM Eastern instead. This is a customer-requested change. Appointment AP-BSC-771 revision 2 replaces revision 1. No carrier late-delivery charge applies for moving delivery to this revised appointment. The agreed $4,800.00 compensation under RC-771 remains unchanged.",
+        "page": 1,
+        "bbox": [
+          0.0740297831250386,
+          0.18398605296824233,
+          0.9080758744662856,
+          0.28124230745859735
+        ],
+        "kind": "Text",
+        "confidence": 0.9027552008628845
+      },
+      {
+        "text": "APPOINTMENT RECORD",
+        "page": 1,
+        "bbox": [
+          0.07415571436043299,
+          0.26583064556609937,
+          0.233918233358051,
+          0.2790742361547157
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8479461073875427
+      },
+      {
+        "text": "Original appointment\nAugust 12, 2026, 10:00 AM Eastern\nRevised appointment\nAugust 13, 2026, 2:00 PM Eastern\nEffective revision\nAP-BSC-771 revision 2\nLinked load / PO\nLD-260812-77 / PO-BSC-8841",
+        "page": 1,
+        "bbox": [
+          0.06818306322392362,
+          0.28119020674272815,
+          0.3650465361857056,
+          0.4113608798697048
+        ],
+        "kind": "Text",
+        "confidence": 0.7767164766788482
+      },
+      {
+        "text": "CARRIER ACKNOWLEDGMENT",
+        "page": 1,
+        "bbox": [
+          0.06965851698817062,
+          0.41139702243097714,
+          0.2626917005982201,
+          0.4249076909013668
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8955599725246429
+      },
+      {
+        "text": "Reply recorded August 11, 2026 at 2:17 PM Eastern: Confirmed. Dispatch updated to August 13 at 2:00 PM Eastern. Evan Brooks Export reference: MSG-BSC-0811-338 | Thread status: Confirmed. Case LOG-001 | Load LD-260812-77 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.0655088412499718,
+          0.4267392165035251,
+          0.8981745327180372,
+          0.507502823589039
+        ],
+        "kind": "Text",
+        "confidence": 0.561409805715084
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 7264
+  }
+}

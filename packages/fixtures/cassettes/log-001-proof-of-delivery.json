@@ -1,0 +1,96 @@
+{
+  "key": "log-001-proof-of-delivery",
+  "docType": "pod",
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.98,
+  "document": {
+    "document_number": {
+      "value": "POD-771",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Proof of delivery: POD-771"
+    },
+    "ship_date": {
+      "value": "August 13, 2026",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Delivery date: August 13, 2026"
+    },
+    "carrier_name": {
+      "value": "Alder Freight Services LLC",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Carrier: Alder Freight Services LLC"
+    },
+    "po_number": {
+      "value": "PO-BSC-8841",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Purchase order: PO-BSC-8841"
+    },
+    "appointment_at": {
+      "value": "August 13, 2026, 2:00 PM Eastern",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Confirmed appointment\nAugust 13, 2026, 2:00 PM Eastern"
+    },
+    "gate_check_in_at": {
+      "value": "August 13, 2026, 1:42 PM Eastern",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Gate check-in\nAugust 13, 2026, 1:42 PM Eastern"
+    },
+    "appointment_reference": {
+      "value": "AP-BSC-771 revision 2",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Appointment: AP-BSC-771 revision 2"
+    },
+    "signed_by": {
+      "value": "Jordan Ellis, Receiving Clerk",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Received by: Jordan Ellis, Receiving Clerk."
+    },
+    "signature_present": {
+      "value": true,
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Electronic acknowledgment recorded August 13, 2026 at 2:25 PM Eastern."
+    },
+    "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "ship_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "total_cartons_shipped": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "total_cartons_received": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-21T04:59:02.431Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4983,
+    "outputTokens": 852,
+    "costMicros": 18486,
+    "latencyMs": 7302
+  }
+}
