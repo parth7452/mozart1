@@ -1,24 +1,10 @@
 # recouple — deductions agent platform (AI-written code touches money paths)
 
-A deterministic, human-gated document workflow for recovering invalid deductions:
-money a customer withholds from an invoice with a coded reason attached. The
-debtor is whoever short-pays — a staffing firm's client or the MSP/VMS between
-them, a shipper or broker deducting against a carrier, a retailer charging back a
-supplier. **Staffing and logistics are the focus; CPG is the same machine pointed
-at a retailer.**
-
-Not an autonomous agent: ingest → classify → plan evidence → decide → assemble
-packet → **a human approves and submits** → record outcome → invoice the
-contingency fee. Agentic loops are reserved for exactly two bounded steps
-(evidence planning, unknown-debtor cold start).
-
-One machine serves three verticals because the vertical lives in data, not code:
-`reason-codes.ts` is a canonical taxonomy and a debtor's own codes map into it as
-versioned playbook data. A new vertical is a playbook and a fixture suite, not a
-rewrite (docs/STRATEGY.md §7). The schema already says `debtor` rather than
-`retailer`; the `retailer`-named identifiers that remain (`link:retailer`,
-`retailerMatchKey`, `retailer_name_as_printed`) are leftovers, not a claim about
-who the customer is.
+A deterministic, human-gated document workflow for recovering invalid retailer
+deductions. Not an autonomous agent: ingest → classify → plan evidence → decide
+→ assemble packet → **a human approves and submits** → record outcome → invoice
+the contingency fee. Agentic loops are reserved for exactly two bounded steps
+(evidence planning, unknown-retailer cold start).
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 

@@ -1,34 +1,14 @@
 # recouple
 
-Deductions recovery for firms whose customers short-pay their invoices.
-
-A staffing firm bills for hours worked and the client's MSP deducts for a
-timesheet discrepancy. A carrier delivers and the shipper deducts for a late
-arrival or a shortage. A supplier ships and the retailer charges back. The shape
-is identical every time: work delivered, invoice raised, less money arrives than
-was billed, and a coded reason attached. Somewhere between 5% and 15% of gross
-billings leaks out this way — most of it never challenged, because challenging it
-is slow, deadline-bound paperwork.
-
-**Staffing and logistics first, CPG as an added benefit.** The deduction
-mechanics are the same in all three, and the vertical lives in versioned playbook
-data rather than in code, so a new one is a playbook and a fixture suite rather
-than a rewrite.
+Deductions recovery for CPG suppliers and their retail customers. A supplier
+ships to a retailer, the retailer short-pays the invoice with a coded reason, and
+somewhere between 5% and 15% of gross sales leaks out this way — most of it never
+challenged because challenging it is slow, deadline-bound paperwork.
 
 recouple is the paperwork, automated: ingest the notice → classify it → plan the
-evidence → decide → assemble a packet in the debtor's required format → **a
+evidence → decide → assemble a packet in the retailer's required format → **a
 human approves and files it** → detect the recovery → bill a share of what was
 actually recovered.
-
-The number that matters is **recovery rate, not win rate**. A 91% win rate is
-what you get by filing only what you were already sure of. Recovery rate is
-coverage × win × collection, and roughly 70% of disputable deductions are never
-challenged at all — so the unfiled pile is the prize, not the win percentage on
-the filed one (docs/STRATEGY.md §2).
-
-Every number in a packet traces to a verbatim quote on the page it came from, and
-the quote is checked against that page before a human sees it. We do not ask you
-to trust the AI; we show you the page.
 
 It is a deterministic, human-gated workflow, not an autonomous agent. Genuine
 agentic loops are reserved for two bounded steps: planning evidence, and
