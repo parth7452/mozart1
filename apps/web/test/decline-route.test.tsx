@@ -324,7 +324,38 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
     expect(said(response)).toMatch(/was not declined/);
+    // And it says which of the two refusals this is, because they ask
+    // different things of the reader. This one is the dead end: the notice is
+    // there, its arrival was never recorded, and `documents` is append-only so
+    // nobody can record it now.
+    expect(said(response)).toMatch(/predates provenance recording/);
+    expect(said(response)).toMatch(/until a migration adds a way to record its arrival/);
+    // Not the sentence for the other fault, which would send them to attach a
+    // notice that is already attached.
+    expect(said(response)).not.toMatch(/Attach the notice/);
     // And it is in the logs, because this one is somebody's to fix.
+    expect(logged).toHaveLength(1);
+    expect(store.closed).toBe(1);
+  });
+
+  it('says to attach the notice when that is the fault, and not the other thing', async () => {
+    // The same refusal from the store, for the other reason: no notice document
+    // at all. `noticeDocumentId` is undefined, and that is how the route knows.
+    // This one a reviewer can act on, so the sentence tells them to — and it
+    // must not be the "predates provenance recording" sentence, which would
+    // have them waiting on a migration for a case that only needs its notice.
+    const store = harness.store as RouteTestStore;
+    store.throws = new ProvenanceUnknownError(
+      CASE_ID,
+      'it has no notice document, so nothing on it says which channel found this deduction',
+    );
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
+    expect(said(response)).toMatch(/no notice document on it/);
+    expect(said(response)).toMatch(/Attach the notice/);
+    expect(said(response)).not.toMatch(/predates provenance recording/);
     expect(logged).toHaveLength(1);
     expect(store.closed).toBe(1);
   });

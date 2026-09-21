@@ -256,14 +256,29 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this case was already declined; the first decline stands',
   },
-  decline_no_provenance: {
+  decline_no_notice: {
     // Nothing was recorded. A decline is counted against the channel that found
-    // the deduction, and this case's notice does not say which one that was —
-    // so the choice was between a row under a guessed channel and no row at
-    // all, and a coverage number nobody can trust is worse than one that is
-    // visibly incomplete (docs/STRATEGY.md, ADD-1).
+    // the deduction, and a case with no notice document has nothing on it that
+    // says which one that was — so the choice was between a row under a guessed
+    // channel and no row at all, and a coverage number nobody can trust is
+    // worse than one that is visibly incomplete (docs/STRATEGY.md, ADD-1).
+    //
+    // This one has something to do about it, which is why it is not the notice
+    // below: attach the deduction notice and the decline goes through.
     tone: 'bad',
-    text: 'this case was not declined: nothing on it records how the deduction reached us, and a decline is counted against the channel that found it. The case is untouched, and this is in the logs.',
+    text: 'this case was not declined: there is no notice document on it to say how the deduction reached us, and a decline is counted against the channel that found it. Attach the notice and decline it again. The case is untouched.',
+  },
+  decline_predates_provenance: {
+    // The other half, and deliberately a different sentence: here the notice is
+    // present and it is the *arrival* that was never recorded, because the
+    // document was stored before ingest wrote one. Nobody can fix that from
+    // this page or any other — `documents` is append-only, so `upload_id`
+    // cannot be set after the fact, and `uploads` has no way to point back at a
+    // document. Telling a reviewer to go and record it would send them after a
+    // button that cannot exist yet, so the sentence says what is actually true
+    // and where it is written down.
+    tone: 'bad',
+    text: 'this case predates provenance recording; it cannot be declined until a migration adds a way to record its arrival. Nothing was written — the case was not declined and is untouched, and this is in the logs.',
   },
 
   // --- uploading ------------------------------------------------------------

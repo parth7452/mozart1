@@ -53,7 +53,7 @@ and tested in isolation and has never been run through the deployed app:
 | `ANTHROPIC_API_KEY` for cassette recording | **you** | LOG-001 is wired and self-consistent but not scored by `pnpm eval` until its cassettes exist. One local command |
 | ~~Positioning line~~ | **done** | `CLAUDE.md` and `README.md` now open on staffing and logistics first, retail CPG as upside |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| ~~Provenance at ingest~~ | **done** | `ingestDocument` writes the `uploads` row before it stores the bytes, so `documents.upload_id` is set on everything stored since. `declined_candidates.discovered_from` is derived from the notice's own arrival — the `assumedDiscoveredFrom` parameter is gone — and a case whose notice records no arrival is refused rather than attributed to a guess. Coverage can be grouped by channel; a declined web upload and a declined email-in case land in different ones |
+| ~~Provenance at ingest~~ | **done** | `ingestDocument` writes the `uploads` row before it stores the bytes, so `documents.upload_id` is set on everything stored since. `declined_candidates.discovered_from` is derived from the notice's own arrival — the `assumedDiscoveredFrom` parameter is gone — and a case whose notice records no arrival is refused rather than attributed to a guess. Coverage can be grouped by channel; a declined web upload and a declined email-in case land in different ones. Two things it leaves behind are under *Follow-ups this change created* |
 
 ## Where the phases stand
 
@@ -113,8 +113,44 @@ blended into the existing five.
    outcome.
 2. **Score the customer pack** as its own suite.
 3. **Cassettes for LOG-001**, once the key is in place.
-4. ~~Provenance at ingest~~ — done. What is left of it is the cases opened
-   before it: their documents have no `uploads` row, so declining one is
-   refused by name until somebody records how it arrived. There is no backfill,
-   deliberately — nothing in the database knows the answer, and inventing one
-   is the thing this change removed.
+4. ~~Provenance at ingest~~ — done. What is left of it is below.
+
+## Follow-ups this change created
+
+1. **The pre-provenance cases cannot be declined, and no script can fix that.**
+   Cases opened before ingest recorded arrivals have notices with
+   `documents.upload_id` null, and `declineCase` refuses them by name rather
+   than attributing the decline to a guessed channel. A backfill was considered
+   and deliberately not written, because there is nowhere honest to write it:
+   `documents` is append-only (migration 0004 revokes UPDATE from `app_rw` and
+   puts a `before update` trigger on the table for every other role), so
+   `upload_id` cannot be filled in afterwards, and `uploads` has no column that
+   points back at a document. A script could have inserted `uploads` rows, but
+   nothing would have linked them to the bytes they claimed to describe — the
+   backfill would have looked like a fix and changed nothing the derivation
+   reads. **This needs an ADR and a migration**: somewhere for an already-stored
+   document to record the arrival it came from, written once and never
+   rewritten. Until then the refusal says so in as many words — "this case
+   predates provenance recording; it cannot be declined until a migration adds
+   a way to record its arrival" — rather than sending somebody after a button
+   that does not exist.
+
+   Note for whoever writes it: the deployment history is the fact that would
+   justify a value. `ingestInboundEmail` has never had a production caller, so
+   every pre-provenance production document arrived by web upload. That is an
+   assertion about this deployment, not a derivation from anything in the
+   database, so it belongs in an ADR and in an operator's explicit `--source`,
+   never in a default.
+
+2. **`uploads.source` is mutable; ADR + migration to make `uploads` append-only
+   now that coverage depends on it.** `uploads` is in migration 0006's `mutable`
+   list, so `app_rw` holds UPDATE and DELETE on it and there is no
+   `no_update_delete` trigger. That was harmless while nothing read the column.
+   It is not harmless now: `declined_candidates.discovered_from` is derived from
+   `uploads.source`, the declined row is append-only and cannot be corrected,
+   and an UPDATE to `uploads.source` would silently re-label which channel found
+   a deduction *after* the declines attributed to it were counted — changing a
+   published coverage number with no record that anything moved. An arrival is a
+   fact about the past, like every other row the invariants protect; it should
+   be insert-and-select only, and a correction should be a new row rather than
+   an edit.
