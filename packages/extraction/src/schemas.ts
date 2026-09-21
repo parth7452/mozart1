@@ -199,11 +199,11 @@ export const CorrespondenceSchema = z.object({
         ),
         supersedes: OptionalField(
           z.string(),
-          'What this replaces. Copy the words the document uses for it, however partial. A page reading "AP-771 revision 2 replaces revision 1" names the new one in full and the old one only as "revision 1" — report "revision 1". A partial reference is the fact on the page: give it rather than completing it, and rather than leaving this empty.',
+          'What this replaces, named the way the document names it. When the message gives an identifier — a revision, appointment or document number — that identifier is the answer, not a description of what changed: for "replaces revision 1" report "revision 1", never "the original August 12 appointment". Copy the words the document uses, however partial. A page reading "AP-771 revision 2 replaces revision 1" names the new one in full and the old one only as "revision 1" — report "revision 1". A partial reference is the fact on the page: give it rather than completing it, and rather than leaving this empty.',
         ),
         establishes: OptionalField(
           z.string(),
-          'What it puts in place, in the document’s own words. In "AP-771 revision 2 replaces revision 1" that is "AP-771 revision 2".',
+          'What it puts in place, named the way the document names it. When the message gives an identifier, that identifier is the answer, not the effect it has: in "AP-771 revision 2 replaces revision 1" report "AP-771 revision 2", never the new delivery date it results in.',
         ),
         waives_charge: Field(
           z.boolean(),

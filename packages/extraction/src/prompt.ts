@@ -40,6 +40,11 @@ Types:
 - routing_guide: a retailer's routing, packaging or compliance guide
 - other: none of the above
 
+When a document's printed title names its own type, that title decides — even when the page
+also carries evidence of what happened to it later: a delivery stamp, a signature block, received
+quantities, an exception noted on arrival. A signed and stamped bill of lading is a bol. Classify
+what the document IS, not what was done to it.
+
 Report calibrated confidence. If the document is ambiguous or unreadable, say so with a low number rather than picking the most likely type confidently.`;
 
 export const EXTRACTION_GUIDANCE: Record<DocType, string> = {
