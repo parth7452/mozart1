@@ -82,6 +82,16 @@ export interface DiscoveryStore {
     readonly reason: 'below_economic_floor' | 'duplicate_of_other';
     readonly estimatedRecoverableCents: number;
     readonly identifiers: { readonly ledgerInvoiceId: string; readonly invoiceNumber: string };
+    /**
+     * Who deducted, as the ledger names them, verbatim. A declined candidate
+     * never became a case, so it has no `debtor_id` and nothing else on it says
+     * whose money this was: a per-debtor cut of coverage (STRATEGY ADD-2) is
+     * uncomputable afterwards unless these two strings are written now
+     * (ADR 0030 §7). Stored, never resolved — matching a vendor's customer key
+     * to a debtor is identity resolution's job.
+     */
+    readonly customerExternalId: string;
+    readonly customerName: string;
     readonly detail?: string;
   }): Promise<{ readonly declinedCandidateId: string; readonly written: boolean }>;
   /** The `exact` branch's only write: the ledger's own name for a deduction. */
@@ -271,6 +281,8 @@ export async function syncLedger(input: SyncLedgerInput): Promise<SyncReport> {
         reason: decision.reason,
         estimatedRecoverableCents: decision.estimatedRecoverableCents,
         identifiers,
+        customerExternalId: candidate.customerExternalId,
+        customerName: candidate.customerName,
         detail: decision.detail,
       });
       declined.push({
