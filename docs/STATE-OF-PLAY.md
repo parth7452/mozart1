@@ -87,11 +87,38 @@ Against the build order in `CLAUDE.md`:
 The case state machine has 14 states. Cases reach state 2 in production; the
 states above it are exercised only in tests.
 
+## What the store gives back
+
+A production case answered its review page with a 500 on 2026-09-21: a staffing
+notice whose one line named no item came back out of the store with no `sku_upc`
+key at all, and reconciliation read straight through it. Both layers are fixed
+(PR #16). Every store now rebuilds a stored document through `restoreDocument`
+— the reader's own `reassemble` and the document type's own schema — so the two
+answer identically, which is asserted as a contract test against a real
+database.
+
+The same round trip has a second, quieter failure, and it is closed in the same
+change. `flattenExtraction` stores no row for a value it cannot point at, so a
+*required* field read without a page or a quote comes back absent and the
+document stops being typed. That used to cost the case every line it had. Now
+`readDocument` says so at the write (`document.stored_without_provenance`, ids
+and field paths only) and reads the document anyway, and `reconcileCase`
+reconciles over it, naming the fields it could not read — blocking only when one
+of them carries money, because that is the arithmetic. Two more gaps went with
+it: an unusable `pod` is reported even when a `bol` parsed, and `correspondence`
+now reaches `reconcileNotice`, which is what makes LOG-001's findings reachable
+from a case page at all.
+
 ## Evals
 
 A **15-document synthetic "customer" pack** (staffing and logistics) has
 arrived. It is the next eval suite, scored separately like the others — never
 blended into the existing five.
+
+`authored_pending` joins `logistics` and `customer` as a suite with fixtures and
+no cassettes. All three are named in `baseline.json`'s `pendingSuites`, which
+`pnpm eval --record-pending` refreshes without touching a metric row — the
+bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## What not to claim yet
 
@@ -112,7 +139,9 @@ blended into the existing five.
    production — upload, decide, assemble, approve as the second member, file,
    outcome.
 2. **Score the customer pack** as its own suite.
-3. **Cassettes for LOG-001**, once the key is in place.
+3. **Cassettes for LOG-001 and `authored_pending`**, once the key is in place.
+   LOG-001's findings are reachable from a case page now, so recording it
+   measures the argument rather than five unread documents.
 4. ~~Provenance at ingest~~ — done. What is left of it is below.
 
 ## Follow-ups this change created

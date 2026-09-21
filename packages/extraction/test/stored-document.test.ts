@@ -3,6 +3,7 @@ import { flattenExtraction } from '../src/flatten';
 import { reconcileNotice } from '../src/reconcile';
 import { restoreDocument } from '../src/restore';
 import { DeductionNoticeSchema, type DeductionNotice } from '../src/schemas';
+import { MAX_ROWS_PER_GROUP } from '../src/wire';
 
 /**
  * A deduction taken against an invoice, not an item.
@@ -153,5 +154,243 @@ describe('a notice line with no SKU', () => {
     expect(result.lines[0]?.claimedCents).toBe(127_500);
     expect(result.claimedTotalCents).toBe(127_500);
     expect(result.findings.filter((finding) => finding.severity === 'blocking')).toEqual([]);
+  });
+});
+
+/**
+ * The other half of the bargain, and the one the fix for the missing SKU key
+ * left open: a field with a *value* but no usable provenance.
+ *
+ * `flattenExtraction` drops it — no page or no quote means nothing a reviewer
+ * can check, so no row — and the rebuild then has no row to put back. On an
+ * optional field that is invisible and harmless. On a *required* one the
+ * rebuilt document stops satisfying its schema, and `reconcileCase` used to
+ * answer a whole case with no lines and a blocking finding, over one unquoted
+ * date on a scan.
+ */
+describe('a required field stored without provenance', () => {
+  const noProvenance = (value: string) => ({
+    value,
+    confidence: 0.9,
+    source_page: 0,
+    source_quote: '',
+  });
+
+  const noticeMissingDate = {
+    ...INVOICE_LEVEL_NOTICE,
+    deduction_date: noProvenance('09/14/2026'),
+  };
+
+  it('is not written to the store at all', () => {
+    const fields = flattenExtraction(noticeMissingDate);
+    expect(fields.map((field) => field.fieldPath)).not.toContain('deduction_date');
+    // Everything else is still there: one unquoted field costs one field.
+    expect(fields.map((field) => field.fieldPath)).toContain('deduction_total');
+    expect(fields.map((field) => field.fieldPath)).toContain('lines[0].deduction_amount');
+  });
+
+  it('comes back absent, and says the document is no longer typed', () => {
+    const restored = restoreDocument('deduction_notice', flattenExtraction(noticeMissingDate));
+
+    expect(restored.validated).toBe(false);
+    expect(restored.issues).toEqual([
+      { path: 'deduction_date.value', problem: 'Invalid input: expected string, received null' },
+    ]);
+    // Absent, not missing: the key is there with a null value, so nothing that
+    // reads a field object throws on it.
+    expect((restored.document as Record<string, unknown>).deduction_date).toEqual({
+      value: null,
+      confidence: 0,
+      source_page: 1,
+      source_quote: '',
+    });
+  });
+
+  it('still leaves a document worth reconciling', () => {
+    const restored = restoreDocument('deduction_notice', flattenExtraction(noticeMissingDate));
+    const result = reconcileNotice({ notice: restored.document as DeductionNotice });
+
+    expect(result.lines).toHaveLength(1);
+    expect(result.claimedTotalCents).toBe(127_500);
+    expect(result.lineSumCents).toBe(127_500);
+    expect(result.internallyConsistent).toBe(true);
+  });
+
+  it('takes the line sum with it when the missing field is the money', () => {
+    // The distinction `reconcileCase` grades on. A date we could not read
+    // leaves the arithmetic intact; an amount we could not read is the
+    // arithmetic.
+    const noAmount = {
+      ...INVOICE_LEVEL_NOTICE,
+      lines: [{ ...INVOICE_LEVEL_NOTICE.lines[0], deduction_amount: noProvenance('$1,275.00') }],
+    };
+    const restored = restoreDocument('deduction_notice', flattenExtraction(noAmount));
+
+    expect(restored.validated).toBe(false);
+    expect(restored.issues.map((issue) => issue.path)).toEqual(['lines.0.deduction_amount.value']);
+
+    const result = reconcileNotice({ notice: restored.document as DeductionNotice });
+    expect(result.lines[0]?.claimedCents).toBeNull();
+    // The total is still on the page; the sum of the lines is not, so the two
+    // can no longer be checked against each other.
+    expect(result.claimedTotalCents).toBe(127_500);
+    expect(result.lineSumCents).toBeNull();
+  });
+});
+
+describe('a stored row the wire format cannot carry', () => {
+  it('reads an empty string as not present, which is what the reader does', () => {
+    // The docstring's claim, stated as a test. A row whose `value_json` is ""
+    // is not a field with an empty value — there is no such thing on a page —
+    // so it is dropped with an issue and the field comes back absent.
+    const rows = [
+      ...flattenExtraction(INVOICE_LEVEL_NOTICE).filter((f) => f.fieldPath !== 'vendor_number'),
+      {
+        fieldPath: 'vendor_number',
+        value: '',
+        confidence: 0.4,
+        sourcePage: 1,
+        sourceQuote: 'Vendor Number:',
+        sourceBbox: null,
+        quoteVerified: null,
+      },
+    ];
+
+    const restored = restoreDocument('deduction_notice', rows);
+
+    expect(restored.issues).toEqual([
+      { path: 'vendor_number', problem: 'empty value: treated as not present' },
+    ]);
+    // Optional, so the document is still typed — the absence is legitimate.
+    expect(restored.validated).toBe(true);
+    expect((restored.document as Record<string, unknown>).vendor_number).toEqual({
+      value: null,
+      confidence: 0,
+      source_page: 1,
+      source_quote: '',
+    });
+  });
+
+  it('reports a stored object or array instead of guessing at it', () => {
+    // `value_json` is jsonb: nothing we write puts an object there, so a row
+    // that has one came from somewhere else and is not something to coerce.
+    const rows = [
+      ...flattenExtraction(INVOICE_LEVEL_NOTICE).filter((f) => f.fieldPath !== 'claim_id'),
+      {
+        fieldPath: 'claim_id',
+        value: { nested: 'SP-4417' },
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: 'Claim Number: SP-4417',
+        sourceBbox: null,
+        quoteVerified: null,
+      },
+      {
+        fieldPath: 'invoice_number',
+        value: ['NS-260914'],
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: 'Invoice Number: NS-260914',
+        sourceBbox: null,
+        quoteVerified: null,
+      },
+    ];
+
+    const restored = restoreDocument('deduction_notice', rows);
+
+    expect(restored.issues.slice(0, 2)).toEqual([
+      { path: 'claim_id', problem: 'stored value of type object cannot be read back as a field' },
+      {
+        path: 'invoice_number',
+        problem: 'stored value of type object cannot be read back as a field',
+      },
+    ]);
+    // `claim_id` is required, so the document is no longer typed — and that is
+    // said, rather than an object being written into the field.
+    expect(restored.validated).toBe(false);
+    expect((restored.document as Record<string, unknown>).claim_id).toEqual({
+      value: null,
+      confidence: 0,
+      source_page: 1,
+      source_quote: '',
+    });
+  });
+});
+
+describe('the row cap on a repeating group', () => {
+  it('drops a row past the cap with an issue instead of filling up to it', () => {
+    // The row number decides how much `reassemble` does, and it arrives from a
+    // model reading an untrusted document or from a `field_path` in a database.
+    // `lines[900000]` is one field and nine hundred thousand rows of filling.
+    const rows = [
+      ...flattenExtraction(INVOICE_LEVEL_NOTICE),
+      {
+        fieldPath: `lines[${MAX_ROWS_PER_GROUP}].deduction_amount`,
+        value: '$1.00',
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: '$1.00',
+        sourceBbox: null,
+        quoteVerified: null,
+      },
+      {
+        fieldPath: 'lines[900000].deduction_amount',
+        value: '$2.00',
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: '$2.00',
+        sourceBbox: null,
+        quoteVerified: null,
+      },
+    ];
+
+    const started = Date.now();
+    const restored = restoreDocument('deduction_notice', rows);
+
+    expect(restored.issues).toEqual([
+      {
+        path: `lines[${MAX_ROWS_PER_GROUP}].deduction_amount`,
+        problem: `row ${MAX_ROWS_PER_GROUP} is past the ${MAX_ROWS_PER_GROUP}-row cap on lines: dropped`,
+      },
+      {
+        path: 'lines[900000].deduction_amount',
+        problem: `row 900000 is past the ${MAX_ROWS_PER_GROUP}-row cap on lines: dropped`,
+      },
+    ]);
+    // The real row survives, and the document is still the document.
+    expect((restored.document as DeductionNotice).lines).toHaveLength(1);
+    expect(restored.validated).toBe(true);
+    // Not a timing assertion so much as a bound: filling to 900,000 rows takes
+    // seconds and hundreds of megabytes, and this returns immediately.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('keeps every row up to the cap', () => {
+    const rows = [
+      ...Array.from({ length: MAX_ROWS_PER_GROUP }, (_, row) => ({
+        fieldPath: `lines[${row}].deduction_amount`,
+        value: '$1.00',
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: '$1.00',
+        sourceBbox: null,
+        quoteVerified: null,
+      })),
+      ...Array.from({ length: MAX_ROWS_PER_GROUP }, (_, row) => ({
+        fieldPath: `lines[${row}].reason_code`,
+        value: 'X',
+        confidence: 1,
+        sourcePage: 1,
+        sourceQuote: 'X',
+        sourceBbox: null,
+        quoteVerified: null,
+      })),
+      ...flattenExtraction(INVOICE_LEVEL_NOTICE).filter((f) => !f.fieldPath.startsWith('lines[')),
+    ];
+
+    const restored = restoreDocument('deduction_notice', rows);
+
+    expect(restored.issues).toEqual([]);
+    expect((restored.document as DeductionNotice).lines).toHaveLength(MAX_ROWS_PER_GROUP);
   });
 });

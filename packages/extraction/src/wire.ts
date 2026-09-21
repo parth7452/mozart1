@@ -77,6 +77,25 @@ function coerce(
 
 const absentField = () => ({ value: null, confidence: 0, source_page: 1, source_quote: '' });
 
+/**
+ * The most rows one repeating group may carry.
+ *
+ * `reassemble` fills every row up to the highest index it was given, so the row
+ * number decides how much work it does and how large the object gets. That
+ * number comes out of a model reading an untrusted document (or, on the way
+ * back, out of a `field_path` in the database), and `lines[900000].sku_upc` is
+ * one field but nine hundred thousand rows of filling — a page that never
+ * renders rather than a bad number, which is the shape of a denial of service
+ * rather than of a mis-read.
+ *
+ * 500 is far above any real remittance we have seen (the dense fixture is 42
+ * rows) and far below anything that costs a request its latency. A row past it
+ * is dropped with an issue, exactly like a path the document type does not
+ * declare: said out loud, never silently truncated into a document that looks
+ * complete.
+ */
+export const MAX_ROWS_PER_GROUP = 500;
+
 function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split('.');
   let node: Record<string, unknown> = target;
@@ -137,6 +156,17 @@ export function reassemble(
       continue;
     }
 
+    const rowIndex = descriptor.group === undefined ? undefined : rowIndexOf(field.path);
+    if (rowIndex !== undefined && rowIndex >= MAX_ROWS_PER_GROUP) {
+      issues.push({
+        path: field.path,
+        problem:
+          `row ${rowIndex} is past the ${MAX_ROWS_PER_GROUP}-row cap on ` +
+          `${descriptor.group}: dropped`,
+      });
+      continue;
+    }
+
     const coerced = coerce(field.value, descriptor.valueType);
     if (!coerced.ok) {
       issues.push({ path: field.path, problem: coerced.problem });
@@ -151,11 +181,11 @@ export function reassemble(
     });
     seen.add(field.path);
 
-    if (descriptor.group !== undefined) {
-      const row = rowIndexOf(field.path);
-      if (row !== undefined) {
-        rowsPerGroup.set(descriptor.group, Math.max(rowsPerGroup.get(descriptor.group) ?? 0, row + 1));
-      }
+    if (descriptor.group !== undefined && rowIndex !== undefined) {
+      rowsPerGroup.set(
+        descriptor.group,
+        Math.max(rowsPerGroup.get(descriptor.group) ?? 0, rowIndex + 1),
+      );
     }
   }
 
