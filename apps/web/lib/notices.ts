@@ -46,6 +46,14 @@ export const NOTICE_ABOUT_PARAM = 'about';
  * silent truncation: a confirmation number cut to fit is a confirmation number
  * that chases nothing, and a note cut to fit is a record of something the
  * person did not write.
+ *
+ * `CONFIRMATION_MAX_LENGTH` is enforced twice, deliberately. Here is where the
+ * sentence a reviewer reads comes from; the database holds the same 120 as
+ * `submissions_confirmation_number_length` (migration 0018, ADR 0023), because
+ * a caller that is not this route can reach the column too — and since
+ * migration 0017 froze it, a reference stored too long is one no update can
+ * trim. Change one and change the other: the boundary is asserted at 120 and
+ * 121 in `supabase/tests/13_a_filed_record_is_complete.sql`.
  */
 export const NOTE_MAX_LENGTH = 2000;
 export const CONFIRMATION_MAX_LENGTH = 120;
