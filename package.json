@@ -2,7 +2,7 @@
   "name": "recouple",
   "private": true,
   "type": "module",
-  "description": "Deductions recovery for CPG suppliers: a deterministic, human-gated document workflow.",
+  "description": "Deductions recovery for suppliers whose customers short-pay them, staffing and logistics first: a deterministic, human-gated document workflow.",
   "engines": {
     "node": ">=20"
   },

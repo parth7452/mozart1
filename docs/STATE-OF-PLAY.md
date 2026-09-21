@@ -27,8 +27,8 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0016. Migration
-0017 is written and applied in test; production gets it next.
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0017, applied
+2026-09-21 — the filed record is immutable there too, not only in test.
 
 ## Built, not yet exercised
 
@@ -50,7 +50,7 @@ and tested in isolation and has never been run through the deployed app:
 | --- | --- | --- |
 | Inngest sync (concurrency cap over the plan limit) | **next change** | Nothing about Phase 3 can be demonstrated end to end until the deployed app registers its functions |
 | `ANTHROPIC_API_KEY` for cassette recording | **you** | LOG-001 is wired and self-consistent but not scored by `pnpm eval` until its cassettes exist. One local command |
-| Positioning line | **you** | `CLAUDE.md` still opens "Deductions recovery for CPG suppliers". The stated market is staffing and logistics, CPG as upside |
+| ~~Positioning line~~ | **done** | `CLAUDE.md` and `README.md` now open on staffing and logistics first, retail CPG as upside |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
 | Provenance at ingest | **next change** | Nothing writes the `uploads` table, so `declined_candidates.discovered_from` cannot be filled honestly and coverage cannot be attributed by channel |
 
@@ -89,7 +89,7 @@ states above it are exercised only in tests.
 ## Evals
 
 A **15-document synthetic "customer" pack** (staffing and logistics) has
-arrived. It is the next eval suite, gated separately like the others — never
+arrived. It is the next eval suite, scored separately like the others — never
 blended into the existing five.
 
 ## What not to claim yet
@@ -110,7 +110,6 @@ blended into the existing five.
 1. **Fix the concurrency cap and sync Inngest**, then run one case end to end in
    production — upload, decide, assemble, approve as the second member, file,
    outcome.
-2. **Apply migration 0017 to production.**
-3. **Score the customer pack** as its own suite.
-4. **Cassettes for LOG-001**, once the key is in place.
-5. **Provenance at ingest**, so coverage can be attributed by channel.
+2. **Score the customer pack** as its own suite.
+3. **Cassettes for LOG-001**, once the key is in place.
+4. **Provenance at ingest**, so coverage can be attributed by channel.
