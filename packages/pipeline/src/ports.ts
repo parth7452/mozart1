@@ -174,8 +174,99 @@ export interface UnreadDocumentsStore {
    * than being coerced: it is a programming error, and the alternative is a
    * `where created_at < now() - NaN` that quietly answers nothing at all, which
    * reads exactly like "nothing is stuck".
+   *
+   * `limit` is checked the same way and for the same reason. `limit 0` and
+   * `limit -1` are both things Postgres has an opinion about — one answers
+   * nothing and the other is a syntax error — and a `NaN` reaches the driver as
+   * a bind parameter that answers nothing at all. Every one of those reads to a
+   * caller as "nothing is stuck", which is the one answer this list must never
+   * give wrongly. It is also capped, because this is a page a person looks at:
+   * a tenant with ten thousand stuck documents has a problem no list can show
+   * them, and loading all ten thousand to draw the first screen is a second
+   * problem on top of it.
    */
   unreadDocuments(olderThanMinutes: number, limit?: number): Promise<readonly UnreadDocument[]>;
+}
+
+/**
+ * The most stuck documents one call will answer with, whatever it was asked
+ * for. A screen, not a database dump.
+ */
+export const UNREAD_DOCUMENTS_MAX_LIMIT = 200;
+
+/**
+ * `unreadDocuments` was asked a question it will not answer.
+ *
+ * Named rather than a bare `Error` for `CaseWorkflowError`'s reason: a refusal
+ * a caller can catch and tell apart from the database being down. Both stores
+ * raise this one class, so a caller cannot be right about one store and wrong
+ * about the other.
+ */
+export class UnreadDocumentsQueryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnreadDocumentsQueryError';
+  }
+}
+
+/**
+ * The refusals, written once so the two stores cannot drift apart in what they
+ * accept — the contract suite runs the same assertions against both.
+ */
+export function assertUnreadDocumentsQuery(olderThanMinutes: number, limit: number): void {
+  if (!Number.isFinite(olderThanMinutes) || olderThanMinutes < 0) {
+    throw new UnreadDocumentsQueryError(
+      `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
+    );
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > UNREAD_DOCUMENTS_MAX_LIMIT) {
+    throw new UnreadDocumentsQueryError(
+      `unreadDocuments needs a limit that is a whole number of rows between 1 and ` +
+        `${UNREAD_DOCUMENTS_MAX_LIMIT}; this one is ${String(limit)}`,
+    );
+  }
+}
+
+/**
+ * One document's read, held by one caller at a time.
+ *
+ * `readDocumentJob`'s guard — has this document already been read? — is a
+ * question asked of the database and then acted on, and between the asking and
+ * the acting sits the whole read: OCR, a classify call, an extract call, and
+ * for a notice an `openCase`. Two deliveries that overlap inside that window
+ * both see "not read yet", and both read. The reviewer who proved it got four
+ * model calls, two `extraction_results` rows and two cases for one document,
+ * because `unique (org_id, debtor_id, claim_id)` does not fire while
+ * `debtor_id` is null (ADR 0019).
+ *
+ * So the guard needs something the runtime cannot give it: a claim that is
+ * held while the work runs, that two processes on two machines both see, and
+ * that is released if the holder dies. That is a lock in the database, and it
+ * is a *port* rather than a Postgres detail because the in-memory store has to
+ * answer it too — a test that proves the serialisation against a store with no
+ * lock in it is proving nothing.
+ *
+ * Not a queue and not a retry: a caller that does not get the claim is told so
+ * and does nothing. The document is being read by somebody else, and the right
+ * amount of money to spend on learning that is none.
+ */
+export type DocumentReadLease<T> =
+  /** The claim was held for the whole of `work`, and this is what it returned. */
+  | { readonly held: true; readonly result: T }
+  /** Somebody else holds it. `work` did not run, and nothing was spent. */
+  | { readonly held: false };
+
+export interface DocumentReadLock {
+  /**
+   * Runs `work` while holding this document's read claim, or not at all.
+   *
+   * The claim is per document, not per tenant: two tenants' reads never
+   * contend, and one tenant's two documents do not queue behind each other.
+   */
+  withDocumentRead<T>(
+    documentId: string,
+    work: () => Promise<T>,
+  ): Promise<DocumentReadLease<T>>;
 }
 
 export interface Scanner {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ClaudeClassifier, ClaudeExtractor, ReductoOcr } from '@recouple/extraction';
 import { scannerFromEnv } from '@recouple/ingest';
 import {
@@ -5,6 +6,8 @@ import {
   ingestForJob,
   processUpload,
   readDocumentJob,
+  recordedRead,
+  type CaseRecord,
   type IngestInput,
   type JobDeps,
   type PipelineDeps,
@@ -94,7 +97,22 @@ export type UploadOutcome =
   | { readonly kind: 'read'; readonly result: ProcessedDocument }
   | { readonly kind: 'queued'; readonly documentId: string }
   | { readonly kind: 'not_queued'; readonly documentId: string }
-  | { readonly kind: 'halted'; readonly haltedBecause: string };
+  | { readonly kind: 'halted'; readonly haltedBecause: string }
+  /**
+   * These bytes are a document this tenant already has, and it has already been
+   * read. Nothing was queued and nothing will be: the case is the one the first
+   * read opened, when it opened one.
+   *
+   * The inline runner says this inside `ProcessedDocument`; the queued one has
+   * to say it as its own shape, because it never built a `ProcessedDocument` —
+   * it stopped before the read. Both leave the handler with the same two
+   * answers: a case to go to, or "already read" and no case.
+   */
+  | {
+      readonly kind: 'already_read';
+      readonly documentId: string;
+      readonly case?: CaseRecord;
+    };
 
 /**
  * What asking for a stored document to be read again amounted to.
@@ -118,8 +136,11 @@ export interface UploadRunner {
    * The recovery path for a read that was queued and never ran (ADR 0021). It
    * is the same read either way — `readDocumentJob` here, `readDocumentJob` in
    * the function there — so a re-drive cannot become a second, more permissive
-   * way into the pipeline. It is safe to press twice: a document that already
-   * has an extraction is answered from what was recorded, with no model call.
+   * way into the pipeline. Pressing it again while the first press is still
+   * running does not read the document twice: the two are serialised by that
+   * document's lock in the database, and the second is answered rather than
+   * run. Pressing it after the first has finished is answered from what was
+   * recorded.
    *
    * `JobDeps` rather than `PipelineDeps`, because the inline half genuinely
    * runs the job: it reads from a document id, which is the one thing a request
@@ -131,6 +152,15 @@ export interface UploadRunner {
     options: {
       readonly orgId: string;
       readonly actor: { readonly userId: string };
+      /**
+       * Whether this re-drive may open a case for a notice that has none.
+       *
+       * The caller decides, because the caller is the one that knows what this
+       * document is (`app/documents/[id]/reread/route.ts`). Both runners pass
+       * it on unchanged — the inline one to `readDocumentJob`, the queued one
+       * into the event — so a re-drive means the same thing wherever it runs.
+       */
+      readonly allowCaseOpen?: boolean;
     },
   ): Promise<RereadOutcome>;
   run(
@@ -178,12 +208,13 @@ export class InlineRunner implements UploadRunner {
   async reread(
     documentId: string,
     deps: JobDeps,
-    options: { orgId: string; actor: { userId: string } },
+    options: { orgId: string; actor: { userId: string }; allowCaseOpen?: boolean },
   ): Promise<RereadOutcome> {
     const result = await readDocumentJob(deps, {
       documentId,
       orgId: options.orgId,
       actor: options.actor,
+      ...(options.allowCaseOpen !== undefined ? { allowCaseOpen: options.allowCaseOpen } : {}),
     });
     return { kind: 'read', result };
   }
@@ -219,10 +250,43 @@ export class InngestRunner implements UploadRunner {
       return { kind: 'halted', haltedBecause: ingested.haltedBecause };
     }
 
+    // The same bytes we already hold, and only then can a read already have
+    // happened. The inline runner asks this before it reads (`processUpload`);
+    // this one has to ask it before it *queues*, or the job asks it a minute
+    // later and the reviewer — who is standing here now, holding a file we have
+    // already read and filed — is told their document is being read and sent
+    // back to a list instead of to its case.
+    //
+    // It is also the second press of the same button, which is the ordinary
+    // way this happens. Nothing is spent either way: this is one query against
+    // `extraction_results`, and no event goes out at all.
+    if (ingested.deduplicated) {
+      const already = await recordedRead(
+        { documentId: ingested.documentId },
+        deps,
+        options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {},
+      );
+      if (already !== undefined) {
+        const existing =
+          already.deductionId === undefined
+            ? undefined
+            : await deps.store.getCase(already.deductionId);
+        return {
+          kind: 'already_read',
+          documentId: ingested.documentId,
+          ...(existing !== undefined ? { case: existing } : {}),
+        };
+      }
+    }
+
     const data: ReadRequestedData = {
       documentId: ingested.documentId,
       orgId: ingested.orgId,
       userId: options.actor.userId,
+      // The document id, so that two deliveries of *this* upload's event are
+      // one read. A re-drive is a different request and carries its own key
+      // (`reread`), so it is never swallowed by this one's window.
+      readKey: ingested.documentId,
       ...(options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {}),
     };
 
@@ -268,12 +332,19 @@ export class InngestRunner implements UploadRunner {
   async reread(
     documentId: string,
     _deps: JobDeps,
-    options: { orgId: string; actor: { userId: string } },
+    options: { orgId: string; actor: { userId: string }; allowCaseOpen?: boolean },
   ): Promise<RereadOutcome> {
     const data: ReadRequestedData = {
       documentId,
       orgId: options.orgId,
       userId: options.actor.userId,
+      // A fresh key every press, and that is the point of the field existing.
+      // The runtime's idempotency window is keyed on it, so a re-drive is never
+      // the same request as the upload that stalled — which is exactly what the
+      // old `event.data.documentId` key made it, for twenty-four hours (ADR
+      // 0021).
+      readKey: randomUUID(),
+      ...(options.allowCaseOpen !== undefined ? { allowCaseOpen: options.allowCaseOpen } : {}),
     };
 
     try {

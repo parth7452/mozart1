@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   buildExtractionResult,
   type ClassificationResult,
@@ -7,7 +8,7 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
-import type { PipelineDeps, StoredDocument } from '@recouple/pipeline';
+import { processUpload, type PipelineDeps, type StoredDocument } from '@recouple/pipeline';
 import { InngestRunner, type UploadRunner } from '../lib/pipeline';
 import { NextRequest } from 'next/server';
 import {
@@ -157,6 +158,11 @@ function stubbedDeps(store: RouteTestStore): PipelineDeps {
     },
     now: () => new Date(0),
   };
+}
+
+/** The same digest `ingestDocument` keys a document on: hex of the bytes. */
+async function sha256Of(bytes: Uint8Array): Promise<string> {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /** A POST the route can read: one file, no content-length to argue about. */
@@ -355,6 +361,12 @@ describe('uploading where the read runs as a job', () => {
           documentId,
           orgId: ORG_ID,
           userId: '22222222-2222-2222-2222-222222222222',
+          // The runtime's idempotency key, and for an upload it is the document
+          // id: a redelivery of *this* event is one read. A re-drive is a
+          // different request and carries a fresh key, so it is never swallowed
+          // by this one's window — which is what keying on the document id
+          // directly did, for twenty-four hours (ADR 0021).
+          readKey: documentId,
         },
       },
     ]);
@@ -438,6 +450,77 @@ describe('uploading where the read runs as a job', () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it('queues nothing for bytes it has already read, and sends the reviewer to the case', async () => {
+    // The same file uploaded twice — the second press of a button, mostly.
+    // The inline runner has always answered this from what was recorded
+    // (`processUpload`); the queued one used to announce it anyway, so the job
+    // asked the same question a minute later and answered it the same way,
+    // while the reviewer was told their document was being read and sent to a
+    // list rather than to the case it had already opened.
+    const store = harness.store as RouteTestStore;
+    const first = await processUpload(
+      {
+        orgId: ORG_ID,
+        filename: notice.filename,
+        bytes: notice.bytes,
+        source: 'web_upload' as const,
+        pageText: notice.pageText,
+      },
+      stubbedDeps(store),
+    );
+    const deductionId = first.case?.deductionId as string;
+    expect(deductionId).toBeDefined();
+    const spent = store.modelCalls.length;
+    sent.length = 0;
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    // No event, no second read, no second document.
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(spent);
+    expect(store.documents.size).toBe(1);
+    expect(store.cases.size).toBe(1);
+    // And straight to the case, exactly where the inline path would have sent
+    // them.
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(
+      `/cases/${deductionId}`,
+    );
+    expect(store.closed).toBe(1);
+  });
+
+  it('says so, without queueing, when the document was read and opened no case', async () => {
+    // A document that was read and got no case — an invoice, say, or an
+    // unauthenticated email's notice (ADR 0016). There is nowhere to send the
+    // reviewer, so they are told, and still nothing is queued.
+    const store = harness.store as RouteTestStore;
+    const stored = await store.putDocument({
+      orgId: ORG_ID,
+      sha256: await sha256Of(notice.bytes),
+      filename: notice.filename,
+      mimeType: 'application/pdf',
+      byteSize: notice.bytes.byteLength,
+      bytes: notice.bytes,
+      requiresSplit: false,
+    });
+    await store.recordScan(stored.documentId, { status: 'clean', scanner: 'test' });
+    await store.recordExtraction({
+      documentId: stored.documentId,
+      docType: 'bol',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/already been read/);
   });
 
   it('keeps a reviewer attaching evidence on the case they were on', async () => {

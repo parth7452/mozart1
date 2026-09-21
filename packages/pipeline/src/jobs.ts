@@ -15,7 +15,12 @@
  * in a test with no queue, no database and no network.
  */
 
-import type { PipelineDeps, PipelineStore, StoredDocument } from './ports';
+import type {
+  DocumentReadLock,
+  PipelineDeps,
+  PipelineStore,
+  StoredDocument,
+} from './ports';
 import {
   ingestDocument,
   readDocument,
@@ -37,8 +42,21 @@ import {
  * found, which is RLS doing the work rather than a filter this file remembered
  * to apply (invariant 6).
  */
-export interface JobStore extends PipelineStore {
+export interface JobStore extends PipelineStore, DocumentReadLock {
   getDocument(documentId: string): Promise<StoredDocument | undefined>;
+
+  /**
+   * Whether this tenant can see this document at all — the same answer
+   * `getDocument` gives by returning nothing, without fetching the bytes.
+   *
+   * A request handler that only needs to decide between "here" and "404" was
+   * loading every byte of the document to find out, which on a scanned notice
+   * is megabytes fetched and thrown away. This asks the policies the narrow
+   * question instead: RLS still decides, and it still decides by the row not
+   * being there, so a stale id, a mistyped one and another tenant's are one
+   * answer.
+   */
+  documentIsVisible(documentId: string): Promise<boolean>;
 
   /**
    * Whether this member may write in this tenant — the question
@@ -148,6 +166,17 @@ export interface ReadDocumentJobInput {
   readonly orgId: string;
   readonly actor: JobActor;
   readonly attachToCase?: string;
+  /**
+   * Whether this read may open a case for a notice that has none.
+   *
+   * Defaults to true, which is what an upload is: an authenticated member put
+   * this document here, and a notice they uploaded is a case. The callers that
+   * pass `false` are the ones re-driving a document that has already been read
+   * once — a second read must not overturn a decision the first one made, and
+   * the decision ADR 0016 makes is exactly this one, for a notice that arrived
+   * on an email whose sender could not be authenticated.
+   */
+  readonly allowCaseOpen?: boolean;
 }
 
 /**
@@ -170,15 +199,31 @@ export interface ReadDocumentJobResult {
    * can be told apart from a run that only repeated what an earlier one said.
    */
   readonly alreadyRead: boolean;
+  /**
+   * True when another delivery was reading this document at that moment, and
+   * this one stopped rather than reading it alongside.
+   *
+   * A narrower statement than `alreadyRead`, which it always accompanies:
+   * nothing was spent here either, but the read this answer stands in for is
+   * still running somewhere, so `docType` and `deductionId` are null rather
+   * than repeated from a record that does not exist yet.
+   */
+  readonly beingRead: boolean;
 }
 
 /**
  * The read, run from an id.
  *
- * Three questions come before the read, in this order, because each one is
+ * Four questions come before the read, in this order, because each one is
  * cheaper than what follows it: may this member write in this org at all, is
- * this document theirs, and has it already been read? Only then is a page
- * fetched and a model called.
+ * this document theirs, is anybody else reading it right now, and has it
+ * already been read? Only then is a page fetched and a model called.
+ *
+ * The last two are one claim, held in the database for the length of the read.
+ * Asked separately they are a check and then a race: the reviewer who found
+ * this ran two deliveries of one document at once and got four model calls,
+ * two extractions and two cases, every one of them past a guard that had
+ * truthfully answered "not read yet" a moment earlier.
  *
  * The document is fetched under the tenant's own claims, so a payload naming
  * another tenant's document finds nothing — and the org it claims is checked
@@ -221,41 +266,76 @@ export async function readDocumentJob(
     );
   }
 
-  // A read already recorded for this document is a read that happened: a
-  // retried run, a redelivered event, or the same bytes uploaded twice. Reading
-  // it again would classify, extract and — while `debtor_id` is null, which is
-  // every tenant's starting state — open a second case, because the unique
-  // constraint that catches a duplicate claim does not fire on a null debtor
-  // (ADR 0019). So the recorded result is reported and nothing is written.
-  const options: ReadOptions =
-    input.attachToCase !== undefined ? { attachToCase: input.attachToCase } : {};
+  // A web upload is an authenticated member's document, so it may open a case.
+  // The callers that must not — an email from a sender we could not
+  // authenticate (ADR 0016), and a re-drive of a document that was already read
+  // once — pass `allowCaseOpen` through rather than inherit this default. The
+  // same options go to `recordedRead` and to the read, so the two agree about
+  // what this read would have been for.
+  const options: ReadOptions = {
+    ...(input.attachToCase !== undefined ? { attachToCase: input.attachToCase } : {}),
+    ...(input.allowCaseOpen !== undefined ? { allowCaseOpen: input.allowCaseOpen } : {}),
+  };
 
-  const already = await recordedRead(document, deps, options);
-  if (already !== undefined) {
+  // Everything from here to the end of the read happens while this job holds
+  // the document's read claim, and it is one claim rather than two steps for
+  // the reason the guard alone was not enough: the guard is a question about
+  // the past and the read is what changes the answer, so anything that can run
+  // between them can run twice. Two overlapping deliveries used to produce four
+  // model calls, two extractions and two cases for one document.
+  //
+  // A delivery that does not get the claim stops, and stops without spending:
+  // somebody else is reading this document right now, and the cheapest correct
+  // thing to do about that is nothing. It is not queued behind them either —
+  // waiting would hold a worker for the length of somebody else's model calls
+  // to learn something it can be told immediately.
+  const lease = await deps.store.withDocumentRead(document.documentId, async () => {
+    // A read already recorded for this document is a read that happened: a
+    // retried run, a redelivered event, or the same bytes uploaded twice.
+    // Reading it again would classify, extract and — while `debtor_id` is null,
+    // which is every tenant's starting state — open a second case, because the
+    // unique constraint that catches a duplicate claim does not fire on a null
+    // debtor (ADR 0019). So the recorded result is reported and nothing is
+    // written.
+    const already = await recordedRead(document, deps, options);
+    if (already !== undefined) {
+      return {
+        documentId: document.documentId,
+        docType: already.docType,
+        deductionId: already.deductionId ?? null,
+        haltedBecause: null,
+        alreadyRead: true,
+        beingRead: false,
+      } satisfies ReadDocumentJobResult;
+    }
+
+    const read: DocumentRead = await readDocument(document, deps, options);
+
     return {
       documentId: document.documentId,
-      docType: already.docType,
-      deductionId: already.deductionId ?? null,
+      docType: read.classification?.docType ?? null,
+      deductionId: read.case?.deductionId ?? null,
+      haltedBecause: read.haltedBecause ?? null,
+      alreadyRead: false,
+      beingRead: false,
+    } satisfies ReadDocumentJobResult;
+  });
+
+  if (!lease.held) {
+    return {
+      documentId: document.documentId,
+      // Deliberately null rather than guessed: the read that is running has not
+      // recorded anything yet, and reporting a doc type this delivery did not
+      // establish would be inventing one.
+      docType: null,
+      deductionId: null,
       haltedBecause: null,
       alreadyRead: true,
+      beingRead: true,
     };
   }
 
-  // A web upload is an authenticated member's document, so it may open a case.
-  // The one caller that must not — an email from a sender we could not
-  // authenticate (ADR 0016) — does not go through a job, and when it does it
-  // will pass `allowCaseOpen` through rather than inherit this default. The
-  // same options went to `recordedRead`, so the two agree about what this read
-  // would have been for.
-  const read: DocumentRead = await readDocument(document, deps, options);
-
-  return {
-    documentId: document.documentId,
-    docType: read.classification?.docType ?? null,
-    deductionId: read.case?.deductionId ?? null,
-    haltedBecause: read.haltedBecause ?? null,
-    alreadyRead: false,
-  };
+  return lease.result;
 }
 
 /**

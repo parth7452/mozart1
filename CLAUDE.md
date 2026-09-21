@@ -302,18 +302,31 @@ do something new, attaching it to a case it is not on yet or opening a case for 
 notice that has none. The same guard runs on the inline path, where the same
 thing happens when a file is uploaded twice.
 
-**That guard is the whole of the idempotency story, on purpose.** The function
-carried `idempotency: 'event.data.documentId'` until 2026-09-21, when production
-showed a run invoked once, answered with a step plan and never called back to
-execute the step — no error, no log, and the reviewer's notice saying "being
-read" for ever. The second event sent to recover it was swallowed by that key's
-own 24-hour window, which made the `upload_not_queued` notice's promise that
-re-uploading re-queues the read false for a day. The key bought one saved
-invocation; the DB-backed guard buys the thing that matters, on every delivery
-rather than inside a window, on both paths, and without refusing a re-drive
-somebody asked for. It is gone, and the function now logs its own step
-boundaries — run entered, step entered, what it concluded, run returned, ids
-only — so a run line with no step line under it is a visible stall.
+**A second delivery costs nothing, and three different things make that true
+depending on when it lands.** Saying it costs nothing full stop was wrong, and a
+reviewer proved it with two concurrent `readDocumentJob` calls on one document:
+four model calls, two extractions, two cases. *Late* — after the first read
+finished — is answered from the record, by the guard above. *Overlapping* is
+answered by a lock: the guard and the read run together while the job holds that
+document's claim, `PostgresStore.withDocumentRead`, a `pg_try_advisory_xact_lock`
+on `hashtextextended(document_id, 0)` as `app_rw` with the tenant's claims, on
+its own pool so a connection held for a whole read cannot starve the reads. A
+delivery that does not get the claim answers `beingRead` and spends nothing
+rather than waiting. It is transaction-scoped, not session-scoped, because
+`DATABASE_URL` is the Supabase transaction pooler: a session lock could be taken
+on one server connection and unlocked on another, and the document would be
+unreadable for ever. *A redelivery of the same event* is also caught by the
+runtime, within its window — `idempotency: 'event.data.readKey'`, where an upload
+sets `readKey` to the document id and the re-drive route sets a fresh
+`randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
+production showed a run invoked once, answered with a step plan and never called
+back to execute the step — no error, no log, the reviewer's notice saying "being
+read" for ever, and the event sent to recover it swallowed by that key's own
+24-hour window. Keying on the document made the recovery indistinguishable from
+the thing it was recovering; keying on the request does not. The function also
+logs its own step boundaries now — run entered, step entered, what it concluded,
+run returned, ids only — so a run line with no step line under it is a visible
+stall.
 
 If `client.send` fails the document is not orphaned: it is stored, scanned, and
 the reviewer is told where to find it. That place is the case list's **Documents
@@ -325,8 +338,14 @@ table) — with a "Read again" button per row posting to
 checks the id and the role, asks `memberMayWrite` of the database, 404s a
 document the tenant cannot see, and then re-drives through whichever runner
 `runnerFromEnv` gives: the same event where there is a queue, the same
-`readDocumentJob` inline where there is not. Pressing it twice costs nothing —
-the guard above answers the second press from what was recorded. And
+`readDocumentJob` inline where there is not. Pressing it twice is safe for the
+reasons above: the second press is answered from the record if the first has
+finished, and refused the claim if it has not. It asks `documentIsVisible` — a
+`select 1`, not the bytes — and it passes `allowCaseOpen: false` for a document
+that has already been read, so a notice an unauthenticated email left
+deliberately caseless (ADR 0016) cannot get a case from this button. That rule
+ought to come from the document's `source` and cannot: nothing writes the
+`uploads` table, so no row records where it came from. And
 `/api/inngest` refuses to serve at all — 503, logged — when `INNGEST_DEV` is set
 in a production build, because dev mode turns off the signature check that is
 the endpoint's only authentication.

@@ -511,3 +511,161 @@ describe('a redelivered event', () => {
     expect(store.documents.size).toBe(1);
   });
 });
+
+describe('two deliveries of the same document at the same time', () => {
+  /**
+   * The failure the guard alone did not stop.
+   *
+   * "Has this document been read" is a question about the past and the read is
+   * what changes the answer, so two deliveries that overlap both hear "no" and
+   * both read. Run against the guard on its own this produced four model calls,
+   * two `extraction_results` rows and two cases for one document — the second
+   * case because `unique (org_id, debtor_id, claim_id)` does not fire while
+   * `debtor_id` is null, which is every tenant's starting state (ADR 0019).
+   *
+   * The classifier below blocks the first read inside the window so the second
+   * delivery arrives while it is open, rather than relying on how the event
+   * loop happens to interleave two fixtures.
+   */
+  it('reads it once, spends once, and tells the second delivery why', async () => {
+    const { store, deps } = harness();
+    expect(store.debtors).toEqual([]);
+
+    let openTheGate = (): void => undefined;
+    const firstReadIsInside = new Promise<void>((resolve) => {
+      openTheGate = resolve;
+    });
+    const realClassifier = deps.classifier;
+    let classifyCalls = 0;
+    const gated: JobDeps = {
+      ...deps,
+      classifier: {
+        async classify(document: DocumentPayload) {
+          classifyCalls += 1;
+          // Only the first read waits: if a second one ever got here, holding
+          // it would hide the bug rather than show it.
+          if (classifyCalls === 1) await firstReadIsInside;
+          return realClassifier.classify(document);
+        },
+      },
+    };
+
+    const ingested = await ingestForJob(gated, upload(fixtureFor('walmart-apdp-notice.pdf')));
+    const payload = { documentId: ingested.documentId, orgId: ORG, actor: ACTOR };
+
+    const both = Promise.all([
+      readDocumentJob(gated, payload),
+      readDocumentJob(gated, payload),
+    ]);
+
+    // Let the second delivery run as far as it is going to get — which is the
+    // claim, and no further — before the first one is allowed to finish.
+    await new Promise((resolve) => setImmediate(resolve));
+    openTheGate();
+    const [first, second] = await both;
+
+    // Two model calls for one document: one classify, one extract. Not four.
+    expect(store.modelCalls).toHaveLength(2);
+    expect(store.modelCalls.map((call) => call.purpose).sort()).toEqual(['classify', 'extract']);
+    expect(store.extractions).toHaveLength(1);
+    expect(store.classifications).toHaveLength(1);
+    expect(store.cases.size).toBe(1);
+    expect(store.events.map((e) => e.eventType)).toEqual(['case.discovered', 'case.classified']);
+
+    // One of the two did the read; the other was told the document was being
+    // read and did nothing. Which one is not this test's business — that is the
+    // scheduler's — but exactly one of each is.
+    const done = [first, second].filter((r) => !r.alreadyRead);
+    const stopped = [first, second].filter((r) => r.alreadyRead);
+    expect(done).toHaveLength(1);
+    expect(stopped).toHaveLength(1);
+    expect(done[0]?.deductionId).toBe([...store.cases.keys()][0]);
+    expect(stopped[0]?.beingRead).toBe(true);
+    // Nothing is invented for the delivery that did not read: the read it
+    // stands in for had not recorded anything yet.
+    expect(stopped[0]?.docType).toBeNull();
+    expect(stopped[0]?.deductionId).toBeNull();
+    expect(stopped[0]?.haltedBecause).toBeNull();
+  });
+
+  it('releases the document when a read fails, rather than sealing it shut', async () => {
+    // A claim that outlived its holder would make one failed delivery enough to
+    // make a document permanently unreadable — a worse failure than the one it
+    // was added for, and a silent one.
+    const { store, deps } = harness();
+    const boom = new Error('anthropic: 503');
+    let calls = 0;
+    const flaky: JobDeps = {
+      ...deps,
+      classifier: {
+        async classify(document: DocumentPayload) {
+          calls += 1;
+          if (calls === 1) throw boom;
+          return deps.classifier.classify(document);
+        },
+      },
+    };
+
+    const ingested = await ingestForJob(flaky, upload(fixtureFor('walmart-apdp-notice.pdf')));
+    const payload = { documentId: ingested.documentId, orgId: ORG, actor: ACTOR };
+
+    await expect(readDocumentJob(flaky, payload)).rejects.toBe(boom);
+    // The retry the runtime would make gets the claim and does the work.
+    const retried = await readDocumentJob(flaky, payload);
+    expect(retried.alreadyRead).toBe(false);
+    expect(retried.beingRead).toBe(false);
+    expect(retried.deductionId).toBe([...store.cases.keys()][0]);
+    expect(store.extractions).toHaveLength(1);
+  });
+
+  it('does not make one document’s read wait for another’s', async () => {
+    // The claim is per document. A tenant dropping two notices in at once reads
+    // both at once; only the same document twice is serialised.
+    const { store, deps } = harness();
+    const notice = await ingestForJob(deps, upload(fixtureFor('walmart-apdp-notice.pdf')));
+    const invoice = await ingestForJob(deps, upload(fixtureFor('harborline-invoice.pdf')));
+
+    const [a, b] = await Promise.all([
+      readDocumentJob(deps, { documentId: notice.documentId, orgId: ORG, actor: ACTOR }),
+      readDocumentJob(deps, { documentId: invoice.documentId, orgId: ORG, actor: ACTOR }),
+    ]);
+
+    expect(a.alreadyRead).toBe(false);
+    expect(b.alreadyRead).toBe(false);
+    expect(store.extractions).toHaveLength(2);
+  });
+
+  it('answers with ids and flags, and never a filename or a page', async () => {
+    // This value is a job's return value: it lands in a third party's run
+    // history and stays there for its retention period. A filename is somebody
+    // else's text and a page is the document itself (invariant 4).
+    const { deps } = harness();
+    const fixture = fixtureFor('walmart-apdp-notice.pdf');
+    const ingested = await ingestForJob(deps, upload(fixture));
+    const result = await readDocumentJob(deps, {
+      documentId: ingested.documentId,
+      orgId: ORG,
+      actor: ACTOR,
+    });
+
+    expect(Object.keys(result).sort()).toEqual([
+      'alreadyRead',
+      'beingRead',
+      'deductionId',
+      'docType',
+      'haltedBecause',
+      'documentId',
+    ].sort());
+
+    const asSent = JSON.stringify(result);
+    expect(asSent).not.toContain(fixture.filename);
+    expect(asSent).not.toContain('APDP-99812');
+    expect(asSent).not.toContain('Walmart');
+    expect(asSent).not.toContain('3,120');
+    for (const page of fixture.pageText ?? []) {
+      for (const line of page.split('\n').filter((l) => l.trim().length > 8)) {
+        expect(asSent).not.toContain(line.trim());
+      }
+    }
+  });
+});

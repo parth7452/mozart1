@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import type { UnreadDocumentsStore } from '@recouple/pipeline';
+import {
+  UNREAD_DOCUMENTS_MAX_LIMIT,
+  UnreadDocumentsQueryError,
+  type UnreadDocumentsStore,
+} from '@recouple/pipeline';
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
 
@@ -161,7 +165,30 @@ function unreadContract(
       // "nothing is stuck".
       for (const age of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
         await expect(h.store().unreadDocuments(age)).rejects.toThrow(/whole minutes/);
+        await expect(h.store().unreadDocuments(age)).rejects.toBeInstanceOf(
+          UnreadDocumentsQueryError,
+        );
       }
+    });
+
+    it('refuses a limit that is not one, for the same reason', async () => {
+      // `limit 0` answers nothing, `limit -1` is a syntax error and `limit NaN`
+      // binds to a parameter that answers nothing either — and every one of
+      // those reads to a reviewer as "nothing is stuck", which is the one
+      // answer this list must never give wrongly.
+      for (const limit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        await expect(h.store().unreadDocuments(5, limit)).rejects.toBeInstanceOf(
+          UnreadDocumentsQueryError,
+        );
+        await expect(h.store().unreadDocuments(5, limit)).rejects.toThrow(/limit/);
+      }
+
+      // And it is capped: this is a screen somebody reads, not a dump. A tenant
+      // with ten thousand stuck documents has a problem no list can show them.
+      await expect(
+        h.store().unreadDocuments(5, UNREAD_DOCUMENTS_MAX_LIMIT + 1),
+      ).rejects.toBeInstanceOf(UnreadDocumentsQueryError);
+      await expect(h.store().unreadDocuments(5, UNREAD_DOCUMENTS_MAX_LIMIT)).resolves.toBeDefined();
     });
 
     it('shows one tenant nothing of another tenant’s', async () => {

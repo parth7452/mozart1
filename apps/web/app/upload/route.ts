@@ -126,6 +126,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return say('upload_not_queued');
     }
 
+    if (outcome.kind === 'already_read') {
+      // These bytes are a document this tenant already has and has already
+      // read, so nothing was queued. The reviewer goes where the inline path
+      // sends them — to the case that first read opened, when it opened one —
+      // rather than being told a read is coming that is not.
+      return outcome.case === undefined
+        ? say('upload_already_read')
+        : NextResponse.redirect(new URL(`/cases/${outcome.case.deductionId}`, request.url), {
+            status: 303,
+          });
+    }
+
     if (outcome.kind === 'halted') {
       // The scan gate, in the runner that does not read here either. Stored,
       // scanned, not read, and said out loud (invariant 4). `ingestForJob`
