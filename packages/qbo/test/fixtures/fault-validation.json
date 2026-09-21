@@ -1,0 +1,16 @@
+{
+  "warnings": null,
+  "intuitObject": null,
+  "Fault": {
+    "Error": [
+      {
+        "Message": "Invalid query",
+        "Detail": "QueryParserError: Encountered \" <UNEXPECTED> \"\" at line 1, column 28.",
+        "code": "4000"
+      }
+    ],
+    "type": "ValidationFault"
+  },
+  "report": null,
+  "time": "2026-09-21T09:32:41.552-07:00"
+}

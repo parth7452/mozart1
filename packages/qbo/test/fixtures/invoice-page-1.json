@@ -1,0 +1,60 @@
+{
+  "QueryResponse": {
+    "Invoice": [
+      {
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "145",
+        "SyncToken": "1",
+        "DocNumber": "INV-10441",
+        "TxnDate": "2026-08-14",
+        "DueDate": "2026-09-13",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "58", "name": "Sysco Baltimore, LLC" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Amount": 3120.0,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "19", "name": "Case 6/10 Marinara" },
+              "Qty": 240,
+              "UnitPrice": 13.0
+            }
+          }
+        ],
+        "TotalAmt": 3120.0,
+        "Balance": 0
+      },
+      {
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "146",
+        "SyncToken": "1",
+        "DocNumber": "INV-10442",
+        "TxnDate": "2026-08-20",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "58", "name": "Sysco Baltimore, LLC" },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Amount": 890.25,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "22", "name": "Case 4/1gal Pan Oil" },
+              "Qty": 15,
+              "UnitPrice": 59.35
+            }
+          }
+        ],
+        "TotalAmt": 890.25,
+        "Balance": 0
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 2
+  },
+  "time": "2026-09-21T09:14:02.412-07:00"
+}

@@ -1,0 +1,61 @@
+{
+  "QueryResponse": {
+    "Invoice": [
+      {
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "147",
+        "SyncToken": "0",
+        "DocNumber": "INV-10443",
+        "TxnDate": "2026-08-29",
+        "DueDate": "2026-09-28",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "72", "name": "US Foods, Inc." },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Amount": 15000.0,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "19", "name": "Case 6/10 Marinara" },
+              "Qty": 1000,
+              "UnitPrice": 15.0
+            }
+          }
+        ],
+        "TotalAmt": 15000.0,
+        "Balance": 14500.0
+      },
+      {
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "148",
+        "SyncToken": "0",
+        "DocNumber": "INV-10444",
+        "TxnDate": "2026-08-30",
+        "DueDate": "2026-09-29",
+        "CurrencyRef": { "value": "USD", "name": "United States Dollar" },
+        "CustomerRef": { "value": "72", "name": "US Foods, Inc." },
+        "Line": [
+          {
+            "Id": "1",
+            "LineNum": 1,
+            "Amount": 1234.5,
+            "DetailType": "SalesItemLineDetail",
+            "SalesItemLineDetail": {
+              "ItemRef": { "value": "31", "name": "Case 12/32oz Aioli" },
+              "Qty": 30,
+              "UnitPrice": 41.15
+            }
+          }
+        ],
+        "TotalAmt": 1234.5,
+        "Balance": 1234.5
+      }
+    ],
+    "startPosition": 3,
+    "maxResults": 2
+  },
+  "time": "2026-09-21T09:14:02.884-07:00"
+}

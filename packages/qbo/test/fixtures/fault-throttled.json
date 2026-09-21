@@ -1,0 +1,16 @@
+{
+  "warnings": null,
+  "intuitObject": null,
+  "Fault": {
+    "Error": [
+      {
+        "Message": "message=ThrottleExceeded; errorCode=003001; statusCode=429",
+        "Detail": "You have exceeded the number of requests allowed per minute",
+        "code": "3001"
+      }
+    ],
+    "type": "SYSTEM"
+  },
+  "report": null,
+  "time": "2026-09-21T09:31:12.900-07:00"
+}

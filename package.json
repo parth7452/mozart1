@@ -30,6 +30,7 @@
     "@recouple/fixtures": "workspace:*",
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "@recouple/qbo": "workspace:*",
     "@recouple/store-postgres": "workspace:*",
     "@recouple/web": "workspace:*",
     "@types/node": "^22.18.0",
