@@ -12,10 +12,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { CaseState } from '@recouple/core-domain';
+import { resolveDebtorId } from '@recouple/core-domain';
+import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import type { CaseRecord, PipelineStore, StoredDocument } from '../ports';
+import { DuplicateCaseError } from '../steps';
 
 export interface StoredExtraction {
   readonly documentId: string;
@@ -45,6 +47,12 @@ export class InMemoryStore implements PipelineStore {
   readonly links: Array<{ deductionId: string; documentId: string; role: string }> = [];
   readonly pages = new Map<string, string[]>();
   readonly orgs = new Map<string, string>();
+  /**
+   * The tenant's debtors, as a test set them up. Nothing here ever adds to this
+   * list: `openCase` resolves against it and never creates a debtor, which is
+   * the behaviour the Postgres store has to match (ADR 0019).
+   */
+  readonly debtors: DebtorCandidate[] = [];
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -103,8 +111,40 @@ export class InMemoryStore implements PipelineStore {
     claimId?: string;
     retailerName?: string;
     deductionAmountCents?: number;
+    deductionDate?: string;
+    disputeDeadline?: string;
   }): Promise<CaseRecord> {
-    const record: CaseRecord = { deductionId: randomUUID(), state: 'discovered', ...input };
+    const debtorId =
+      input.retailerName === undefined
+        ? undefined
+        : resolveDebtorId(input.retailerName, this.debtors);
+
+    // `unique (org_id, debtor_id, claim_id)`, modelled the way Postgres applies
+    // it: a null `debtor_id` (or a null `claim_id`) never collides, because
+    // Postgres does not compare nulls. That is not a detail — it is why the same
+    // claim uploaded as a PDF and then as a scan opened two cases silently while
+    // nothing resolved, and why it stopped once debtors started resolving
+    // (ADR 0019). A store that did not model it let the pipeline's duplicate
+    // path go untested.
+    if (debtorId !== undefined && input.claimId !== undefined) {
+      const existing = [...this.cases.values()].find(
+        (c) => c.orgId === input.orgId && c.debtorId === debtorId && c.claimId === input.claimId,
+      );
+      if (existing !== undefined) {
+        throw new DuplicateCaseError(
+          `claim ${input.claimId} is already open for this debtor as case ${existing.deductionId}`,
+          existing.deductionId,
+          input.claimId,
+        );
+      }
+    }
+
+    const record: CaseRecord = {
+      deductionId: randomUUID(),
+      state: 'discovered',
+      ...input,
+      ...(debtorId !== undefined ? { debtorId } : {}),
+    };
     this.cases.set(record.deductionId, record);
     return record;
   }

@@ -6,7 +6,7 @@
   "document": {
     "payer_name": {
       "value": "Brookfield Supply Co.",
-      "confidence": 0.95,
+      "confidence": 0.93,
       "source_page": 1,
       "source_quote": "Brookfield Supply Co. | Accounts Payable"
     },
@@ -24,7 +24,7 @@
     },
     "payment_total": {
       "value": "$4,200.00",
-      "confidence": 0.9,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Net payment\n$4,200.00"
     },
@@ -40,19 +40,19 @@
           "value": "$4,800.00",
           "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "$4,800.00"
+          "source_quote": "Gross invoice\n$4,800.00"
         },
         "deduction_amount": {
           "value": "$600.00",
           "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "$600.00"
+          "source_quote": "Deduction: LATE-DEL\n$600.00"
         },
         "net_amount": {
           "value": "$4,200.00",
           "confidence": 0.97,
           "source_page": 1,
-          "source_quote": "$4,200.00"
+          "source_quote": "Net payment\n$4,200.00"
         },
         "reason_code": {
           "value": "LATE-DEL",
@@ -64,12 +64,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-21T00:44:29.873Z",
+  "recordedAt": "2026-09-21T04:58:14.302Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4298,
-    "outputTokens": 536,
-    "costMicros": 13956,
-    "latencyMs": 4885
+    "outputTokens": 564,
+    "costMicros": 14236,
+    "latencyMs": 5018
   }
 }

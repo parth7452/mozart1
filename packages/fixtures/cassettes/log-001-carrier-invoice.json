@@ -24,7 +24,7 @@
     },
     "customer_name": {
       "value": "Brookfield Supply Co.",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Bill to: Brookfield Supply Co."
     },
@@ -34,68 +34,15 @@
       "source_page": 1,
       "source_quote": "Total invoice $4,800.00"
     },
-    "lines": [
-      {
-        "sku_upc": {
-          "value": "Linehaul - one dedicated load",
-          "confidence": 0.8,
-          "source_page": 1,
-          "source_quote": "Linehaul - one dedicated load"
-        },
-        "qty": {
-          "value": 1,
-          "confidence": 0.6,
-          "source_page": 1,
-          "source_quote": "Linehaul - one dedicated load $4,200.00"
-        },
-        "unit_cost": {
-          "value": "$4,200.00",
-          "confidence": 0.95,
-          "source_page": 1,
-          "source_quote": "$4,200.00"
-        },
-        "extended_amount": {
-          "value": "$4,200.00",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "$4,200.00"
-        }
-      },
-      {
-        "sku_upc": {
-          "value": "Fuel surcharge - agreed flat amount",
-          "confidence": 0.8,
-          "source_page": 1,
-          "source_quote": "Fuel surcharge - agreed flat amount"
-        },
-        "qty": {
-          "value": 1,
-          "confidence": 0.6,
-          "source_page": 1,
-          "source_quote": "Fuel surcharge - agreed flat amount $600.00"
-        },
-        "unit_cost": {
-          "value": "$600.00",
-          "confidence": 0.95,
-          "source_page": 1,
-          "source_quote": "$600.00"
-        },
-        "extended_amount": {
-          "value": "$600.00",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "$600.00"
-        }
-      }
-    ]
+    "lines": []
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-21T00:44:38.941Z",
+  "recordedAt": "2026-09-21T04:58:22.286Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4180,
-    "outputTokens": 939,
-    "costMicros": 17750,
-    "latencyMs": 7646
+    "outputTokens": 605,
+    "costMicros": 14410,
+    "latencyMs": 6568
   }
 }

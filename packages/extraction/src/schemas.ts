@@ -147,7 +147,10 @@ export const AsnSchema = z.object({
 
 export const AgreementSchema = z.object({
   agreement_type: Field(z.string(), 'What kind of agreement this is, in the document’s own words.'),
-  counterparty: Field(z.string(), 'The retailer or distributor party.'),
+  counterparty: Field(
+    z.string(),
+    'The other side of this agreement: the party who buys, pays or deducts, as the document names them — a retailer, a distributor, a shipper, a customer. Not the party who is owed, which is whose side we are on. On a freight rate confirmation between a shipper and a carrier, it is the shipper.',
+  ),
   effective_from: OptionalField(z.string(), 'Start date as printed.'),
   effective_to: OptionalField(z.string(), 'End date as printed.'),
   approved_by: OptionalField(z.string(), 'Who approved it (buyer name, signature).'),
@@ -196,11 +199,11 @@ export const CorrespondenceSchema = z.object({
         ),
         supersedes: OptionalField(
           z.string(),
-          'What this replaces, exactly as printed (for example "AP-771 revision 1").',
+          'What this replaces. Copy the words the document uses for it, however partial. A page reading "AP-771 revision 2 replaces revision 1" names the new one in full and the old one only as "revision 1" — report "revision 1". A partial reference is the fact on the page: give it rather than completing it, and rather than leaving this empty.',
         ),
         establishes: OptionalField(
           z.string(),
-          'What it puts in place, exactly as printed (for example "AP-771 revision 2").',
+          'What it puts in place, in the document’s own words. In "AP-771 revision 2 replaces revision 1" that is "AP-771 revision 2".',
         ),
         waives_charge: Field(
           z.boolean(),

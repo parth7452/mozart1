@@ -10,8 +10,15 @@ import { deadline, fieldLabel, money } from '../lib/format';
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
 const today = new Date('2026-09-18T12:00:00Z');
 
-function summary(overrides: Partial<CaseSummary> = {}): CaseSummary {
-  return {
+/**
+ * A case summary for a test. An override of `undefined` drops the key rather
+ * than setting it: under `exactOptionalPropertyTypes` those are different
+ * types, and "this case has no debtor" is the absence, not the value.
+ */
+function summary(
+  overrides: { [K in keyof CaseSummary]?: CaseSummary[K] | undefined } = {},
+): CaseSummary {
+  const merged: Record<string, unknown> = {
     deductionId: '11111111-2222-3333-4444-555555555555',
     state: 'classified',
     claimId: 'APDP-99812',
@@ -23,6 +30,10 @@ function summary(overrides: Partial<CaseSummary> = {}): CaseSummary {
     createdAt: '2026-09-10T00:00:00Z',
     ...overrides,
   };
+  for (const [key, value] of Object.entries(merged)) {
+    if (value === undefined) delete merged[key];
+  }
+  return merged as unknown as CaseSummary;
 }
 
 function field(overrides: Partial<StoredField> = {}): StoredField {
@@ -85,6 +96,55 @@ describe('the case list', () => {
     expect(html).toContain('4 docs');
   });
 
+  it('shows the name a notice printed when no debtor answers to it, and says so', () => {
+    // The whole point of ADR 0019: a case whose retailer did not resolve is not
+    // a case with no retailer. It reads as printed, marked unmatched, because an
+    // unmatched retailer has no playbook and no routing behind it.
+    const html = renderToStaticMarkup(
+      <CaseList
+        mayUpload
+        viewer={viewer}
+        cases={[
+          summary({
+            debtorName: undefined,
+            retailerKey: undefined,
+            retailerNameAsPrinted: 'WALMART STORES, INC.',
+          }),
+        ]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('WALMART STORES, INC.');
+    expect(html).toContain('not matched');
+  });
+
+  it('shows a dash when nothing was read, not an invented retailer', () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        mayUpload
+        viewer={viewer}
+        cases={[summary({ debtorName: undefined, retailerKey: undefined })]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('—');
+    expect(html).not.toContain('not matched');
+  });
+
+  it('prefers the debtor over the printed name once one has matched', () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        mayUpload
+        viewer={viewer}
+        cases={[summary({ retailerNameAsPrinted: 'WALMART STORES, INC.' })]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('Walmart (APDP)');
+    expect(html).not.toContain('WALMART STORES, INC.');
+    expect(html).not.toContain('not matched');
+  });
+
   it('offers the upload to a member who may write, and not to one who may not', () => {
     const writer = renderToStaticMarkup(
       <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
@@ -145,6 +205,44 @@ describe('the review page', () => {
     expect(html).toContain('quote found');
   });
 
+  it('heads the page with the printed retailer when no debtor matched', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary({
+          debtorName: undefined,
+          retailerKey: undefined,
+          retailerNameAsPrinted: 'WALMART STORES, INC.',
+        })}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('WALMART STORES, INC.');
+    expect(html).toContain('not matched to a debtor');
+    expect(html).not.toContain('Retailer unknown');
+  });
+
+  it('still says "Retailer unknown" when the notice named nobody', () => {
+    // The old behaviour, now reserved for the one case it was ever true of.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary({ debtorName: undefined, retailerKey: undefined })}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('Retailer unknown');
+    expect(html).not.toContain('not matched to a debtor');
+  });
+
   it('tells a reviewer which kind of check each field got', () => {
     const html = renderToStaticMarkup(
       <CaseReview mayAct={false}
@@ -190,7 +288,11 @@ describe('the review page', () => {
     const html = renderToStaticMarkup(
       <CaseReview mayAct={false}
         viewer={viewer}
-        summary={summary({ debtorName: attack, claimId: attack })}
+        summary={summary({
+          debtorName: undefined,
+          retailerNameAsPrinted: attack,
+          claimId: attack,
+        })}
         fields={[field({ value: attack, sourceQuote: attack, filename: attack })]}
         reconciliation={{
           claimedTotalCents: cents(312_000),
@@ -304,6 +406,23 @@ describe('what a reviewer can do with a case', () => {
       <CaseReview {...props} mayAct={true} notice="recorded: this case is logged as declined" />,
     );
     expect(html).toContain('recorded: this case is logged as declined');
+  });
+
+  it('says why an upload landed on a case it did not open, and escapes what it quotes', () => {
+    // The upload route redirects here when a second notice names a claim that
+    // is already a case. The message quotes the claim id, which was read off
+    // somebody else's document, so it is escaped like every other value here.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        mayAct={true}
+        notice={'claim <script>alert(1)</script> is already this case'}
+      />,
+    );
+    expect(html).toContain('class="notice bad"');
+    expect(html).toContain('is already this case');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   it('still has no approve button, whatever the role', () => {

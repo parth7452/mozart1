@@ -46,3 +46,32 @@ export function fieldValue(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value);
 }
+
+export interface Retailer {
+  readonly name: string;
+  /**
+   * False when the name is only what the notice printed and no debtor of this
+   * tenant answers to it. The view says so rather than showing the name as
+   * though it were settled — an unmatched retailer has no playbook, no portal
+   * and no routing, so the difference is one a reviewer acts on.
+   */
+  readonly matched: boolean;
+}
+
+/**
+ * What to call the retailer on a case.
+ *
+ * Three answers, in order: the debtor a human created, when exactly one matched;
+ * otherwise the name as the notice printed it, marked unmatched; otherwise
+ * nothing was read at all (ADR 0019).
+ */
+export function retailer(
+  summary: { debtorName?: string; retailerNameAsPrinted?: string },
+  unread: string,
+): Retailer {
+  if (summary.debtorName !== undefined) return { name: summary.debtorName, matched: true };
+  if (summary.retailerNameAsPrinted !== undefined) {
+    return { name: summary.retailerNameAsPrinted, matched: false };
+  }
+  return { name: unread, matched: true };
+}

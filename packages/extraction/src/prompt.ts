@@ -31,10 +31,10 @@ Types:
 - remittance_advice: a payment advice listing invoices paid, often with short-pay lines
 - invoice: a supplier's invoice to a customer
 - po: a purchase order from a buyer
-- bol: a bill of lading
-- pod: a proof of delivery or signed delivery receipt
+- bol: a bill of lading — the carrier's record of what was tendered for a shipment. A bill of lading signed at delivery is still a bol: what the document calls itself decides, not whether someone signed it
+- pod: a delivery receipt whose purpose is to record the delivery itself — a proof of delivery, delivery confirmation or signed gate receipt. Not a bill of lading that happens to carry a signature
 - asn: an advance ship notice / 856
-- correspondence: a message, email export or written confirmation between the parties — an approved reschedule, a granted exception, a waiver, a confirmation of something agreed
+- correspondence: a **message** one party sent the other — an email or its export, a portal message, a letter. It has a sender, a recipient and a time sent, and it usually changes or waives something already agreed: an approved reschedule, a granted exception, a waiver. A contract, agreement or confirmation document is NOT correspondence even when it records that both sides accepted it — a rate confirmation, a price agreement and a signed deal sheet are agreements, and they go to price_agreement or promo_agreement. Ask whether someone sent it, not whether it confirms something
 - promo_agreement: a promotional deal sheet, allowance agreement or buyer approval
 - price_agreement: a price list, cost-change confirmation or pricing agreement
 - routing_guide: a retailer's routing, packaging or compliance guide

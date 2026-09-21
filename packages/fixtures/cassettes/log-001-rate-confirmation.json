@@ -1,32 +1,26 @@
 {
   "key": "log-001-rate-confirmation",
   "docType": "price_agreement",
-  "classifiedAs": "correspondence",
-  "classifierConfidence": 0.72,
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
   "document": {
     "agreement_type": {
       "value": "Rate confirmation",
       "confidence": 0.9,
       "source_page": 1,
-      "source_quote": "RATE CONFIRMATION"
+      "source_quote": "Rate confirmation: RC-771 | Accepted: August 10, 2026"
     },
     "counterparty": {
-      "value": "Alder Freight Services LLC",
-      "confidence": 0.9,
+      "value": "Brookfield Supply Co.",
+      "confidence": 0.85,
       "source_page": 1,
-      "source_quote": "Carrier: Alder Freight Services LLC"
+      "source_quote": "Customer: Brookfield Supply Co. | Carrier: Alder Freight Services LLC"
     },
     "effective_from": {
       "value": "August 10, 2026",
-      "confidence": 0.85,
+      "confidence": 0.6,
       "source_page": 1,
       "source_quote": "Accepted: August 10, 2026"
-    },
-    "effective_to": {
-      "value": ",",
-      "confidence": 0.1,
-      "source_page": 1,
-      "source_quote": ""
     },
     "approved_by": {
       "value": "Maya Chen, Transportation Coordinator",
@@ -37,76 +31,16 @@
     "terms": [
       {
         "term_text": {
-          "value": "Linehaul",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "Linehaul"
-        },
-        "amount": {
-          "value": "$4,200.00",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "$4,200.00"
-        },
-        "sku_upc": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
-        }
-      },
-      {
-        "term_text": {
-          "value": "Fuel surcharge",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "Fuel surcharge"
-        },
-        "amount": {
-          "value": "$600.00",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "$600.00"
-        },
-        "sku_upc": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
-        }
-      },
-      {
-        "term_text": {
-          "value": "Total carrier compensation",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "Total carrier compensation"
-        },
-        "amount": {
-          "value": "$4,800.00",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": "$4,800.00"
-        },
-        "sku_upc": {
-          "value": null,
-          "confidence": 0,
-          "source_page": 1,
-          "source_quote": ""
-        }
-      },
-      {
-        "term_text": {
           "value": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after the effective confirmed appointment, and the delay is carrier-caused.",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "A $600.00 flat late-arrival fee applies only if carrier check-in is more than 30 minutes after\nthe effective confirmed appointment, and the delay is carrier-caused."
         },
         "amount": {
           "value": "$600.00",
-          "confidence": 0.85,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "$600.00"
+          "source_quote": "A $600.00 flat late-arrival fee"
         },
         "sku_upc": {
           "value": null,
@@ -155,15 +89,21 @@
           "source_quote": ""
         }
       }
-    ]
+    ],
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-21T00:44:52.707Z",
+  "recordedAt": "2026-09-21T04:58:33.508Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 4443,
-    "outputTokens": 1631,
-    "costMicros": 25196,
-    "latencyMs": 12220
+    "inputTokens": 4526,
+    "outputTokens": 1102,
+    "costMicros": 20072,
+    "latencyMs": 9688
   }
 }

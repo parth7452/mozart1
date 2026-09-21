@@ -206,13 +206,50 @@ signed-in app came back as a case with every field quote-verified against the
 OCR text layer — so scan, classify, OCR and extract all work against the real
 vendors, not only against cassettes.
 
-One gap that verification exposed: `openCase` accepts a `retailerName` and
-never persists it, and takes no dates at all, so every case the pipeline opens
-reads "Retailer unknown" with no dispute deadline — the two fields a reviewer
-triages on. The values are extracted and stored on the document; they just do
-not reach the case row. `deductions.debtor_id` is a FK to `debtors`, so fixing
-it means deciding how an extracted name becomes a debtor, which is the same
-seam Phase 2's playbooks key off. Not yet done.
+The gap that verification exposed — `openCase` took a `retailerName` it never
+wrote and no dates at all, so every case read "Retailer unknown" with no dispute
+deadline — is closed (ADR 0019, migration 0015). A case now keeps
+`retailer_name_as_printed` exactly as extraction reported it, and `openCase`
+*looks up* a debtor, setting `debtor_id` only when exactly one of the tenant's
+debtors matches. It never creates one: document text is untrusted, so it may
+select master data through an alias a human added but not mint it, and two
+matches count as none. Dates go through `parsePrintedDate` in `core-domain`,
+month-first and deterministic, the way `parseMoneyToCents` handles money; a
+window it will not guess at ("60 days of deduction date" is a retailer rule,
+Phase 2's job) leaves the column null, opens the case anyway, and records why on
+`case.discovered`. The views show the debtor, else the printed name marked as
+unmatched, and only then "Retailer unknown".
+
+Two things that fixing it surfaced: `unique (org_id, debtor_id, claim_id)` never
+fired while `debtor_id` was always null, so the same claim uploaded twice opened
+two cases silently — it now raises `DuplicateCaseError` naming the existing case,
+and merging the two is still identity resolution's job (STRATEGY §5.2). And
+`retailerMatchKey` folds "WALMART STORES, INC." to `walmart stores`, which does
+*not* match `walmart` on purpose: whether those are one retailer is data, not
+code.
+
+`pnpm link:retailer` is how a person supplies that data. It adds a
+`debtor_aliases` row for a tenant and then resolves the cases that were waiting
+on it, writing through `PostgresStore` as `app_rw` like everything else. The two
+halves are one command but not one act: adding an alias fixes every later case
+by itself, and the backfill is what reaches back through the ones already open —
+deliberate, because a silent rewrite of old cases is not something anyone asked
+for. It never creates a debtor, refuses an alias on another tenant's debtor, and
+reports (with a non-zero exit) rather than resolving a case whose claim is
+already open against that debtor — that is two cases for one claim, and merging
+them is identity resolution's job.
+
+`--from-extraction` repairs the cases opened *before* ADR 0019, whose rows have
+none of this on them. Nothing was lost: `extraction_results` still holds the
+retailer and both dates with their quotes, so the repair reads them back through
+the same `parsePrintedDate` and `resolveDebtorId` the pipeline uses, and a
+repaired case says what a case uploaded today would. It fills only columns that
+are null, never overwrites what the pipeline or a person put there, records a
+`case.backfilled_from_extraction` event for each row it changes, and reports an
+unreadable date instead of guessing. Running it twice is a no-op.
+
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0015 as
+of 2026-09-19.
 
 Still to do before Phase 1 is done: the Inngest binding over the existing steps,
 and fixtures for the formats still missing — dense retailer tables with merged
