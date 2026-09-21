@@ -30,14 +30,17 @@ import type {
   CaseWorkflow,
   CaseWorkflowStore,
   DocumentReadLease,
+  IngestSource,
   JobStore,
   PipelineStore,
   StoredDocument,
   UnreadDocument,
   UnreadDocumentsStore,
+  UploadRecord,
+  UploadSource,
   WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
-import { assertUnreadDocumentsQuery } from '@recouple/pipeline';
+import { assertUnreadDocumentsQuery, UPLOAD_SOURCES } from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 
@@ -222,17 +225,15 @@ export type DeclineReason = (typeof DECLINE_REASONS)[number];
 /**
  * How a deduction reached us. Mirrors the `discovered_from` check in migration
  * 0014; coverage is attributed by this, so it is a closed set.
+ *
+ * The same list as `uploads.source`, and deliberately the *same constant*
+ * rather than a second copy of it: `discovered_from` is derived from the
+ * channel a document arrived through, so the two lists drifting apart would be
+ * a decline attributed to a word the uploads table cannot produce.
  */
-export const DISCOVERED_FROM = [
-  'web_upload',
-  'email_in',
-  'email_body',
-  'erp_sync',
-  'portal_fetch',
-  'edi_812',
-] as const;
+export const DISCOVERED_FROM = UPLOAD_SOURCES;
 
-export type DiscoveredFrom = (typeof DISCOVERED_FROM)[number];
+export type DiscoveredFrom = UploadSource;
 
 export function isDeclineReason(value: unknown): value is DeclineReason {
   return typeof value === 'string' && (DECLINE_REASONS as readonly string[]).includes(value);
@@ -281,6 +282,33 @@ export class AlreadyDeclinedError extends Error {
   ) {
     super(`case ${deductionId} was already declined at ${decidedAt}`);
     this.name = 'AlreadyDeclinedError';
+  }
+}
+
+/**
+ * Raised when a decline cannot be attributed to the channel that found the case.
+ *
+ * `declined_candidates.discovered_from` is the column coverage is grouped by:
+ * of the dollars each channel surfaced, how many did we fight for. A decline
+ * stored under a channel nobody verified is not a missing number — it is a
+ * wrong one, and it reads exactly like a right one. So the row is refused and
+ * the case is left standing, which is the only outcome that cannot silently
+ * move the number this log exists to produce (docs/STRATEGY.md, ADD-1).
+ *
+ * In practice this means one of two things: the case has no notice document at
+ * all, or its notice was stored before ingest recorded provenance and has no
+ * `uploads` row behind it. Both are fixable with a fact somebody has; neither
+ * is fixable by this code choosing a plausible answer.
+ */
+export class ProvenanceUnknownError extends Error {
+  constructor(
+    readonly deductionId: string,
+    detail: string,
+    /** The notice whose arrival is unrecorded, when the case has a notice. */
+    readonly noticeDocumentId?: string,
+  ) {
+    super(`case ${deductionId} cannot be declined: ${detail}`);
+    this.name = 'ProvenanceUnknownError';
   }
 }
 
@@ -363,6 +391,8 @@ interface DocumentRow {
   mime_type: string;
   byte_size: string;
   storage_ref: string;
+  /** Null on the rows stored before ingest recorded where a document came from. */
+  upload_id: string | null;
 }
 
 /** A document that was stored and scanned clean and has no extraction. */
@@ -548,13 +578,14 @@ export class PostgresStore
       bytes,
       ...(pages !== undefined ? { pageText: pages } : {}),
       requiresSplit: false,
+      ...(row.upload_id !== null ? { uploadId: row.upload_id } : {}),
     };
   }
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
-        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref, upload_id,
                 coalesce(filename, '') as filename
            from documents
           where org_id = $1 and sha256 = $2`,
@@ -562,6 +593,59 @@ export class PostgresStore
       );
       const row = rows[0];
       return row === undefined ? undefined : this.toStoredDocument(row);
+    });
+  }
+
+  /**
+   * One `uploads` row: a tenant received something, through this channel, from
+   * this member.
+   *
+   * Written as `app_rw` under the tenant's own claims like every other write
+   * here, so `tenant_insert` — org claim plus `app.member_may_write()`
+   * (migration 0010) — is what decides whether it lands. A store whose member
+   * may not write cannot record an arrival, which is the same answer the
+   * `documents` insert two lines later would give.
+   */
+  async recordUpload(input: {
+    readonly orgId: string;
+    readonly source: IngestSource;
+    readonly createdBy?: string;
+  }): Promise<UploadRecord> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into uploads (org_id, source, created_by)
+         values ($1, $2, $3)
+         returning id`,
+        [input.orgId, input.source, input.createdBy ?? null],
+      );
+      const id = rows[0]?.id;
+      if (id === undefined) throw new Error('insert into uploads returned no row');
+      return {
+        uploadId: id,
+        orgId: input.orgId,
+        source: input.source,
+        ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      };
+    });
+  }
+
+  /**
+   * The channel a document arrived through, through `documents.upload_id`.
+   *
+   * An inner join, so a document stored before provenance was recorded answers
+   * `undefined` rather than a plausible guess. The caller decides what to do
+   * about not knowing; this only refuses to invent it.
+   */
+  async uploadSourceFor(documentId: string): Promise<UploadSource | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ source: UploadSource }>(
+        `select u.source
+           from documents d
+           join uploads u on u.id = d.upload_id
+          where d.id = $1`,
+        [documentId],
+      );
+      return rows[0]?.source;
     });
   }
 
@@ -575,8 +659,9 @@ export class PostgresStore
 
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
-        `insert into documents (id, org_id, sha256, byte_size, mime_type, storage_ref, filename)
-         values ($1, $2, $3, $4, $5, $6, $7)
+        `insert into documents
+           (id, org_id, sha256, byte_size, mime_type, storage_ref, filename, upload_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          returning id`,
         [
           documentId,
@@ -586,6 +671,12 @@ export class PostgresStore
           document.mimeType,
           storageRef,
           document.filename,
+          // Null only for a caller that stored bytes without recording an
+          // arrival. `ingestDocument` always records one first; a test that
+          // writes a document straight into the store is the other case, and a
+          // case opened on such a document cannot be declined (see
+          // `declineCase`), which is the loud version of not knowing.
+          document.uploadId ?? null,
         ],
       );
       const id = rows[0]?.id as string;
@@ -975,7 +1066,7 @@ export class PostgresStore
     const rows = await this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
         `select d.id, d.org_id, d.sha256, d.mime_type, d.byte_size, d.storage_ref,
-                coalesce(d.filename, '') as filename
+                d.upload_id, coalesce(d.filename, '') as filename
            from deduction_documents dd
            join documents d on d.id = dd.document_id
           where dd.deduction_id = $1
@@ -1060,7 +1151,7 @@ export class PostgresStore
   async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     const row = await this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
-        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref, upload_id,
                 coalesce(filename, '') as filename
            from documents where id = $1`,
         [documentId],
@@ -1754,28 +1845,25 @@ export class PostgresStore
    * it has no numerator without this (docs/STRATEGY.md, ADD-1). Deleting the
    * case instead would flatter every number we ever report.
    *
-   * `discovered_from` is read off the case's own notice rather than passed in:
-   * it is how the deduction reached us, which is a fact about the document, not
-   * something a reviewer should be able to type. Coverage is attributed by
-   * source, so a wrong value here quietly credits the wrong channel.
+   * `discovered_from` is read off the case's own notice and is not a parameter
+   * at all: it is how the deduction reached us, which is a fact about the
+   * document rather than something a reviewer — or the route that happens to be
+   * calling — should be able to state. Coverage is attributed by it, so a value
+   * supplied by a caller is a channel credited on somebody's say-so.
+   *
+   * It used to take `assumedDiscoveredFrom`, because nothing wrote the
+   * `uploads` table and the derivation could never succeed. Ingest writes it
+   * now, on every path, so the assumption is gone rather than demoted to a
+   * default: a case whose notice records no arrival raises
+   * {@link ProvenanceUnknownError} instead of being counted under a guess.
+   *
+   * @throws {ProvenanceUnknownError} the case has no notice, or its notice has
+   *   no `uploads` row to say which channel found it
    */
   async declineCase(input: {
     deductionId: string;
     reason: DeclineReason;
     decidedBy: string;
-    /**
-     * What to attribute the decline to when the case's own documents do not say.
-     *
-     * Nothing writes the `uploads` table yet, so `documents.upload_id` is always
-     * null and this fallback is, today, always what gets used. It is a required
-     * parameter and it is named for what it is, because `discovered_from` is
-     * NOT NULL so that coverage can be attributed by channel — and a channel
-     * quietly credited to the wrong source is a number that looks right.
-     *
-     * When ingest starts recording provenance this stops being reached, and the
-     * derivation below takes over with no change here.
-     */
-    assumedDiscoveredFrom: DiscoveredFrom;
     missingEvidence?: readonly MissingEvidence[];
     detail?: string;
   }): Promise<DeclinedCandidate> {
@@ -1792,19 +1880,31 @@ export class PostgresStore
       // every decline of the same case through this point: the second waits,
       // then sees the first's row and raises `AlreadyDeclinedError`. The lock
       // is held to commit, which is where the insert is.
+      //
+      // The notice is read with a LEFT JOIN onto `uploads` so that "this case
+      // has no notice" and "its notice records no arrival" come back as
+      // different answers. They are different faults — one is a case assembled
+      // wrong, the other a document stored before provenance existed — and a
+      // refusal that could not tell them apart would send somebody to the wrong
+      // place.
       const { rows: caseRows } = await client.query<{
         amount: string;
+        notice_document_id: string | null;
         discovered_from: string | null;
       }>(
         `select d.deduction_amount_cents::text as amount,
-                (select u.source
-                   from deduction_documents dd
-                   join documents doc on doc.id = dd.document_id
-                   join uploads u on u.id = doc.upload_id
-                  where dd.deduction_id = d.id and dd.role = 'notice'
-                  order by doc.created_at asc
-                  limit 1) as discovered_from
+                notice.document_id as notice_document_id,
+                notice.source as discovered_from
            from deductions d
+           left join lateral (
+             select doc.id as document_id, u.source
+               from deduction_documents dd
+               join documents doc on doc.id = dd.document_id
+               left join uploads u on u.id = doc.upload_id
+              where dd.deduction_id = d.id and dd.role = 'notice'
+              order by doc.created_at asc
+              limit 1
+           ) notice on true
           where d.id = $1
           for update of d`,
         [input.deductionId],
@@ -1841,9 +1941,25 @@ export class PostgresStore
       // the decline rather than landing in a row we cannot correct.
       const estimatedRecoverableCents = exactCents(found.amount, 'deduction_amount_cents');
 
-      // Derived when the document knows, the caller's stated assumption when it
-      // does not. Today it is always the latter.
-      const discoveredFrom = found.discovered_from ?? input.assumedDiscoveredFrom;
+      // Derived, or refused. `declined_candidates.discovered_from` is NOT NULL
+      // so that coverage can be attributed by channel, and a column that is
+      // always filled is worth nothing if what fills it is a guess: every
+      // decline would credit whichever source the calling code assumed, and the
+      // per-channel numbers would look complete while meaning nothing.
+      //
+      // Nothing is written on this path. The transaction rolls back, the case
+      // is untouched, and the person is told what is missing.
+      if (found.discovered_from === null) {
+        throw new ProvenanceUnknownError(
+          input.deductionId,
+          found.notice_document_id === null
+            ? 'it has no notice document, so nothing on it says which channel found this deduction'
+            : `its notice document ${found.notice_document_id} records no arrival, so nothing ` +
+              'says which channel found this deduction',
+          found.notice_document_id ?? undefined,
+        );
+      }
+      const discoveredFrom = found.discovered_from as DiscoveredFrom;
 
       // The column takes any text, so the check is here or nowhere. A value
       // nobody counts is worse than an empty list: it looks like a reason.

@@ -27,8 +27,9 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0017, applied
-2026-09-21 — the filed record is immutable there too, not only in test.
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0018, applied
+2026-09-21 — the filed record is immutable there too, and complete when
+written, not only in test.
 
 ## Built, not yet exercised
 
@@ -52,7 +53,7 @@ and tested in isolation and has never been run through the deployed app:
 | `ANTHROPIC_API_KEY` for cassette recording | **you** | LOG-001 is wired and self-consistent but not scored by `pnpm eval` until its cassettes exist. One local command |
 | ~~Positioning line~~ | **done** | `CLAUDE.md` and `README.md` now open on staffing and logistics first, retail CPG as upside |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| Provenance at ingest | **next change** | Nothing writes the `uploads` table, so `declined_candidates.discovered_from` cannot be filled honestly and coverage cannot be attributed by channel |
+| ~~Provenance at ingest~~ | **done** | `ingestDocument` writes the `uploads` row before it stores the bytes, so `documents.upload_id` is set on everything stored since. `declined_candidates.discovered_from` is derived from the notice's own arrival — the `assumedDiscoveredFrom` parameter is gone — and a case whose notice records no arrival is refused rather than attributed to a guess. Coverage can be grouped by channel; a declined web upload and a declined email-in case land in different ones |
 
 ## Where the phases stand
 
@@ -112,4 +113,8 @@ blended into the existing five.
    outcome.
 2. **Score the customer pack** as its own suite.
 3. **Cassettes for LOG-001**, once the key is in place.
-4. **Provenance at ingest**, so coverage can be attributed by channel.
+4. ~~Provenance at ingest~~ — done. What is left of it is the cases opened
+   before it: their documents have no `uploads` row, so declining one is
+   refused by name until somebody records how it arrived. There is no backfill,
+   deliberately — nothing in the database knows the answer, and inventing one
+   is the thing this change removed.

@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { AlreadyDeclinedError, isDeclineReason, isMissingEvidence } from '@recouple/store-postgres';
+import {
+  AlreadyDeclinedError,
+  isDeclineReason,
+  isMissingEvidence,
+  ProvenanceUnknownError,
+} from '@recouple/store-postgres';
 import { requireSession, storeFor } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
@@ -87,16 +92,30 @@ export async function POST(
       reason,
       // Who decided, by the identity the session resolved — never a form field.
       decidedBy: session.email,
-      // This route is the web app, so a case it can see arrived by upload —
-      // true for every case that exists today, because nothing writes the
-      // `uploads` table yet. The parameter is named `assumed` so that this
-      // stops being invisible the moment email-in starts opening cases.
-      assumedDiscoveredFrom: 'web_upload',
+      // No `discovered_from` here any more. It used to be hard-coded to
+      // `web_upload` on the reasoning that this route is the web app — which
+      // was true of the request and not of the case: a notice that arrived by
+      // email opens a case a reviewer can see on this same page, and declining
+      // it credited the upload channel with a deduction email found. The store
+      // derives it from the notice's own `uploads` row and refuses when there
+      // is none.
       ...(missing.length > 0 ? { missingEvidence: missing } : {}),
       ...(said === '' ? {} : { detail: said }),
     });
     return say('declined');
   } catch (cause) {
+    if (cause instanceof ProvenanceUnknownError) {
+      // Nothing was written. The case's notice does not say which channel found
+      // it, and `discovered_from` is what coverage is grouped by — so a row
+      // stored here would be a number that looks right. Logged with the ids,
+      // because this is somebody's to fix rather than the reviewer's, and the
+      // reviewer is told plainly that the decline did not happen.
+      console.error(
+        `[recouple] decline: case ${id} in org ${session.org.orgId} has no recorded provenance`,
+        cause,
+      );
+      return say('decline_no_provenance');
+    }
     if (cause instanceof AlreadyDeclinedError) {
       // Not a fault: a second submit of a form that is still on screen. The
       // first decline stands, and saying so beats a 500 or a second row that

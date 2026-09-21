@@ -75,6 +75,7 @@ const EVERY_KEY: readonly string[] = [
   'decided',
   'decline_already',
   'decline_detail_too_long',
+  'decline_no_provenance',
   'decline_reason',
   'decline_role',
   'declined',

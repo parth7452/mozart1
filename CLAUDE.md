@@ -113,7 +113,7 @@ append-only tables.
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
-| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1) |
+| `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right |
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
@@ -274,8 +274,8 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0015 as
-of 2026-09-19.
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0018 as
+of 2026-09-21.
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
@@ -341,14 +341,35 @@ document the tenant cannot see, and then re-drives through whichever runner
 `readDocumentJob` inline where there is not. Pressing it twice is safe for the
 reasons above: the second press is answered from the record if the first has
 finished, and refused the claim if it has not. It asks `documentIsVisible` — a
-`select 1`, not the bytes — and it passes `allowCaseOpen: false` for a document
-that has already been read, so a notice an unauthenticated email left
-deliberately caseless (ADR 0016) cannot get a case from this button. That rule
-ought to come from the document's `source` and cannot: nothing writes the
-`uploads` table, so no row records where it came from. And
+`select 1`, not the bytes — and it derives `allowCaseOpen` from where the
+document came from, which is a question the database can now answer. And
 `/api/inngest` refuses to serve at all — 503, logged — when `INNGEST_DEV` is set
 in a production build, because dev mode turns off the signature check that is
 the endpoint's only authentication.
+
+**Where a document came from is recorded, not assumed.** `ingestDocument`
+writes an `uploads` row before it stores the bytes — `source` from the door it
+came through (`web_upload`, `email_in`, `email_body`), `created_by` the
+signed-in member for an upload and null for an email, because the sender is not
+one of our users and `From:` is forgeable — and the document names it. No
+migration: the table and `documents.upload_id` have been there since 0003 and
+nothing wrote them. A re-upload of the same bytes keeps the first arrival's
+`upload_id` and records nothing new; the channel that re-sent a document we
+already had did not find it.
+
+Two things follow. `declineCase` **derives** `discovered_from` from the case's
+notice instead of taking `assumedDiscoveredFrom: 'web_upload'` from whichever
+route was calling — the parameter is gone, and a case whose notice records no
+arrival raises `ProvenanceUnknownError` rather than being counted under a
+guess, because `coverage_by_period` is grouped by that column and a wrong
+number there reads exactly like a right one. And the "Read again" button asks
+the document: `web_upload` may open a case, which closes the gap where an
+upload whose first read recorded fields and then failed could never get one.
+Anything else keeps the old conservative rule — read once, no case — because
+whether an inbound email authenticated is **not persisted anywhere**
+(`InboundEmail.authenticated` decides it at ingest and is never written down),
+and the answer that cannot let a forged `From:` acquire a case is the one to
+give when the database does not know.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

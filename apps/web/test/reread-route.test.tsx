@@ -135,13 +135,23 @@ function stubbedDeps(store: RouteTestStore): JobDeps {
   };
 }
 
-/** A document stored and scanned clean, and not read: the state this is for. */
-async function storedNotice(store: RouteTestStore): Promise<string> {
+/**
+ * A document stored and scanned clean, and not read: the state this is for.
+ *
+ * The channel is a parameter because the route now reads the rule off it.
+ * Ingesting records an `uploads` row, so a document seeded here says where it
+ * came from exactly as one uploaded through the app does.
+ */
+async function storedNotice(
+  store: RouteTestStore,
+  source: 'web_upload' | 'email_in' = 'web_upload',
+): Promise<string> {
   const ingested = await ingestForJob(stubbedDeps(store), {
     orgId: ORG_ID,
     filename: notice.filename,
     bytes: notice.bytes,
-    source: 'web_upload' as const,
+    source,
+    ...(source === 'web_upload' ? { uploadedBy: USER_ID } : {}),
     pageText: notice.pageText,
   });
   return ingested.documentId;
@@ -326,14 +336,19 @@ describe('asking for a stored document to be read again', () => {
     expect(keys).not.toContain(documentId);
   });
 
-  it('will not open a case for a document that was read and left without one', async () => {
+  it('will not open a case for an email-borne notice that was read and left without one', async () => {
     // ADR 0016: a notice that arrived on an email whose sender could not be
     // authenticated is read and deliberately left caseless. A button on our own
     // case list must not be how a forged `From:` finally gets its case — so a
-    // re-drive of a document that has already been read may not open one, and
-    // is answered from what was recorded instead.
+    // re-drive of such a document may not open one, and is answered from what
+    // was recorded instead.
+    //
+    // The document now says it came by email, which is what the route asks.
+    // Whether *that* email authenticated is not persisted anywhere — it decides
+    // `allowCaseOpen` at ingest and is never written down — so every email-borne
+    // document gets the conservative answer, which is this one.
     const store = harness.store as RouteTestStore;
-    const documentId = await storedNotice(store);
+    const documentId = await storedNotice(store, 'email_in');
     await store.recordExtraction({
       documentId,
       docType: 'deduction_notice',
@@ -352,12 +367,68 @@ describe('asking for a stored document to be read again', () => {
     expect(store.extractions).toHaveLength(1);
   });
 
+  it('will open a case for a web upload whose first read recorded one and did not', async () => {
+    // The other side of the same rule, and the gap provenance closed. A member
+    // of this tenant signed in and put the file there; a notice they uploaded
+    // is a case, and a first read that extracted fields and then failed before
+    // opening one left the document in a state the old rule could never get out
+    // of — every read document was treated as having settled the question, so
+    // the button could not do the one thing it exists for.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store, 'web_upload');
+    await store.recordExtraction({
+      documentId,
+      docType: 'deduction_notice',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+    expect(store.cases.size).toBe(0);
+
+    const response = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(said(response)).toMatch(/has been read/);
+    expect(store.cases.size).toBe(1);
+  });
+
+  it('will not open a case for a document with no recorded channel', async () => {
+    // The rows that predate provenance. The document does not say where it came
+    // from, so it gets the same answer an email's does: read once, no case.
+    // Guessing `web_upload` here is exactly the assumption this change removed.
+    const store = harness.store as RouteTestStore;
+    const stored = await store.putDocument({
+      orgId: ORG_ID,
+      sha256: 'd'.repeat(64),
+      filename: 'before-provenance.pdf',
+      mimeType: 'application/pdf',
+      byteSize: 4,
+      bytes: new Uint8Array([37, 80, 68, 70]),
+      requiresSplit: false,
+    });
+    await store.recordScan(stored.documentId, { status: 'clean', scanner: 'stub' });
+    await store.recordExtraction({
+      documentId: stored.documentId,
+      docType: 'deduction_notice',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+
+    const response = await POST(rereadRequest(stored.documentId), params(stored.documentId));
+
+    expect(said(response)).toMatch(/had already been read/);
+    expect(store.cases.size).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
+  });
+
   it('sends allowCaseOpen false to the job for that same document', async () => {
     // The queued half of the rule above. Inline it is an argument to
     // `readDocumentJob`; queued it has to travel in the event, or the job a
     // minute later would default to yes and open the case this refused.
     const store = harness.store as RouteTestStore;
-    const documentId = await storedNotice(store);
+    const documentId = await storedNotice(store, 'email_in');
     await store.recordExtraction({
       documentId,
       docType: 'deduction_notice',

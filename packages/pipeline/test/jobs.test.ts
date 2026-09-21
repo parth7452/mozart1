@@ -144,6 +144,11 @@ function ledgerOf(store: InMemoryStore): unknown {
   const labels = new Map<string, string>();
   [...store.documents.keys()].forEach((id, index) => labels.set(id, `document-${index}`));
   [...store.cases.keys()].forEach((id, index) => labels.set(id, `case-${index}`));
+  // Arrivals get the same treatment as documents and cases: an `uploads` row per
+  // document, its id random per run, and `documents.upload_id` pointing at it.
+  // Unlabelled they would differ between two runs of the same upload and say
+  // the two paths disagreed when what differed was a UUID.
+  [...store.uploads.keys()].forEach((id, index) => labels.set(id, `upload-${index}`));
 
   const scrub = (value: unknown): unknown => {
     if (typeof value === 'string') return labels.get(value) ?? value;
@@ -159,6 +164,9 @@ function ledgerOf(store: InMemoryStore): unknown {
 
   return scrub({
     documents: [...store.documents.values()],
+    // In the ledger, not beside it: where a document came from is part of what
+    // the two paths have to record identically.
+    uploads: [...store.uploads.values()],
     scans: store.scans,
     classifications: store.classifications,
     extractions: store.extractions,

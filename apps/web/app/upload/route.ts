@@ -100,7 +100,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         filename: file.name,
         bytes: new Uint8Array(await file.arrayBuffer()),
         ...(file.type === '' ? {} : { declaredMimeType: file.type }),
+        // The channel and the person, together, because they are one fact
+        // about this arrival and they are written as one `uploads` row. The
+        // channel is what coverage is attributed by later; the person is who
+        // the session resolved, never a form field.
         source: 'web_upload' as const,
+        uploadedBy: session.userId,
       },
       pipelineDepsFor(store),
       {
