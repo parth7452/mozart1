@@ -169,7 +169,7 @@ export class PostgresDiscoveryStore {
    * Read whole rather than queried per candidate: matching normalises both
    * sides (trim, case-fold, collapse whitespace), so an index on the raw column
    * would not serve a lookup anyway, and a tenant holds thousands of these
-   * rather than millions (ADR 0027).
+   * rather than millions (ADR 0025).
    */
   async knownIdentifiers(orgId: string): Promise<readonly StoredIdentifier[]> {
     this.assertOwnTenant(orgId);
@@ -388,7 +388,7 @@ export class PostgresDiscoveryStore {
   /**
    * The two names the ledger knows this deduction by.
    *
-   * Verbatim, exactly as the ledger returned them (ADR 0027 §4), and skipped
+   * Verbatim, exactly as the ledger returned them (ADR 0025 §4), and skipped
    * where the ledger returned nothing: an empty identifier is not a name, and
    * the column refuses it anyway. `on conflict do nothing` because the pair
    * `(org, source, kind, identifier)` is unique and a re-sync of the same

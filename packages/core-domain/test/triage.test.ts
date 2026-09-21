@@ -102,7 +102,7 @@ describe('triage over a short-pay candidate', () => {
   });
 
   /**
-   * The asymmetry, asserted. Losing a deduction is the worse error (ADR 0027,
+   * The asymmetry, asserted. Losing a deduction is the worse error (ADR 0025,
    * ADR 0028 §3): a duplicate case is visible and still disputable, a dropped
    * arrival is not.
    */

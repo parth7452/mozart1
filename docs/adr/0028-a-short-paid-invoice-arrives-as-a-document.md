@@ -4,7 +4,7 @@
 - Date: 2026-09-21
 
 *Numbering: this is 0028. The identity decision it builds on — "a deduction has
-many identifiers and one row" — is cited throughout as ADR 0027 and its table's
+many identifiers and one row" — is cited throughout as ADR 0025 and its table's
 migration as 0021, which is where a parallel renumbering puts them.*
 
 ## Context
@@ -32,7 +32,7 @@ answered together, because each answer constrains the next:
 2. **What decides whether to open a case?** STRATEGY §6.3 and ADD-7 reserve this
    slot for a Jev triage tier — thousands of candidate lines per tenant per
    month, most of which must never reach extraction at ~$0.015–0.128 a document.
-3. **What happens when the ledger names a deduction we already have?** ADR 0027
+3. **What happens when the ledger names a deduction we already have?** ADR 0025
    built `resolveIdentity` and `deduction_identifiers` for precisely this
    arrival and left the wiring to "the wiring task". This is it.
 4. **What is too small to fight?** A remittance rounding difference of two cents
@@ -112,7 +112,7 @@ Why rules first, when §6.3 is explicitly an argument for a model here:
   above the floor — are comparisons of structured fields we computed ourselves.
   A model in front of them would be an unreviewable judgement in front of the
   operation that decides whether a disputable deduction is ever disputed, which
-  is the position ADR 0027 §5 already refused for identity.
+  is the position ADR 0025 §5 already refused for identity.
 - **Every rule writes a row.** A declined candidate is a counterfactual-log
   entry, not a discard (STRATEGY ADD-1), and each carries `decided_by =
   'triage-rules'` with a version. That is what makes the later model evaluable:
@@ -127,7 +127,7 @@ Why rules first, when §6.3 is explicitly an argument for a model here:
 ### 3. The identity gate is asymmetric, and it errs towards keeping the deduction
 
 `resolveIdentity` is asked before anything is written, and its four answers get
-four different treatments (ADR 0027 §6 is the reasoning; this is the wiring):
+four different treatments (ADR 0025 §6 is the reasoning; this is the wiring):
 
 | Resolution | What happens |
 | --- | --- |
@@ -136,7 +136,7 @@ four different treatments (ADR 0027 §6 is the reasoning; this is the wiring):
 | `probable` | **Open the case anyway**, and record a `case.possible_duplicate` event naming the other deduction and the basis. |
 | `none` | Open the case. |
 
-The `probable` branch is the one worth defending. ADR 0027 says a probable pair
+The `probable` branch is the one worth defending. ADR 0025 says a probable pair
 is "held for a human" and that nothing in it built the queue to hold it in. The
 queue still does not exist. Given that, there are two ways to be wrong, and they
 are not symmetric: opening a duplicate case is visible — two rows, one invoice,

@@ -164,7 +164,7 @@ export interface SyncReport {
 
 export class LedgerSyncError extends Error {}
 
-/** The two names a ledger arrival carries, in the kinds migration 0021 admits. */
+/** The two names a ledger arrival carries, in the kinds migration 0020 admits. */
 function arrivalIdentifiers(
   candidate: ShortPayCandidate,
 ): readonly { kind: IdentifierKind; identifier: string }[] {

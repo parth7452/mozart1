@@ -62,7 +62,7 @@ function extractFor(invoices: readonly LedgerInvoice[], payments: readonly Ledge
  *
  * The point of these tests is what only the database can answer: that the
  * arrival is recorded as `erp_sync` and derivable from the case's own notice,
- * that the identifiers land under the constraints migration 0021 put on them,
+ * that the identifiers land under the constraints migration 0020 put on them,
  * and that running the same sync twice does not open a second case or count the
  * same dollars twice.
  */

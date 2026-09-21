@@ -17,7 +17,7 @@
  *   ADD-1), which is both the coverage numerator and the population a later
  *   model has to be scored against.
  * - **The identity gate is asymmetric, and it errs towards keeping the
- *   deduction** (ADR 0027 §6, ADR 0028 §3). An `exact` match is the only answer
+ *   deduction** (ADR 0025 §6, ADR 0028 §3). An `exact` match is the only answer
  *   that resolves without a person. A `probable` one opens the case anyway with
  *   a flag on it: a duplicate case is visible and still disputable, while a
  *   dropped arrival is invisible and, with post-audit windows of about two
