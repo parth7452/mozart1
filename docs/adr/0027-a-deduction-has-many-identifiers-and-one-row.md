@@ -1,4 +1,4 @@
-# 0025 — A deduction has many identifiers and one row
+# 0027 — A deduction has many identifiers and one row
 
 - Status: accepted
 - Date: 2026-09-21
@@ -57,7 +57,7 @@ Three shapes were considered.
 
 ## Decision
 
-**(c).** Migration 0020 adds `deduction_identifiers`. Nothing existing is
+**(c).** Migration 0021 adds `deduction_identifiers`. Nothing existing is
 altered except one additive unique constraint (§7 below).
 
 1. **Additive, not a rewrite.** `deductions.claim_id` and `unique (org_id,
@@ -194,7 +194,7 @@ altered except one additive unique constraint (§7 below).
 - **2 (append-only)** — extended to a new table, not weakened. `revoke update,
   delete, truncate`, no UPDATE/DELETE grant, `app.block_mutations()` on row
   mutations and on TRUNCATE, asserted in
-  `supabase/tests/15_a_deduction_has_many_identifiers.sql`.
+  `supabase/tests/17_a_deduction_has_many_identifiers.sql`.
 - **4 (document content is untrusted)** — held. An identifier is verbatim text
   from a document or a vendor, and it is stored, bounded and compared; it is
   never executed, never interpolated, and it cannot create a `deductions` row on

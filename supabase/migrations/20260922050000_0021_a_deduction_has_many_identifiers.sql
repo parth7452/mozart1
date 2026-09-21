@@ -1,4 +1,4 @@
--- 0020 — A deduction has many identifiers and one row (ADR 0025).
+-- 0021 — A deduction has many identifiers and one row (ADR 0027).
 --
 -- The same deduction reaches us under up to four different names: a credit memo
 -- in the accounting ledger, an adjustment line on an EDI 812, a claim id in the
@@ -59,7 +59,7 @@ $$;
 
 comment on constraint deductions_org_id_id_key on deductions is
   'Lets a child table key on (org_id, deduction_id) and get the tenancy tie '
-  'with it, rather than trusting two independent foreign keys (ADR 0025 §7).';
+  'with it, rather than trusting two independent foreign keys (ADR 0027 §7).';
 
 -- ---------------------------------------------------------------------------
 -- 1. The identifiers a deduction is known by
@@ -102,7 +102,7 @@ create table if not exists deduction_identifiers (
     )
   ),
   -- Verbatim, exactly as the source printed or returned it — never a cleaned-up
-  -- version. Normalisation is a comparison, not a rewrite (ADR 0025 §4), the
+  -- version. Normalisation is a comparison, not a rewrite (ADR 0027 §4), the
   -- same rule `retailer_name_as_printed` follows.
   --
   -- Untrusted text, so it is bounded, and an over-long one is refused rather
@@ -128,7 +128,7 @@ comment on table deduction_identifiers is
   'Every name a deduction is known by, source-qualified and append-only. The '
   'matcher that reads it resolves only on an exact match and holds a probable '
   'one for a human — a wrong merge silently destroys a disputable deduction '
-  '(ADR 0025).';
+  '(ADR 0027).';
 
 comment on column deduction_identifiers.identifier is
   'Verbatim as the source printed or returned it. Comparison normalises (trim, '
@@ -294,6 +294,6 @@ comment on function app.backfill_claim_id_identifiers() is
   'One identifier row per existing deductions.claim_id, with the source looked '
   'up from the notice document''s upload where that is knowable. Idempotent, '
   'and it reports rather than chooses when a claim id is already held by '
-  'another case (ADR 0025).';
+  'another case (ADR 0027).';
 
 select app.backfill_claim_id_identifiers();

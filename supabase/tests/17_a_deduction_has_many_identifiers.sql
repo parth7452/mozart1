@@ -96,9 +96,9 @@ begin
     'truncate deduction_identifiers', 'denied', 'app_rw holds no TRUNCATE privilege');
 
   -- -------------------------------------------------------------------------
-  -- The backfill: one row per claim id we already held (ADR 0025).
+  -- The backfill: one row per claim id we already held (ADR 0027).
   -- -------------------------------------------------------------------------
-  -- `test.seed_org` opened a case with a claim id after migration 0020 ran, so
+  -- `test.seed_org` opened a case with a claim id after migration 0021 ran, so
   -- these rows stand in for the ones that predate it. The source is looked up
   -- from the notice document''s upload where the database can know it.
   select created_at into seeded_created_at from deductions where id = ded;
@@ -170,7 +170,7 @@ begin
   -- same tenant''s. `deduction_identifiers_same_org` is what says it — without
   -- it a writer could hang an identifier their own tenant can read onto another
   -- tenant''s deduction, and the matcher would resolve onto a case they cannot
-  -- open (ADR 0025 §7).
+  -- open (ADR 0027 §7).
   perform test.expect_error(format(
     'insert into deduction_identifiers
        (org_id, deduction_id, source, identifier_kind, identifier)

@@ -1,5 +1,5 @@
 /**
- * One deduction, several identifiers (ADR 0025, docs/STRATEGY.md §5.2, CH-3).
+ * One deduction, several identifiers (ADR 0027, docs/STRATEGY.md §5.2, CH-3).
  *
  * The same deduction reaches us under up to four different names: a credit memo
  * in the accounting ledger, an adjustment line on an EDI 812, a claim id in the
@@ -25,7 +25,7 @@ export class IdentityError extends Error {}
 
 /**
  * What kind of name an identifier is. Mirrors the
- * `deduction_identifiers.identifier_kind` check constraint in migration 0020 —
+ * `deduction_identifiers.identifier_kind` check constraint in migration 0021 —
  * add a kind in both places or a row the database accepts will be one this
  * module cannot compare.
  */
