@@ -1,10 +1,11 @@
 # recouple — deductions agent platform (AI-written code touches money paths)
 
-A deterministic, human-gated document workflow for recovering invalid retailer
-deductions. Not an autonomous agent: ingest → classify → plan evidence → decide
-→ assemble packet → **a human approves and submits** → record outcome → invoice
-the contingency fee. Agentic loops are reserved for exactly two bounded steps
-(evidence planning, unknown-retailer cold start).
+A deterministic, human-gated document workflow for recovering invalid customer
+deductions — staffing and logistics first, retail CPG as upside. Not an
+autonomous agent: ingest → classify → plan evidence → decide → assemble packet
+→ **a human approves and submits** → record outcome → invoice the contingency
+fee. Agentic loops are reserved for exactly two bounded steps (evidence
+planning, unknown-retailer cold start).
 
 ## Non-negotiable invariants (never violate; enforced by the database + hooks)
 
@@ -159,8 +160,9 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Four suites, gated separately (never blended — the mix changes, and a blended
-number moves when it does):
+Five recorded suites and two waiting on cassettes, every one of them gated
+separately (never blended — the mix changes, and a blended number moves when it
+does):
 
 | Suite | What it measures | Recall / precision | Grounding | Classification |
 | --- | --- | --- | --- | --- |
@@ -169,6 +171,18 @@ number moves when it does):
 | scanned | does it survive a scan | 100% | 98.4% | 4/4 |
 | dense | does it survive a 42-row remittance | 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% | 100% | 1/1 |
+| logistics | does the argument hold across a whole case | not yet recorded | — | — |
+| customer | does it work off a phone camera, on staffing and freight | not yet recorded | — | — |
+
+`customer` is fifteen documents across three cases — two staffing, one freight —
+twelve of them simulated camera photographs. It is the market the product is
+sold into rather than the one the other suites are drawn from. Synthetic, like
+everything else here, and `packages/fixtures/customer/README.md` keeps the
+pack's own caveats verbatim. `pnpm eval` reports both unrecorded suites as
+skipped rather than failing, and `packages/evals/baseline.json` names them in
+`pendingSuites` so a suite with no numbers cannot be mistaken for a suite that
+passed. Record with `pnpm record:cassettes --suite customer` (it spends money),
+then `pnpm eval --record-baseline`.
 
 About $0.021 per document across 26 of them. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —

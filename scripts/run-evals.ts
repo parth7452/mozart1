@@ -46,7 +46,28 @@ if (existsSync(cassetteDir)) {
   }
 }
 
-const documents = everyDocument().filter((d) => cassettes.has(d.key));
+const allDocuments = everyDocument();
+const documents = allDocuments.filter((d) => cassettes.has(d.key));
+
+/**
+ * Suites whose fixtures exist and whose cassettes do not.
+ *
+ * Recording costs money and needs API keys, so a suite can land before its
+ * numbers do. That is a state to report, not a regression to fail on — but it
+ * has to be *reported*, because the alternative is a suite that looks wired and
+ * is silently scoring nothing (which is exactly what happened to LOG-001).
+ */
+const recordedBySuite = new Map<string, { recorded: number; total: number }>();
+for (const fixture of allDocuments) {
+  const tally = recordedBySuite.get(fixture.suite) ?? { recorded: 0, total: 0 };
+  recordedBySuite.set(fixture.suite, {
+    recorded: tally.recorded + (cassettes.has(fixture.key) ? 1 : 0),
+    total: tally.total + 1,
+  });
+}
+const unrecordedSuites = [...recordedBySuite]
+  .filter(([, tally]) => tally.recorded === 0)
+  .map(([name, tally]) => [name, tally.total] as const);
 
 if (documents.length === 0) {
   console.error(
@@ -142,11 +163,35 @@ const SUITE_LABELS: Record<string, string> = {
   scanned: 'rasterised + degraded — does it survive a scan',
   dense: 'dozens of rows — does it survive a real remittance',
   email_body: 'no page at all — a notice pasted into a message',
+  logistics: 'one freight case across five documents — does the argument hold',
+  customer: 'photographed staffing and freight cases — does it work off a phone camera',
 };
+
+/**
+ * Display order. Every suite in the corpus is reported, in this order where it
+ * is named and after it otherwise — a suite is never left out of this list by
+ * being forgotten, only by having no cassettes.
+ */
+const SUITE_ORDER = [
+  'authored',
+  'held_out',
+  'scanned',
+  'dense',
+  'email_body',
+  'logistics',
+  'customer',
+];
+const scoredSuites = [...new Set(scores.map((s) => suiteOf.get(s.key) ?? 'unknown'))].sort(
+  (a, b) => {
+    const rank = (name: string) =>
+      SUITE_ORDER.indexOf(name) === -1 ? SUITE_ORDER.length : SUITE_ORDER.indexOf(name);
+    return rank(a) - rank(b) || a.localeCompare(b);
+  },
+);
 
 const perSuite = new Map<string, ReturnType<typeof summarise>>();
 
-for (const suiteName of ['authored', 'held_out', 'scanned', 'dense', 'email_body']) {
+for (const suiteName of scoredSuites) {
   const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
   if (suiteScores.length === 0) continue;
   const tally = classifiedBySuite.get(suiteName);
@@ -184,6 +229,19 @@ console.log(
   `${boxedFields} of ${totalFields} fields carry a bounding box a reviewer can follow`,
 );
 
+const recordCommand = (suiteName: string) => `pnpm record:cassettes --suite ${suiteName}`;
+
+if (unrecordedSuites.length > 0) {
+  console.log('\nnot yet recorded — skipped, not failed:');
+  for (const [name, total] of unrecordedSuites) {
+    console.log(
+      `  ${name.padEnd(12)} ${String(total).padStart(2)} documents, no cassettes. ` +
+        `Record with \`${recordCommand(name)}\` ` +
+        '(this calls the API and spends money), then `pnpm eval --record-baseline`.',
+    );
+  }
+}
+
 if (unsafeDetail.length > 0) {
   console.log('\nclassification misses:');
   for (const line of unsafeDetail) console.log(`  ${line}`);
@@ -200,9 +258,19 @@ for (const score of scores) {
 }
 
 const suiteRecord = Object.fromEntries(perSuite);
+// Written into the baseline so the file itself says which suites have never
+// been measured, rather than a reader inferring it from a missing row.
+const pendingRecord = Object.fromEntries(
+  unrecordedSuites.map(([name, total]) => [
+    name,
+    `not yet recorded: ${total} fixture documents, no cassettes. ` +
+      `\`${recordCommand(name)}\` needs ANTHROPIC_API_KEY, ` +
+      'and REDUCTO_API_KEY for any document with no text layer.',
+  ]),
+);
 
 if (recordBaseline) {
-  const baseline = toBaseline(suite, modelFor('extract'), suiteRecord);
+  const baseline = toBaseline(suite, modelFor('extract'), suiteRecord, pendingRecord);
   writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
   console.log(`\nbaseline written to packages/evals/baseline.json`);
   process.exit(0);
@@ -219,6 +287,17 @@ const regressions = findRegressions(baseline, DEFAULT_TOLERANCE, suiteRecord);
 if (baseline.extractModel !== modelFor('extract')) {
   console.log(
     `\nnote: baseline was recorded with ${baseline.extractModel}, this run used ${modelFor('extract')}`,
+  );
+}
+
+// A suite that scored but has no baseline row is reported, not gated — there is
+// nothing to compare it against yet. Saying so out loud is the point: an
+// ungated suite is easy to mistake for a passing one.
+const ungated = scoredSuites.filter((name) => (baseline.suites ?? {})[name] === undefined);
+if (ungated.length > 0) {
+  console.log(
+    `\nnote: ${ungated.join(', ')} scored here but ${ungated.length === 1 ? 'has' : 'have'} no baseline row, ` +
+      'so nothing gates them. Look at the numbers, then `pnpm eval --record-baseline`.',
   );
 }
 

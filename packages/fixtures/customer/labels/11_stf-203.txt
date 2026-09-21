@@ -1,0 +1,16 @@
+SHORT PAYMENT NOTICE
+Faircrest Assembly Ltd. / Accounts Payable
+NOTICE
+SP-203 | September 18, 2026 | Payment FC-918-203
+INVOICE
+OW-260903 | Gross $4,950.00 | Paid $4,500.00
+DEDUCTION
+CB-203 / PREMIUM-NOAUTH: $450.00 weekend premium withheld.
+CUSTOMER NOTE
+Attendance is accepted. We have not located written approval of the additional
+weekend premium.
+REFERENCES
+Assignment AS-203 | PO FC-203 | Week ending August 30, 2026
+DISPUTE WINDOW
+Send written authorization or request clarification by October 18, 2026.
+STF-203 | OW-260903 | Page 1 of 1

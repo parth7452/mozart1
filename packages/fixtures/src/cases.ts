@@ -33,7 +33,14 @@ export interface FixtureDocument {
    * pipeline works. `held_out` documents came from elsewhere and measure whether
    * it generalises. Never average the two into one headline number.
    */
-  readonly suite: 'authored' | 'held_out' | 'scanned' | 'dense' | 'email_body' | 'logistics';
+  readonly suite:
+    | 'authored'
+    | 'held_out'
+    | 'scanned'
+    | 'dense'
+    | 'email_body'
+    | 'logistics'
+    | 'customer';
 }
 
 export interface FixtureCase {

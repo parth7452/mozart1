@@ -1,0 +1,35 @@
+[
+  {
+    "id": "STF-201",
+    "vendor": "Elmbridge Staffing LLC",
+    "customer": "Briarfield Packaging Co.",
+    "inv": "ES-260901",
+    "gross": 720000,
+    "ded": 60000,
+    "recover": 60000,
+    "decision": "dispute_full",
+    "basis": "Customer approved overtime for all 40 hours. Contract explicitly permits shift-supervisor approval."
+  },
+  {
+    "id": "LOG-202",
+    "vendor": "Crestline Freight LLC",
+    "customer": "Westhaven Paper Supply",
+    "inv": "CF-260902",
+    "gross": 560000,
+    "ded": 80000,
+    "recover": 50000,
+    "decision": "dispute_partial",
+    "basis": "Recover $500 late fee because appointment was changed and arrival was timely. Accept $300 shortage: signed POD confirms 2 missing cartons at $150 agreed value each."
+  },
+  {
+    "id": "STF-203",
+    "vendor": "Oakmere Workforce LLC",
+    "customer": "Faircrest Assembly Ltd.",
+    "inv": "OW-260903",
+    "gross": 495000,
+    "ded": 45000,
+    "recover": null,
+    "decision": "request_evidence",
+    "basis": "Written customer approval is contractually required for the $450 weekend premium. Time log confirms attendance but not premium authorization. Internal dispatch note is not customer approval."
+  }
+]

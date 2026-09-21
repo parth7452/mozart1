@@ -1,0 +1,15 @@
+REMITTANCE ADVICE
+Westhaven Paper Supply / Vendor Payments
+REMITTANCE
+RM-202 | September 18, 2026 | Payment ACH-WP-202
+INVOICE
+CF-260902 | Gross $5,600.00 | Paid $4,800.00
+DEDUCTION 1
+CB-202-A / LATE: $500.00. Original appointment missed.
+DEDUCTION 2
+CB-202-B / SHORT: $300.00. Two cartons short.
+TOTAL DEDUCTIONS
+$800.00 | Load LD-202 | PO WP-202
+STATUS
+Deductions pending carrier response; reply by October 18, 2026.
+LOG-202 | CF-260902 | Page 1 of 1

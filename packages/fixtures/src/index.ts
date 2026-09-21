@@ -6,4 +6,5 @@ export * from './dense';
 export * from './email-body';
 export * from './review';
 export * from './logistics';
+export * from './customer';
 export * from './corpus';

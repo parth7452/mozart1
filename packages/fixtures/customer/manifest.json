@@ -1,0 +1,107 @@
+[
+  {
+    "document_id": "01_stf-201",
+    "case_id": "STF-201",
+    "document_type": "SHORT-PAY REMITTANCE",
+    "file": "documents/01_stf-201.jpg",
+    "rendering": "perspective_soft_shadow"
+  },
+  {
+    "document_id": "02_stf-201",
+    "case_id": "STF-201",
+    "document_type": "STAFFING INVOICE",
+    "file": "documents/02_stf-201.jpg",
+    "rendering": "uneven_light_compressed"
+  },
+  {
+    "document_id": "03_stf-201",
+    "case_id": "STF-201",
+    "document_type": "WEEKLY TIME REGISTER",
+    "file": "documents/03_stf-201.jpg",
+    "rendering": "mild_blur_compressed"
+  },
+  {
+    "document_id": "04_stf-201",
+    "case_id": "STF-201",
+    "document_type": "OVERTIME APPROVAL",
+    "file": "documents/04_stf-201.jpg",
+    "rendering": "perspective_warm_desk"
+  },
+  {
+    "document_id": "05_stf-201",
+    "case_id": "STF-201",
+    "document_type": "STAFFING RATE AGREEMENT",
+    "file": "documents/05_stf-201.pdf",
+    "rendering": "native_pdf"
+  },
+  {
+    "document_id": "06_log-202",
+    "case_id": "LOG-202",
+    "document_type": "REMITTANCE ADVICE",
+    "file": "documents/06_log-202.jpg",
+    "rendering": "perspective_soft_shadow"
+  },
+  {
+    "document_id": "07_log-202",
+    "case_id": "LOG-202",
+    "document_type": "FREIGHT INVOICE",
+    "file": "documents/07_log-202.jpg",
+    "rendering": "uneven_light_compressed"
+  },
+  {
+    "document_id": "08_log-202",
+    "case_id": "LOG-202",
+    "document_type": "DELIVERY RECEIPT",
+    "file": "documents/08_log-202.jpg",
+    "rendering": "mild_blur_compressed"
+  },
+  {
+    "document_id": "09_log-202",
+    "case_id": "LOG-202",
+    "document_type": "REVISED DELIVERY APPOINTMENT",
+    "file": "documents/09_log-202.jpg",
+    "rendering": "perspective_warm_desk"
+  },
+  {
+    "document_id": "10_log-202",
+    "case_id": "LOG-202",
+    "document_type": "CARRIER RATE CONFIRMATION",
+    "file": "documents/10_log-202.pdf",
+    "rendering": "native_pdf"
+  },
+  {
+    "document_id": "11_stf-203",
+    "case_id": "STF-203",
+    "document_type": "SHORT PAYMENT NOTICE",
+    "file": "documents/11_stf-203.jpg",
+    "rendering": "perspective_soft_shadow"
+  },
+  {
+    "document_id": "12_stf-203",
+    "case_id": "STF-203",
+    "document_type": "WORKFORCE INVOICE",
+    "file": "documents/12_stf-203.jpg",
+    "rendering": "uneven_light_compressed"
+  },
+  {
+    "document_id": "13_stf-203",
+    "case_id": "STF-203",
+    "document_type": "ATTENDANCE SUMMARY",
+    "file": "documents/13_stf-203.jpg",
+    "rendering": "mild_blur_compressed"
+  },
+  {
+    "document_id": "14_stf-203",
+    "case_id": "STF-203",
+    "document_type": "DISPATCH HANDOFF NOTE",
+    "file": "documents/14_stf-203.jpg",
+    "rendering": "perspective_warm_desk"
+  },
+  {
+    "document_id": "15_stf-203",
+    "case_id": "STF-203",
+    "document_type": "SERVICE ORDER TERMS",
+    "file": "documents/15_stf-203.pdf",
+    "rendering": "native_pdf"
+  }
+]

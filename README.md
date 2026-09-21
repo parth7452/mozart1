@@ -1,9 +1,11 @@
 # recouple
 
-Deductions recovery for CPG suppliers and their retail customers. A supplier
-ships to a retailer, the retailer short-pays the invoice with a coded reason, and
-somewhere between 5% and 15% of gross sales leaks out this way — most of it never
-challenged because challenging it is slow, deadline-bound paperwork.
+Deductions recovery for suppliers whose customers short-pay them: staffing
+agencies and freight carriers first, CPG suppliers and their retail customers as
+upside — the mechanism is the same in all three. A supplier ships to a retailer,
+the retailer short-pays the invoice with a coded reason, and somewhere between 5%
+and 15% of gross sales leaks out this way — most of it never challenged because
+challenging it is slow, deadline-bound paperwork.
 
 recouple is the paperwork, automated: ingest the notice → classify it → plan the
 evidence → decide → assemble a packet in the retailer's required format → **a

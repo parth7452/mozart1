@@ -21,6 +21,7 @@ import { scannedDocuments } from './scans';
 import { denseDocuments } from './dense';
 import { emailBodyDocuments } from './email-body';
 import { logisticsDocuments } from './logistics';
+import { customerDocuments } from './customer';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
 
@@ -208,5 +209,6 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...denseDocuments(),
     ...emailBodyDocuments(),
     ...logisticsDocuments(),
+    ...customerDocuments(),
   ];
 }

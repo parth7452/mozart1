@@ -1,0 +1,20 @@
+WEEKLY TIME REGISTER
+Briarfield Packaging Co. / Plant Operations
+REGISTER
+TR-201 | Assignment AS-201 | Week ending August 28, 2026
+WORKER A17
+Regular 40.00 | Overtime 12.00 | Total 52.00
+WORKER B23
+Regular 40.00 | Overtime 10.00 | Total 50.00
+WORKER C08
+Regular 40.00 | Overtime 8.00 | Total 48.00
+WORKER D11
+Regular 40.00 | Overtime 10.00 | Total 50.00
+WORKER E04
+Regular 20.00 | Overtime 0.00 | Total 20.00
+TOTALS
+Regular 180.00 | Overtime 40.00 | Total 220.00
+APPROVAL
+Approved August 28, 2026, 6:14 PM Eastern by Lena Ortiz, Shift Supervisor. Approval reference
+APR-201.
+STF-201 | ES-260901 | Page 1 of 1

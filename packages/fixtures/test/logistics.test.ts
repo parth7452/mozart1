@@ -98,6 +98,7 @@ describe('every suite reaches the recorder and the eval gate', () => {
     const suites = new Set(everyDocument().map((d) => d.suite));
     expect([...suites].sort()).toEqual([
       'authored',
+      'customer',
       'dense',
       'email_body',
       'held_out',

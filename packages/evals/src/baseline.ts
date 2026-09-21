@@ -35,6 +35,16 @@ export interface Baseline {
    * fixtures we wrote ourselves — which is the drop that would actually matter.
    */
   readonly suites?: Readonly<Record<string, SuiteBaseline>>;
+  /**
+   * Suites that exist as fixtures and have never been recorded, with the reason.
+   *
+   * A suite with no cassettes has no numbers, and inventing a row for it would
+   * be a baseline that was never measured — the one thing a baseline may not
+   * be. Naming it here instead keeps the gap visible: the eval reports it as
+   * skipped rather than silently scoring one document fewer, and a suite that
+   * is in neither map is an orphan somebody forgot.
+   */
+  readonly pendingSuites?: Readonly<Record<string, string>>;
 }
 
 /** Absolute drop tolerated before a metric counts as a regression. */
@@ -51,6 +61,7 @@ export function toBaseline(
   score: SuiteScore,
   extractModel: string,
   suites: Readonly<Record<string, SuiteScore>> = {},
+  pendingSuites: Readonly<Record<string, string>> = {},
 ): Baseline {
   const perSuite: Record<string, SuiteBaseline> = {};
   for (const [name, suite] of Object.entries(suites)) {
@@ -70,6 +81,7 @@ export function toBaseline(
     classificationAccuracy: score.classificationAccuracy,
     totalCostMicros: score.totalCostMicros,
     ...(Object.keys(perSuite).length > 0 ? { suites: perSuite } : {}),
+    ...(Object.keys(pendingSuites).length > 0 ? { pendingSuites } : {}),
   };
 }
 
