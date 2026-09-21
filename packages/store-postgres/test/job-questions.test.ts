@@ -1,17 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { closeAllPools, sessionPool } from '@recouple/store-postgres';
-import { tenantStore, TenantStore } from '../lib/store';
+import { closeAllPools, PostgresStore, sessionPool } from '../src/store';
 
 /**
- * The two questions `TenantStore` adds to the store, against the real schema.
+ * The two questions a job asks the database, against the real schema.
  *
- * They are the only SQL this app writes, and both are load-bearing: one is the
- * check that stops a signed event from having a document read on behalf of
- * somebody who is not a member (ADR 0021), and the other is what tells a
- * redelivered event that the document it names has already been read. Neither
- * can be trusted to an in-memory store — a typo in either query would look
- * exactly like a refusal, or like a document nobody has read.
+ * Both are load-bearing: one is the check that stops a signed event from having
+ * a document read on behalf of somebody who is not a member (ADR 0021), and the
+ * other is what tells a redelivered event that the document it names has
+ * already been read and where that read landed. Neither can be trusted to an
+ * in-memory store — a typo in either query would look exactly like a refusal,
+ * or like a document nobody has read.
+ *
+ * They live on `PostgresStore` beside every other query, so both run inside the
+ * one `withTenant` — `set local role app_rw` plus the tenant's claims set
+ * transaction-locally, on the shared pool, with no service-role key anywhere
+ * near them (invariant 6). They used to live in a subclass in `apps/web`, which
+ * meant a second copy of that transaction discipline for the app to keep in
+ * step; these assertions came with them unchanged.
  *
  * `pnpm db:test` prepares the database; without DATABASE_URL there is nothing
  * to test against and these skip themselves.
@@ -28,7 +34,10 @@ describeDb('the two questions a job asks the database', () => {
   const outsiderId = randomUUID();
   const suffix = orgId.slice(0, 8);
 
-  let store: TenantStore;
+  const storeFor = (tenant: { orgId: string; userId: string }): PostgresStore =>
+    new PostgresStore({ connectionString: connectionString as string }, tenant);
+
+  let store: PostgresStore;
   let documentId: string;
   let noticeCaseId: string;
 
@@ -52,7 +61,7 @@ describeDb('the two questions a job asks the database', () => {
       [orgId, analystId, readerId, otherOrgId, outsiderId],
     );
 
-    store = tenantStore({ orgId, userId: analystId });
+    store = storeFor({ orgId, userId: analystId });
     const stored = await store.putDocument({
       orgId,
       sha256: randomUUID().replace(/-/g, '').padEnd(64, '0'),
@@ -80,7 +89,7 @@ describeDb('the two questions a job asks the database', () => {
   it('says a writer may write, and a reader may not', async () => {
     await expect(store.memberMayWrite({ orgId, userId: analystId })).resolves.toBe(true);
 
-    const reader = tenantStore({ orgId, userId: readerId });
+    const reader = storeFor({ orgId, userId: readerId });
     await expect(reader.memberMayWrite({ orgId, userId: readerId })).resolves.toBe(false);
   });
 
@@ -88,12 +97,12 @@ describeDb('the two questions a job asks the database', () => {
     // The hole this closes: `tenant_read` is the org claim and nothing else, so
     // an event pairing this org with a member of another one would otherwise
     // read — and pay for — a document that is not theirs.
-    const outsider = tenantStore({ orgId, userId: outsiderId });
+    const outsider = storeFor({ orgId, userId: outsiderId });
     await expect(outsider.memberMayWrite({ orgId, userId: outsiderId })).resolves.toBe(false);
 
     // And a user id that belongs to nobody at all.
     const strangerId = randomUUID();
-    const nobody = tenantStore({ orgId, userId: strangerId });
+    const nobody = storeFor({ orgId, userId: strangerId });
     await expect(nobody.memberMayWrite({ orgId, userId: strangerId })).resolves.toBe(false);
   });
 
@@ -116,7 +125,7 @@ describeDb('the two questions a job asks the database', () => {
   it('finds nothing for a document this tenant cannot see', async () => {
     // RLS, not a filter this query remembered: the other tenant's store reads
     // the same row by the same id and gets nothing.
-    const other = tenantStore({ orgId: otherOrgId, userId: outsiderId });
+    const other = storeFor({ orgId: otherOrgId, userId: outsiderId });
     await expect(other.caseForDocument(documentId)).resolves.toBeUndefined();
     await expect(store.caseForDocument(randomUUID())).resolves.toBeUndefined();
   });

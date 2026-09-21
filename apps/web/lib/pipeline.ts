@@ -8,7 +8,8 @@ import {
   type PipelineDeps,
   type ProcessedDocument,
 } from '@recouple/pipeline';
-import { tenantStore, type TenantStore } from './store';
+import type { PostgresStore } from '@recouple/store-postgres';
+import { tenantStore } from './store';
 import {
   inngestClient,
   inngestKeysFromEnv,
@@ -38,8 +39,7 @@ import {
  * The store's own type is carried through rather than narrowed to the port, so
  * a caller handing in a store that can do more keeps it — a job needs
  * `getDocument` to read a document it only has the id of (ADR 0021), plus the
- * two questions `JobStore` adds, and `TenantStore` (lib/store.ts) answers all
- * three.
+ * two questions `JobStore` adds, and `PostgresStore` answers all three.
  */
 export function pipelineDepsFor<S extends PipelineDeps['store']>(
   store: S,
@@ -73,7 +73,7 @@ export function pipelineDepsFor<S extends PipelineDeps['store']>(
 export function storeForActor(identity: {
   readonly orgId: string;
   readonly userId: string;
-}): TenantStore {
+}): PostgresStore {
   return tenantStore(identity);
 }
 

@@ -308,6 +308,33 @@ function workflowContract(
       ).rejects.toBeInstanceOf(CaseWorkflowError);
     });
 
+    it('answers with the case it approved and the case it filed against', async () => {
+      // Neither method is told which case it is acting on: `approve` and
+      // `recordSubmission` take a decision and a packet, both of which arrive
+      // on a form, and the case is the packet's. A caller that is not told
+      // where its own write landed has to read a case back to find out — and
+      // reading the case it *thought* it wrote to can say "not here" but never
+      // "here instead".
+      const deductionId = await h.newCase();
+      const { decisionId, packetId } = await toAwaitingApproval(h, deductionId);
+
+      const approval = await h
+        .store(h.approver)
+        .approve({ decisionId, packetId, approverId: h.approver });
+      expect(approval.deductionId).toBe(deductionId);
+
+      const submission = await h.store(h.approver).recordSubmission({
+        decisionId,
+        packetId,
+        approvalId: approval.approvalId,
+        channel: 'manual_portal',
+        confirmationNumber: 'APDP-41009',
+        submittedAt: new Date('2026-09-20T10:00:00.000Z'),
+        actorId: h.approver,
+      });
+      expect(submission.deductionId).toBe(deductionId);
+    });
+
     it('refuses the analyst who decided approving their own decision', async () => {
       const deductionId = await h.newCase();
       const { decisionId, packetId } = await toAwaitingApproval(h, deductionId);

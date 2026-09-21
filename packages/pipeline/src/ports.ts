@@ -312,6 +312,14 @@ export interface CaseWorkflowStore {
    * {@link PreparerCannotApproveError} and {@link WrongRoleError} rather than
    * letting a driver error through.
    *
+   * Answers with the case the approval landed on as well as the approval's own
+   * id. The store approves the *packet's* case, which the caller never names:
+   * `decisionId` and `packetId` come off a form, and a stale tab or a forged
+   * post can authorise a case of this tenant other than the one whose page the
+   * reviewer is looking at. Without `deductionId` a caller has to read the case
+   * back to find out where the write went, and a caller that does not read it
+   * back shows a notice on a case where nothing happened.
+   *
    * @throws {PreparerCannotApproveError} the approver prepared this decision
    * @throws {WrongRoleError} the approver is not an `owner` or `approver`
    * @throws {WrongCaseStateError} the case is not awaiting approval
@@ -321,7 +329,7 @@ export interface CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
-  }): Promise<{ readonly approvalId: string }>;
+  }): Promise<{ readonly approvalId: string; readonly deductionId: string }>;
 
   /**
    * Records that a human filed the dispute and what the retailer gave back as a
@@ -332,6 +340,11 @@ export interface CaseWorkflowStore {
    * approved. That check is here and not in the approval trigger on purpose:
    * the trigger carries one rule — no submission without an approval — and
    * stays as narrow and as provable as it is (ADR 0020 §2).
+   *
+   * Answers with the case the filing was recorded against as well as the
+   * submission's own id, for the reason {@link CaseWorkflowStore.approve} does:
+   * the store files against the *decision's* case, and the ids it was handed
+   * came off a form.
    *
    * @throws {PacketHashMismatchError} `packetId`'s hash differs from the approval's
    * @throws {DuplicateSubmissionError} this decision was already submitted on this channel
@@ -345,7 +358,7 @@ export interface CaseWorkflowStore {
     readonly confirmationNumber: string;
     readonly submittedAt: Date;
     readonly actorId: string;
-  }): Promise<{ readonly submissionId: string }>;
+  }): Promise<{ readonly submissionId: string; readonly deductionId: string }>;
 
   /**
    * Records what came back, as an `outcome.recorded` event plus the case state.

@@ -3,7 +3,11 @@ import { AlreadyDeclinedError, isDeclineReason, isMissingEvidence } from '@recou
 import { requireSession, storeFor } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
-import { type NoticeKey } from '../../../../lib/notices';
+import {
+  DECLINE_DETAIL_MAX_LENGTH,
+  NOTICE_ABOUT_PARAM,
+  type NoticeKey,
+} from '../../../../lib/notices';
 
 /**
  * Records a decision not to fight a case.
@@ -33,8 +37,12 @@ export async function POST(
   // What happened travels as a key, not as a sentence: the query string is a
   // thing anybody can type, and an app that repeats what it finds there is an
   // app a link can put words into (`lib/notices.ts`).
-  const say = (notice: NoticeKey): NextResponse => {
+  // Anything the key cannot say on its own — here, how long the note actually
+  // was — follows as `about`, one validated fragment per `{n}`, the same way
+  // every other route carries a number into a sentence.
+  const say = (notice: NoticeKey, ...about: readonly string[]): NextResponse => {
     back.searchParams.set('decline', notice);
+    for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
     return NextResponse.redirect(back, { status: 303 });
   };
 
@@ -57,6 +65,17 @@ export async function POST(
   }
 
   const detail = form.get('detail');
+  const said = typeof detail === 'string' ? detail.trim() : '';
+  // Refused, not cut. This note is the whole of why a case was not fought: the
+  // `declined_candidates` row is append-only, there is no second chance to
+  // explain, and a decline stored with its reasoning stopped mid-sentence reads
+  // as a reviewer who only had that much to say. The form's `maxLength` stops a
+  // browser getting here; a POST that is not from the form is told the number
+  // rather than quietly trimmed to it.
+  if (said.length > DECLINE_DETAIL_MAX_LENGTH) {
+    return say('decline_detail_too_long', String(said.length));
+  }
+
   // Only the evidence types coverage can add up. The column is a plain
   // `text[]`, so anything else would be stored and then never counted.
   const missing = form.getAll('missing').filter(isMissingEvidence);
@@ -74,9 +93,7 @@ export async function POST(
       // stops being invisible the moment email-in starts opening cases.
       assumedDiscoveredFrom: 'web_upload',
       ...(missing.length > 0 ? { missingEvidence: missing } : {}),
-      ...(typeof detail === 'string' && detail.trim() !== ''
-        ? { detail: detail.trim().slice(0, 2000) }
-        : {}),
+      ...(said === '' ? {} : { detail: said }),
     });
     return say('declined');
   } catch (cause) {

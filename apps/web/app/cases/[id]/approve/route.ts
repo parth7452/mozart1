@@ -14,9 +14,9 @@ import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
 import { NOTE_MAX_LENGTH } from '../../../../lib/notices';
 import {
   backToCase,
-  backToList,
   caseNotFound,
   mayApprove,
+  sameCase,
   workflowStoreFor,
 } from '../../../../lib/workflow';
 
@@ -78,7 +78,7 @@ export async function POST(
 
   const store = workflowStoreFor(session);
   try {
-    const { approvalId } = await store.approve({
+    const { deductionId } = await store.approve({
       decisionId,
       packetId,
       approverId: session.userId,
@@ -90,11 +90,17 @@ export async function POST(
     // way — the store read the decision, not the path — but sending the
     // reviewer back to the path's case would show them a case where nothing
     // happened, with a notice saying it did.
-    const landed = await store.getWorkflow(id);
-    if (landed?.approval?.approvalId !== approvalId) {
-      return NextResponse.redirect(backToList(request.url, 'approve_other_case'), {
-        status: 303,
-      });
+    //
+    // Which case it landed on is the store's answer rather than a second read:
+    // `approve` returns the deduction it approved against, so the reviewer goes
+    // to the case the approval is on and reads it there. A re-read would ask
+    // the path's case whether this approval is the one it carries, which
+    // answers "not here" without ever saying where here is.
+    if (!sameCase(deductionId, id)) {
+      return NextResponse.redirect(
+        backToCase(request.url, deductionId, 'approve_other_case'),
+        { status: 303 },
+      );
     }
     return NextResponse.redirect(backToCase(request.url, id, 'approved'), { status: 303 });
   } catch (cause) {

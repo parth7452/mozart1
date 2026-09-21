@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { AlreadyDeclinedError } from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
-import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
+import { DECLINE_DETAIL_MAX_LENGTH, NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
 /**
  * What the decline route does with everything that is not the happy path.
@@ -226,6 +226,56 @@ describe('declining a case from the web', () => {
       expect(said(response)).toBe('choose a reason for declining');
     }
     expect(store.calls).toHaveLength(0);
+  });
+
+  it('refuses a note longer than the field holds, rather than cutting it', async () => {
+    // It used to `.slice(0, 2000)`: a reviewer who explained a decline at
+    // length was recorded as having said the first 2000 characters of it, with
+    // nothing anywhere saying the rest had been dropped. `declined_candidates`
+    // is append-only and a decline is explained once, so half an explanation is
+    // not a smaller version of the record — it is a different one.
+    const store = harness.store as RouteTestStore;
+    const tooLong = 'x'.repeat(DECLINE_DETAIL_MAX_LENGTH + 1);
+
+    const response = await POST(
+      declineRequest({ reason: 'below_economic_floor', detail: tooLong }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    const to = location(response);
+    expect(to.pathname).toBe(`/cases/${CASE_ID}`);
+    expect(to.searchParams.get('decline')).toBe('decline_detail_too_long');
+    // The length it actually was, carried as a validated fragment, and the
+    // limit from the one place that holds it.
+    expect(to.searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual([
+      String(DECLINE_DETAIL_MAX_LENGTH + 1),
+    ]);
+    expect(said(response)).toBe(
+      `that note is ${DECLINE_DETAIL_MAX_LENGTH + 1} characters and this field holds ` +
+        `${DECLINE_DETAIL_MAX_LENGTH} — shorten it, because a decline is only ever ` +
+        'explained once and half an explanation is not one',
+    );
+    // Nothing was written: the reviewer edits and sends it again.
+    expect(store.calls).toHaveLength(0);
+  });
+
+  it('measures the note after trimming, and records exactly what fits', async () => {
+    // The stored value is the trimmed one, so the length that is checked is the
+    // length that would be stored — a note that is only over the limit because
+    // of the whitespace around it is not over the limit.
+    const store = harness.store as RouteTestStore;
+    const exact = 'y'.repeat(DECLINE_DETAIL_MAX_LENGTH);
+
+    const response = await POST(
+      declineRequest({ reason: 'below_economic_floor', detail: `  ${exact}  ` }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    expect(location(response).searchParams.get('decline')).toBe('declined');
+    expect(store.calls).toHaveLength(1);
+    expect(store.calls[0]?.detail).toBe(exact);
   });
 
   it('lets the first decline stand when the form is submitted twice', async () => {

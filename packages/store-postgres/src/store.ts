@@ -1,6 +1,6 @@
 /**
- * The PipelineStore — and, since ADR 0020, the CaseWorkflowStore — backed by
- * Postgres.
+ * The PipelineStore — and, since ADR 0020, the CaseWorkflowStore, and the
+ * JobStore a queued read is given (ADR 0021) — backed by Postgres.
  *
  * Every query runs as `app_rw` with the caller's tenant claim set, so the same
  * RLS policies that protect the database in production protect it here. The
@@ -29,6 +29,7 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  JobStore,
   PipelineStore,
   StoredDocument,
   WorkflowSubmissionChannel,
@@ -433,7 +434,7 @@ export class InMemoryBlobStore implements BlobStore {
   }
 }
 
-export class PostgresStore implements PipelineStore, CaseWorkflowStore {
+export class PostgresStore implements PipelineStore, CaseWorkflowStore, JobStore {
   private readonly pool: Pool;
   private readonly role: string;
 
@@ -940,6 +941,69 @@ export class PostgresStore implements PipelineStore, CaseWorkflowStore {
       return rows;
     });
     return Promise.all(rows.map((row) => this.toStoredDocument(row)));
+  }
+
+  /**
+   * Whether this member may write in this tenant, asked of the database.
+   *
+   * `app.member_may_write()` is the predicate every `tenant_insert` policy is
+   * gated on (migration 0010), so what this reports and what the policies
+   * enforce cannot drift apart. A job needs it and a request does not, because
+   * the two are authenticated differently: a request has a session the database
+   * already resolved a membership for, while a job has an event, and a signed
+   * event says Inngest delivered it and nothing more. `tenant_read` is the org
+   * claim and nothing else, so without this the document would be fetched, OCR'd
+   * and read by a model before the first insert was refused (ADR 0021).
+   *
+   * The actor must be the one this store already carries: the claims are what
+   * the function reads, so answering for anybody else would be answering a
+   * different question than the one asked. A mismatch is a programming error and
+   * says so, rather than returning `false`, which would look like a refused
+   * member.
+   */
+  async memberMayWrite(actor: {
+    readonly orgId: string;
+    readonly userId: string;
+  }): Promise<boolean> {
+    if (actor.orgId !== this.tenant.orgId || actor.userId !== this.tenant.userId) {
+      throw new Error(
+        'this store acts as a different member than the one being asked about: ' +
+          `store ${this.tenant.userId}@${this.tenant.orgId}, ` +
+          `asked ${actor.userId}@${actor.orgId}`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ may: boolean | null }>(
+        'select app.member_may_write() as may',
+      );
+      // `=== true` and not a truthiness check: no row, or a null, is a member
+      // who may not write.
+      return rows[0]?.may === true;
+    });
+  }
+
+  /**
+   * The case this document is already filed against, if any.
+   *
+   * The notice link first: a document that opened a case is on that case, and a
+   * document can also be evidence on another. It is what tells a redelivered
+   * read-event that the document it names has already been read and where that
+   * read landed (ADR 0021).
+   *
+   * RLS scopes it like every other read here, so a document of another tenant's
+   * answers nothing rather than answering wrongly.
+   */
+  async caseForDocument(documentId: string): Promise<string | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ deduction_id: string }>(
+        `select deduction_id from deduction_documents
+          where document_id = $1
+          order by (role = 'notice') desc, observed_at asc, id asc
+          limit 1`,
+        [documentId],
+      );
+      return rows[0]?.deduction_id;
+    });
   }
 
   /**
@@ -1721,7 +1785,7 @@ export class PostgresStore implements PipelineStore, CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
-  }): Promise<{ readonly approvalId: string }> {
+  }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
     return this.withTenant((client) => workflow.approve(client, this.tenant, input));
   }
 
@@ -1733,7 +1797,7 @@ export class PostgresStore implements PipelineStore, CaseWorkflowStore {
     readonly confirmationNumber: string;
     readonly submittedAt: Date;
     readonly actorId: string;
-  }): Promise<{ readonly submissionId: string }> {
+  }): Promise<{ readonly submissionId: string; readonly deductionId: string }> {
     return this.withTenant((client) => workflow.recordSubmission(client, this.tenant, input));
   }
 

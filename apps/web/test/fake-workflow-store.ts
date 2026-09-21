@@ -297,7 +297,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
-  }): Promise<{ readonly approvalId: string }> {
+  }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
     this.take('approve', input);
     const decision = this.decisions.get(input.decisionId);
     if (decision === undefined) throw new DecisionNotFoundError(input.decisionId, 'approve');
@@ -339,7 +339,10 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       approvedAt: this.now,
     };
     this.approvals.set(approval.approvalId, approval);
-    return { approvalId: approval.approvalId };
+    // The case the approval landed on, which is the *decision's* case and not
+    // anything the caller named — the real store answers with the same thing,
+    // read off the packet it looked up.
+    return { approvalId: approval.approvalId, deductionId: decision.deductionId };
   }
 
   async recordSubmission(input: {
@@ -350,7 +353,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     readonly confirmationNumber: string;
     readonly submittedAt: Date;
     readonly actorId: string;
-  }): Promise<{ readonly submissionId: string }> {
+  }): Promise<{ readonly submissionId: string; readonly deductionId: string }> {
     this.take('recordSubmission', input);
     const decision = this.decisions.get(input.decisionId);
     if (decision === undefined) throw new DecisionNotFoundError(input.decisionId, 'submit');
@@ -403,7 +406,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     };
     this.submissions.set(submission.submissionId, submission);
     row.state = 'submitted';
-    return { submissionId: submission.submissionId };
+    return { submissionId: submission.submissionId, deductionId: decision.deductionId };
   }
 
   async recordOutcome(input: {
