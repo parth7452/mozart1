@@ -6,25 +6,25 @@
   "document": {
     "document_number": {
       "value": "POD-771",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Proof of delivery: POD-771"
     },
     "ship_date": {
       "value": "August 13, 2026",
-      "confidence": 0.95,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Delivery date: August 13, 2026"
     },
     "carrier_name": {
       "value": "Alder Freight Services LLC",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Carrier: Alder Freight Services LLC"
     },
     "po_number": {
       "value": "PO-BSC-8841",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Purchase order: PO-BSC-8841"
     },
@@ -85,12 +85,12 @@
     "lines": []
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:58:34.555Z",
+  "recordedAt": "2026-09-21T00:45:17.330Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4983,
-    "outputTokens": 927,
-    "costMicros": 19236,
-    "latencyMs": 8537
+    "outputTokens": 829,
+    "costMicros": 18256,
+    "latencyMs": 7049
   }
 }

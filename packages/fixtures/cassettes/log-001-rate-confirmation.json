@@ -2,35 +2,35 @@
   "key": "log-001-rate-confirmation",
   "docType": "price_agreement",
   "classifiedAs": "correspondence",
-  "classifierConfidence": 0.85,
+  "classifierConfidence": 0.72,
   "document": {
     "agreement_type": {
-      "value": "RATE CONFIRMATION",
+      "value": "Rate confirmation",
       "confidence": 0.9,
       "source_page": 1,
       "source_quote": "RATE CONFIRMATION"
     },
     "counterparty": {
       "value": "Alder Freight Services LLC",
-      "confidence": 0.85,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Carrier: Alder Freight Services LLC"
     },
     "effective_from": {
       "value": "August 10, 2026",
-      "confidence": 0.8,
+      "confidence": 0.85,
       "source_page": 1,
       "source_quote": "Accepted: August 10, 2026"
     },
     "effective_to": {
-      "value": "null",
-      "confidence": 0.5,
+      "value": ",",
+      "confidence": 0.1,
       "source_page": 1,
       "source_quote": ""
     },
     "approved_by": {
       "value": "Maya Chen, Transportation Coordinator",
-      "confidence": 0.8,
+      "confidence": 0.85,
       "source_page": 1,
       "source_quote": "Customer representative: Maya Chen, Transportation Coordinator."
     },
@@ -44,7 +44,7 @@
         },
         "amount": {
           "value": "$4,200.00",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "$4,200.00"
         },
@@ -64,7 +64,7 @@
         },
         "amount": {
           "value": "$600.00",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "$600.00"
         },
@@ -84,7 +84,7 @@
         },
         "amount": {
           "value": "$4,800.00",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "$4,800.00"
         },
@@ -104,7 +104,7 @@
         },
         "amount": {
           "value": "$600.00",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "$600.00"
         },
@@ -118,7 +118,7 @@
       {
         "term_text": {
           "value": "Written appointment changes approved by the customer transportation team replace earlier appointments. A customer-requested reschedule is not a carrier-caused delay.",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Written appointment changes approved by the customer transportation team replace earlier\nappointments. A customer-requested reschedule is not a carrier-caused delay."
         },
@@ -138,7 +138,7 @@
       {
         "term_text": {
           "value": "Timeliness is determined by receiving gate check-in, not unloading completion.",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Timeliness is determined by receiving gate check-in, not unloading completion."
         },
@@ -158,12 +158,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:58:06.318Z",
+  "recordedAt": "2026-09-21T00:44:52.707Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4443,
-    "outputTokens": 1597,
-    "costMicros": 24856,
-    "latencyMs": 11421
+    "outputTokens": 1631,
+    "costMicros": 25196,
+    "latencyMs": 12220
   }
 }

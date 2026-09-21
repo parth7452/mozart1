@@ -12,7 +12,7 @@
     },
     "ship_date": {
       "value": "08/05/2026",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Ship Date: 08/05/2026"
     },
@@ -54,13 +54,13 @@
     },
     "signed_by": {
       "value": "R. Alvarez",
-      "confidence": 0.93,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Received By: R. Alvarez (signature on file)"
     },
     "signature_present": {
       "value": true,
-      "confidence": 0.9,
+      "confidence": 0.85,
       "source_page": 1,
       "source_quote": "Signature: /s/ R. Alvarez     Date: 08/08/2026"
     },
@@ -74,7 +74,7 @@
         },
         "qty_shipped": {
           "value": 30,
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "000-4471-08       Case Pack Olive Oil                 30"
         },
@@ -106,12 +106,12 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:53:40.952Z",
+  "recordedAt": "2026-09-21T00:44:07.917Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4430,
     "outputTokens": 815,
     "costMicros": 17010,
-    "latencyMs": 6722
+    "latencyMs": 6794
   }
 }

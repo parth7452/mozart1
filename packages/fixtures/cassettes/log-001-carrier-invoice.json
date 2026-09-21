@@ -38,7 +38,7 @@
       {
         "sku_upc": {
           "value": "Linehaul - one dedicated load",
-          "confidence": 0.85,
+          "confidence": 0.8,
           "source_page": 1,
           "source_quote": "Linehaul - one dedicated load"
         },
@@ -46,7 +46,7 @@
           "value": 1,
           "confidence": 0.6,
           "source_page": 1,
-          "source_quote": "Dedicated dry-van shipment: 24 pallets of packaged paper goods."
+          "source_quote": "Linehaul - one dedicated load $4,200.00"
         },
         "unit_cost": {
           "value": "$4,200.00",
@@ -64,13 +64,13 @@
       {
         "sku_upc": {
           "value": "Fuel surcharge - agreed flat amount",
-          "confidence": 0.85,
+          "confidence": 0.8,
           "source_page": 1,
           "source_quote": "Fuel surcharge - agreed flat amount"
         },
         "qty": {
           "value": 1,
-          "confidence": 0.5,
+          "confidence": 0.6,
           "source_page": 1,
           "source_quote": "Fuel surcharge - agreed flat amount $600.00"
         },
@@ -90,12 +90,12 @@
     ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:57:53.457Z",
+  "recordedAt": "2026-09-21T00:44:38.941Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
     "inputTokens": 4180,
-    "outputTokens": 798,
-    "costMicros": 16340,
-    "latencyMs": 6024
+    "outputTokens": 939,
+    "costMicros": 17750,
+    "latencyMs": 7646
   }
 }
