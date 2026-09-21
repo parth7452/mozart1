@@ -1,4 +1,4 @@
--- 0021 — A short-paid remittance line is a discovered deduction (ADR 0026).
+-- 0022 — A short-paid remittance line is a discovered deduction (ADR 0028).
 --
 -- `openCaseFromNotice` opens a case for `deduction_notice` and for nothing
 -- else, so a remittance advice is scanned, classified, read and stored — and
@@ -7,44 +7,57 @@
 -- document is ever sent. Those deductions are the coverage thesis, sitting
 -- inside a document we already paid to read.
 --
--- Five changes, and nothing else.
+-- Four changes, and nothing else.
 --
 --   1. `deductions.discovered_via` — whether this case was named by a notice or
 --      by a line on a remittance. Deliberately NOT a seventh `uploads.source`:
 --      the door the bytes came through and the kind of document that named the
 --      deduction are two different facts, and `uploads` is append-only since
 --      ADR 0024, so a row written under a confused meaning could not be
---      relabelled. Coverage slices by both (ADR 0026 §5).
+--      relabelled. Coverage slices by both (ADR 0028 §5).
 --
---   2. `deductions.invoice_number` and `deductions.reason_code_as_printed` —
---      untrusted document text, stored as printed, capped, and used only as
---      lookup keys. Plus the partial index the dedup query reads.
+--   2. `deductions.reason_code_as_printed` — the code the payer printed beside
+--      the short-pay, untrusted text stored verbatim and never mapped.
 --
---   3. `org_settings.remittance_tolerance_cents` / `remittance_tolerance_bps` —
---      the floor under which a short-pay is noise rather than a deduction.
+--   3. `org_settings.remittance_tolerance_cents` / `remittance_tolerance_bps` /
+--      `remittance_dedup_days` — the floor under which a short-pay is noise,
+--      and the window two printings of one deduction may differ by.
 --
---   4. `org_settings.remittance_dedup_days` — the window inside which the same
---      invoice for the same amount is one deduction arriving twice rather than
---      two deductions. NOT in the direction guard, on purpose: see §4 below.
---
---   5. `app.guard_threshold_direction()` gains the two tolerance columns, with
---      the direction argued in ADR 0026 §3 — for a tolerance, RAISING is the
+--   4. `app.guard_threshold_direction()` gains the two tolerance columns, with
+--      the direction argued in ADR 0028 §3 — for a tolerance, RAISING is the
 --      loosening, which is the opposite sense from a ceiling.
 --
--- What is deliberately NOT here: any edit to `app.require_approval()`,
+-- **There is deliberately no `deductions.invoice_number`.** Migration 0020 made
+-- a deduction's names their own table: `deduction_identifiers`, source-qualified,
+-- append-only, one kind per row, with `invoice_number` already among the kinds
+-- it admits. A column here would be a second, mutable place for the same fact,
+-- and the two would disagree the first time a portal or an EDI 812 named the
+-- same invoice differently. So a remittance line writes an identifier row, the
+-- notice path writes one too, and the dedup decision is `resolveIdentity` over
+-- that table (ADR 0028 §6, ADR 0025). That is also why this migration adds no
+-- index on an invoice number: `deduction_identifiers` carries its own, and the
+-- `unique (org_id, source, identifier_kind, identifier)` it already has is the
+-- one the lookup rides.
+--
+-- Nothing about `deduction_identifiers` changes here either. Its `source` check
+-- admits the six `uploads.source` channels, and a remittance line's source is
+-- the channel its document arrived through — which is one of those six. No
+-- widening was needed.
+--
+-- What is otherwise deliberately NOT here: any edit to `app.require_approval()`,
 -- `app.block_mutations()`, `app.member_may_write()` or
 -- `app.arrival_only_when_unknown()`; any change to `uploads`,
--- `document_arrivals` or `declined_candidates`; any new table, any new policy,
--- and any new UPDATE or DELETE grant anywhere. `deductions` and `org_settings`
--- are mutable projections (migration 0006's `mutable` list), so nullable and
--- defaulted columns on them change no grant and fire no trigger — the same
--- argument migration 0015 made for `retailer_name_as_printed`.
+-- `document_arrivals`, `declined_candidates` or `deduction_identifiers`; any new
+-- table, any new policy, and any new UPDATE or DELETE grant anywhere.
+-- `deductions` and `org_settings` are mutable projections (migration 0006's
+-- `mutable` list), so nullable and defaulted columns on them change no grant and
+-- fire no trigger — the same argument migration 0015 made for
+-- `retailer_name_as_printed`.
 --
 -- Idempotent throughout: `add column if not exists`, drop-then-add for every
--- constraint, `create index if not exists`, `create or replace` for the
--- function. `scripts/db-test.sh` applies every migration twice in one run and
--- `supabase/tests/16_remittance_lines.sql` reads the end state back rather than
--- assuming it.
+-- constraint, `create or replace` for the function. `scripts/db-test.sh` applies
+-- every migration twice in one run and `supabase/tests/18_remittance_lines.sql`
+-- reads the end state back rather than assuming it.
 
 -- ---------------------------------------------------------------------------
 -- 1. How this case was discovered: by a notice, or by a remittance line
@@ -68,59 +81,41 @@ $$;
 
 comment on column deductions.discovered_via is
   'What kind of document named this deduction: a deduction notice, or a '
-  'short-paid line on a remittance advice (ADR 0026). This is NOT the channel '
+  'short-paid line on a remittance advice (ADR 0028). This is NOT the channel '
   'the bytes arrived through — that is uploads.source, observed at ingest and '
   'immutable since ADR 0024, and it is what declined_candidates.discovered_from '
   'is derived from. The two are orthogonal: a remittance arrives by web upload '
   'today and by edi_812 in Phase 2.5, and coverage is sliced by both.';
 
 -- ---------------------------------------------------------------------------
--- 2. The invoice a deduction was taken against, and the code it was taken under
+-- 2. The code the short-pay was taken under
 -- ---------------------------------------------------------------------------
--- Both are untrusted document text (invariant 4), stored exactly as printed and
--- never rewritten. `invoice_number` is a lookup key: it selects an existing case
--- for the dedup window, the way a printed retailer name may select a debtor and
--- never mint one (ADR 0019). `reason_code_as_printed` carries its warning in its
--- name — mapping a retailer's code to a canonical one is versioned,
--- effective-dated playbook *data* with provenance (Phase 2), not a column.
-alter table deductions
-  add column if not exists invoice_number text;
+-- Untrusted document text (invariant 4), stored exactly as printed and never
+-- rewritten. Its name carries its own warning, the way `retailer_name_as_printed`
+-- does: mapping a payer's code to a canonical one is versioned, effective-dated
+-- playbook *data* with provenance (Phase 2), not a column and not code.
+--
+-- The invoice number that used to sit beside this is in `deduction_identifiers`
+-- instead — see the header.
 alter table deductions
   add column if not exists reason_code_as_printed text;
 
--- The caps exist for the reason 0015's does: a pathological extraction must not
--- be able to store a page in a column a view renders.
+-- The cap exists for the reason 0015's does: a pathological extraction must not
+-- be able to store a page in a column a view renders. 200, the same bound
+-- `deduction_identifiers.identifier` uses, so an identifier and a code that
+-- travel together on one line are measured the same way.
 do $$
 begin
-  alter table deductions drop constraint if exists deductions_invoice_number_len;
-  alter table deductions add constraint deductions_invoice_number_len
-    check (invoice_number is null or length(invoice_number) <= 200);
-
   alter table deductions drop constraint if exists deductions_reason_code_as_printed_len;
   alter table deductions add constraint deductions_reason_code_as_printed_len
     check (reason_code_as_printed is null or length(reason_code_as_printed) <= 200);
 end
 $$;
 
-comment on column deductions.invoice_number is
-  'The supplier invoice this deduction was taken against, exactly as the '
-  'document printed it. Untrusted text used as a lookup key and nothing else: '
-  'the dedup window matches on it so that a notice and a remittance line for '
-  'the same invoice and the same amount are one case rather than two (ADR '
-  '0026 §8). Null when the document printed none, and a null falls back to the '
-  'claim_id dedup alone — a merge on a missing key would merge everything.';
-
 comment on column deductions.reason_code_as_printed is
   'The reason code exactly as the document printed it, never mapped. '
-  'Display and lookup only — turning a retailer''s code into a canonical one '
-  'is playbook data with provenance (Phase 2), not code and not this column.';
-
--- The dedup read is (org_id, invoice_number) with a date bound, so the partial
--- index is exactly the query. Partial because most rows have no invoice number
--- and an index entry for each of them is a page nobody reads.
-create index if not exists deductions_org_invoice_idx
-  on deductions (org_id, invoice_number)
-  where invoice_number is not null;
+  'Display only — turning a payer''s code into a canonical one is playbook '
+  'data with provenance (Phase 2), not code and not this column.';
 
 -- ---------------------------------------------------------------------------
 -- 3 & 4. The tolerance and the dedup window
@@ -158,7 +153,7 @@ comment on column org_settings.remittance_tolerance_cents is
   'is unreadable OR delta * 10000 >= gross * remittance_tolerance_bps) — a '
   'cross-multiplication, so there is no division and no rounding anywhere '
   '(invariant 3). Lowering it opens MORE cases and is therefore the tightening; '
-  'raising it is a loosening and needs an ADR (ADR 0026 §3).';
+  'raising it is a loosening and needs an ADR (ADR 0028 §3).';
 
 comment on column org_settings.remittance_tolerance_bps is
   'The proportional half of the same floor, in basis points of the invoice '
@@ -168,13 +163,12 @@ comment on column org_settings.remittance_tolerance_bps is
   'is the tightening; raising it needs an ADR.';
 
 comment on column org_settings.remittance_dedup_days is
-  'How recently a case for the same invoice and the same exact amount must '
-  'have been discovered for a second document naming it to merge into that '
-  'case instead of opening another. Deliberately NOT in '
-  'app.guard_threshold_direction(): neither direction is the conservative one '
-  '— a longer window risks folding two different deductions into one case, a '
-  'shorter one risks double-filing — so a guard here would assert a direction '
-  'the mechanism does not have (ADR 0026 §4).';
+  'How far apart two printings of one deduction date may be and still be one '
+  'deduction — resolveIdentity''s dateToleranceDays for the probable branch '
+  '(ADR 0025). Deliberately NOT in app.guard_threshold_direction(): neither '
+  'direction is the conservative one — a longer window flags more probable '
+  'duplicates for a person, a shorter one flags fewer — so a guard here would '
+  'assert a direction the mechanism does not have (ADR 0028 §4).';
 
 -- ---------------------------------------------------------------------------
 -- 5. The two tolerances join the direction guard (invariant 7)
@@ -222,7 +216,7 @@ begin
     loosened := loosened || 'min_decision_confidence'::text;
   end if;
   -- A higher tolerance skips more short-paid lines, so it is the loosening
-  -- (ADR 0026 §3).
+  -- (ADR 0028 §3).
   if new.remittance_tolerance_cents > old.remittance_tolerance_cents then
     loosened := loosened || 'remittance_tolerance_cents'::text;
   end if;
@@ -246,5 +240,5 @@ comment on function app.guard_threshold_direction() is
   'Invariant 7: thresholds auto-tighten, never auto-loosen. A ceiling loosens '
   'upward, a confidence floor loosens downward, and a remittance tolerance '
   'loosens upward because raising it skips more short-paid lines silently '
-  '(ADR 0026 §3). remittance_dedup_days is deliberately absent — it has no '
+  '(ADR 0028 §3). remittance_dedup_days is deliberately absent — it has no '
   'conservative direction.';

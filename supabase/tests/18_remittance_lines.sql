@@ -1,9 +1,9 @@
-\echo '-- 16 a short-paid remittance line is a discovered deduction'
+\echo '-- 18 a short-paid remittance line is a discovered deduction'
 begin;
 do $test$
 declare
-  ids jsonb; org uuid; analyst uuid; debtor uuid; ded uuid;
-  n int; via text;
+  ids jsonb; org uuid; analyst uuid; debtor uuid; ded uuid; other uuid;
+  upload uuid; doc uuid; n int;
 begin
   ids := test.seed_org('remittance');
   org := (ids->>'org')::uuid;
@@ -19,24 +19,27 @@ begin
        from information_schema.columns
       where table_name = 'deductions' and column_name = 'discovered_via'),
     'deductions.discovered_via is not null and defaults to notice — which is '
-    'what every case opened before ADR 0026 was');
+    'what every case opened before ADR 0028 was');
 
   perform test.ok(
     (select discovered_via from deductions where id = (ids->>'deduction')::uuid) = 'notice',
     'and the seeded case, opened without naming it, reads as notice-discovered');
 
   perform test.ok(
-    (select count(*) from information_schema.columns
-      where table_name = 'deductions'
-        and column_name in ('invoice_number', 'reason_code_as_printed')
-        and is_nullable = 'YES') = 2,
-    'the invoice number and the printed reason code are nullable: most documents '
-    'print neither, and an absent one must not be a stored empty string');
+    (select is_nullable = 'YES' from information_schema.columns
+      where table_name = 'deductions' and column_name = 'reason_code_as_printed'),
+    'the printed reason code is nullable: most documents print none, and an '
+    'absent one must not be a stored empty string');
 
+  -- The invoice number is deliberately NOT a column here: it is a
+  -- deduction_identifiers row of kind invoice_number (migration 0020). A column
+  -- would be a second, mutable copy of the same fact, and it would be the copy
+  -- a dedup query read (ADR 0028 §6).
   perform test.ok(
-    (select count(*) from pg_indexes
-      where tablename = 'deductions' and indexname = 'deductions_org_invoice_idx') = 1,
-    'and the dedup read has its partial index on (org_id, invoice_number)');
+    (select count(*) from information_schema.columns
+      where table_name = 'deductions' and column_name = 'invoice_number') = 0,
+    'and there is no deductions.invoice_number: a deduction''s names live in '
+    'deduction_identifiers, which is what the matcher reads');
 
   perform test.ok(
     (select count(*) from information_schema.columns
@@ -60,13 +63,13 @@ begin
   -- remittance line; anything else is a value nothing counts.
   -- ---------------------------------------------------------------------
   insert into deductions (org_id, debtor_id, claim_id, deduction_amount_cents,
-                          deduction_date, discovered_via, invoice_number,
+                          deduction_date, discovered_via,
                           reason_code_as_printed, retailer_name_as_printed)
   values (org, debtor, 'ACH-CW-880412:INV-271003', 80_000, current_date - 3,
-          'remittance_line', 'INV-271003', 'OT-UNAUTH', 'Crosswind Grocery Distribution')
+          'remittance_line', 'OT-UNAUTH', 'Crosswind Grocery Distribution')
   returning id into ded;
   perform test.ok(ded is not null,
-    'a case can be opened from a remittance line, with the invoice and the code as printed');
+    'a case can be opened from a remittance line, with the code as printed');
 
   perform test.expect_error(format(
     'insert into deductions (org_id, debtor_id, claim_id, deduction_amount_cents,
@@ -76,22 +79,54 @@ begin
     'and nothing else: remittance_parse is a channel-shaped answer to a '
     'document-kind question, and the check refuses it');
 
-  -- The caps are why a pathological extraction cannot store a page in a column
-  -- a view renders. The same argument migration 0015 made for the retailer name.
-  perform test.expect_error(format(
-    'insert into deductions (org_id, claim_id, deduction_amount_cents, invoice_number)
-     values (%L, ''X-2'', 1000, repeat(''9'', 201))', org),
-    'deductions_invoice_number_len',
-    'an invoice number longer than the column stores is refused, never truncated');
+  -- The cap is why a pathological extraction cannot store a page in a column a
+  -- view renders. The same argument migration 0015 made for the retailer name.
   perform test.expect_error(format(
     'insert into deductions (org_id, claim_id, deduction_amount_cents,
                              reason_code_as_printed)
      values (%L, ''X-3'', 1000, repeat(''9'', 201))', org),
     'deductions_reason_code_as_printed_len',
-    'and so is a reason code that is really a paragraph');
+    'a reason code that is really a paragraph is refused, never truncated');
 
   -- ---------------------------------------------------------------------
-  -- Invariant 7, in the direction ADR 0026 §3 argues for: a tolerance is a
+  -- The names a remittance-line case is known by go where migration 0020 put
+  -- them, and the invoice number is one of the kinds that table already
+  -- admits — so nothing here had to widen it.
+  -- ---------------------------------------------------------------------
+  insert into uploads (org_id, source, created_by) values (org, 'web_upload', analyst)
+    returning id into upload;
+  insert into documents (org_id, upload_id, sha256, byte_size, mime_type, storage_ref, filename)
+  values (org, upload, digest('advice', 'sha256'), 2048, 'application/pdf',
+          'db://advice', 'crosswind-advice.pdf')
+  returning id into doc;
+
+  insert into deduction_identifiers (org_id, deduction_id, source, identifier_kind, identifier)
+  values (org, ded, 'web_upload', 'claim_id', 'ACH-CW-880412:INV-271003'),
+         (org, ded, 'web_upload', 'invoice_number', 'INV-271003');
+  perform test.ok(
+    (select count(*) from deduction_identifiers where deduction_id = ded) = 2,
+    'a remittance-line case records both the composite claim id and the invoice '
+    'number: the first is what an exact match fires on, the second is a name');
+
+  -- One invoice carries many deductions — a shortage and a price claim against
+  -- the same invoice are two — so a second case may name the same invoice, and
+  -- the table has to allow it. What it refuses is one source handing the same
+  -- name to two deductions *of the same kind*, which is the claim id.
+  insert into deductions (org_id, debtor_id, claim_id, deduction_amount_cents,
+                          deduction_date, discovered_via)
+  values (org, debtor, 'ACH-CW-880412:INV-271003-B', 15_000, current_date - 3,
+          'remittance_line')
+  returning id into other;
+  perform test.expect_error(format(
+    'insert into deduction_identifiers (org_id, deduction_id, source, identifier_kind, identifier)
+     values (%L, %L, ''web_upload'', ''invoice_number'', ''INV-271003'')', org, other),
+    'duplicate key',
+    'a second case naming the same invoice from the same source is refused by '
+    'the unique constraint — two cases for one name is identity resolution''s '
+    'job, not an insert''s');
+
+  -- ---------------------------------------------------------------------
+  -- Invariant 7, in the direction ADR 0028 §3 argues for: a tolerance is a
   -- floor under what counts as a deduction at all, so LOWERING it files more
   -- cases and is the tightening. Raising it skips more short-pays silently.
   -- ---------------------------------------------------------------------
@@ -120,14 +155,14 @@ begin
     'remittance_tolerance_cents, remittance_tolerance_bps',
     'a loosening of both names both, so nobody fixes one and re-runs into the other');
 
-  -- The four the guard already had are untouched by 0021's replacement of it.
+  -- The four the guard already had are untouched by 0022's replacement of it.
   perform test.expect_error(format(
     'update org_settings set auto_dispute_ceiling_cents = 500000 where org_id = %L', org),
     'threshold loosening blocked',
     'and replacing the function kept every comparison migration 0005 wrote');
 
   -- Loosening is possible, and only by naming the ADR that authorises it.
-  perform set_config('app.threshold_loosening_adr', 'ADR-0026', true);
+  perform set_config('app.threshold_loosening_adr', 'ADR-0028', true);
   update org_settings set remittance_tolerance_cents = 5000,
                           remittance_tolerance_bps = 500
     where org_id = org;
@@ -138,9 +173,9 @@ begin
   perform set_config('app.threshold_loosening_adr', '', true);
 
   -- ---------------------------------------------------------------------
-  -- The dedup window is deliberately NOT in the guard (ADR 0026 §4): neither
-  -- direction is the conservative one, and a guard that asserts a direction
-  -- the mechanism does not have is worse than no guard. Both ways, no ADR.
+  -- The dedup window is deliberately NOT in the guard (ADR 0028 §4): it is
+  -- resolveIdentity's dateToleranceDays, nothing merges on a probable match
+  -- anyway, and neither direction is the conservative one.
   -- ---------------------------------------------------------------------
   update org_settings set remittance_dedup_days = 90 where org_id = org;
   perform test.ok((select remittance_dedup_days = 90 from org_settings where org_id = org),
@@ -157,22 +192,17 @@ begin
   perform test.ok((select state from deductions where id = ded) = 'classified',
     'a remittance-originated case walks the same state machine as any other');
 
-  -- The dedup query itself, as the store issues it: same org, same invoice,
-  -- same exact amount, inside the window. The exactness is the point — a
-  -- notice for $800 and a line for $150 on one invoice are two deductions.
-  select count(*) into n from deductions
-   where org_id = org and invoice_number = 'INV-271003'
-     and deduction_amount_cents = 80_000
-     and created_at >= now() - (30 * interval '1 day');
-  perform test.ok(n = 1, 'the dedup read finds the case a second document would merge into');
-
-  select count(*) into n from deductions
-   where org_id = org and invoice_number = 'INV-271003'
-     and deduction_amount_cents = 15_000
-     and created_at >= now() - (30 * interval '1 day');
-  perform test.ok(n = 0,
-    'and does not find it for a different amount on the same invoice: those are '
-    'two deductions, and merging them would drop one from the book');
+  -- The probable branch's candidate read, as the store issues it: every case of
+  -- this tenant's already filed against one invoice, whatever opened it.
+  select count(*) into n
+    from deduction_identifiers i
+    join deductions d on d.id = i.deduction_id
+   where i.org_id = org
+     and i.identifier_kind = 'invoice_number'
+     and lower(regexp_replace(btrim(i.identifier), '\s+', ' ', 'g')) = 'inv-271003';
+  perform test.ok(n = 1,
+    'the candidate read finds the case already filed against this invoice — what '
+    'resolveIdentity then does with it is code''s decision, not the database''s');
 
   -- ---------------------------------------------------------------------
   -- A below-tolerance line is a decline with no case, which is the shape

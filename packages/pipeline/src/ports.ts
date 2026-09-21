@@ -6,7 +6,13 @@
  * Inngest binding in Phase 1b is a thin adapter rather than a rewrite.
  */
 
-import type { CanonicalReasonCode, CaseState } from '@recouple/core-domain';
+import type {
+  CanonicalReasonCode,
+  CaseState,
+  IdentifierKind,
+  KnownDeduction,
+  KnownIdentifier,
+} from '@recouple/core-domain';
 import type {
   Classifier,
   DocType,
@@ -98,7 +104,7 @@ export interface StoredDocument {
 }
 
 /**
- * What kind of document named this deduction (ADR 0026, migration 0021).
+ * What kind of document named this deduction (ADR 0028, migration 0022).
  *
  * Deliberately not a channel. `UploadSource` above is the *door the bytes came
  * through*, observed at ingest and immutable since ADR 0024; this is what the
@@ -116,7 +122,7 @@ export type DiscoveredVia = (typeof DISCOVERED_VIA)[number];
 
 /**
  * The tenant's answer to "what counts as a deduction, and when is one document
- * a second copy of another" — `org_settings`, migration 0021.
+ * a second copy of another" — `org_settings`, migration 0022.
  *
  * Read per document rather than cached, because a tenant that lowers its floor
  * should see the next remittance filed against the new one.
@@ -194,9 +200,13 @@ export interface CaseRecord {
    */
   readonly discoveredVia?: DiscoveredVia;
   /**
-   * The supplier invoice this deduction was taken against, as printed. A lookup
-   * key and nothing else: it selects an existing case inside the dedup window,
-   * the way a printed retailer name may select a debtor and never mint one.
+   * The supplier invoice this deduction was taken against, as printed.
+   *
+   * Not a column on `deductions`: it is a `deduction_identifiers` row of kind
+   * `invoice_number` (migration 0020, ADR 0025), read back for display and for
+   * the identity matcher. A second, mutable copy on the case row would disagree
+   * with that table the first time another source named the same invoice
+   * differently, and the copy is the one a dedup query would read (ADR 0028 §6).
    */
   readonly invoiceNumber?: string;
   /** The reason code exactly as printed, never mapped to a canonical one. */
@@ -305,11 +315,66 @@ export interface PipelineStore {
     disputeDeadline?: string;
     /** Omitted means `'notice'`, which is the column's default and was the only way. */
     discoveredVia?: DiscoveredVia;
-    /** As printed. Stored for lookup; never trusted for anything else. */
-    invoiceNumber?: string;
     /** As printed. Never mapped — that mapping is playbook data (Phase 2). */
     reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord>;
+
+  /**
+   * Records every name a case is known by, in `deduction_identifiers`.
+   *
+   * ADR 0025 built that table and left wiring `openCase` into it as follow-up,
+   * so until now nothing but its own backfill has written a row. This is that
+   * wiring: a case opened from a notice records the claim id and, where the page
+   * printed one, the invoice number; a case opened from a remittance line records
+   * the composite claim id and the invoice number (ADR 0028 §6).
+   *
+   * `source` is **derived in the store** from the document's own arrival,
+   * observed or asserted — never a parameter, for ADR 0024's reason.
+   *
+   * A document that records no arrival gets no rows, and `skippedBecause` says
+   * so rather than a channel being guessed at. That is deliberately a different
+   * call from `recordDeclinedLine`, which refuses outright: `discovered_from` is
+   * a published coverage number, so a guess there is a wrong number, while an
+   * identifier's source only qualifies a name — and a missing row makes the
+   * matcher answer `none`, which is a second case somebody can see and merge,
+   * rather than a wrong merge, which nobody can.
+   *
+   * Writing an identifier another case in this tenant already holds for the same
+   * source is not an error either: it is two cases for one deduction, which is
+   * identity resolution's job (STRATEGY §5.2). It is reported the same way.
+   */
+  recordIdentifiers(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    /** The document the names were read off, which is where the source comes from. */
+    readonly documentId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+  }): Promise<{ readonly written: number; readonly skippedBecause?: string }>;
+
+  /**
+   * Everything `resolveIdentity` needs to decide whether an arrival is a
+   * deduction we already hold — and nothing else.
+   *
+   * The matching itself stays in `core-domain` (`identity.ts`): deterministic,
+   * pure, no I/O and no model, and the same implementation whichever store is
+   * underneath. This only narrows the search — identifier rows whose value
+   * matches something the arrival knows itself by, and the deductions those and
+   * the invoice number point at.
+   *
+   * Folding is `identifierMatchKey`'s: trim, collapse internal whitespace,
+   * case-fold. A store that folded differently from the matcher would hand back
+   * candidates the matcher then refused, which reads as "no duplicate" and opens
+   * a second case.
+   */
+  identityCandidates(input: {
+    readonly orgId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+    /** Widens the search to every case filed against this invoice, for the probable branch. */
+    readonly invoiceNumber?: string;
+  }): Promise<{
+    readonly knownIdentifiers: readonly KnownIdentifier[];
+    readonly knownDeductions: readonly KnownDeduction[];
+  }>;
 
   /**
    * The tenant's remittance floor and dedup window (`org_settings`, 0021).
@@ -321,28 +386,7 @@ export interface PipelineStore {
   remittanceSettings(orgId: string): Promise<RemittanceSettings>;
 
   /**
-   * The case a second document naming this invoice would merge into: same
-   * tenant, same invoice number, the **same exact** amount in cents, discovered
-   * within `withinDays`.
-   *
-   * Exact, deliberately. A notice for $600 and a remittance line for $600 on
-   * one invoice are one deduction arriving twice. A notice for $600 and a line
-   * for $150 on the same invoice are two, and merging them would silently drop
-   * $150 from the book — which is worse than the double-filing this prevents.
-   *
-   * Direction-free on purpose: it matches on the invoice and nothing about how
-   * either case was opened, so notice→remittance and remittance→notice are the
-   * same query.
-   */
-  findRecentCaseByInvoice(
-    orgId: string,
-    invoiceNumber: string,
-    amountCents: number,
-    withinDays: number,
-  ): Promise<CaseRecord | undefined>;
-
-  /**
-   * Runs `work` while this (org, invoice) is claimed, so the look-then-open
+   * Runs `work` while this (org, invoice) is claimed, so the resolve-then-open
    * above is one decision rather than two steps with a race between them.
    *
    * `withDocumentRead` already stops two deliveries of the *same document*

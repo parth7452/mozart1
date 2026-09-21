@@ -23,6 +23,8 @@ import { randomUUID } from 'node:crypto';
 import {
   applyTransition,
   buildPacketNarrative,
+  cents,
+  identifierMatchKey,
   isCanonicalReasonCode,
   MAX_RATIONALE_LENGTH,
   packetContentHash,
@@ -33,6 +35,9 @@ import type {
   CanonicalReasonCode,
   CaseState,
   DebtorCandidate,
+  IdentifierKind,
+  KnownDeduction,
+  KnownIdentifier,
   PacketDocument,
 } from '@recouple/core-domain';
 import { DOC_TYPES, restoreDocument } from '@recouple/extraction';
@@ -300,7 +305,6 @@ export class InMemoryStore
     deductionDate?: string;
     disputeDeadline?: string;
     discoveredVia?: DiscoveredVia;
-    invoiceNumber?: string;
     reasonCodeAsPrinted?: string;
   }): Promise<CaseRecord> {
     const debtorId =
@@ -365,35 +369,134 @@ export class InMemoryStore
   /**
    * When each case was opened, which `deductions.created_at` is in Postgres.
    *
-   * Public and writable for `documentCreatedAt`'s reason: "this case was opened
-   * forty days ago" is the whole subject of a dedup-window test, and a test that
-   * could not say so would have to wait for it.
+   * Public and writable for `documentCreatedAt`'s reason: a test about what a
+   * case looked like when it was opened should be able to say so rather than
+   * wait for it.
    */
   readonly caseOpenedAt = new Map<string, Date>();
 
-  async findRecentCaseByInvoice(
-    orgId: string,
-    invoiceNumber: string,
-    amountCents: number,
-    withinDays: number,
-  ): Promise<CaseRecord | undefined> {
-    const cutoff = Date.now() - withinDays * 24 * 60 * 60 * 1000;
-    // Oldest first, the way the Postgres store orders it, so two candidates give
-    // the same answer in both: the case the deduction actually reached us as.
-    const candidates = [...this.cases.values()]
-      .filter(
-        (c) =>
-          c.orgId === orgId &&
-          c.invoiceNumber === invoiceNumber &&
-          c.deductionAmountCents === amountCents &&
-          (this.caseOpenedAt.get(c.deductionId)?.getTime() ?? 0) >= cutoff,
-      )
-      .sort(
-        (a, b) =>
-          (this.caseOpenedAt.get(a.deductionId)?.getTime() ?? 0) -
-          (this.caseOpenedAt.get(b.deductionId)?.getTime() ?? 0),
+  /** `deduction_identifiers` (migration 0020), in the open so a test can read it. */
+  readonly identifiers: Array<KnownIdentifier & { readonly orgId: string }> = [];
+
+  /**
+   * Every name a case is known by, with the source derived from the document.
+   *
+   * Derived here for the reason the Postgres store derives it: a source a
+   * caller supplied would be a channel credited on somebody's say-so. A
+   * document that records no arrival gets no rows and says why, rather than
+   * being filed under a guess — and an identifier another case already holds
+   * for that source is reported too, because that is two cases for one
+   * deduction and merging them is identity resolution's job.
+   */
+  async recordIdentifiers(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+  }): Promise<{ readonly written: number; readonly skippedBecause?: string }> {
+    const source = await this.uploadSourceFor(input.documentId);
+    if (source === undefined) {
+      return {
+        written: 0,
+        skippedBecause: `document ${input.documentId} records no arrival, so no source can be named`,
+      };
+    }
+    let written = 0;
+    const taken: string[] = [];
+    for (const arrived of input.identifiers) {
+      if (arrived.identifier.trim() === '') continue;
+      // `unique (org_id, source, identifier_kind, identifier)`, modelled the way
+      // Postgres applies it — on the stored text, not on the folded key.
+      const clash = this.identifiers.find(
+        (row) =>
+          row.orgId === input.orgId &&
+          row.source === source &&
+          row.kind === arrived.kind &&
+          row.identifier === arrived.identifier,
       );
-    return candidates[0];
+      if (clash !== undefined) {
+        if (clash.deductionId !== input.deductionId) taken.push(arrived.kind);
+        continue;
+      }
+      this.identifiers.push({
+        orgId: input.orgId,
+        deductionId: input.deductionId,
+        source,
+        kind: arrived.kind,
+        identifier: arrived.identifier,
+      });
+      written += 1;
+    }
+    return {
+      written,
+      ...(taken.length > 0
+        ? {
+            skippedBecause: `another case already holds this tenant's ${taken.join(', ')} for ${source}`,
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * The candidates `resolveIdentity` needs, narrowed the way the Postgres store
+   * narrows them — and folded with `identifierMatchKey`, which is the matcher's
+   * own fold. A store that folded differently would hand back candidates the
+   * matcher then refused, and "no duplicate" is how a second case gets opened.
+   */
+  async identityCandidates(input: {
+    readonly orgId: string;
+    readonly identifiers: readonly { readonly kind: IdentifierKind; readonly identifier: string }[];
+    readonly invoiceNumber?: string;
+  }): Promise<{
+    readonly knownIdentifiers: readonly KnownIdentifier[];
+    readonly knownDeductions: readonly KnownDeduction[];
+  }> {
+    const wanted = new Set(
+      input.identifiers
+        .map((i) => `${i.kind}\u0000${identifierMatchKey(i.identifier)}`)
+        .filter((key) => !key.endsWith('\u0000')),
+    );
+    const knownIdentifiers = this.identifiers
+      .filter(
+        (row) =>
+          row.orgId === input.orgId &&
+          wanted.has(`${row.kind}\u0000${identifierMatchKey(row.identifier)}`),
+      )
+      .map(({ deductionId, source, kind, identifier }) => ({
+        deductionId,
+        source,
+        kind,
+        identifier,
+      }));
+
+    // The probable branch's candidates: every case of this tenant's filed
+    // against this invoice, whatever opened it.
+    const knownDeductions: KnownDeduction[] = [];
+    if (input.invoiceNumber !== undefined) {
+      const key = identifierMatchKey(input.invoiceNumber);
+      const byInvoice = new Set(
+        this.identifiers
+          .filter(
+            (row) =>
+              row.orgId === input.orgId &&
+              row.kind === 'invoice_number' &&
+              identifierMatchKey(row.identifier) === key,
+          )
+          .map((row) => row.deductionId),
+      );
+      for (const deductionId of byInvoice) {
+        const record = this.cases.get(deductionId);
+        if (record?.deductionAmountCents === undefined) continue;
+        knownDeductions.push({
+          deductionId,
+          amountCents: cents(record.deductionAmountCents),
+          invoiceNumber: input.invoiceNumber,
+          ...(record.deductionDate !== undefined ? { deductionDate: record.deductionDate } : {}),
+          ...(record.debtorId !== undefined ? { debtorId: record.debtorId } : {}),
+        });
+      }
+    }
+    return { knownIdentifiers, knownDeductions };
   }
 
   /** The invoices a `withInvoiceClaim` is holding right now. */
