@@ -30,7 +30,7 @@ the page.
 
 It is a deterministic, human-gated workflow, not an autonomous agent. Genuine
 agentic loops are reserved for two bounded steps: planning evidence, and
-cold-starting an unknown retailer.
+cold-starting an unknown customer.
 
 ## The invariants
 
@@ -102,10 +102,10 @@ database invariants: all suites passed
 | --- | --- | --- |
 | 0 | Foundations: append-only DDL, approval trigger, RLS, roles, money maths, state machine, contracts, CI | **done** |
 | 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **done and measured**, and running behind auth in `apps/web`; the Inngest binding remains |
+| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | **in progress, human-decided and built here rather than after 2 ([ADR 0020](./docs/adr/0020-a-human-decides-and-the-gate-is-exercised.md))** |
 | 1.5 | ERP (QBO) **read**: discovery, reconciliation, the coverage denominator, and cheap triage over short-pay lines | — |
 | 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, **expected-value gating**, owned calibration; retailer portal **read** | — |
 | 2.5 | EDI 812/820 ingestion where a supplier already has it | — |
-| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | — |
 | 4 | QBO write-back, attribution, Stripe contingency billing, dilution view | — |
 | 5 | Learning loop: override capture, candidate rules, backtest, shadow, promotion | — |
 | 6 | Careful autonomy — only where per-tenant ECE < 0.10 is sustained | — |

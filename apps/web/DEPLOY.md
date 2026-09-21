@@ -54,6 +54,50 @@ store touches is transaction-local (`set local role`, `set_config(..., true)`),
 so a pooled connection cannot carry one tenant's claims into another tenant's
 query.
 
+### Where the read runs
+
+An upload stores and scans the file in the request and then either reads it
+there and then or hands the read to an Inngest job. Which one is these two
+variables' answer, and nothing else's (ADR 0021):
+
+| Variable | Why |
+| --- | --- |
+| `INNGEST_EVENT_KEY` | Lets the app send `document/read.requested`. Without it there is no job to send to |
+| `INNGEST_SIGNING_KEY` | Lets `/api/inngest` verify that a call to run a job really came from Inngest. It is that endpoint's whole authentication |
+
+Set **both** or **neither**. One without the other is an error at startup rather
+than a fallback: an event key with no signing key serves an endpoint that cannot
+tell Inngest from anybody else, and a signing key with no event key serves a
+function nothing can trigger.
+
+The recommended way to set them is the **Inngest Vercel integration**
+(Vercel → Integrations → Inngest): it creates the keys, writes both variables to
+the project, and syncs the app on every deployment, so `/api/inngest` is
+registered without anyone pasting a URL. Doing it by hand works too — take the
+keys from the Inngest dashboard, set them here, and point Inngest at
+`https://<origin>/api/inngest`.
+
+**Without them the app runs the read inline**, exactly as it did before, and
+`/api/inngest` answers 503 because there is no binding to serve. That is the
+right setting for a preview deployment and for a laptop. It is the wrong one for
+production: a dense remittance is about 63 seconds of model time, more than a
+serverless request should be holding open, which is the whole reason for the
+job.
+
+Locally, `npx inngest-cli@latest dev` runs the dev server and its UI on
+`http://localhost:8288` and discovers the app at
+`http://localhost:3000/api/inngest`. Set both variables to anything non-empty —
+the dev server does not check them — and `INNGEST_DEV=1` so the SDK talks to it
+instead of to Inngest Cloud.
+
+Never set `INNGEST_DEV` on a deployment. It puts the SDK in dev mode, where the
+signing key is not checked — which is what a laptop's dev server needs and the
+opposite of what an endpoint on the public internet needs. A production build
+that has it set refuses to serve `/api/inngest` at all: 503, with the reason in
+the log. Uploads still store, scan and queue; nothing reads them until the
+variable is unset. A visible stop is the right failure here — the alternative is
+an endpoint on the public internet accepting unsigned work.
+
 ## Supabase, after the first deploy
 
 Add the deployment origin to **Authentication → URL Configuration**:

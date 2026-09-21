@@ -1,0 +1,13 @@
+SHORT-PAY REMITTANCE
+Briarfield Packaging Co. / Accounts Payable
+PAYMENT
+September 18, 2026 | ACH reference BF-918-201
+INVOICE SETTLEMENT
+ES-260901 | Gross $7,200.00 | Deduction $600.00 | Paid $6,600.00
+DEDUCTION
+OT-UNAUTH / CB-201: overtime premium disallowed; approval not found by AP.
+SERVICE PERIOD
+August 24-28, 2026 | Assignment AS-201 | PO BF-201
+REVIEW
+Supplier may contest the deduction by October 18, 2026. Status: open.
+STF-201 | ES-260901 | Page 1 of 1

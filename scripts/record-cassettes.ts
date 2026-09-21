@@ -6,8 +6,13 @@
  * packages/fixtures/cassettes/, and prints what each call cost. CI replays those
  * cassettes; nothing in the test suite calls a model.
  *
- *   pnpm record:cassettes            # every fixture
- *   pnpm record:cassettes walmart    # only fixtures whose key matches
+ *   pnpm record:cassettes                     # every fixture
+ *   pnpm record:cassettes walmart             # only fixtures whose key matches
+ *   pnpm record:cassettes --suite customer    # only one suite
+ *
+ * The suite filter exists because a suite is the unit that gets recorded: a new
+ * corpus lands whole, and re-recording the other 26 documents to get 15 is
+ * money spent on nothing.
  */
 
 import { writeFileSync } from 'node:fs';
@@ -35,21 +40,70 @@ import { everyDocument } from '@recouple/fixtures';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 
-const filter = process.argv[2];
-const documents = everyDocument().filter(
-  (d) => filter === undefined || d.key.includes(filter),
+const args = process.argv.slice(2);
+const suiteAt = args.findIndex((a) => a === '--suite' || a.startsWith('--suite='));
+let suite: string | undefined;
+if (suiteAt !== -1) {
+  const inline = args[suiteAt] as string;
+  suite = inline.startsWith('--suite=') ? inline.slice('--suite='.length) : args[suiteAt + 1];
+  if (suite === undefined || suite === '') {
+    console.error('--suite needs a suite name, for example `--suite customer`');
+    process.exit(1);
+  }
+  args.splice(suiteAt, inline.startsWith('--suite=') ? 1 : 2);
+}
+const filter = args[0];
+
+const everything = everyDocument();
+const documents = everything.filter(
+  (d) =>
+    (filter === undefined || d.key.includes(filter)) && (suite === undefined || d.suite === suite),
 );
 
 if (documents.length === 0) {
-  console.error(`no fixture documents match ${JSON.stringify(filter)}`);
+  const asked = [
+    ...(suite !== undefined ? [`suite ${JSON.stringify(suite)}`] : []),
+    ...(filter !== undefined ? [`key containing ${JSON.stringify(filter)}`] : []),
+  ].join(' and ');
+  console.error(
+    `no fixture documents match ${asked}. Suites: ${[...new Set(everything.map((d) => d.suite))].sort().join(', ')}`,
+  );
   process.exit(1);
 }
 
+console.log(
+  `recording ${documents.length} of ${everything.length} fixture documents` +
+    `${suite !== undefined ? ` in suite ${suite}` : ''}${filter !== undefined ? ` matching ${filter}` : ''}`,
+);
+
 const classifier = new ClaudeClassifier();
 const extractor = new ClaudeExtractor();
+
+/** A page that arrives with no text of its own: a scan, a photograph. */
+const needsOcr = (fixture: (typeof everything)[number]): boolean =>
+  fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
+
 const ocr = ocrFromEnv();
+const withoutTextLayer = documents.filter(needsOcr);
 if (ocr === undefined) {
-  console.warn('note: REDUCTO_API_KEY is not set — scans will be recorded without a text layer');
+  if (withoutTextLayer.length === 0) {
+    // Nothing here needs OCR, so the missing key costs this run nothing.
+    console.warn(
+      'note: REDUCTO_API_KEY is not set. Nothing in this selection needs OCR — every ' +
+        'document here carries its own text layer.',
+    );
+  } else {
+    // A cassette recorded with an empty text layer is worse than no cassette:
+    // no quote can be verified against a blank page, so the eval would score
+    // the document as if it had been read. These are refused, one by one,
+    // below.
+    console.error(
+      `REDUCTO_API_KEY is not set, and ${withoutTextLayer.length} of these ${documents.length} ` +
+        'documents have no text layer of their own:\n' +
+        `  ${withoutTextLayer.map((d) => d.key).join(', ')}\n` +
+        'They will be refused rather than recorded blank. Set REDUCTO_API_KEY to record them.',
+    );
+  }
 }
 
 let totalMicros = 0;
@@ -78,8 +132,15 @@ for (const fixture of documents) {
 
   // A document with no text layer gets one, so its quotes can be checked.
   let ocrResult: OcrResult | undefined;
-  const needsOcr = fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
-  if (needsOcr && ocr !== undefined) {
+  if (needsOcr(fixture)) {
+    if (ocr === undefined) {
+      console.error(
+        '  ocr       REFUSED   this page has no text layer and no OcrProvider is ' +
+          'configured. Set REDUCTO_API_KEY and re-run; nothing was recorded for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
     try {
       ocrResult = await ocr.ocr(payload);
       totalMicros += ocrResult.call.costMicros;
@@ -93,9 +154,13 @@ for (const fixture of documents) {
           `(${ocrResult.call.latencyMs}ms, ${ocrResult.call.detail ?? ''})`,
       );
     } catch (error) {
+      // Same reason as a missing provider: reading on would spend money on a
+      // blank page and record it as a document somebody read.
       console.error(
         `  ocr       FAILED ${error instanceof OcrError ? error.message : String(error)}`,
       );
+      process.exitCode = 1;
+      continue;
     }
   }
 

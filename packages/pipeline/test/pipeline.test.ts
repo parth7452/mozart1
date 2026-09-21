@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import {
   UnscannedDocumentError,
   type ScanVerdict,
@@ -715,5 +716,326 @@ describe('email-in', () => {
     expect(result.documents).toHaveLength(1);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]?.reason).toMatch(/type_not_allowed/);
+  });
+});
+
+/**
+ * A typed document filed against a case, without a fixture behind it.
+ *
+ * Correspondence and delivery records have no authored fixture with an expected
+ * extraction, and these tests are about what `reconcileCase` does with the rows
+ * rather than about reading a page. The rows themselves are real: the document
+ * goes through `buildExtractionResult`, which is the same `flattenExtraction`
+ * the pipeline writes with, so a field with no provenance is dropped here
+ * exactly as it would be in production.
+ */
+async function fileDocument(
+  store: InMemoryStore,
+  deductionId: string,
+  docType: DocType,
+  document: unknown,
+): Promise<string> {
+  const stored = await store.putDocument({
+    orgId: 'org-1',
+    sha256: `sha-${docType}-${randomUUID()}`,
+    filename: `${docType}.pdf`,
+    mimeType: 'application/pdf',
+    byteSize: 1,
+    bytes: new Uint8Array([0x25]),
+    requiresSplit: false,
+  });
+  await store.recordClassification(stored.documentId, docType, 0.99);
+  const built = buildExtractionResult({
+    docType,
+    extractor: 'test',
+    document,
+    pageText: undefined,
+    call: {
+      purpose: 'extract',
+      provider: 'anthropic',
+      modelVersion: 'fixture',
+      documentId: stored.documentId,
+      costMicros: 0,
+      latencyMs: 0,
+      outcome: 'ok',
+    },
+  });
+  await store.recordExtraction({
+    documentId: stored.documentId,
+    deductionId,
+    docType,
+    extractor: built.extractor,
+    schemaVersion: built.schemaVersion,
+    fields: built.fields,
+    document,
+  });
+  await store.linkDocument(deductionId, stored.documentId, 'evidence');
+  return stored.documentId;
+}
+
+const field = <T>(value: T, quote: string) => ({
+  value,
+  confidence: 0.95,
+  source_page: 1,
+  source_quote: quote,
+});
+const noField = () => ({ value: null, confidence: 0, source_page: 1, source_quote: '' });
+/** A value the reader had and could not point at: no page, no quote, no row. */
+const unquoted = <T>(value: T) => ({ value, confidence: 0.9, source_page: 0, source_quote: '' });
+
+/**
+ * One unreadable field used to cost a case every line it had.
+ *
+ * `flattenExtraction` writes no row for a value with no page or no quote, the
+ * rebuild has nothing to put back, `DeductionNoticeSchema` then rejects the
+ * document, and `reconcileCase` answered the whole case with no lines, no
+ * totals and a blocking finding. On a scan — where one smudged date is
+ * ordinary — that is the difference between a reviewable case and a dead page.
+ */
+describe('a notice with a field stored without provenance', () => {
+  const noticeFixture = () => fixtureFor('walmart-apdp-notice.pdf');
+
+  it('says so at the write, and opens the case anyway', async () => {
+    const { store, deps } = harness();
+    const result = await processUpload(upload(noticeFixture()), {
+      ...deps,
+      extractor: new PatchedExtractor({ deduction_date: unquoted('08/14/2026') }),
+    });
+
+    // The case exists, with everything else the notice said on it.
+    expect(result.case?.claimId).toBe('APDP-99812');
+    expect(result.case?.deductionAmountCents).toBe(312_000);
+
+    // And the divergence is recorded where it was created, naming the field.
+    const said = store.events.find((e) => e.eventType === 'document.stored_without_provenance');
+    expect(said?.payload.fields).toEqual(['deduction_date']);
+    expect(said?.payload.document_id).toBe(result.ingest.document.documentId);
+    expect(said?.deductionId).toBe(result.case?.deductionId);
+    // The event carries ids and field paths, never anything off the page.
+    expect(JSON.stringify(said?.payload)).not.toContain('08/14/2026');
+  });
+
+  it('says nothing when every field kept its provenance', async () => {
+    const { store, deps } = harness();
+    await processUpload(upload(noticeFixture()), deps);
+    expect(store.events.map((e) => e.eventType)).toEqual(['case.discovered', 'case.classified']);
+  });
+
+  it('is still reconciled, with a warning that names the field', async () => {
+    const { store, deps } = harness();
+    const patched = {
+      ...deps,
+      extractor: new PatchedExtractor({ deduction_date: unquoted('08/14/2026') }),
+    };
+    const opened = await processUpload(upload(noticeFixture()), patched);
+    const deductionId = opened.case?.deductionId as string;
+    for (const filename of ['walmart-po.pdf', 'harborline-invoice.pdf', 'carrier-bol.pdf']) {
+      await processUpload(upload(fixtureFor(filename)), patched, { attachToCase: deductionId });
+    }
+
+    const reconciliation = await reconcileCase(deductionId, deps);
+
+    // The real reconciliation, not an empty one: the lines, the totals and the
+    // three-way match are all still there.
+    expect(reconciliation?.lines[0]?.verdict).toBe('matches');
+    expect(reconciliation?.claimedTotalCents).toBe(312_000);
+    expect(reconciliation?.findings.map((f) => f.code)).toContain('delivery_confirms_shortage');
+
+    const said = reconciliation?.findings.find((f) => f.code === 'stored_document_not_typed');
+    expect(said?.severity).toBe('warning');
+    expect(said?.message).toContain('deduction_date');
+    // A date we could not read does not stop the claim adding up.
+    expect(reconciliation?.internallyConsistent).toBe(true);
+    expect(store.extractions).not.toHaveLength(0);
+  });
+
+  it('stays blocking when the field that was lost is money', async () => {
+    const { store, deps } = harness();
+    const notice = noticeFixture();
+    const lines = (expectedExtraction(notice) as { lines: Record<string, unknown>[] }).lines;
+    const patched = {
+      ...deps,
+      extractor: new PatchedExtractor({
+        lines: lines.map((line, index) =>
+          index === 0 ? { ...line, deduction_amount: unquoted('$3,120.00') } : line,
+        ),
+      }),
+    };
+    const opened = await processUpload(upload(notice), patched);
+    const deductionId = opened.case?.deductionId as string;
+
+    const reconciliation = await reconcileCase(deductionId, deps);
+
+    const said = reconciliation?.findings.find((f) => f.code === 'stored_document_not_typed');
+    expect(said?.severity).toBe('blocking');
+    expect(said?.message).toContain('lines[0].deduction_amount');
+    // The write named the same field the same way, so the event on the case and
+    // the finding on the page are recognisably about one thing.
+    expect(
+      store.events.find((e) => e.eventType === 'document.stored_without_provenance')?.payload
+        .fields,
+    ).toEqual(['lines[0].deduction_amount']);
+    // The sum of the lines has a hole in it, so the claim cannot be said to add
+    // up — which is what blocking means here.
+    expect(reconciliation?.internallyConsistent).toBe(false);
+    expect(reconciliation?.lineSumCents).toBeNull();
+    // And the notice is still reconciled rather than refused: the total the
+    // page printed is on the finding list for a reviewer to work from.
+    expect(reconciliation?.claimedTotalCents).toBe(312_000);
+    expect(reconciliation?.lines).toHaveLength(lines.length);
+  });
+
+  it('still refuses a stored notice that is wrong in some other way', async () => {
+    // The narrowing has a floor. A document whose shape we do not understand —
+    // not a value that is missing, a value that is the wrong kind — is not
+    // reconciled as though we did.
+    const { store, deps } = harness();
+    const opened = await processUpload(upload(noticeFixture()), deps);
+    const deductionId = opened.case?.deductionId as string;
+    const documentId = (await store.documentsForCase(deductionId))[0]?.documentId as string;
+    await store.recordExtraction({
+      documentId,
+      deductionId,
+      docType: 'deduction_notice',
+      extractor: 'test',
+      schemaVersion: '1.1.0',
+      fields: [
+        {
+          fieldPath: 'lines',
+          value: 'not an array of lines',
+          confidence: 1,
+          sourcePage: 1,
+          sourceQuote: 'nowhere',
+          sourceBbox: null,
+          quoteVerified: null,
+        },
+      ],
+      document: {},
+    });
+
+    const reconciliation = await reconcileCase(deductionId, deps);
+    expect(reconciliation?.lines).toEqual([]);
+    expect(reconciliation?.internallyConsistent).toBe(false);
+    expect(reconciliation?.findings[0]?.code).toBe('stored_document_not_typed');
+    expect(reconciliation?.findings[0]?.severity).toBe('blocking');
+    // Not a path into a document: what is unusable is the document.
+    expect(reconciliation?.findings[0]?.fieldPath).toBeUndefined();
+  });
+});
+
+/**
+ * The freight case's own shape: a delivery record and the message that moved
+ * the appointment it was measured against.
+ *
+ * This is LOG-001 (`packages/fixtures/src/logistics.ts`) reduced to what
+ * `reconcileCase` sees — gate check-in 13:42 against a 14:00 appointment, and a
+ * customer message approving revision 2 and saying no late charge applies.
+ * Every one of those findings existed and none of them could be reached,
+ * because `reconcileCase` never passed a `correspondence` document to
+ * `reconcileNotice`.
+ */
+describe('a case whose evidence is a message', () => {
+  const pod = {
+    document_number: field('POD-771', 'POD-771'),
+    ship_date: field('August 13, 2026', 'August 13, 2026'),
+    carrier_name: field('Atlas Freight Systems', 'Atlas Freight Systems'),
+    po_number: field('PO-BSC-8841', 'PO-BSC-8841'),
+    ship_from: noField(),
+    ship_to: noField(),
+    appointment_at: field(
+      'August 13, 2026, 2:00 PM Eastern',
+      'Appointment: August 13, 2026, 2:00 PM Eastern',
+    ),
+    gate_check_in_at: field(
+      'August 13, 2026, 1:42 PM Eastern',
+      'Gate check-in: August 13, 2026, 1:42 PM Eastern',
+    ),
+    appointment_reference: field('AP-BSC-771 revision 2', 'AP-BSC-771 revision 2'),
+    total_cartons_shipped: noField(),
+    total_cartons_received: noField(),
+    signed_by: field('R. Alvarez', 'R. Alvarez'),
+    signature_present: field(true, 'Signed: R. Alvarez'),
+    lines: [],
+  };
+
+  const message = {
+    message_reference: field('MSG-BSC-0811-338', 'MSG-BSC-0811-338'),
+    sent_at: field('August 11, 2026, 4:12 PM Eastern', 'August 11, 2026, 4:12 PM Eastern'),
+    sender: field('operations@brookfieldsupply.test', 'operations@brookfieldsupply.test'),
+    sender_organisation: field('Brookfield Supply Co.', 'Brookfield Supply Co.'),
+    recipient: noField(),
+    subject: field('Appointment change', 'Subject: Appointment change'),
+    references: [],
+    commitments: [
+      {
+        commitment_text: field(
+          'AP-BSC-771 revision 2 replaces revision 1; no late charge will apply.',
+          'AP-BSC-771 revision 2 replaces revision 1; no late charge will apply.',
+        ),
+        effective_at: field('August 13, 2026, 2:00 PM Eastern', 'August 13, 2026, 2:00 PM Eastern'),
+        supersedes: field('revision 1', 'replaces revision 1'),
+        establishes: field('AP-BSC-771 revision 2', 'AP-BSC-771 revision 2'),
+        waives_charge: field(true, 'no late charge will apply'),
+        attributed_to: field('customer-requested', 'customer-requested'),
+      },
+    ],
+  };
+
+  it('reaches the findings the message is on the case for', async () => {
+    const { store, deps } = harness();
+    const opened = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const deductionId = opened.case?.deductionId as string;
+    await fileDocument(store, deductionId, 'pod', pod);
+    await fileDocument(store, deductionId, 'correspondence', message);
+
+    const codes = (await reconcileCase(deductionId, deps))?.findings.map((f) => f.code);
+
+    expect(codes).toContain('appointment_superseded');
+    expect(codes).toContain('charge_waived_in_writing');
+    expect(codes).toContain('arrived_before_appointment');
+  });
+
+  it('reports an unusable pod even when a bol answered first', async () => {
+    // `bol ?? pod` never asked the pod when the bol parsed, so a delivery
+    // record on the case that could not be read back went unmentioned.
+    const { store, deps } = harness();
+    const opened = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const deductionId = opened.case?.deductionId as string;
+    await processUpload(upload(fixtureFor('carrier-bol.pdf')), deps, {
+      attachToCase: deductionId,
+    });
+    // A pod whose required `document_number` was stored without provenance: no
+    // row, so it comes back absent and the document is no longer a shipment.
+    await fileDocument(store, deductionId, 'pod', {
+      ...pod,
+      document_number: unquoted('POD-771'),
+    });
+
+    const reconciliation = await reconcileCase(deductionId, deps);
+    const said = reconciliation?.findings.filter((f) => f.code === 'stored_document_not_typed');
+
+    expect(said).toHaveLength(1);
+    expect(said?.[0]?.severity).toBe('warning');
+    expect(said?.[0]?.message).toContain('pod');
+    // The bol still did its job: the case is not held up by the pod.
+    expect(reconciliation?.findings.map((f) => f.code)).toContain('delivery_confirms_shortage');
+  });
+
+  it('reports an unusable correspondence rather than dropping it', async () => {
+    const { store, deps } = harness();
+    const opened = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const deductionId = opened.case?.deductionId as string;
+    await fileDocument(store, deductionId, 'pod', pod);
+    await fileDocument(store, deductionId, 'correspondence', {
+      ...message,
+      message_reference: unquoted('MSG-BSC-0811-338'),
+    });
+
+    const reconciliation = await reconcileCase(deductionId, deps);
+    const said = reconciliation?.findings.find((f) => f.code === 'stored_document_not_typed');
+
+    expect(said?.severity).toBe('warning');
+    expect(said?.message).toContain('correspondence');
+    expect(reconciliation?.findings.map((f) => f.code)).not.toContain('appointment_superseded');
   });
 });

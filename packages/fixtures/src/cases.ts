@@ -11,6 +11,7 @@
  */
 
 import { renderTextPdf } from './pdf';
+import { pendingDocuments } from './pending';
 
 export type TruthExpectation =
   | { readonly kind: 'text'; readonly value: string }
@@ -33,7 +34,21 @@ export interface FixtureDocument {
    * pipeline works. `held_out` documents came from elsewhere and measure whether
    * it generalises. Never average the two into one headline number.
    */
-  readonly suite: 'authored' | 'held_out' | 'scanned' | 'dense' | 'email_body' | 'logistics';
+  readonly suite:
+    | 'authored'
+    /**
+     * Authored here, but with no cassette recorded — a shape the corpus covers
+     * and the numbers do not yet (`pending.ts`). Kept out of `authored` so that
+     * suite's baseline row stays a count of documents that were actually
+     * scored.
+     */
+    | 'authored_pending'
+    | 'held_out'
+    | 'scanned'
+    | 'dense'
+    | 'email_body'
+    | 'logistics'
+    | 'customer';
 }
 
 export interface FixtureCase {
@@ -393,8 +408,15 @@ export function authoredDocuments(): readonly FixtureDocument[] {
   return FIXTURE_CASES.flatMap((c) => c.documents);
 }
 
+/**
+ * Every document written alongside this code, recorded or not.
+ *
+ * The corpus-agreement tests run over this: a fixture with no cassette still
+ * has to have an expected extraction that satisfies its schema and quotes text
+ * that is actually on its page. Only the *eval* cares whether it was recorded.
+ */
 export function allFixtureDocuments(): readonly FixtureDocument[] {
-  return authoredDocuments();
+  return [...authoredDocuments(), ...pendingDocuments()];
 }
 
 export function fixtureDocumentsBySuite(

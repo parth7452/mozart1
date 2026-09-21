@@ -1,5 +1,6 @@
 /**
- * The PipelineStore, backed by Postgres.
+ * The PipelineStore — and, since ADR 0020, the CaseWorkflowStore, and the
+ * JobStore a queued read is given (ADR 0021) — backed by Postgres.
  *
  * Every query runs as `app_rw` with the caller's tenant claim set, so the same
  * RLS policies that protect the database in production protect it here. The
@@ -9,16 +10,41 @@
  * It writes through the real constraints — append-only triggers, the approval
  * gate, the tenant policies — which is the point. An in-memory store can only
  * ever prove the pipeline's own logic; this proves the schema supports it.
+ *
+ * The Phase 3 workflow (decide, assemble, approve, submit, record the outcome)
+ * lives next door in `./workflow`, which this class wraps one method at a time
+ * so that every one of them runs inside `withTenant` and nothing else has to
+ * remember to.
  */
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import { resolveDebtorId, tryParsePrintedDate } from '@recouple/core-domain';
-import type { CaseState, DebtorCandidate } from '@recouple/core-domain';
+import type { CanonicalReasonCode, CaseState, DebtorCandidate } from '@recouple/core-domain';
+import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import { DuplicateCaseError } from '@recouple/pipeline';
-import type { CaseRecord, PipelineStore, StoredDocument } from '@recouple/pipeline';
+import type {
+  CaseOutcome,
+  CaseRecord,
+  CaseWorkflow,
+  CaseWorkflowStore,
+  DocumentReadLease,
+  IngestSource,
+  JobStore,
+  PipelineStore,
+  RestoredExtraction,
+  StoredDocument,
+  UnreadDocument,
+  UnreadDocumentsStore,
+  UploadRecord,
+  UploadSource,
+  WorkflowSubmissionChannel,
+} from '@recouple/pipeline';
+import { assertUnreadDocumentsQuery, UPLOAD_SOURCES } from '@recouple/pipeline';
+import * as workflow from './workflow';
+import { exactCents } from './workflow';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -65,11 +91,37 @@ export interface PostgresStoreConfig {
  */
 const pools = new Map<string, Pool>();
 
-function poolFor(config: PostgresStoreConfig): Pool {
-  const key = `${config.connectionString}::${config.max ?? 4}`;
+/**
+ * Which of a connection string's two pools a caller wants.
+ *
+ * `work` is every query in this file: checked out, used, returned, all inside
+ * one transaction. `locks` is the one thing that is not — a connection held for
+ * the whole of a document's read, because that is what holding an advisory lock
+ * across the read means (`withDocumentRead`).
+ *
+ * They are separate pools and that is the entire point. Sharing one would
+ * deadlock: `max` is four, so four concurrent reads would hold all four
+ * connections waiting to take a lock's transaction, and the work each of them
+ * then does — fetch the document, record the classification, open the case —
+ * would queue for a connection that is never coming back. Not slower: stopped,
+ * with `pool.connect()` waiting for ever by default.
+ */
+type PoolPurpose = 'work' | 'locks';
+
+function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Pool {
+  const key = `${config.connectionString}::${config.max ?? 4}::${purpose}`;
   const existing = pools.get(key);
   if (existing !== undefined) return existing;
-  const pool = new Pool({ connectionString: config.connectionString, max: config.max ?? 4 });
+  const pool = new Pool({
+    connectionString: config.connectionString,
+    max: config.max ?? 4,
+    // Lock connections are held for the length of a read, so exhausting that
+    // pool is a real possibility rather than a momentary one — and a
+    // `connect()` that waits for ever turns it into a worker that never
+    // returns and a reviewer watching a spinner. It fails instead, loudly, and
+    // a job that failed is a job the runtime retries.
+    ...(purpose === 'locks' ? { connectionTimeoutMillis: 30_000 } : {}),
+  });
   // A pool that throws on an idle client's error takes the process with it.
   pool.on('error', () => undefined);
   pools.set(key, pool);
@@ -175,17 +227,30 @@ export type DeclineReason = (typeof DECLINE_REASONS)[number];
 /**
  * How a deduction reached us. Mirrors the `discovered_from` check in migration
  * 0014; coverage is attributed by this, so it is a closed set.
+ *
+ * The same list as `uploads.source`, and deliberately the *same constant*
+ * rather than a second copy of it: `discovered_from` is derived from the
+ * channel a document arrived through, so the two lists drifting apart would be
+ * a decline attributed to a word the uploads table cannot produce.
  */
-export const DISCOVERED_FROM = [
-  'web_upload',
-  'email_in',
-  'email_body',
-  'erp_sync',
-  'portal_fetch',
-  'edi_812',
-] as const;
+export const DISCOVERED_FROM = UPLOAD_SOURCES;
 
-export type DiscoveredFrom = (typeof DISCOVERED_FROM)[number];
+export type DiscoveredFrom = UploadSource;
+
+/**
+ * Whether a word is a channel coverage can be grouped by.
+ *
+ * This is what `DISCOVERED_FROM` is for. `declineCase` reads the channel back
+ * out of `uploads.source`, which is `text` with a check constraint, and the
+ * driver hands it over as a plain string: without this the value would be
+ * *asserted* into the union on the way to `declined_candidates.discovered_from`
+ * — the one column every coverage number is grouped by — and a source added to
+ * one check constraint but not the other would be discovered as a failed insert
+ * with no idea which word caused it. Asked here, it is a refusal that names it.
+ */
+export function isDiscoveredFrom(value: unknown): value is DiscoveredFrom {
+  return typeof value === 'string' && (DISCOVERED_FROM as readonly string[]).includes(value);
+}
 
 export function isDeclineReason(value: unknown): value is DeclineReason {
   return typeof value === 'string' && (DECLINE_REASONS as readonly string[]).includes(value);
@@ -238,6 +303,45 @@ export class AlreadyDeclinedError extends Error {
 }
 
 /**
+ * Raised when a decline cannot be attributed to the channel that found the case.
+ *
+ * `declined_candidates.discovered_from` is the column coverage is grouped by:
+ * of the dollars each channel surfaced, how many did we fight for. A decline
+ * stored under a channel nobody verified is not a missing number — it is a
+ * wrong one, and it reads exactly like a right one. So the row is refused and
+ * the case is left standing, which is the only outcome that cannot silently
+ * move the number this log exists to produce (docs/STRATEGY.md, ADD-1).
+ *
+ * In practice this means one of two things, and they are told apart by
+ * {@link noticeDocumentId} because they are not the same problem.
+ *
+ * The case has **no notice document at all** — a case assembled wrong, and
+ * attaching its notice fixes it.
+ *
+ * Or the case **predates provenance recording**: its notice was stored before
+ * `ingestDocument` wrote an `uploads` row, so `documents.upload_id` is null and
+ * nothing in the database says which channel found it. This one is not fixable
+ * from here, and the message says so rather than implying somebody could go and
+ * record it. `documents` is append-only — migration 0004 revokes UPDATE from
+ * `app_rw` and puts a `before update` trigger on the table for everyone else —
+ * and `uploads` has no column pointing back at a document. There is therefore
+ * no way to attach an arrival to bytes already stored without a migration, and
+ * a backfill script was not written for exactly that reason: it would have had
+ * nowhere honest to write. See docs/STATE-OF-PLAY.md.
+ */
+export class ProvenanceUnknownError extends Error {
+  constructor(
+    readonly deductionId: string,
+    detail: string,
+    /** The notice whose arrival is unrecorded, when the case has a notice. */
+    readonly noticeDocumentId?: string,
+  ) {
+    super(`case ${deductionId} cannot be declined: ${detail}`);
+    this.name = 'ProvenanceUnknownError';
+  }
+}
+
+/**
  * What a human decision is stamped with, so a decline made by a person and one
  * made by a future policy are distinguishable when the tail gets evaluated.
  */
@@ -249,12 +353,31 @@ export interface DeclinedCandidate {
   readonly deductionId: string;
   readonly reason: DeclineReason;
   readonly estimatedRecoverableCents: number;
-  readonly discoveredFrom: string;
+  /**
+   * The channel that found the deduction, checked against the closed set on the
+   * way out of the database rather than asserted into it (`isDiscoveredFrom`).
+   */
+  readonly discoveredFrom: DiscoveredFrom;
   readonly decidedBy: string;
   readonly decidedByVersion: string;
   readonly missingEvidence: readonly string[];
   readonly detail?: string;
   readonly decidedAt: string;
+}
+
+/**
+ * The columns a typed document is rebuilt from: the value and its provenance.
+ *
+ * Not `StoredField` — that is what the review page lists, and carries the
+ * document, the box and the quote check with it. This is only what
+ * `restoreDocument` needs.
+ */
+interface StoredFieldRowForRebuild {
+  readonly field_path: string;
+  readonly value_json: unknown;
+  readonly confidence: string;
+  readonly source_page: number;
+  readonly source_quote: string;
 }
 
 /** One stored field, with everything a reviewer needs to check it. */
@@ -316,6 +439,17 @@ interface DocumentRow {
   mime_type: string;
   byte_size: string;
   storage_ref: string;
+  /** Null on the rows stored before ingest recorded where a document came from. */
+  upload_id: string | null;
+}
+
+/** A document that was stored and scanned clean and has no extraction. */
+interface UnreadDocumentRow {
+  id: string;
+  filename: string;
+  created_at: Date;
+  age_minutes: number;
+  on_case: boolean;
 }
 
 /**
@@ -417,8 +551,12 @@ export class InMemoryBlobStore implements BlobStore {
   }
 }
 
-export class PostgresStore implements PipelineStore {
+export class PostgresStore
+  implements PipelineStore, CaseWorkflowStore, JobStore, UnreadDocumentsStore
+{
   private readonly pool: Pool;
+  /** Held for the length of a read, so deliberately not the working pool. */
+  private readonly lockPool: Pool;
   private readonly role: string;
 
   private readonly blobs: BlobStore;
@@ -429,6 +567,7 @@ export class PostgresStore implements PipelineStore {
     blobs?: BlobStore,
   ) {
     this.pool = poolFor(config);
+    this.lockPool = poolFor(config, 'locks');
     this.role = config.role ?? 'app_rw';
     // Durable by default. An in-memory blob store is a thing a test may choose,
     // not the behaviour a caller gets by forgetting to choose.
@@ -487,13 +626,14 @@ export class PostgresStore implements PipelineStore {
       bytes,
       ...(pages !== undefined ? { pageText: pages } : {}),
       requiresSplit: false,
+      ...(row.upload_id !== null ? { uploadId: row.upload_id } : {}),
     };
   }
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
-        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref, upload_id,
                 coalesce(filename, '') as filename
            from documents
           where org_id = $1 and sha256 = $2`,
@@ -501,6 +641,59 @@ export class PostgresStore implements PipelineStore {
       );
       const row = rows[0];
       return row === undefined ? undefined : this.toStoredDocument(row);
+    });
+  }
+
+  /**
+   * One `uploads` row: a tenant received something, through this channel, from
+   * this member.
+   *
+   * Written as `app_rw` under the tenant's own claims like every other write
+   * here, so `tenant_insert` — org claim plus `app.member_may_write()`
+   * (migration 0010) — is what decides whether it lands. A store whose member
+   * may not write cannot record an arrival, which is the same answer the
+   * `documents` insert two lines later would give.
+   */
+  async recordUpload(input: {
+    readonly orgId: string;
+    readonly source: IngestSource;
+    readonly createdBy?: string;
+  }): Promise<UploadRecord> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into uploads (org_id, source, created_by)
+         values ($1, $2, $3)
+         returning id`,
+        [input.orgId, input.source, input.createdBy ?? null],
+      );
+      const id = rows[0]?.id;
+      if (id === undefined) throw new Error('insert into uploads returned no row');
+      return {
+        uploadId: id,
+        orgId: input.orgId,
+        source: input.source,
+        ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      };
+    });
+  }
+
+  /**
+   * The channel a document arrived through, through `documents.upload_id`.
+   *
+   * An inner join, so a document stored before provenance was recorded answers
+   * `undefined` rather than a plausible guess. The caller decides what to do
+   * about not knowing; this only refuses to invent it.
+   */
+  async uploadSourceFor(documentId: string): Promise<UploadSource | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ source: UploadSource }>(
+        `select u.source
+           from documents d
+           join uploads u on u.id = d.upload_id
+          where d.id = $1`,
+        [documentId],
+      );
+      return rows[0]?.source;
     });
   }
 
@@ -514,8 +707,9 @@ export class PostgresStore implements PipelineStore {
 
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
-        `insert into documents (id, org_id, sha256, byte_size, mime_type, storage_ref, filename)
-         values ($1, $2, $3, $4, $5, $6, $7)
+        `insert into documents
+           (id, org_id, sha256, byte_size, mime_type, storage_ref, filename, upload_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
          returning id`,
         [
           documentId,
@@ -525,6 +719,12 @@ export class PostgresStore implements PipelineStore {
           document.mimeType,
           storageRef,
           document.filename,
+          // Null only for a caller that stored bytes without recording an
+          // arrival. `ingestDocument` always records one first; a test that
+          // writes a document straight into the store is the other case, and a
+          // case opened on such a document cannot be declined (see
+          // `declineCase`), which is the loud version of not knowing.
+          document.uploadId ?? null,
         ],
       );
       const id = rows[0]?.id as string;
@@ -631,9 +831,7 @@ export class PostgresStore implements PipelineStore {
     });
   }
 
-  async latestExtraction(
-    documentId: string,
-  ): Promise<{ docType: DocType; document: unknown } | undefined> {
+  async latestExtraction(documentId: string): Promise<RestoredExtraction | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ doc_type: DocType }>(
         `select doc_type from document_classifications
@@ -644,14 +842,37 @@ export class PostgresStore implements PipelineStore {
       if (docType === undefined) return undefined;
 
       // The typed object is rebuilt from the field rows: they are the record of
-      // record, and reassembling from them proves nothing was lost on the way in.
-      const { rows: fields } = await client.query<{ field_path: string; value_json: unknown }>(
-        `select field_path, value_json from extraction_results
+      // record, and reassembling from them proves nothing was lost on the way
+      // in. Provenance comes back with it, because the document the reader
+      // produced carries a page and a quote on every field and this has to be
+      // that same document — `restoreDocument` validates it against the schema
+      // rather than casting, and a field the document did not carry is filled
+      // back in as an explicit absence rather than left out as a missing key.
+      const { rows: fields } = await client.query<StoredFieldRowForRebuild>(
+        `select field_path, value_json, confidence, source_page, source_quote
+           from extraction_results
           where document_id = $1 order by id asc`,
         [documentId],
       );
       if (fields.length === 0) return undefined;
-      return { docType, document: rebuildDocument(fields) };
+      const rebuilt = restoreDocument(
+        docType,
+        fields.map((row) => ({
+          fieldPath: row.field_path,
+          value: row.value_json,
+          // `numeric` arrives as a string from the driver, as everywhere else
+          // this table is read.
+          confidence: Number(row.confidence),
+          sourcePage: row.source_page,
+          sourceQuote: row.source_quote,
+        })),
+      );
+      return {
+        docType,
+        document: rebuilt.document,
+        validated: rebuilt.validated,
+        issues: rebuilt.issues,
+      };
     });
   }
 
@@ -914,7 +1135,7 @@ export class PostgresStore implements PipelineStore {
     const rows = await this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
         `select d.id, d.org_id, d.sha256, d.mime_type, d.byte_size, d.storage_ref,
-                coalesce(d.filename, '') as filename
+                d.upload_id, coalesce(d.filename, '') as filename
            from deduction_documents dd
            join documents d on d.id = dd.document_id
           where dd.deduction_id = $1
@@ -927,6 +1148,69 @@ export class PostgresStore implements PipelineStore {
   }
 
   /**
+   * Whether this member may write in this tenant, asked of the database.
+   *
+   * `app.member_may_write()` is the predicate every `tenant_insert` policy is
+   * gated on (migration 0010), so what this reports and what the policies
+   * enforce cannot drift apart. A job needs it and a request does not, because
+   * the two are authenticated differently: a request has a session the database
+   * already resolved a membership for, while a job has an event, and a signed
+   * event says Inngest delivered it and nothing more. `tenant_read` is the org
+   * claim and nothing else, so without this the document would be fetched, OCR'd
+   * and read by a model before the first insert was refused (ADR 0021).
+   *
+   * The actor must be the one this store already carries: the claims are what
+   * the function reads, so answering for anybody else would be answering a
+   * different question than the one asked. A mismatch is a programming error and
+   * says so, rather than returning `false`, which would look like a refused
+   * member.
+   */
+  async memberMayWrite(actor: {
+    readonly orgId: string;
+    readonly userId: string;
+  }): Promise<boolean> {
+    if (actor.orgId !== this.tenant.orgId || actor.userId !== this.tenant.userId) {
+      throw new Error(
+        'this store acts as a different member than the one being asked about: ' +
+          `store ${this.tenant.userId}@${this.tenant.orgId}, ` +
+          `asked ${actor.userId}@${actor.orgId}`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ may: boolean | null }>(
+        'select app.member_may_write() as may',
+      );
+      // `=== true` and not a truthiness check: no row, or a null, is a member
+      // who may not write.
+      return rows[0]?.may === true;
+    });
+  }
+
+  /**
+   * The case this document is already filed against, if any.
+   *
+   * The notice link first: a document that opened a case is on that case, and a
+   * document can also be evidence on another. It is what tells a redelivered
+   * read-event that the document it names has already been read and where that
+   * read landed (ADR 0021).
+   *
+   * RLS scopes it like every other read here, so a document of another tenant's
+   * answers nothing rather than answering wrongly.
+   */
+  async caseForDocument(documentId: string): Promise<string | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ deduction_id: string }>(
+        `select deduction_id from deduction_documents
+          where document_id = $1
+          order by (role = 'notice') desc, observed_at asc, id asc
+          limit 1`,
+        [documentId],
+      );
+      return rows[0]?.deduction_id;
+    });
+  }
+
+  /**
    * One document by id, bytes included.
    *
    * There is no org predicate here on purpose: the policies decide, and a
@@ -936,7 +1220,7 @@ export class PostgresStore implements PipelineStore {
   async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     const row = await this.withTenant(async (client) => {
       const { rows } = await client.query<DocumentRow>(
-        `select id, org_id, sha256, mime_type, byte_size, storage_ref,
+        `select id, org_id, sha256, mime_type, byte_size, storage_ref, upload_id,
                 coalesce(filename, '') as filename
            from documents where id = $1`,
         [documentId],
@@ -944,6 +1228,160 @@ export class PostgresStore implements PipelineStore {
       return rows[0];
     });
     return row === undefined ? undefined : this.toStoredDocument(row);
+  }
+
+  /**
+   * Whether this tenant can see this document — `getDocument`'s answer without
+   * its cost.
+   *
+   * `select 1`, no columns and no bytes. A handler deciding between "go on" and
+   * "404" was fetching megabytes of a scanned notice out of object storage to
+   * learn one bit, and then throwing all of it away. The policies still decide
+   * and they still decide by the row not being there, so this says exactly what
+   * `getDocument` says about visibility and nothing about anything else.
+   */
+  async documentIsVisible(documentId: string): Promise<boolean> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query('select 1 from documents where id = $1', [documentId]);
+      return rows.length > 0;
+    });
+  }
+
+  /**
+   * Runs a document's read while holding that document's claim in the database,
+   * or does not run it at all.
+   *
+   * **Why the database and not a flag.** The guard `readDocumentJob` asks — has
+   * this document already been read — is a question about the past, and the
+   * read is what changes the answer. Between the two sits OCR, two model calls
+   * and an `openCase`, and two deliveries that overlap in that window both see
+   * "not read yet". The reviewer who found this ran two `readDocumentJob` calls
+   * at once and got four model calls, two `extraction_results` rows and two
+   * cases for one document: `unique (org_id, debtor_id, claim_id)` does not
+   * fire while `debtor_id` is null, which is every tenant's starting state (ADR
+   * 0019). A flag in one process would not have helped — the two deliveries are
+   * two invocations, on two machines.
+   *
+   * **Why a transaction-scoped lock and not a session one.** `DATABASE_URL` is
+   * Supabase's *transaction* pooler (apps/web/DEPLOY.md): a server connection
+   * is allocated for the length of a transaction and handed to somebody else
+   * afterwards. A session-level `pg_advisory_lock` outlives the transaction it
+   * was taken in, so under that pooler it would be taken on one server
+   * connection and the matching `pg_advisory_unlock` could run on another — the
+   * unlock quietly fails, and a connection in the pool goes on holding a lock
+   * for a document nobody is reading, which makes that document permanently
+   * unreadable. `pg_try_advisory_xact_lock` lives and dies with the transaction,
+   * which is exactly the unit the pooler guarantees, and it cannot leak: commit,
+   * rollback, a crashed process or a killed backend all release it. The cost is
+   * an open transaction for the length of the read, which is why it is on its
+   * own pool.
+   *
+   * **Why `try` and not the waiting form.** A caller that waited would hold a
+   * worker for the length of somebody else's model calls, to be told at the end
+   * of it that the document has been read. It is told that immediately instead,
+   * and spends nothing.
+   *
+   * The key is `hashtextextended(id, 0)`: advisory locks are keyed by bigint,
+   * and this is Postgres's own hash of the id rather than one this file
+   * invented. A collision between two different documents' ids would mean one
+   * of them waits for the other — a slower read, never a wrong one — and at
+   * 64 bits it is not a thing to plan for.
+   *
+   * Claims and role are set exactly as `withTenant` sets them, transaction-
+   * locally, so this connection cannot carry one tenant's claims anywhere
+   * either. No row is written here: the lock is the whole transaction.
+   */
+  async withDocumentRead<T>(
+    documentId: string,
+    work: () => Promise<T>,
+  ): Promise<DocumentReadLease<T>> {
+    const client = await this.lockPool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      const { rows } = await client.query<{ held: boolean | null }>(
+        'select pg_try_advisory_xact_lock(hashtextextended($1, 0)) as held',
+        [documentId],
+      );
+      // `=== true` rather than truthiness: anything else is not a lock.
+      if (rows[0]?.held !== true) {
+        await client.query('rollback');
+        return { held: false };
+      }
+
+      try {
+        const result = await work();
+        // Nothing was written in this transaction; the commit is what releases
+        // the lock, and it happens once the work is finished either way.
+        await client.query('commit');
+        return { held: true, result };
+      } catch (error) {
+        await client.query('rollback').catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * The documents this tenant got through the door and nobody ever read.
+   *
+   * Three conditions, and each one is a thing that has to be true for the
+   * document to be stuck rather than merely new:
+   *
+   *  - **The latest scan verdict is `clean`.** The same latest-wins subquery
+   *    `latestScan` uses, because a document whose last verdict is `infected`
+   *    or `error` was refused by the gate on purpose and is not waiting for
+   *    anything (invariant 4). A document with no verdict at all is not here
+   *    either — nothing may read it, so nothing is owed.
+   *  - **No `extraction_results` row.** The same record `readDocumentJob`'s own
+   *    guard consults, so a document this list offers is exactly a document a
+   *    re-drive would actually read, and one it does not offer is one a re-drive
+   *    would answer from what was recorded.
+   *  - **Older than the caller's threshold.** A document uploaded ten seconds
+   *    ago is not stuck, it is being read, and a list that says otherwise would
+   *    teach a reviewer to ignore it.
+   *
+   * Read-only, and RLS-scoped like everything else here: "this tenant's
+   * documents" is the policies' answer rather than a `where org_id = …` this
+   * query remembered to write. Bytes are deliberately not fetched — this is a
+   * list, and a list that loads every stuck document's bytes to print its name
+   * is a list nobody can afford to open.
+   */
+  async unreadDocuments(olderThanMinutes: number, limit = 50): Promise<readonly UnreadDocument[]> {
+    assertUnreadDocumentsQuery(olderThanMinutes, limit);
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<UnreadDocumentRow>(
+        `select d.id,
+                coalesce(d.filename, '') as filename,
+                d.created_at,
+                floor(extract(epoch from (now() - d.created_at)) / 60)::int as age_minutes,
+                exists (select 1 from deduction_documents dd where dd.document_id = d.id)
+                  as on_case
+           from documents d
+          where d.created_at <= now() - ($1::double precision * interval '1 minute')
+            and (select s.status from document_scans s
+                  where s.document_id = d.id order by s.id desc limit 1) = 'clean'
+            and not exists (select 1 from extraction_results e where e.document_id = d.id)
+          order by d.created_at asc
+          limit $2`,
+        [olderThanMinutes, limit],
+      );
+      return rows.map((row) => ({
+        documentId: row.id,
+        filename: row.filename,
+        createdAt: new Date(row.created_at).toISOString(),
+        // Never negative: a clock that has stepped backwards should read as
+        // "just now", not as a document from the future.
+        ageMinutes: Math.max(0, row.age_minutes),
+        onCase: row.on_case,
+      }));
+    });
   }
 
   async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {
@@ -1476,28 +1914,29 @@ export class PostgresStore implements PipelineStore {
    * it has no numerator without this (docs/STRATEGY.md, ADD-1). Deleting the
    * case instead would flatter every number we ever report.
    *
-   * `discovered_from` is read off the case's own notice rather than passed in:
-   * it is how the deduction reached us, which is a fact about the document, not
-   * something a reviewer should be able to type. Coverage is attributed by
-   * source, so a wrong value here quietly credits the wrong channel.
+   * `discovered_from` is read off the case's own notice and is not a parameter
+   * at all: it is how the deduction reached us, which is a fact about the
+   * document rather than something a reviewer — or the route that happens to be
+   * calling — should be able to state. Coverage is attributed by it, so a value
+   * supplied by a caller is a channel credited on somebody's say-so.
+   *
+   * It used to take `assumedDiscoveredFrom`, because nothing wrote the
+   * `uploads` table and the derivation could never succeed. Ingest writes it
+   * now, on every path, so the assumption is gone rather than demoted to a
+   * default: a case whose notice records no arrival raises
+   * {@link ProvenanceUnknownError} instead of being counted under a guess.
+   *
+   * @throws {ProvenanceUnknownError} the case has no notice, or its notice has
+   *   no `uploads` row to say which channel found it. The second of those is a
+   *   case that predates provenance recording, and it stays undeclinable until
+   *   a migration gives an already-stored document somewhere to record its
+   *   arrival — `documents` is append-only, so `upload_id` cannot be filled in
+   *   now.
    */
   async declineCase(input: {
     deductionId: string;
     reason: DeclineReason;
     decidedBy: string;
-    /**
-     * What to attribute the decline to when the case's own documents do not say.
-     *
-     * Nothing writes the `uploads` table yet, so `documents.upload_id` is always
-     * null and this fallback is, today, always what gets used. It is a required
-     * parameter and it is named for what it is, because `discovered_from` is
-     * NOT NULL so that coverage can be attributed by channel — and a channel
-     * quietly credited to the wrong source is a number that looks right.
-     *
-     * When ingest starts recording provenance this stops being reached, and the
-     * derivation below takes over with no change here.
-     */
-    assumedDiscoveredFrom: DiscoveredFrom;
     missingEvidence?: readonly MissingEvidence[];
     detail?: string;
   }): Promise<DeclinedCandidate> {
@@ -1514,19 +1953,52 @@ export class PostgresStore implements PipelineStore {
       // every decline of the same case through this point: the second waits,
       // then sees the first's row and raises `AlreadyDeclinedError`. The lock
       // is held to commit, which is where the insert is.
+      //
+      // The notice is read with a LEFT JOIN onto `uploads` so that "this case
+      // has no notice" and "its notice records no arrival" come back as
+      // different answers. They are different faults — one is a case assembled
+      // wrong, the other a document stored before provenance existed — and a
+      // refusal that could not tell them apart would send somebody to the wrong
+      // place.
+      //
+      // The earliest notice wins, and `doc.id` breaks the tie. `created_at`
+      // defaults to `now()`, which is the transaction's start time, so two
+      // notices attached inside one transaction — or on a clock with coarse
+      // enough resolution — carry the identical timestamp, and `limit 1` over a
+      // tie is whichever row the plan reached first. That is a coverage number
+      // that changes when the planner does. The id is arbitrary but it is
+      // *fixed*, so the same case is attributed to the same channel every time
+      // it is asked, which is the property this column needs.
+      //
+      // Deliberately the earliest and not the earliest *with* an arrival: a
+      // case whose first notice predates provenance is refused below even when
+      // a later one records a channel. The first arrival is how the deduction
+      // reached us; the second is a copy of something we already had. Counting
+      // the copy's channel would credit whichever source re-sent a document,
+      // which is the same misattribution `ingestDocument` refuses when it
+      // declines to write a second `uploads` row for bytes it already has. A
+      // refusal somebody has to act on is the honest answer, and the test
+      // "refuses when the earliest notice predates provenance, even though a
+      // later one records a channel" in `decline-case.test.ts` keeps it from
+      // being quietly relaxed into "the earliest notice that knows".
       const { rows: caseRows } = await client.query<{
         amount: string;
+        notice_document_id: string | null;
         discovered_from: string | null;
       }>(
         `select d.deduction_amount_cents::text as amount,
-                (select u.source
-                   from deduction_documents dd
-                   join documents doc on doc.id = dd.document_id
-                   join uploads u on u.id = doc.upload_id
-                  where dd.deduction_id = d.id and dd.role = 'notice'
-                  order by doc.created_at asc
-                  limit 1) as discovered_from
+                notice.document_id as notice_document_id,
+                notice.source as discovered_from
            from deductions d
+           left join lateral (
+             select doc.id as document_id, u.source
+               from deduction_documents dd
+               join documents doc on doc.id = dd.document_id
+               left join uploads u on u.id = doc.upload_id
+              where dd.deduction_id = d.id and dd.role = 'notice'
+              order by doc.created_at asc, doc.id asc
+              limit 1
+           ) notice on true
           where d.id = $1
           for update of d`,
         [input.deductionId],
@@ -1563,9 +2035,45 @@ export class PostgresStore implements PipelineStore {
       // the decline rather than landing in a row we cannot correct.
       const estimatedRecoverableCents = exactCents(found.amount, 'deduction_amount_cents');
 
-      // Derived when the document knows, the caller's stated assumption when it
-      // does not. Today it is always the latter.
-      const discoveredFrom = found.discovered_from ?? input.assumedDiscoveredFrom;
+      // Derived, or refused. `declined_candidates.discovered_from` is NOT NULL
+      // so that coverage can be attributed by channel, and a column that is
+      // always filled is worth nothing if what fills it is a guess: every
+      // decline would credit whichever source the calling code assumed, and the
+      // per-channel numbers would look complete while meaning nothing.
+      //
+      // Nothing is written on this path. The transaction rolls back, the case
+      // is untouched, and the person is told what is missing.
+      if (found.discovered_from === null) {
+        throw new ProvenanceUnknownError(
+          input.deductionId,
+          found.notice_document_id === null
+            ? 'it has no notice document, so nothing on it says which channel found this deduction'
+            : // Said plainly, and said as a dead end, because it is one. The
+              // notice is there and its `uploads` row is not, which can only
+              // mean it was stored before ingest recorded arrivals. Nobody can
+              // put that right from the outside: `documents` is append-only, so
+              // `upload_id` cannot be filled in afterwards, and `uploads` has no
+              // way to point at a document instead. A message that said "record
+              // how it arrived" would send somebody looking for a button that
+              // cannot exist yet.
+              `its notice document ${found.notice_document_id} records no arrival. This case ` +
+              'predates provenance recording; it cannot be declined until a migration adds a ' +
+              'way to record its arrival',
+          found.notice_document_id ?? undefined,
+        );
+      }
+      if (!isDiscoveredFrom(found.discovered_from)) {
+        // Unreachable while `uploads_source_check` and the `discovered_from`
+        // check in migration 0014 hold the same list — which is the point of
+        // there being one `UPLOAD_SOURCES` behind both. If they ever drift, the
+        // insert below fails on a check constraint with no clue which value did
+        // it; this fails first and names it. Loud, and before anything written.
+        throw new Error(
+          `uploads.source returned ${JSON.stringify(found.discovered_from)}, which is not a ` +
+            'channel coverage can be attributed to',
+        );
+      }
+      const discoveredFrom = found.discovered_from;
 
       // The column takes any text, so the check is here or nowhere. A value
       // nobody counts is worse than an empty list: it looks like a reason.
@@ -1663,22 +2171,78 @@ export class PostgresStore implements PipelineStore {
       };
     });
   }
-}
 
-/**
- * A bigint cents column as a JS number, or a loud failure.
- *
- * Money is integer cents in a bigint (invariant 3), and a JS number holds only
- * 2^53 of them exactly. Every conversion is therefore a place where a value can
- * quietly stop being itself, and a rounded cent on a money path is the kind of
- * bug that is only ever found in a reconciliation. This refuses instead.
- */
-function exactCents(text: string, column: string): number {
-  const cents = Number(text);
-  if (!Number.isSafeInteger(cents)) {
-    throw new Error(`${column} is ${text}, which no JS number holds exactly`);
+  // -------------------------------------------------------------------------
+  // CaseWorkflowStore (ADR 0020): a human decides, and the gate is exercised
+  // -------------------------------------------------------------------------
+  //
+  // Every one of these is a single `withTenant` transaction, because each is a
+  // step through the case state machine and a step is three writes that have to
+  // land together: the record, the append-only event, and the `deductions.state`
+  // projection. Two of the three would be a case whose timeline and whose state
+  // disagree, and the projection is supposed to be rebuildable from the stream.
+  //
+  // The work itself lives in `./workflow`, taking the client this transaction
+  // opened — so the role, the tenant claims and the commit stay in one place
+  // (`withTenant`) rather than being repeated five times.
+
+  async recordHumanDecision(input: {
+    readonly deductionId: string;
+    readonly preparedBy: string;
+    readonly reason: CanonicalReasonCode;
+    readonly rationale: string;
+  }): Promise<{ readonly decisionId: string }> {
+    return this.withTenant((client) => workflow.recordHumanDecision(client, this.tenant, input));
   }
-  return cents;
+
+  async assemblePacket(input: {
+    readonly deductionId: string;
+    readonly decisionId: string;
+    readonly assembledBy: string;
+  }): Promise<{
+    readonly packetId: string;
+    readonly contentHash: string;
+    readonly narrative: string;
+    readonly fileDocumentIds: readonly string[];
+  }> {
+    return this.withTenant((client) => workflow.assemblePacket(client, this.tenant, input));
+  }
+
+  async approve(input: {
+    readonly decisionId: string;
+    readonly packetId: string;
+    readonly approverId: string;
+    readonly note?: string;
+  }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
+    return this.withTenant((client) => workflow.approve(client, this.tenant, input));
+  }
+
+  async recordSubmission(input: {
+    readonly decisionId: string;
+    readonly packetId: string;
+    readonly approvalId: string;
+    readonly channel: WorkflowSubmissionChannel;
+    readonly confirmationNumber: string;
+    readonly submittedAt: Date;
+    readonly actorId: string;
+  }): Promise<{ readonly submissionId: string; readonly deductionId: string }> {
+    return this.withTenant((client) => workflow.recordSubmission(client, this.tenant, input));
+  }
+
+  async recordOutcome(input: {
+    readonly deductionId: string;
+    readonly outcome: CaseOutcome;
+    readonly recoveredCents: number;
+    readonly recordedBy: string;
+    readonly note?: string;
+  }): Promise<{ readonly eventId: string }> {
+    return this.withTenant((client) => workflow.recordOutcome(client, this.tenant, input));
+  }
+
+  /** Everything the case page shows, in one transaction under one tenant's claims. */
+  async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
+    return this.withTenant((client) => workflow.getWorkflow(client, deductionId));
+  }
 }
 
 /** The SQLSTATE of a driver error, when it carries one. */
@@ -1702,50 +2266,4 @@ function isoDate(value: Date | string | null | undefined): string | undefined {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-/** Segments that would reach the prototype chain rather than the object. */
-const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
-
-/**
- * Rebuilds a nested document from flat field rows (`lines[0].sku_upc` → nested).
- *
- * Paths written by `recordExtraction` are schema-derived, but this reads them
- * back out of the database and walks them as object keys, so it refuses the
- * segments that would climb the prototype chain instead of trusting where the
- * row came from.
- */
-function rebuildDocument(
-  rows: readonly { field_path: string; value_json: unknown }[],
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const row of rows) {
-    const segments = row.field_path.split('.');
-    if (segments.some((segment) => FORBIDDEN_SEGMENTS.has(segment.replace(/\[\d+\]$/, '')))) {
-      continue;
-    }
-    let node: Record<string, unknown> = out;
-    segments.forEach((segment, index) => {
-      const match = /^([^[]+)\[(\d+)\]$/.exec(segment);
-      const last = index === segments.length - 1;
-      if (match?.[1] !== undefined && match[2] !== undefined) {
-        const key = match[1];
-        const row_index = Number(match[2]);
-        const array = (node[key] as unknown[] | undefined) ?? [];
-        node[key] = array;
-        const existing = (array[row_index] as Record<string, unknown> | undefined) ?? {};
-        array[row_index] = existing;
-        node = existing;
-        return;
-      }
-      if (last) {
-        node[segment] = { value: row.value_json };
-        return;
-      }
-      const existing = (node[segment] as Record<string, unknown> | undefined) ?? {};
-      node[segment] = existing;
-      node = existing;
-    });
-  }
-  return out;
 }

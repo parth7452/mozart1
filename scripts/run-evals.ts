@@ -7,6 +7,7 @@
  *
  *   pnpm eval                  # score and compare against the baseline
  *   pnpm eval --record-baseline  # write a new baseline (a reviewed decision)
+ *   pnpm eval --record-pending   # refresh only `pendingSuites`, no metric moves
  */
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -25,6 +26,7 @@ import {
 import { everyDocument } from '@recouple/fixtures';
 import {
   DEFAULT_TOLERANCE,
+  findCoverageShortfalls,
   findRegressions,
   scoreDocument,
   summarise,
@@ -37,6 +39,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 const baselinePath = path.join(here, '..', 'packages', 'evals', 'baseline.json');
 const recordBaseline = process.argv.includes('--record-baseline');
+/**
+ * Rewrites `pendingSuites` and nothing else.
+ *
+ * A suite can land without its cassettes, and `pendingSuites` is what stops a
+ * suite with no numbers reading like a suite that passed. Keeping it current
+ * used to mean `--record-baseline`, which rewrites every metric in the file —
+ * so the honest bookkeeping and the one edit a baseline may never make were the
+ * same command, and the bookkeeping is what got skipped. This does the
+ * bookkeeping alone: every other key is read and written back exactly as it
+ * was, and a diff that touches anything but `pendingSuites` is a bug in this.
+ */
+const recordPending = process.argv.includes('--record-pending');
 
 const cassettes = new Map<string, Cassette>();
 if (existsSync(cassetteDir)) {
@@ -46,7 +60,46 @@ if (existsSync(cassetteDir)) {
   }
 }
 
-const documents = everyDocument().filter((d) => cassettes.has(d.key));
+const allDocuments = everyDocument();
+const documents = allDocuments.filter((d) => cassettes.has(d.key));
+
+/**
+ * The recorded baseline, read before anything is reported rather than after.
+ *
+ * What the baseline has already measured decides how an unrecorded suite is
+ * described: a suite nobody has ever scored is skipped, and a suite the
+ * baseline scored and this run cannot is a hole in the run. Telling them apart
+ * needs the baseline in hand at the point the report is written.
+ */
+const baseline: Baseline | null = existsSync(baselinePath)
+  ? (JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline)
+  : null;
+const baselinedSuites = new Set(Object.keys(baseline?.suites ?? {}));
+
+/**
+ * Suites whose fixtures exist and whose cassettes do not.
+ *
+ * Recording costs money and needs API keys, so a suite can land before its
+ * numbers do. That is a state to report, not a regression to fail on — but it
+ * has to be *reported*, because the alternative is a suite that looks wired and
+ * is silently scoring nothing (which is exactly what happened to LOG-001).
+ */
+const recordedBySuite = new Map<string, { recorded: number; total: number }>();
+for (const fixture of allDocuments) {
+  const tally = recordedBySuite.get(fixture.suite) ?? { recorded: 0, total: 0 };
+  recordedBySuite.set(fixture.suite, {
+    recorded: tally.recorded + (cassettes.has(fixture.key) ? 1 : 0),
+    total: tally.total + 1,
+  });
+}
+const unrecordedSuites = [...recordedBySuite]
+  .filter(([, tally]) => tally.recorded === 0)
+  .map(([name, tally]) => [name, tally.total] as const);
+// Only a suite the baseline has never seen may be called skipped. One the
+// baseline has measured and this run has not is a coverage shortfall, gated
+// below — never a line in the "skipped, not failed" list, which is the line a
+// reader takes as permission to ignore it.
+const skippedSuites = unrecordedSuites.filter(([name]) => !baselinedSuites.has(name));
 
 if (documents.length === 0) {
   console.error(
@@ -54,6 +107,13 @@ if (documents.length === 0) {
       'Record them with `pnpm record:cassettes` (this calls the API and costs money),\n' +
       'then re-run `pnpm eval`.',
   );
+  if (baselinedSuites.size > 0) {
+    console.error(
+      `\nThe baseline has measured ${[...baselinedSuites].join(', ')}, so an empty run is a\n` +
+        'coverage loss rather than a fresh start. Restore the cassettes and re-run.',
+    );
+    process.exit(1);
+  }
   // Not a failure: an empty corpus is a state to fix, not a regression to block on.
   process.exit(0);
 }
@@ -138,19 +198,41 @@ const pct = (n: number | null) => (n === null ? '   —' : `${(n * 100).toFixed(
 
 const SUITE_LABELS: Record<string, string> = {
   authored: 'authored here — does the pipeline work',
+  authored_pending: 'authored here, no cassette yet — shapes the numbers do not cover',
   held_out: 'written elsewhere — does it generalise',
   scanned: 'rasterised + degraded — does it survive a scan',
   dense: 'dozens of rows — does it survive a real remittance',
   email_body: 'no page at all — a notice pasted into a message',
-  logistics: 'five documents, one dispute — does the case hold together',
+  logistics: 'one freight case across five documents — does the argument hold',
+  customer: 'simulated camera pages — does a staffing or freight case survive one',
 };
+
+/**
+ * Display order. Every suite in the corpus is reported, in this order where it
+ * is named and after it otherwise — a suite is never left out of this list by
+ * being forgotten, only by having no cassettes.
+ */
+const SUITE_ORDER = [
+  'authored',
+  'authored_pending',
+  'held_out',
+  'scanned',
+  'dense',
+  'email_body',
+  'logistics',
+  'customer',
+];
+const scoredSuites = [...new Set(scores.map((s) => suiteOf.get(s.key) ?? 'unknown'))].sort(
+  (a, b) => {
+    const rank = (name: string) =>
+      SUITE_ORDER.indexOf(name) === -1 ? SUITE_ORDER.length : SUITE_ORDER.indexOf(name);
+    return rank(a) - rank(b) || a.localeCompare(b);
+  },
+);
 
 const perSuite = new Map<string, ReturnType<typeof summarise>>();
 
-// Every suite that exists, not a list to remember to extend: a suite missing
-// from here is scored and never shown, which is how LOG-001 reported its misses
-// from nowhere.
-for (const suiteName of Object.keys(SUITE_LABELS)) {
+for (const suiteName of scoredSuites) {
   const suiteScores = scores.filter((s) => suiteOf.get(s.key) === suiteName);
   if (suiteScores.length === 0) continue;
   const tally = classifiedBySuite.get(suiteName);
@@ -188,6 +270,19 @@ console.log(
   `${boxedFields} of ${totalFields} fields carry a bounding box a reviewer can follow`,
 );
 
+const recordCommand = (suiteName: string) => `pnpm record:cassettes --suite ${suiteName}`;
+
+if (skippedSuites.length > 0) {
+  console.log('\nnot yet recorded — skipped, not failed:');
+  for (const [name, total] of skippedSuites) {
+    console.log(
+      `  ${name.padEnd(12)} ${String(total).padStart(2)} documents, no cassettes. ` +
+        `Record with \`${recordCommand(name)}\` ` +
+        '(this calls the API and spends money), then `pnpm eval --record-baseline`.',
+    );
+  }
+}
+
 if (unsafeDetail.length > 0) {
   console.log('\nclassification misses:');
   for (const line of unsafeDetail) console.log(`  ${line}`);
@@ -204,25 +299,107 @@ for (const score of scores) {
 }
 
 const suiteRecord = Object.fromEntries(perSuite);
+// Written into the baseline so the file itself says which suites have never
+// been measured, rather than a reader inferring it from a missing row.
+const pendingRecord = Object.fromEntries(
+  skippedSuites.map(([name, total]) => [
+    name,
+    `not yet recorded: ${total} fixture documents, no cassettes. ` +
+      `\`${recordCommand(name)}\` needs ANTHROPIC_API_KEY, ` +
+      'and REDUCTO_API_KEY for any document with no text layer.',
+  ]),
+);
+
+/**
+ * Suites the baseline measured that this run measured less of.
+ *
+ * A suite whose cassettes went missing has no rate left to regress: it drops
+ * out of the comparison and every remaining number reads green. So the count
+ * is gated too, and a run that scored fewer documents than the baseline did is
+ * a failed run — the numbers it printed are about a smaller corpus than the
+ * ones it is being compared against.
+ */
+const shortfalls = baseline === null ? [] : findCoverageShortfalls(baseline, suiteRecord);
+const describeShortfall = (s: (typeof shortfalls)[number]): string =>
+  `  ${s.suite.padEnd(12)} baseline scored ` +
+  `${s.baselineDocuments === null ? 'this suite (no count recorded)' : `${s.baselineDocuments} document(s)`}, ` +
+  `this run scored ${s.currentDocuments}.`;
+
+if (recordPending) {
+  if (baseline === null) {
+    console.error(
+      '\nThere is no baseline to refresh. Record one with `pnpm eval --record-baseline` first.',
+    );
+    process.exit(1);
+  }
+  // Read again from disk and put the one key back, rather than re-serialising
+  // the summarised run: what is not `pendingSuites` has to come out the other
+  // side unchanged, and the way to be sure of that is not to touch it.
+  const current = JSON.parse(readFileSync(baselinePath, 'utf8')) as Record<string, unknown>;
+  current.pendingSuites = pendingRecord;
+  writeFileSync(baselinePath, `${JSON.stringify(current, null, 2)}\n`);
+  const named = Object.keys(pendingRecord);
+  console.log(
+    `\npendingSuites refreshed in packages/evals/baseline.json: ` +
+      `${named.length === 0 ? 'none' : named.join(', ')}`,
+  );
+  console.log('No metric was touched; the diff should name that key and nothing else.');
+  process.exit(0);
+}
 
 if (recordBaseline) {
-  const baseline = toBaseline(suite, modelFor('extract'), suiteRecord);
-  writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
+  if (shortfalls.length > 0) {
+    // Writing now would erase the rows that prove the gap, which is the one
+    // way a baseline may never move (CLAUDE.md).
+    console.error(
+      '\nREFUSING TO RECORD A BASELINE: a suite the current baseline measured is absent or short.',
+    );
+    for (const s of shortfalls) console.error(describeShortfall(s));
+    console.error(
+      '\nRecord the missing cassettes first. If a suite is genuinely gone, take its row\n' +
+        'out of packages/evals/baseline.json deliberately, in its own reviewed commit.',
+    );
+    process.exit(1);
+  }
+  const recorded = toBaseline(suite, modelFor('extract'), suiteRecord, pendingRecord);
+  writeFileSync(baselinePath, `${JSON.stringify(recorded, null, 2)}\n`);
   console.log(`\nbaseline written to packages/evals/baseline.json`);
   process.exit(0);
 }
 
-if (!existsSync(baselinePath)) {
+if (baseline === null) {
   console.log('\nNo baseline recorded yet. Record one with `pnpm eval --record-baseline`.');
   process.exit(0);
 }
 
-const baseline = JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline;
 const regressions = findRegressions(baseline, DEFAULT_TOLERANCE, suiteRecord);
 
 if (baseline.extractModel !== modelFor('extract')) {
   console.log(
     `\nnote: baseline was recorded with ${baseline.extractModel}, this run used ${modelFor('extract')}`,
+  );
+}
+
+// A suite that scored but has no baseline row is reported, not gated — there is
+// nothing to compare it against yet. Saying so out loud is the point: an
+// ungated suite is easy to mistake for a passing one.
+const ungated = scoredSuites.filter((name) => (baseline.suites ?? {})[name] === undefined);
+if (ungated.length > 0) {
+  console.log(
+    `\nnote: ${ungated.join(', ')} scored here but ${ungated.length === 1 ? 'has' : 'have'} no baseline row, ` +
+      `so nothing gates ${ungated.length === 1 ? 'it' : 'them'}. ` +
+      'Look at the numbers, then `pnpm eval --record-baseline`.',
+  );
+}
+
+if (shortfalls.length > 0) {
+  console.error('\nCOVERAGE SHORTFALL: a suite the baseline has measured was not measured here.');
+  for (const s of shortfalls) console.error(describeShortfall(s));
+  console.error(
+    '\nA suite with missing cassettes is not a suite that passed: the rates above are\n' +
+      'an average over fewer documents than the baseline they are compared against.\n' +
+      'Restore the cassettes (`pnpm record:cassettes --suite <name>`) and re-run.\n' +
+      'Do not move the baseline to make this pass.',
   );
 }
 
@@ -234,7 +411,8 @@ if (regressions.length > 0) {
     );
   }
   console.error('\nFix the code. Do not move the baseline to make this pass.');
-  process.exit(1);
 }
+
+if (shortfalls.length > 0 || regressions.length > 0) process.exit(1);
 
 console.log('\nno regression against the recorded baseline');

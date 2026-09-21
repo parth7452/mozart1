@@ -30,7 +30,41 @@ case "$file_path" in
   *) exit 0 ;;
 esac
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 0
+# Judge the checkout the *edit* is in, not the one this script lives in.
+#
+# The hook command is `$CLAUDE_PROJECT_DIR/.claude/hooks/require-adr.sh`, and in
+# a git worktree that path is the main checkout's copy while the file being
+# edited sits in the worktree. Resolving the repo from the script's own location
+# therefore measured a worktree's migration against the main checkout's branch,
+# which carries no ADR — a correct edit, blocked, with a message telling you to
+# write an ADR you had already written.
+#
+# So the root comes from the file. A Write may be creating the file *and* its
+# directory (`supabase/migrations/` exists, but a new package's
+# `src/invariants/` may not), so walk up to the first directory that exists
+# before asking git. A relative file_path is resolved against the project dir
+# the hook was invoked for, falling back to $PWD. If none of that finds a repo —
+# an edit outside any checkout — fall back to this script's own repo, which is
+# what the guard did before and still fails closed.
+resolve_root() {
+  local dir
+  case "$1" in
+    /*) dir="$(dirname "$1")" ;;
+    *)  dir="$(dirname "${CLAUDE_PROJECT_DIR:-$PWD}/$1")" ;;
+  esac
+
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ ! -d "$dir" ]; do
+    dir="$(dirname "$dir")"
+  done
+  [ -d "$dir" ] || return 1
+
+  git -C "$dir" rev-parse --show-toplevel 2>/dev/null
+}
+
+root="$(resolve_root "$file_path" || true)"
+[ -n "$root" ] || root="$(dirname "${BASH_SOURCE[0]}")/../.."
+
+cd "$root" || exit 0
 
 # An uncommitted ADR counts, and detecting one needs no base ref — so this runs
 # first, before anything that can fail for want of a ref.

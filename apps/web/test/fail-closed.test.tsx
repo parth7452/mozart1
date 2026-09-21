@@ -9,7 +9,7 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
-import { pipelineDepsFor } from '../lib/pipeline';
+import { InlineRunner, InngestRunner, pipelineDepsFor, runnerFromEnv } from '../lib/pipeline';
 
 /**
  * What the app does when it is not fully configured.
@@ -132,5 +132,52 @@ describe('an unconfigured environment', () => {
     const result = await processUpload(upload, deps);
     expect(result.haltedBecause).toBeUndefined();
     expect(result.case?.claimId).toBe('APDP-99812');
+  });
+});
+
+/**
+ * Where the read runs, which is the other decision this app makes from the
+ * environment alone (ADR 0021).
+ *
+ * The same shape as the scanner's, and for the same reason: one place decides,
+ * the absent case is the safe one rather than the convenient one, and a
+ * half-configured environment is an error instead of a guess.
+ */
+describe('which runner an environment gets', () => {
+  it('reads inside the request when there is no Inngest binding', () => {
+    delete process.env.INNGEST_EVENT_KEY;
+    delete process.env.INNGEST_SIGNING_KEY;
+
+    const runner = runnerFromEnv();
+    expect(runner).toBeInstanceOf(InlineRunner);
+    expect(runner.name).toBe('inline');
+  });
+
+  it('hands the read to a job when both keys are set', () => {
+    process.env.INNGEST_EVENT_KEY = 'test-event-key';
+    process.env.INNGEST_SIGNING_KEY = 'signkey-test-abc';
+
+    const runner = runnerFromEnv();
+    expect(runner).toBeInstanceOf(InngestRunner);
+    expect(runner.name).toBe('inngest');
+  });
+
+  it('refuses a half-configured binding, both ways round', () => {
+    // An event key with no signing key serves an endpoint that cannot tell
+    // Inngest from anybody else; a signing key with no event key serves a
+    // function nothing can trigger. Neither is a mode to fall back to.
+    process.env.INNGEST_EVENT_KEY = 'test-event-key';
+    delete process.env.INNGEST_SIGNING_KEY;
+    expect(() => runnerFromEnv()).toThrow(/only the event key/);
+
+    delete process.env.INNGEST_EVENT_KEY;
+    process.env.INNGEST_SIGNING_KEY = 'signkey-test-abc';
+    expect(() => runnerFromEnv()).toThrow(/only the signing key/);
+  });
+
+  it('is decided nowhere else: an empty value is not a key', () => {
+    process.env.INNGEST_EVENT_KEY = '';
+    process.env.INNGEST_SIGNING_KEY = '';
+    expect(runnerFromEnv().name).toBe('inline');
   });
 });

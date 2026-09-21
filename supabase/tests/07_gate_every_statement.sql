@@ -31,8 +31,14 @@ begin
   set role app_rw;
   perform test.as_member(org, analyst);
 
-  insert into submissions (org_id, deduction_id, decision_id, channel)
-    values (org, ded, dec, 'manual_portal') returning id into sub;
+  -- Complete when written: migration 0018 refuses a manual filing that does not
+  -- say what went out, under what reference and when, because 0017 froze those
+  -- three columns and a row written blank could never be completed (ADR 0023).
+  insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
+                           confirmation_number, submitted_at)
+    values (org, ded, dec, 'manual_portal', digest('filed packet', 'sha256'),
+            'APDP-70001', now())
+    returning id into sub;
   perform test.ok(sub is not null, 'an approved submission is filed');
 
   -- The hole this suite exists for: the gate used to cover INSERT only, so a
@@ -77,13 +83,19 @@ begin
   perform test.expect_error(format('delete from submissions where id = %L', sub),
     'denied', 'a member holds no DELETE on a record of an outbound act');
 
-  -- The lifecycle a submission legitimately has.
-  update submissions
-     set status = 'accepted', confirmation_number = 'APDP-99812', submitted_at = now()
-   where id = sub;
+  -- The lifecycle a submission legitimately has, and nothing beyond it. Since
+  -- ADR 0022 the record of what was *filed* — the packet hash, the confirmation
+  -- number and the filing date — is frozen alongside the channel, and `status`
+  -- is the one column that still moves: it says where a filing got to, not what
+  -- was filed. The full account is in supabase/tests/12.
+  update submissions set status = 'accepted' where id = sub;
   perform test.ok(
-    (select confirmation_number from submissions where id = sub) = 'APDP-99812',
-    'a confirmation number can still be recorded after filing');
+    (select status from submissions where id = sub) = 'accepted',
+    'a retailer''s answer can still be recorded against a filing');
+  perform test.expect_error(format(
+    'update submissions set confirmation_number = ''APDP-99812'' where id = %L', sub),
+    'immutable once written',
+    'but the confirmation number it was filed under cannot be rewritten');
 
   -- Write-offs: the approved amount and the recorded amount stay the same thing.
   declare wo uuid;

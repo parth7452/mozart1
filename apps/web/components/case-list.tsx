@@ -1,6 +1,9 @@
 import Link from 'next/link';
+import type { UnreadDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { deadline, money, retailer } from '../lib/format';
+import { resolveNotice } from '../lib/notices';
+import { UnreadDocuments } from './unread-documents';
 
 export interface Viewer {
   readonly email: string;
@@ -21,17 +24,34 @@ export function CaseList({
   cases,
   today,
   mayUpload,
+  unread,
   notice,
+  noticeAbout,
 }: {
   viewer: Viewer;
   cases: readonly CaseSummary[];
   today: Date;
   /** Whether this member's role may add a document; the database decides too. */
   mayUpload: boolean;
-  /** What happened to the last upload, when something did. */
+  /**
+   * Documents that were stored and scanned clean and never read.
+   *
+   * Shown only to a member who may write, because the only thing to do about
+   * one is ask for it to be read — and a reader who cannot ask would be looking
+   * at a list of things they are not allowed to fix.
+   */
+  unread?: readonly UnreadDocument[] | undefined;
+  /**
+   * What happened to the last upload, as a notice *key* — never the sentence
+   * itself, which arrives in a query string anybody can write
+   * (`lib/notices.ts`). A key this app does not know shows nothing at all.
+   */
   notice?: string | undefined;
+  /** The validated fragments the key's text names, in order. */
+  noticeAbout?: readonly string[] | undefined;
 }) {
   const total = cases.reduce((sum, row) => sum + row.deductionAmountCents, 0);
+  const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
     <>
@@ -43,7 +63,9 @@ export function CaseList({
         </span>
       </header>
       <main>
-        {notice !== undefined ? <p className="notice bad">{notice}</p> : null}
+        {said === undefined ? null : (
+          <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
+        )}
         {mayUpload ? (
           <form className="card upload" action="/upload" method="post" encType="multipart/form-data">
             <label htmlFor="file">
@@ -61,6 +83,7 @@ export function CaseList({
             </div>
           </form>
         ) : null}
+        {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <div className="card">
           <h2 className="section" style={{ marginTop: 0 }}>
             {cases.length === 0

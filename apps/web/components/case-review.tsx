@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
+import type { CaseWorkflow } from '@recouple/pipeline';
 import {
   DECLINE_REASONS,
   MISSING_EVIDENCE_TYPES,
@@ -8,6 +9,9 @@ import {
   type StoredField,
 } from '@recouple/store-postgres';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
+import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
+import { CaseActions } from './case-actions';
+import { CaseTimeline } from './case-timeline';
 import type { Viewer } from './case-list';
 
 /** Which document a reviewer looks at first: the notice the case came from. */
@@ -45,8 +49,25 @@ export interface CaseReviewProps {
   readonly today: Date;
   /** Whether this member's role may add documents and decide. */
   readonly mayAct: boolean;
-  /** The outcome of the action just taken, carried back on the redirect. */
+  /**
+   * Whether this member's role may approve a packet (`owner`, `approver`).
+   * Defaults to no: a view that cannot tell should not offer the one button
+   * the database exists to refuse.
+   */
+  readonly mayApprove?: boolean;
+  /** Who is looking, so a preparer can be told why they see no approve button. */
+  readonly viewerUserId?: string;
+  /** Everything that has happened to this case, from one `getWorkflow` read. */
+  readonly workflow?: CaseWorkflow | undefined;
+  /**
+   * The outcome of the action just taken, carried back on the redirect as a
+   * notice *key* out of `lib/notices.ts` — never as the sentence, which arrives
+   * in a query string anybody can write. A key this app does not know shows
+   * nothing at all.
+   */
   readonly notice?: string | undefined;
+  /** The validated fragments the key's text names, in order. */
+  readonly noticeAbout?: readonly string[] | undefined;
 }
 
 /**
@@ -87,9 +108,13 @@ const MISSING_EVIDENCE_LABELS: Readonly<Record<MissingEvidence, string>> = {
  *
  * Every value carries the document and page it was read from and the quote as
  * printed, because the reviewer's job is to check the reading rather than trust
- * it. There is no approve button: approving is a recorded act by a second person
- * that the database's gate makes meaningful, and a button that only looked like
- * one would be worse than none.
+ * it. The actions beside it are one card per state, and approving is a card
+ * only a second person ever sees: it is a recorded act that the database's gate
+ * makes meaningful, and a button that only looked like one would be worse than
+ * none.
+ *
+ * A pure function of what the store returned. Nothing here reads, decides or
+ * formats money any way but `money()` over integer cents.
  */
 export function CaseReview({
   viewer,
@@ -99,7 +124,11 @@ export function CaseReview({
   costMicros,
   today,
   mayAct,
+  mayApprove = false,
+  viewerUserId = '',
+  workflow,
   notice,
+  noticeAbout,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -116,6 +145,10 @@ export function CaseReview({
   // as unmatched — and only "Retailer unknown" when nothing was read at all.
   const who = retailer(summary, 'Retailer unknown');
   const findings: readonly Finding[] = reconciliation?.findings ?? [];
+  // The packet lists document ids; the fields already carry what each document
+  // was called. Nothing is looked up for this — it is the same read.
+  const filenames = new Map(fields.map((f) => [f.documentId, f.filename]));
+  const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
     <>
@@ -209,8 +242,12 @@ export function CaseReview({
             {/* What the last action came back saying — a decline recorded, a
                 duplicate claim the upload route sent us here to explain. Same
                 treatment as the case list's, because it is the same kind of
-                answer. */}
-            {notice !== undefined ? <p className="notice bad">{notice}</p> : null}
+                answer, and in the tone the notice carries: a packet assembled
+                and a packet refused are not the same news, and both in red
+                taught a reviewer to read red as "ignore me". */}
+            {said === undefined ? null : (
+              <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
+            )}
 
             {mayAct ? (
               <div className="card" style={{ marginTop: 18 }}>
@@ -235,7 +272,22 @@ export function CaseReview({
               </div>
             ) : null}
 
-            {mayAct ? (
+            <CaseActions
+              deductionId={summary.deductionId}
+              state={summary.state}
+              workflow={workflow}
+              mayAct={mayAct}
+              mayApprove={mayApprove}
+              viewerUserId={viewerUserId}
+              filenames={filenames}
+            />
+
+            {/* Fighting and declining are the two answers to the same
+                question, so they are offered together and only while the
+                question is open. Once a decision is recorded the case has left
+                `classified`, and declining a case somebody decided to dispute
+                is not a thing to offer. */}
+            {mayAct && summary.state === 'classified' && workflow?.decision === undefined ? (
               <div className="card decline" style={{ marginTop: 18 }}>
                 <h2 className="section" style={{ marginTop: 0 }}>
                   Not worth fighting?
@@ -269,17 +321,25 @@ export function CaseReview({
                   </fieldset>
 
                   <label htmlFor="detail">Anything a later reader would need</label>
-                  <textarea id="detail" name="detail" rows={3} maxLength={2000} />
+                  <textarea
+                    id="detail"
+                    name="detail"
+                    rows={3}
+                    maxLength={DECLINE_DETAIL_MAX_LENGTH}
+                  />
 
                   <button type="submit">Record this decline</button>
                 </form>
               </div>
             ) : null}
 
+            <CaseTimeline workflow={workflow} viewerUserId={viewerUserId} />
+
             <div className="gate">
-              Nothing has been sent anywhere. Approving a case is a separate, recorded act by a
-              second person, and the database refuses a submission that has no approval row — so
-              there is no approve button here until that action exists.
+              Nothing leaves this app. A dispute is filed by a person on the retailer&rsquo;s
+              portal and recorded here, and the database refuses a submission that has no approval
+              row for this exact decision — so the approve card is a second person&rsquo;s, and it
+              is the only way this case moves.
               <br />
               <br />
               Read so far: {money(Math.round(costMicros / 10_000))} of model spend on{' '}

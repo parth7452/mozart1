@@ -11,37 +11,47 @@
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 8
     },
     "held_out": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 12
     },
     "scanned": {
       "recall": 0.9907834101382489,
       "precision": 1,
       "groundedRate": 0.9995471014492754,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 12
     },
     "dense": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 1
     },
     "email_body": {
       "recall": 1,
       "precision": 1,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 1
     },
     "logistics": {
       "recall": 0.8947368421052632,
       "precision": 0.8947368421052632,
       "groundedRate": 1,
-      "classificationAccuracy": 1
+      "classificationAccuracy": 1,
+      "documents": 5
     }
+  },
+  "pendingSuites": {
+    "authored_pending": "not yet recorded: 1 fixture documents, no cassettes. `pnpm record:cassettes --suite authored_pending` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer.",
+    "customer": "not yet recorded: 15 fixture documents, no cassettes. `pnpm record:cassettes --suite customer` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }

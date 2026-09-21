@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   buildExtractionResult,
   type ClassificationResult,
@@ -7,10 +8,34 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
-import type { PipelineDeps } from '@recouple/pipeline';
+import { processUpload, type PipelineDeps, type StoredDocument } from '@recouple/pipeline';
+import { InngestRunner, type UploadRunner } from '../lib/pipeline';
 import { NextRequest } from 'next/server';
-import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
+import {
+  AlwaysCleanScanner,
+  AlwaysInfectedScanner,
+  InMemoryStore,
+} from '@recouple/pipeline/testing';
 import type { PostgresStore } from '@recouple/store-postgres';
+import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
+
+/**
+ * What the reviewer is told: the notice key the redirect carried, resolved.
+ *
+ * A key, never a sentence — the query string is a thing anybody can type, and
+ * an app that repeats what it finds there is an app a link can put words into.
+ * These went through the URL as prose until this was fixed, including the
+ * filename a stranger chose and the claim id printed on their document
+ * (`lib/notices.ts`). Resolving here means a key the table does not have fails
+ * the assertion rather than passing it with its own name.
+ */
+function said(response: Response): string | undefined {
+  const at = new URL(response.headers.get('location') as string);
+  return resolveNotice(
+    at.searchParams.get('upload') ?? undefined,
+    at.searchParams.getAll(NOTICE_ABOUT_PARAM),
+  )?.text;
+}
 
 /**
  * What the upload route does with the failures the pipeline can now hand it.
@@ -41,6 +66,10 @@ class RouteTestStore extends InMemoryStore {
   async close(): Promise<void> {
     this.closed += 1;
   }
+  /** And the one a job owes itself: the document it was handed the id of. */
+  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+    return this.documents.get(documentId);
+  }
 }
 
 const harness = vi.hoisted(() => ({
@@ -49,6 +78,8 @@ const harness = vi.hoisted(() => ({
   role: 'analyst' as string,
   /** How many times the session was resolved, so ordering can be asserted. */
   sessions: 0,
+  /** Left undefined to get the environment's own answer: the inline runner. */
+  runner: undefined as UploadRunner | undefined,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -64,10 +95,23 @@ vi.mock('../lib/session', () => ({
   storeFor: () => harness.store as unknown as PostgresStore,
 }));
 
-vi.mock('../lib/pipeline', () => ({
-  mayWrite: (role: string) => role !== 'read_only' && role !== 'accountant_guest',
-  pipelineDepsFor: () => harness.deps as PipelineDeps,
-}));
+/**
+ * The real module with two seams: the deps, so no model is called, and the
+ * runner, so both of the paths ADR 0021 introduced can be exercised here. The
+ * runners themselves are the real `InlineRunner` and `InngestRunner`; which one
+ * is used is the test's choice rather than the environment's, so a stray
+ * INNGEST_EVENT_KEY in someone's `.env` cannot change what these tests run.
+ * Which one an environment *would* choose is asserted in fail-closed.test.tsx.
+ */
+vi.mock('../lib/pipeline', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/pipeline')>();
+  return {
+    ...actual,
+    mayWrite: (role: string) => role !== 'read_only' && role !== 'accountant_guest',
+    pipelineDepsFor: () => harness.deps as PipelineDeps,
+    runnerFromEnv: () => harness.runner ?? new actual.InlineRunner(),
+  };
+});
 
 const { POST } = await import('../app/upload/route');
 
@@ -116,6 +160,11 @@ function stubbedDeps(store: RouteTestStore): PipelineDeps {
   };
 }
 
+/** The same digest `ingestDocument` keys a document on: hex of the bytes. */
+async function sha256Of(bytes: Uint8Array): Promise<string> {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
 /** A POST the route can read: one file, no content-length to argue about. */
 function uploadRequest(
   bytes: Uint8Array,
@@ -141,6 +190,7 @@ describe('uploading a notice whose claim is already a case', () => {
   beforeEach(() => {
     harness.role = 'analyst';
     harness.sessions = 0;
+    harness.runner = undefined;
     harness.store = new RouteTestStore();
     harness.deps = stubbedDeps(harness.store);
   });
@@ -167,7 +217,11 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(second.status).toBe(303);
     const location = new URL(second.headers.get('location') as string);
     expect(location.pathname).toBe(`/cases/${opened?.deductionId}`);
-    expect(location.searchParams.get('upload')).toMatch(/APDP-99812 is already this case/);
+    expect(location.searchParams.get('upload')).toBe('upload_duplicate_case');
+    // The claim id was read off somebody else's page, so it travels as a
+    // validated fragment rather than inside a sentence.
+    expect(location.searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual(['APDP-99812']);
+    expect(said(second)).toMatch(/claim APDP-99812 is already this case/);
     expect(store.cases.size).toBe(1);
 
     // And the read that got us here is still on the books: it happened, and it
@@ -200,7 +254,7 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(response.status).toBe(303);
     const location = new URL(response.headers.get('location') as string);
     expect(location.pathname).toBe(`/cases/${caseId}`);
-    expect(location.searchParams.get('upload')).toBe('choose a file first');
+    expect(said(response)).toBe('choose a file first');
   });
 
   it('refuses a cross-site POST with a 403, before the session is resolved', async () => {
@@ -240,7 +294,7 @@ describe('uploading a notice whose claim is already a case', () => {
     const to = new URL(response.headers.get('location') as string);
     // Back to the list: the case page they came from is not theirs to return to.
     expect(to.pathname).toBe('/');
-    expect(to.searchParams.get('upload')).toMatch(/no longer available; nothing was uploaded/);
+    expect(said(response)).toMatch(/no longer available; nothing was uploaded/);
 
     // Nothing read, nothing spent, nothing stored — the refusal is before all
     // of it, and it is not swallowed into a page that looks like it worked.
@@ -259,5 +313,227 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
     expect(store.documents.size).toBe(0);
     expect(store.modelCalls).toHaveLength(0);
+  });
+});
+
+describe('uploading where the read runs as a job', () => {
+  /** Every event the runner sent, in order. */
+  let sent: { name: string; data: Record<string, unknown> }[] = [];
+
+  function jobRunner(): UploadRunner {
+    sent = [];
+    const client = {
+      async send(event: { name: string; data: Record<string, unknown> }) {
+        sent.push(event);
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0];
+    return new InngestRunner(client);
+  }
+
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+    harness.runner = jobRunner();
+  });
+
+  it('stores the bytes, announces the document by id, and reads nothing', async () => {
+    const store = harness.store as RouteTestStore;
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    // The bytes are in, and scanned. Nothing was read and nothing was spent:
+    // that is the job's work now.
+    expect(store.documents.size).toBe(1);
+    expect(store.scans).toHaveLength(1);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.cases.size).toBe(0);
+    expect(store.closed).toBe(1);
+
+    // One event, carrying ids and the member who uploaded it — and no word of
+    // what is on the page (invariant 4).
+    const documentId = [...store.documents.keys()][0];
+    expect(sent).toEqual([
+      {
+        name: 'document/read.requested',
+        data: {
+          documentId,
+          orgId: ORG_ID,
+          userId: '22222222-2222-2222-2222-222222222222',
+          // The runtime's idempotency key, and for an upload it is the document
+          // id: a redelivery of *this* event is one read. A re-drive is a
+          // different request and carries a fresh key, so it is never swallowed
+          // by this one's window — which is what keying on the document id
+          // directly did, for twenty-four hours (ADR 0021).
+          readKey: documentId,
+        },
+      },
+    ]);
+    const payload = JSON.stringify(sent);
+    expect(payload).not.toContain('APDP-99812');
+    expect(payload).not.toContain('Walmart');
+
+    // And the reviewer is told, rather than sent to a case that does not exist.
+    expect(response.status).toBe(303);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe('/');
+    expect(said(response)).toMatch(/being read/);
+  });
+
+  it('sends no event for a file that did not scan clean', async () => {
+    // The gate is the verdict, and it is in front of the queue as well as in
+    // front of the reader: an infected file is stored, scanned, and stops.
+    const store = harness.store as RouteTestStore;
+    harness.deps = { ...stubbedDeps(store), scanner: new AlwaysInfectedScanner() };
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(0);
+    // The gate's own key, so what a reviewer reads is this app's sentence
+    // rather than clamd's reply passed through a URL.
+    expect(new URL(response.headers.get('location') as string).searchParams.get('upload')).toBe(
+      'upload_not_scanned_clean',
+    );
+    expect(said(response)).toMatch(/did not come back clean from the scanner/);
+  });
+
+  it('refuses a case it cannot resolve before storing anything', async () => {
+    // Still on the request path, because the reviewer is still standing in
+    // front of the case page when they press the button.
+    const store = harness.store as RouteTestStore;
+    const stranger = '44444444-4444-4444-4444-444444444444';
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, stranger));
+
+    expect(store.documents.size).toBe(0);
+    expect(sent).toEqual([]);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe('/');
+    expect(said(response)).toMatch(/no longer available; nothing was uploaded/);
+  });
+
+  it('keeps the document and says so when the queue will not take the event', async () => {
+    // Inngest unreachable. The bytes are already stored and scanned by the time
+    // `send` fails, so a 500 here would report a failed upload for a document
+    // that is safely in the database — and nobody would be expecting it.
+    const store = harness.store as RouteTestStore;
+    const failure = new Error('connect ECONNREFUSED inngest.example');
+    harness.runner = new InngestRunner({
+      async send() {
+        throw failure;
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+      expect(response.status).toBe(303);
+      expect(said(response)).toMatch(/stored and scanned but could not be queued for reading/);
+      // And it points at the list that can recover it, rather than at a second
+      // upload. The second upload was the advice until the read function's
+      // idempotency key made it a lie: the same event for a document that had
+      // stalled was swallowed for twenty-four hours.
+      expect(said(response)).toMatch(/Documents waiting to be read/);
+      expect(said(response)).not.toMatch(/re-queues it/);
+
+      // The document is in, unread, and the failure went somewhere an operator
+      // will see it — with the cause, not just a sentence.
+      expect(store.documents.size).toBe(1);
+      expect(store.scans).toHaveLength(1);
+      expect(store.modelCalls).toHaveLength(0);
+      expect(store.cases.size).toBe(0);
+      expect(store.closed).toBe(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(/could not be queued/), failure);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('queues nothing for bytes it has already read, and sends the reviewer to the case', async () => {
+    // The same file uploaded twice — the second press of a button, mostly.
+    // The inline runner has always answered this from what was recorded
+    // (`processUpload`); the queued one used to announce it anyway, so the job
+    // asked the same question a minute later and answered it the same way,
+    // while the reviewer was told their document was being read and sent to a
+    // list rather than to the case it had already opened.
+    const store = harness.store as RouteTestStore;
+    const first = await processUpload(
+      {
+        orgId: ORG_ID,
+        filename: notice.filename,
+        bytes: notice.bytes,
+        source: 'web_upload' as const,
+        pageText: notice.pageText,
+      },
+      stubbedDeps(store),
+    );
+    const deductionId = first.case?.deductionId as string;
+    expect(deductionId).toBeDefined();
+    const spent = store.modelCalls.length;
+    sent.length = 0;
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    // No event, no second read, no second document.
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(spent);
+    expect(store.documents.size).toBe(1);
+    expect(store.cases.size).toBe(1);
+    // And straight to the case, exactly where the inline path would have sent
+    // them.
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(
+      `/cases/${deductionId}`,
+    );
+    expect(store.closed).toBe(1);
+  });
+
+  it('says so, without queueing, when the document was read and opened no case', async () => {
+    // A document that was read and got no case — an invoice, say, or an
+    // unauthenticated email's notice (ADR 0016). There is nowhere to send the
+    // reviewer, so they are told, and still nothing is queued.
+    const store = harness.store as RouteTestStore;
+    const stored = await store.putDocument({
+      orgId: ORG_ID,
+      sha256: await sha256Of(notice.bytes),
+      filename: notice.filename,
+      mimeType: 'application/pdf',
+      byteSize: notice.bytes.byteLength,
+      bytes: notice.bytes,
+      requiresSplit: false,
+    });
+    await store.recordScan(stored.documentId, { status: 'clean', scanner: 'test' });
+    await store.recordExtraction({
+      documentId: stored.documentId,
+      docType: 'bol',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/already been read/);
+  });
+
+  it('keeps a reviewer attaching evidence on the case they were on', async () => {
+    const store = harness.store as RouteTestStore;
+    const existing = await store.openCase({ orgId: ORG_ID });
+
+    const response = await POST(
+      uploadRequest(notice.bytes, notice.filename, existing.deductionId),
+    );
+
+    expect(sent[0]?.data.attachToCase).toBe(existing.deductionId);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe(`/cases/${existing.deductionId}`);
+    expect(said(response)).toMatch(/being read/);
   });
 });

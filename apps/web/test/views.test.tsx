@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { cents } from '@recouple/core-domain';
+import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
+import { isCanonicalReasonCode } from '@recouple/core-domain';
+import type { CaseWorkflow, UnreadDocument } from '@recouple/pipeline';
 import { CaseList, type Viewer } from '../components/case-list';
+import { UnreadDocuments, waiting } from '../components/unread-documents';
 import { CaseReview } from '../components/case-review';
+import { DISPUTE_REASONS } from '../components/case-actions';
 import { deadline, fieldLabel, money } from '../lib/format';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
@@ -34,6 +38,74 @@ function summary(
     if (value === undefined) delete merged[key];
   }
   return merged as unknown as CaseSummary;
+}
+
+/** The people in these tests: who prepared, who approves, who else is looking. */
+const PREPARER = 'aaaaaaaa-1111-2222-3333-444444444444';
+const APPROVER = 'bbbbbbbb-1111-2222-3333-444444444444';
+const SECOND_ANALYST = 'cccccccc-1111-2222-3333-444444444444';
+const NOTICE_DOC = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+/**
+ * One `getWorkflow` read, at whichever point in the workflow a test needs.
+ *
+ * Built up rather than switched on: a case that has an approval has a packet,
+ * and a case that has a packet has a decision. Assembling it any other way
+ * would let a test assert a page state the store can never produce.
+ */
+function workflow(
+  overrides: {
+    state?: CaseWorkflow['state'];
+    rationale?: string;
+    note?: string;
+    /** Whether a second person has approved the packet yet. */
+    approved?: boolean;
+  } = {},
+): CaseWorkflow {
+  const state = overrides.state ?? 'awaiting_approval';
+  const decision = {
+    decisionId: '99999999-1111-2222-3333-444444444444',
+    deductionId: '11111111-2222-3333-4444-555555555555',
+    reason: 'shortage_quantity',
+    rationale: overrides.rationale ?? 'The signed BOL shows all 30 cases delivered.',
+    preparedBy: PREPARER,
+    decidedAt: new Date('2026-09-19T14:02:00Z'),
+  } as const;
+  const packet = {
+    packetId: '88888888-1111-2222-3333-444444444444',
+    decisionId: decision.decisionId,
+    contentHash: 'f00dcafe1234deadbeef5678f00dcafe1234deadbeef5678f00dcafe12345678',
+    narrative: '# Dispute cover sheet\n\nWalmart (APDP) · $3,120.00 deducted',
+    fileDocumentIds: [NOTICE_DOC, '77777777-1111-2222-3333-444444444444'],
+    assembledBy: PREPARER,
+    assembledAt: new Date('2026-09-19T14:05:00Z'),
+  } as const;
+  const approval = {
+    approvalId: '66666666-1111-2222-3333-444444444444',
+    decisionId: decision.decisionId,
+    approverId: APPROVER,
+    packetHash: packet.contentHash,
+    ...(overrides.note === undefined ? {} : { note: overrides.note }),
+    approvedAt: new Date('2026-09-19T15:00:00Z'),
+  } as const;
+  const submission = {
+    submissionId: '55555555-1111-2222-3333-444444444444',
+    decisionId: decision.decisionId,
+    channel: 'manual_portal',
+    packetHash: packet.contentHash,
+    confirmationNumber: 'WM-DISPUTE-99812',
+    submittedAt: new Date('2026-09-19T16:00:00Z'),
+  } as const;
+
+  const base = { deductionId: decision.deductionId, state };
+  if (state === 'classified') return base;
+  if (state === 'analyst_review') return { ...base, decision };
+  if (state === 'awaiting_approval') {
+    return overrides.approved === true
+      ? { ...base, decision, packet, approval }
+      : { ...base, decision, packet };
+  }
+  return { ...base, decision, packet, approval, submission };
 }
 
 function field(overrides: Partial<StoredField> = {}): StoredField {
@@ -172,10 +244,32 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[]}
         today={today}
-        notice="not scanned clean: error (none)"
+        notice="upload_not_scanned_clean"
       />,
     );
-    expect(html).toContain('not scanned clean: error (none)');
+    expect(html).toContain('did not come back clean from the scanner');
+    // A refusal is red. The key is what travelled; the sentence never left
+    // this app, so it is not something a link can choose.
+    expect(html).toContain('class="notice bad"');
+    expect(html).not.toContain('upload_not_scanned_clean');
+  });
+
+  it('shows a notice in the tone it carries, and nothing for a key it does not know', () => {
+    const good = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
+    );
+    expect(good).toContain('class="notice sent"');
+    expect(good).toContain('that document is being read');
+
+    // A query string is a thing anybody can type, and an app that repeats what
+    // it finds there is an app a link can put words into.
+    for (const forged of ['your session expired, sign in at evil.test', 'constructor', '']) {
+      const html = renderToStaticMarkup(
+        <CaseList mayUpload viewer={viewer} cases={[]} today={today} notice={forged} />,
+      );
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('sign in at');
+    }
   });
 
   it('says what will happen rather than showing an empty table', () => {
@@ -184,6 +278,120 @@ describe('the case list', () => {
     );
     expect(html).toContain('No cases yet');
     expect(html).not.toContain('<table');
+  });
+});
+
+/**
+ * The documents that were stored and scanned and never read.
+ *
+ * This section is the visible half of a failure that had no visible half at
+ * all: an upload queued, a read that never ran, no error anywhere, and a
+ * reviewer told for ever that the document was being read. What is tested here
+ * is that it says which documents those are, that each one carries a way to ask
+ * again, and that the filename — the one piece of text on this page that
+ * somebody outside chose — is text and not markup.
+ */
+function unread(overrides: Partial<UnreadDocument> = {}): UnreadDocument {
+  return {
+    documentId: 'dddddddd-1111-2222-3333-444444444444',
+    filename: 'walmart-apdp-notice.pdf',
+    createdAt: '2026-09-21T09:00:00.000Z',
+    ageMinutes: 42,
+    onCase: false,
+    ...overrides,
+  };
+}
+
+describe('documents waiting to be read', () => {
+  it('lists each one with how long it has waited and a way to ask again', () => {
+    const html = renderToStaticMarkup(
+      <UnreadDocuments
+        documents={[
+          unread(),
+          unread({
+            documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+            filename: 'signed-bol.pdf',
+            ageMinutes: 1500,
+            onCase: true,
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain('Documents waiting to be read');
+    expect(html).toContain('walmart-apdp-notice.pdf');
+    expect(html).toContain('42m');
+    expect(html).toContain('1d');
+    // A POST per document, at that document's own route: asking for a read
+    // spends money, and a link is something a prefetch can follow.
+    expect(html).toContain('action="/documents/dddddddd-1111-2222-3333-444444444444/reread"');
+    expect(html).toContain('method="post"');
+    expect(html).toContain('Read again');
+  });
+
+  it('says nothing at all when nothing is waiting', () => {
+    // An empty section reads as a problem that has not loaded yet. The absence
+    // is the message.
+    expect(renderToStaticMarkup(<UnreadDocuments documents={[]} />)).toBe('');
+  });
+
+  it('renders a filename somebody else chose as text, never as markup', () => {
+    // The filename comes off an upload, which means it comes from outside. It
+    // is the only untrusted string on this page and it is rendered, not built
+    // into anything (invariant 4).
+    const html = renderToStaticMarkup(
+      <UnreadDocuments
+        documents={[
+          unread({
+            filename: '<img src=x onerror="alert(1)">.pdf',
+          }),
+        ]}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+    expect(html).not.toContain('onerror="alert(1)"');
+    // Present, but as text.
+    expect(html).toContain('&lt;img src=x onerror=');
+  });
+
+  it('shows a dash for a document whose row kept no name', () => {
+    const html = renderToStaticMarkup(<UnreadDocuments documents={[unread({ filename: '' })]} />);
+    expect(html).toContain('—');
+  });
+
+  it('reads the wait in the largest unit that is still honest', () => {
+    expect(waiting(0)).toBe('0m');
+    expect(waiting(59)).toBe('59m');
+    expect(waiting(60)).toBe('1h');
+    expect(waiting(1439)).toBe('23h');
+    expect(waiting(1440)).toBe('1d');
+  });
+
+  it('is on the case list for a writer, and not for a reader', () => {
+    // A reader cannot ask for a read, so a list of documents they are not
+    // allowed to fix is worse than no list.
+    const writer = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} unread={[unread()]} />,
+    );
+    expect(writer).toContain('Documents waiting to be read');
+
+    const reader = renderToStaticMarkup(
+      <CaseList
+        mayUpload={false}
+        viewer={{ ...viewer, role: 'read_only' }}
+        cases={[]}
+        today={today}
+        unread={[unread()]}
+      />,
+    );
+    expect(reader).not.toContain('Documents waiting to be read');
+  });
+
+  it('is absent from a case list with nothing waiting', () => {
+    const html = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
+    );
+    expect(html).not.toContain('Documents waiting to be read');
   });
 });
 
@@ -278,7 +486,11 @@ describe('the review page', () => {
     );
     expect(html).not.toContain('<button');
     expect(html).not.toMatch(/<form/i);
-    expect(html).toContain('Nothing has been sent anywhere');
+    // The same claim the page has always made, in the words it makes it in now
+    // that the actions exist: this app files nothing, and a filing without an
+    // approval for that exact decision is refused by the database.
+    expect(html).toContain('Nothing leaves this app');
+    expect(html).toContain('refuses a submission that has no approval row');
   });
 
   it('escapes text that came out of somebody else’s document', () => {
@@ -402,34 +614,398 @@ describe('what a reviewer can do with a case', () => {
   });
 
   it('shows the outcome of an action it was sent back with', () => {
-    const html = renderToStaticMarkup(
-      <CaseReview {...props} mayAct={true} notice="recorded: this case is logged as declined" />,
-    );
-    expect(html).toContain('recorded: this case is logged as declined');
+    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} notice="declined" />);
+    expect(html).toContain('recorded: this case is logged as declined, not discarded');
+    // Recorded is not a refusal. A page that paints every answer red teaches a
+    // reviewer to stop reading them.
+    expect(html).toContain('class="notice sent"');
   });
 
-  it('says why an upload landed on a case it did not open, and escapes what it quotes', () => {
-    // The upload route redirects here when a second notice names a claim that
-    // is already a case. The message quotes the claim id, which was read off
-    // somebody else's document, so it is escaped like every other value here.
-    const html = renderToStaticMarkup(
+  it('paints a refusal red and a thing that worked green', () => {
+    const bad = renderToStaticMarkup(
+      <CaseReview {...props} mayAct={true} notice="decide_rationale" />,
+    );
+    expect(bad).toContain('class="notice bad"');
+    expect(bad).toContain('say in one line why');
+
+    const good = renderToStaticMarkup(
       <CaseReview
         {...props}
         mayAct={true}
-        notice={'claim <script>alert(1)</script> is already this case'}
+        notice="packet_assembled"
+        noticeAbout={['2', 'f00dcafe1234']}
       />,
     );
-    expect(html).toContain('class="notice bad"');
-    expect(html).toContain('is already this case');
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('&lt;script&gt;');
+    expect(good).toContain('class="notice sent"');
+    expect(good).toContain('packet assembled: 2 documents under f00dcafe1234');
   });
 
-  it('still has no approve button, whatever the role', () => {
-    // Approving is a recorded act the database gates. A button that only looked
-    // like one would be worse than none.
-    const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} />);
-    expect(html).not.toMatch(/>\s*Approve/);
-    expect(html).toContain('no approve button');
+  it('says nothing at all for a notice this app did not send', () => {
+    // The upload route used to redirect here carrying the claim id a second
+    // notice printed, as prose, which made this page a place a link could put
+    // words into. Now the claim travels as a validated fragment and a sentence
+    // is not a notice at all — stronger than escaping it, because there is
+    // nothing left to escape.
+    for (const forged of [
+      'claim <script>alert(1)</script> is already this case',
+      'upload_duplicate_case',
+      'toString',
+      '',
+    ]) {
+      const html = renderToStaticMarkup(<CaseReview {...props} mayAct={true} notice={forged} />);
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('<script>');
+      expect(html, forged).not.toContain('is already this case');
+    }
+  });
+
+  it('shows a claim id that is one, and no notice at all for one that is not', () => {
+    const real = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        mayAct={true}
+        notice="upload_duplicate_case"
+        noticeAbout={['APDP-99812']}
+      />,
+    );
+    expect(real).toContain('claim APDP-99812 is already this case');
+
+    // A claim id is read off somebody else's document. The shape is the check.
+    for (const forged of ['<script>alert(1)</script>', 'x'.repeat(200), '" onload="']) {
+      const html = renderToStaticMarkup(
+        <CaseReview
+          {...props}
+          mayAct={true}
+          notice="upload_duplicate_case"
+          noticeAbout={[forged]}
+        />,
+      );
+      expect(html, forged).not.toContain('class="notice');
+      expect(html, forged).not.toContain('<script>');
+      expect(html, forged).not.toContain('onload=');
+    }
+  });
+
+  it('still has no approve button for a member who may act but may not approve', () => {
+    // Approving is a recorded act the database gates, and an analyst is not on
+    // the list. Not even on a case that is waiting for exactly that: a button
+    // that only looked like one would be worse than none.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        summary={summary({ state: 'awaiting_approval' })}
+        workflow={workflow({ state: 'awaiting_approval' })}
+        viewerUserId={SECOND_ANALYST}
+        mayAct={true}
+        mayApprove={false}
+      />,
+    );
+    expect(html).not.toMatch(/<button[^>]*>\s*Approve for submission/);
+    expect(html).toContain('Waiting on an owner or an approver');
+  });
+});
+
+/**
+ * One card per state, shown only to a member whose role may take that action.
+ *
+ * None of this is the enforcement — the database refuses an approval by the
+ * preparer, a submission with no approval and a write by a `read_only` member
+ * whatever is rendered. What these assert is that a reviewer is never shown a
+ * button the database is going to refuse, and is told why when the action is
+ * somebody else's.
+ */
+describe('the Phase 3 action cards', () => {
+  const base = {
+    viewer,
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+  };
+
+  function render(
+    props: Partial<Parameters<typeof CaseReview>[0]> & { summary: CaseSummary },
+  ): string {
+    return renderToStaticMarkup(
+      <CaseReview {...base} mayAct={true} viewerUserId={SECOND_ANALYST} {...props} />,
+    );
+  }
+
+  it('offers the decision, and the decline beside it, only from classified', () => {
+    const html = render({ summary: summary({ state: 'classified' }) });
+    expect(html).toContain('action="/cases/11111111-2222-3333-4444-555555555555/decide"');
+    expect(html).toContain('Decide to dispute');
+    // The two answers to one question, offered together.
+    expect(html).toContain('/decline');
+
+    // And nothing else yet.
+    expect(html).not.toContain('/packet"');
+    expect(html).not.toContain('Approve for submission');
+    expect(html).not.toContain('/submit"');
+    expect(html).not.toContain('/outcome"');
+  });
+
+  it('offers no decision, and no decline, once one has been made', () => {
+    // Fighting and declining are mutually exclusive: a case somebody decided to
+    // dispute is not one to offer a decline on, and the state has moved anyway.
+    const html = render({
+      summary: summary({ state: 'analyst_review' }),
+      workflow: workflow({ state: 'analyst_review' }),
+    });
+    expect(html).not.toContain('/decide"');
+    expect(html).not.toContain('/decline"');
+  });
+
+  it('offers every reason as a canonical code, so the taxonomy cannot drift', () => {
+    const html = render({ summary: summary({ state: 'classified' }) });
+    for (const [code, label] of DISPUTE_REASONS) {
+      expect(isCanonicalReasonCode(code), code).toBe(true);
+      expect(html, code).toContain(`value="${code}"`);
+      expect(html, code).toContain(label);
+    }
+  });
+
+  it('offers the packet only from analyst_review, with the decision it is for', () => {
+    const html = render({
+      summary: summary({ state: 'analyst_review' }),
+      workflow: workflow({ state: 'analyst_review' }),
+    });
+    expect(html).toContain('action="/cases/11111111-2222-3333-4444-555555555555/packet"');
+    expect(html).toContain('name="decisionId" value="99999999-1111-2222-3333-444444444444"');
+    expect(html).toContain('Assemble the packet');
+  });
+
+  it('shows the packet it assembled: the narrative, the hash and every file', () => {
+    const html = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+    });
+    // The short hash is what a person compares; the whole one is in the record.
+    expect(html).toContain('f00dcafe1234');
+    expect(html).toContain('Dispute cover sheet');
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}"`);
+    expect(html).toContain('walmart-apdp-notice.pdf');
+    expect(html).toContain(
+      'href="/cases/11111111-2222-3333-4444-555555555555/packet">Download cover sheet',
+    );
+  });
+
+  it('offers the approve button to an approver who did not prepare the decision', () => {
+    const html = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+      viewer: { ...viewer, role: 'approver' },
+      mayApprove: true,
+      viewerUserId: APPROVER,
+    });
+    expect(html).toContain('action="/cases/11111111-2222-3333-4444-555555555555/approve"');
+    expect(html).toMatch(/<button[^>]*>Approve for submission<\/button>/);
+    expect(html).toContain('name="packetId" value="88888888-1111-2222-3333-444444444444"');
+    // What is being approved, and that approving is a second person's act.
+    expect(html).toContain('f00dcafe1234');
+    expect(html).toContain('recorded act by a second person');
+  });
+
+  it('offers it to an owner who did not prepare the decision either', () => {
+    // `owner` is on both lists: they may write, and they may approve. The one
+    // thing that stops them is having prepared this decision themselves, and
+    // this one did not.
+    const html = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+      viewer: { ...viewer, role: 'owner' },
+      mayApprove: true,
+      viewerUserId: APPROVER,
+    });
+    expect(html).toMatch(/<button[^>]*>Approve for submission<\/button>/);
+    expect(html).toContain('action="/cases/11111111-2222-3333-4444-555555555555/approve"');
+  });
+
+  it('tells a read_only member whose approval is awaited, not what an analyst may do', () => {
+    // A `read_only` member can see the case and do nothing with it. The
+    // analyst's sentence — "your role can prepare a case and assemble its
+    // packet" — sends them off to press buttons the write policies refuse and
+    // this page does not render.
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        viewer={{ ...viewer, role: 'read_only' }}
+        summary={summary({ state: 'awaiting_approval' })}
+        workflow={workflow({ state: 'awaiting_approval' })}
+        mayAct={false}
+        mayApprove={false}
+        viewerUserId={SECOND_ANALYST}
+      />,
+    );
+    expect(html).toContain('Waiting on an owner or an approver');
+    expect(html).toContain('read this case but not act on it');
+    expect(html).not.toContain('assemble its packet');
+    // And still no way to act on it.
+    expect(html).not.toMatch(/<form/i);
+    expect(html).not.toMatch(/<button/i);
+  });
+
+  it('caps the rationale at the length the cover sheet holds, not a number of its own', () => {
+    // The browser stopping somewhere other than `MAX_RATIONALE_LENGTH` would
+    // be this form disagreeing with the store that refuses on it — either
+    // cutting a rationale the packet had room for, or letting one through that
+    // the append-only `decisions` row could not then be packeted from.
+    const html = render({ summary: summary({ state: 'classified' }) });
+    expect(html).toContain(`maxLength="${MAX_RATIONALE_LENGTH}"`);
+    expect(html).toContain('In one line, for whoever approves it');
+  });
+
+  it('does not offer it to the preparer on their own decision, and says why', () => {
+    // Separation of duties, which the database enforces. The page saying why
+    // is the difference between a refusal and a button that mysteriously fails.
+    const html = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+      viewer: { ...viewer, role: 'owner' },
+      mayApprove: true,
+      viewerUserId: PREPARER,
+    });
+    expect(html).not.toMatch(/<button[^>]*>Approve for submission/);
+    expect(html).toContain('You prepared this decision');
+  });
+
+  it('offers the filing form only once there is an approval', () => {
+    const waiting = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+    });
+    expect(waiting).not.toContain('/submit"');
+
+    const approved = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval', approved: true }),
+    });
+    expect(approved).toContain('action="/cases/11111111-2222-3333-4444-555555555555/submit"');
+    expect(approved).toContain('name="approvalId" value="66666666-1111-2222-3333-444444444444"');
+    // The channel is fixed and not a choice, and the instructions are plain.
+    expect(approved).toContain('manual portal');
+    expect(approved).toContain('Attach the cover sheet');
+    // A retailer's own rules are data, not code: the page says to follow the
+    // routing guide rather than naming a portal it does not know.
+    expect(approved).toContain('playbook data this app does not hold yet');
+  });
+
+  it('offers the outcome form only once the case was filed', () => {
+    const filed = render({
+      summary: summary({ state: 'submitted' }),
+      workflow: workflow({ state: 'submitted' }),
+    });
+    expect(filed).toContain('action="/cases/11111111-2222-3333-4444-555555555555/outcome"');
+    expect(filed).toContain('value="partial"');
+    expect(filed).toContain('Dollars and cents, as written');
+    expect(filed).not.toContain('/approve"');
+  });
+
+  it('offers no card at all to a member who may not write', () => {
+    for (const state of [
+      'classified',
+      'analyst_review',
+      'awaiting_approval',
+      'submitted',
+    ] as const) {
+      const html = renderToStaticMarkup(
+        <CaseReview
+          {...base}
+          viewer={{ ...viewer, role: 'read_only' }}
+          summary={summary({ state })}
+          workflow={workflow({ state, approved: true })}
+          mayAct={false}
+          mayApprove={false}
+          viewerUserId={SECOND_ANALYST}
+        />,
+      );
+      expect(html, state).not.toMatch(/<form/i);
+      expect(html, state).not.toMatch(/<button/i);
+    }
+  });
+});
+
+describe('the timeline', () => {
+  const base = {
+    viewer,
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+    mayAct: false,
+  };
+
+  it('says nothing has been done when nothing has', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview {...base} summary={summary()} viewerUserId={SECOND_ANALYST} />,
+    );
+    expect(html).toContain('This case has been read and nothing else');
+  });
+
+  it('records each act with who did it and when, in UTC', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ state: 'submitted' })}
+        workflow={workflow({ state: 'submitted', note: 'Checked the BOL myself.' })}
+        viewerUserId={APPROVER}
+      />,
+    );
+    expect(html).toContain('Decided to dispute');
+    expect(html).toContain('shortage_quantity');
+    expect(html).toContain('2026-09-19 14:02 UTC');
+    expect(html).toContain('Packet assembled');
+    expect(html).toContain('Approved for submission');
+    // The approver is the one looking, so the page says so rather than showing
+    // them their own id.
+    expect(html).toContain('you · 2026-09-19 15:00 UTC');
+    expect(html).toContain('Checked the BOL myself.');
+    expect(html).toContain('Filed');
+    expect(html).toContain('WM-DISPUTE-99812');
+    // Somebody else is an id, honestly, because the port carries no names.
+    expect(html).toContain(PREPARER.slice(0, 8));
+  });
+
+  it('escapes the rationale, the note and the narrative, which are not markup', () => {
+    // A rationale is typed by a person and a narrative quotes somebody else's
+    // document. Both reach this page as text or not at all.
+    const attack = '<img src=x onerror="alert(1)">';
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ state: 'submitted' })}
+        workflow={workflow({ state: 'submitted', rationale: attack, note: attack })}
+        viewerUserId={SECOND_ANALYST}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+    expect(html).not.toContain('onerror="alert(1)"');
+    expect(html).toContain('&lt;img src=x onerror=');
+  });
+
+  it('shows a recovered amount as money made of integer cents', () => {
+    const paid = workflow({ state: 'submitted' });
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ state: 'partial' })}
+        workflow={{
+          ...paid,
+          state: 'partial',
+          outcome: {
+            eventId: '44444444-1111-2222-3333-444444444444',
+            deductionId: paid.deductionId,
+            outcome: 'partial',
+            recoveredCents: 180_000,
+            recordedBy: SECOND_ANALYST,
+            recordedAt: new Date('2026-09-25T10:00:00Z'),
+          },
+        }}
+        viewerUserId={SECOND_ANALYST}
+      />,
+    );
+    expect(html).toContain('Outcome: partial');
+    expect(html).toContain('$1,800.00 recovered');
+    expect(html).toContain('you · 2026-09-25 10:00 UTC');
   });
 });

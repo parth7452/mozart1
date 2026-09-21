@@ -1,0 +1,15 @@
+FREIGHT INVOICE
+Crestline Freight LLC / Receivables
+INVOICE
+CF-260902 | September 2, 2026 | Terms net 30
+CUSTOMER
+Westhaven Paper Supply | Load LD-202 | PO WP-202
+SHIPMENT
+80 cartons of paper stock | Columbus, OH to Pittsburgh, PA
+LINEHAUL
+$5,000.00
+FUEL SURCHARGE
+$600.00
+INVOICE TOTAL
+$5,600.00 | USD | Delivery September 1, 2026
+LOG-202 | CF-260902 | Page 1 of 1

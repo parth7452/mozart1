@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { flattenExtraction, schemaFor, verifyQuotes, type DocType } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
-import { scoreDocument, summarise } from '../src/score';
+import { scoreDocument, summarise, type SuiteScore } from '../src/score';
 import {
   DEFAULT_TOLERANCE,
+  findCoverageShortfalls,
   findRegressions,
   toBaseline,
   type Baseline,
@@ -109,6 +110,23 @@ describe('scoring', () => {
   });
 });
 
+/**
+ * A suite that scored `count` documents, all of them perfectly.
+ *
+ * The rates are deliberately flawless: these tests are about *how much* a run
+ * measured, and a suite that scored fewer documents must fail on that alone,
+ * with nothing for the rate gate to catch it by.
+ */
+const scoredSuite = (count: number): SuiteScore => ({
+  ...summarise([], { classificationAccuracy: 1 }),
+  recall: 1,
+  precision: 1,
+  groundedRate: 1,
+  documents: Array.from({ length: count }, (_, i) =>
+    scoreDocument({ key: `doc-${i}`, truth: {}, fields: [] }),
+  ),
+});
+
 describe('the regression gate', () => {
   const baseline: Baseline = {
     recordedAt: '2026-09-18T00:00:00.000Z',
@@ -189,6 +207,129 @@ describe('the regression gate', () => {
     expect(recorded.extractModel).toBe('claude-sonnet-5');
     expect(recorded.suites?.scanned?.recall).toBe(0.9);
     expect(recorded.recordedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('records how many documents each suite scored, not only how well', () => {
+    // The count is what makes a shorter run detectable at all; a rate cannot
+    // say whether it is an average over four documents or three.
+    const recorded = toBaseline(summarise([], { classificationAccuracy: 1 }), 'claude-sonnet-5', {
+      scanned: scoredSuite(4),
+    });
+    expect(recorded.suites?.scanned?.documents).toBe(4);
+  });
+
+  it('names a suite as pending only when there is one, and never invents a row for it', () => {
+    // A suite with no cassettes has no numbers. `pendingSuites` says so in the
+    // file itself; an empty map would be noise, so it is left out entirely.
+    const nothingPending = toBaseline(
+      summarise([], { classificationAccuracy: 1 }),
+      'claude-sonnet-5',
+      { authored: suite(1) },
+    );
+    expect(nothingPending.pendingSuites).toBeUndefined();
+    expect(Object.keys(nothingPending)).not.toContain('pendingSuites');
+
+    const pending = toBaseline(
+      summarise([], { classificationAccuracy: 1 }),
+      'claude-sonnet-5',
+      { authored: suite(1) },
+      { customer: 'not yet recorded: 15 fixture documents, no cassettes.' },
+    );
+    expect(pending.pendingSuites).toEqual({
+      customer: 'not yet recorded: 15 fixture documents, no cassettes.',
+    });
+    // Pending is not scored: it gets a reason, never a metric.
+    expect(pending.suites?.customer).toBeUndefined();
+  });
+});
+
+describe('the coverage gate', () => {
+  const baseline: Baseline = {
+    recordedAt: '2026-09-18T00:00:00.000Z',
+    extractModel: 'claude-sonnet-5',
+    recall: 1,
+    precision: 1,
+    groundedRate: 0.99,
+    classificationAccuracy: 1,
+    totalCostMicros: 120_000,
+    suites: {
+      authored: {
+        recall: 1,
+        precision: 1,
+        groundedRate: 1,
+        classificationAccuracy: 1,
+        documents: 8,
+      },
+      scanned: {
+        recall: 1,
+        precision: 1,
+        groundedRate: 0.98,
+        classificationAccuracy: 1,
+        documents: 4,
+      },
+    },
+  };
+
+  it('passes a run that scored every document the baseline scored', () => {
+    expect(
+      findCoverageShortfalls(baseline, { authored: scoredSuite(8), scanned: scoredSuite(4) }),
+    ).toEqual([]);
+    // More than the baseline is a bigger corpus, not a shortfall.
+    expect(
+      findCoverageShortfalls(baseline, { authored: scoredSuite(9), scanned: scoredSuite(4) }),
+    ).toEqual([]);
+  });
+
+  it('fails a suite the baseline has seen that is short this run', () => {
+    const shortfalls = findCoverageShortfalls(baseline, {
+      authored: scoredSuite(8),
+      scanned: scoredSuite(3),
+    });
+    expect(shortfalls).toEqual([{ suite: 'scanned', baselineDocuments: 4, currentDocuments: 3 }]);
+
+    // And the rate gate cannot see it: three perfect cassettes out of four
+    // average exactly as well as four did, which is the hole this closes.
+    expect(
+      findRegressions(baseline, DEFAULT_TOLERANCE, {
+        authored: scoredSuite(8),
+        scanned: scoredSuite(3),
+      }),
+    ).toEqual([]);
+  });
+
+  it('fails a suite the baseline has seen that is absent this run', () => {
+    expect(findCoverageShortfalls(baseline, { authored: scoredSuite(8) })).toEqual([
+      { suite: 'scanned', baselineDocuments: 4, currentDocuments: 0 },
+    ]);
+  });
+
+  it('still catches a vanished suite in a baseline recorded before counts existed', () => {
+    const old: Baseline = {
+      ...baseline,
+      suites: {
+        scanned: { recall: 1, precision: 1, groundedRate: 0.98, classificationAccuracy: 1 },
+      },
+    };
+    expect(findCoverageShortfalls(old, {})).toEqual([
+      { suite: 'scanned', baselineDocuments: null, currentDocuments: 0 },
+    ]);
+    // Without a count there is nothing to be short of, so a suite that merely
+    // shrank cannot be caught until the baseline is recorded again.
+    expect(findCoverageShortfalls(old, { scanned: scoredSuite(1) })).toEqual([]);
+  });
+
+  it('says nothing about a suite the baseline has never seen', () => {
+    // An unrecorded suite is skipped, not failed — that is the other list.
+    expect(findCoverageShortfalls(baseline, { authored: scoredSuite(8), scanned: scoredSuite(4) })).toEqual(
+      [],
+    );
+    expect(
+      findCoverageShortfalls(baseline, {
+        authored: scoredSuite(8),
+        scanned: scoredSuite(4),
+        customer: scoredSuite(0),
+      }),
+    ).toEqual([]);
   });
 });
 

@@ -1,7 +1,8 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { PostgresStore, resolveSession, type OrgMembership } from '@recouple/store-postgres';
+import { resolveSession, type OrgMembership, type PostgresStore } from '@recouple/store-postgres';
 import { env } from './env';
+import { tenantStore } from './store';
 import { supabaseForRequest } from './supabase';
 
 /** Which tenant the reviewer is looking at, when they belong to more than one. */
@@ -103,10 +104,7 @@ function messageFor(cause: unknown): string {
  * not what we remembered to filter.
  */
 export function storeFor(session: Session): PostgresStore {
-  return new PostgresStore(
-    { connectionString: env.databaseUrl },
-    { orgId: session.org.orgId, userId: session.userId },
-  );
+  return tenantStore({ orgId: session.org.orgId, userId: session.userId });
 }
 
 export { ORG_COOKIE };

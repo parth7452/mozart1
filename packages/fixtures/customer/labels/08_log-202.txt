@@ -1,0 +1,16 @@
+DELIVERY RECEIPT
+Westhaven Paper Supply / Receiving
+RECEIPT
+POD-202 | Load LD-202 | September 1, 2026
+ARRIVAL
+Gate check-in 12:45 PM Eastern | Unloading complete 1:25 PM Eastern
+COUNTS
+Manifest quantity 80 cartons | Received 78 cartons | Short 2 cartons
+EXCEPTION
+Two cartons missing on arrival. No seal or packaging damage reported.
+ACKNOWLEDGMENT
+Receiver: Simon Reed | Carrier driver: Alex Moss. Electronic acknowledgment recorded 1:29 PM
+Eastern by both parties.
+LINKED RECORDS
+PO WP-202 | Appointment AP-202 revision 2 | Condition exception accepted by carrier.
+LOG-202 | CF-260902 | Page 1 of 1

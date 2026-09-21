@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { AlreadyDeclinedError } from '@recouple/store-postgres';
+import { AlreadyDeclinedError, ProvenanceUnknownError } from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
+import { DECLINE_DETAIL_MAX_LENGTH, NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
 /**
  * What the decline route does with everything that is not the happy path.
@@ -20,11 +21,16 @@ import type { PostgresStore } from '@recouple/store-postgres';
 const ORG_ID = '11111111-1111-1111-1111-111111111111';
 const CASE_ID = '33333333-3333-3333-3333-333333333333';
 
+/**
+ * What the route hands the store — and, as of provenance at ingest, what it
+ * does not: there is no `discoveredFrom` here. The channel a deduction arrived
+ * through is derived by the store from the case's own notice, so a route that
+ * could state it would be a route that could get it wrong.
+ */
 interface DeclineCall {
   deductionId: string;
   reason: string;
   decidedBy: string;
-  assumedDiscoveredFrom: string;
   missingEvidence?: readonly string[];
   detail?: string;
 }
@@ -98,11 +104,38 @@ function location(response: Response): URL {
   return new URL(response.headers.get('location') as string);
 }
 
+/**
+ * What the reviewer is told: the notice key the redirect carried, resolved.
+ *
+ * A key, never a sentence — the query string is a thing anybody can type, and
+ * an app that repeats what it finds there is an app a link can put words into
+ * (`lib/notices.ts`). Going through `resolveNotice` means a key that is not in
+ * the table fails these assertions rather than passing them with its own name.
+ */
+function said(response: Response): string | undefined {
+  const at = new URL(response.headers.get('location') as string);
+  return resolveNotice(
+    at.searchParams.get('decline') ?? undefined,
+    at.searchParams.getAll(NOTICE_ABOUT_PARAM),
+  )?.text;
+}
+
 describe('declining a case from the web', () => {
+  /** What the route logged, so "it is in the logs" can be asserted rather than hoped. */
+  let logged: unknown[][] = [];
+
   beforeEach(() => {
     harness.role = 'analyst';
     harness.sessions = 0;
     harness.store = new RouteTestStore();
+    logged = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(args);
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('records the decline and says so on the case it came from', async () => {
@@ -119,7 +152,8 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toMatch(/logged as declined, not discarded/);
+    expect(to.searchParams.get('decline')).toBe('declined');
+    expect(said(response)).toMatch(/logged as declined, not discarded/);
 
     // Who decided comes from the session, never from the form. The evidence
     // list is filtered to what coverage can add up, and the detail is trimmed.
@@ -128,7 +162,6 @@ describe('declining a case from the web', () => {
       deductionId: CASE_ID,
       reason: 'evidence_unavailable',
       decidedBy: 'reviewer@example.test',
-      assumedDiscoveredFrom: 'web_upload',
       missingEvidence: ['proof_of_delivery'],
       detail: 'the carrier has nothing',
     });
@@ -192,9 +225,7 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toBe(
-      'your role can review cases but not decide them',
-    );
+    expect(said(response)).toBe('your role can review cases but not decide them');
     expect(store.calls).toHaveLength(0);
   });
 
@@ -207,9 +238,59 @@ describe('declining a case from the web', () => {
       expect(response.status).toBe(303);
       const to = location(response);
       expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-      expect(to.searchParams.get('decline')).toBe('choose a reason for declining');
+      expect(said(response)).toBe('choose a reason for declining');
     }
     expect(store.calls).toHaveLength(0);
+  });
+
+  it('refuses a note longer than the field holds, rather than cutting it', async () => {
+    // It used to `.slice(0, 2000)`: a reviewer who explained a decline at
+    // length was recorded as having said the first 2000 characters of it, with
+    // nothing anywhere saying the rest had been dropped. `declined_candidates`
+    // is append-only and a decline is explained once, so half an explanation is
+    // not a smaller version of the record — it is a different one.
+    const store = harness.store as RouteTestStore;
+    const tooLong = 'x'.repeat(DECLINE_DETAIL_MAX_LENGTH + 1);
+
+    const response = await POST(
+      declineRequest({ reason: 'below_economic_floor', detail: tooLong }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    const to = location(response);
+    expect(to.pathname).toBe(`/cases/${CASE_ID}`);
+    expect(to.searchParams.get('decline')).toBe('decline_detail_too_long');
+    // The length it actually was, carried as a validated fragment, and the
+    // limit from the one place that holds it.
+    expect(to.searchParams.getAll(NOTICE_ABOUT_PARAM)).toEqual([
+      String(DECLINE_DETAIL_MAX_LENGTH + 1),
+    ]);
+    expect(said(response)).toBe(
+      `that note is ${DECLINE_DETAIL_MAX_LENGTH + 1} characters and this field holds ` +
+        `${DECLINE_DETAIL_MAX_LENGTH} — shorten it, because a decline is only ever ` +
+        'explained once and half an explanation is not one',
+    );
+    // Nothing was written: the reviewer edits and sends it again.
+    expect(store.calls).toHaveLength(0);
+  });
+
+  it('measures the note after trimming, and records exactly what fits', async () => {
+    // The stored value is the trimmed one, so the length that is checked is the
+    // length that would be stored — a note that is only over the limit because
+    // of the whitespace around it is not over the limit.
+    const store = harness.store as RouteTestStore;
+    const exact = 'y'.repeat(DECLINE_DETAIL_MAX_LENGTH);
+
+    const response = await POST(
+      declineRequest({ reason: 'below_economic_floor', detail: `  ${exact}  ` }),
+      params(CASE_ID),
+    );
+
+    expect(response.status).toBe(303);
+    expect(location(response).searchParams.get('decline')).toBe('declined');
+    expect(store.calls).toHaveLength(1);
+    expect(store.calls[0]?.detail).toBe(exact);
   });
 
   it('lets the first decline stand when the form is submitted twice', async () => {
@@ -223,9 +304,59 @@ describe('declining a case from the web', () => {
     expect(response.status).toBe(303);
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
-    expect(to.searchParams.get('decline')).toBe(
-      'this case was already declined; the first decline stands',
+    expect(said(response)).toBe('this case was already declined; the first decline stands');
+    expect(store.closed).toBe(1);
+  });
+
+  it('tells the reviewer plainly when the case does not say how it reached us', async () => {
+    // The store refuses rather than attributing the decline to a guessed
+    // channel, and the route says so rather than 500ing. Nothing was written:
+    // the case is untouched, and the reviewer is told that in words instead of
+    // being shown a success for a row that does not exist.
+    const store = harness.store as RouteTestStore;
+    store.throws = new ProvenanceUnknownError(
+      CASE_ID,
+      'its notice document 44444444-4444-4444-4444-444444444444 records no arrival',
+      '44444444-4444-4444-4444-444444444444',
     );
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
+    expect(said(response)).toMatch(/was not declined/);
+    // And it says which of the two refusals this is, because they ask
+    // different things of the reader. This one is the dead end: the notice is
+    // there, its arrival was never recorded, and `documents` is append-only so
+    // nobody can record it now.
+    expect(said(response)).toMatch(/predates provenance recording/);
+    expect(said(response)).toMatch(/until a migration adds a way to record its arrival/);
+    // Not the sentence for the other fault, which would send them to attach a
+    // notice that is already attached.
+    expect(said(response)).not.toMatch(/Attach the notice/);
+    // And it is in the logs, because this one is somebody's to fix.
+    expect(logged).toHaveLength(1);
+    expect(store.closed).toBe(1);
+  });
+
+  it('says to attach the notice when that is the fault, and not the other thing', async () => {
+    // The same refusal from the store, for the other reason: no notice document
+    // at all. `noticeDocumentId` is undefined, and that is how the route knows.
+    // This one a reviewer can act on, so the sentence tells them to — and it
+    // must not be the "predates provenance recording" sentence, which would
+    // have them waiting on a migration for a case that only needs its notice.
+    const store = harness.store as RouteTestStore;
+    store.throws = new ProvenanceUnknownError(
+      CASE_ID,
+      'it has no notice document, so nothing on it says which channel found this deduction',
+    );
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
+    expect(said(response)).toMatch(/no notice document on it/);
+    expect(said(response)).toMatch(/Attach the notice/);
+    expect(said(response)).not.toMatch(/predates provenance recording/);
+    expect(logged).toHaveLength(1);
     expect(store.closed).toBe(1);
   });
 

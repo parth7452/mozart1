@@ -8,14 +8,22 @@
 
 import { applyTransition, parseMoneyToCents, tryParsePrintedDate } from '@recouple/core-domain';
 import {
+  CorrespondenceSchema,
+  DeductionNoticeSchema,
+  InvoiceSchema,
   locateQuote,
   OcrError,
+  PurchaseOrderSchema,
+  restoreDocument,
+  ShipmentDocumentSchema,
+  type DeductionNotice,
   type DocType,
   type ExtractedField,
   type ExtractionResult,
   type ModelCallRecord,
   type OcrBlock,
   reconcileNotice,
+  type Finding,
   type Reconciliation,
 } from '@recouple/extraction';
 import {
@@ -29,7 +37,13 @@ import {
   type PostmarkInboundPayload,
   type ScanVerdict,
 } from '@recouple/ingest';
-import type { CaseRecord, PipelineDeps, StoredDocument } from './ports';
+import type {
+  CaseRecord,
+  IngestSource,
+  PipelineDeps,
+  RestoredExtraction,
+  StoredDocument,
+} from './ports';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -90,8 +104,20 @@ export interface IngestInput {
    * wrong thing. The gate it gets is `acceptEmailBody`'s, and the distinction
    * lives here rather than in a flag a caller could set, so no upload path can
    * reach it by mistake.
+   *
+   * It is also what gets written to `uploads.source`, so it is the one thing
+   * that later says which channel found this deduction. Coverage is attributed
+   * by that (STRATEGY CH-4, ADD-1).
    */
-  readonly source: 'web_upload' | 'email_in' | 'email_body';
+  readonly source: IngestSource;
+  /**
+   * The member who put this document here, for `uploads.created_by`.
+   *
+   * A web upload has one — the signed-in reviewer — and an email does not: the
+   * sender is not one of our users and `From:` is forgeable, so the column is
+   * left null rather than filled with somebody's guess at who they were.
+   */
+  readonly uploadedBy?: string;
   /** Known text layer, when the caller already has one. */
   readonly pageText?: readonly string[];
   readonly pageTextSource?: 'embedded' | 'ocr';
@@ -123,6 +149,13 @@ export async function ingestDocument(
 
   const existing = await deps.store.findDocumentByHash(input.orgId, accepted.sha256);
   if (existing !== undefined) {
+    // No second `uploads` row, on purpose. Provenance is a fact about the
+    // arrival that produced these bytes, and that arrival already happened: the
+    // document keeps the `upload_id` its first one wrote. A second row would
+    // say the same deduction was discovered twice, which is exactly the kind of
+    // double count `declined_candidates` exists to avoid — and if the second
+    // arrival came through a different channel, crediting it would move
+    // coverage to whichever channel re-sent a document we already had.
     const verdict = (await deps.store.latestScan(existing.documentId)) ?? {
       status: 'error' as const,
       scanner: 'none',
@@ -131,6 +164,15 @@ export async function ingestDocument(
     return { document: existing, verdict, deduplicated: true, warnings: accepted.warnings };
   }
 
+  // Before the document, so a stored document always has an arrival behind it.
+  // The reverse order can leave a document that says nothing about where it
+  // came from, which is the state this whole change exists to end.
+  const upload = await deps.store.recordUpload({
+    orgId: input.orgId,
+    source: input.source,
+    ...(input.uploadedBy !== undefined ? { createdBy: input.uploadedBy } : {}),
+  });
+
   const document = await deps.store.putDocument({
     orgId: input.orgId,
     sha256: accepted.sha256,
@@ -138,6 +180,7 @@ export async function ingestDocument(
     mimeType: accepted.mimeType,
     byteSize: accepted.byteSize,
     bytes: input.bytes,
+    uploadId: upload.uploadId,
     ...(input.pageText !== undefined ? { pageText: input.pageText } : {}),
     requiresSplit: accepted.requiresSplit,
   });
@@ -318,18 +361,207 @@ async function recordExtraction(
   });
 }
 
+/** What a read whose rows will not rebuild into their own document is called. */
+const STORED_WITHOUT_PROVENANCE = 'document.stored_without_provenance';
+
+/**
+ * Fields the read had a value for that the stored rows will not give back.
+ *
+ * `extraction_results` is the record of record, and every store answers
+ * `latestExtraction` by rebuilding the document from it (`restoreDocument`).
+ * `flattenExtraction` writes no row for a value whose page is missing or whose
+ * quote is blank — provenance is not optional — so a *required* field read
+ * without provenance is a field that goes in and does not come out, and the
+ * document that comes back no longer satisfies its schema.
+ *
+ * Named by path with the `.value` leg trimmed off, and empty when the round
+ * trip is faithful, which is the normal case.
+ */
+export function fieldsLostOnStorage(result: ExtractionResult): readonly string[] {
+  const restored = restoreDocument(result.docType, result.fields);
+  if (restored.validated) return [];
+  return [
+    ...new Set(restored.issues.map((issue) => fieldPathOf(issue.path.split('.')))),
+  ].sort();
+}
+
+/**
+ * A validation path as a field path: `lines.0.deduction_amount.value` is the
+ * field `lines[0].deduction_amount`.
+ *
+ * One function, because the same field is named at the write (the event) and at
+ * the read (the finding), and a reviewer comparing the two should not have to
+ * work out that they mean the same thing.
+ */
+function fieldPathOf(segments: readonly string[]): string {
+  const withoutLeaf = segments.at(-1) === 'value' ? segments.slice(0, -1) : [...segments];
+  return withoutLeaf.reduce(
+    (path, segment) =>
+      path === '' ? segment : /^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`,
+    '',
+  );
+}
+
+/**
+ * Says so when the rows just written will not rebuild into a typed document.
+ *
+ * Loudly, but not fatally: a scan whose one unquoted field is a date still has
+ * to open a case, because refusing the read would lose the other twenty fields
+ * and the money on the page along with them. So this records the divergence and
+ * returns — the read stands, and the case page reconciles over what it has and
+ * names what it could not read (`reconcileCase`).
+ *
+ * The event is a `deduction_events` row, which needs a case; a read that opened
+ * none still logs. Nothing in the payload is document text: field paths come
+ * from the schema and the problems come from Zod.
+ */
+async function reportProvenanceGap(
+  document: StoredDocument,
+  result: ExtractionResult,
+  deps: PipelineDeps,
+  deductionId?: string,
+): Promise<void> {
+  const lost = fieldsLostOnStorage(result);
+  if (lost.length === 0) return;
+
+  console.warn(
+    `[recouple] read: document ${document.documentId} stored a ${result.docType} that does not ` +
+      `rebuild into its own type; fields without usable provenance: ${lost.join(', ')}`,
+  );
+  if (deductionId === undefined) return;
+
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId,
+    eventType: STORED_WITHOUT_PROVENANCE,
+    payload: {
+      document_id: document.documentId,
+      doc_type: result.docType,
+      schema_version: result.schemaVersion,
+      fields: lost,
+    },
+  });
+}
+
 /** A model call, told which case it was spent on. */
 function withCase(call: ModelCallRecord, deductionId?: string): ModelCallRecord {
   return deductionId === undefined ? call : { ...call, deductionId };
 }
 
-export interface ProcessedDocument {
-  readonly ingest: IngestResult;
+/**
+ * Everything the read produced: what the document turned out to be, what was on
+ * it, and the case it opened or was filed against.
+ *
+ * Separate from `ProcessedDocument` because a read no longer has to happen in
+ * the same process as the ingest that fed it (ADR 0021). `readDocument` returns
+ * this, `processUpload` returns it with the ingest attached, and the Inngest job
+ * returns a summary of it.
+ */
+export interface DocumentRead {
   readonly classification?: ClassifyResult;
   readonly extraction?: ExtractionResult;
   readonly case?: CaseRecord;
   /** Why the document stopped where it did, when it did not go all the way. */
   readonly haltedBecause?: string;
+}
+
+export interface ProcessedDocument extends DocumentRead {
+  readonly ingest: IngestResult;
+}
+
+export interface ReadOptions {
+  readonly attachToCase?: string;
+  /**
+   * Whether this document may open a new case on its own. False for a document
+   * that arrived by email from a sender we could not authenticate: the file is
+   * still ingested, classified and extracted, but a human decides which case
+   * it belongs to rather than an unauthenticated stranger creating one.
+   */
+  readonly allowCaseOpen?: boolean;
+}
+
+/**
+ * Why a document stopped at the door, as a sentence somebody can act on.
+ *
+ * The detail is the whole message. Without it this reads `error (none)`, which
+ * says a scan did not pass and not one word about why — and the two causes want
+ * opposite responses: `none` is a variable nobody set, and a named signature is
+ * a file nobody should open.
+ *
+ * One function because two paths ask the question now: the request that reads
+ * the document itself, and the request that would otherwise hand the read to a
+ * job. A document that did not scan clean is never handed to anything.
+ */
+export function scanGateHalt(verdict: ScanVerdict): string {
+  return (
+    `not scanned clean: ${verdict.status} (${verdict.scanner})` +
+    (verdict.detail !== undefined ? ` — ${verdict.detail}` : '')
+  );
+}
+
+/**
+ * What a previous read of this document already recorded, when there was one.
+ *
+ * A read is not idempotent by itself. It classifies, extracts, records the
+ * spend and — for a notice — opens a case, and only the last of those has a
+ * constraint behind it: `unique (org_id, debtor_id, claim_id)`, which does not
+ * fire while `debtor_id` is null (ADR 0019). A tenant that has not linked the
+ * retailer yet is exactly that case, so a second read of the same document
+ * opened a second case and paid for the page twice — on the job path whenever
+ * an event was redelivered or a run retried, and on the request path whenever
+ * the same file was uploaded again.
+ *
+ * So the recorded extraction is the gate: a document that has one has been
+ * read. `undefined` means reading it again would produce something the first
+ * read did not, and there are exactly two ways that happens:
+ *
+ * - it is being attached to a case it is not yet linked to. The read is how the
+ *   link and the `evidence.uploaded` event get written — the same BOL is
+ *   evidence for two deductions, and its second upload dedupes to the same
+ *   document — so skipping it would lose a reviewer's attachment.
+ * - it is a notice that has no case, and this read may open one. The earlier
+ *   read was an unauthenticated email's (ADR 0016), which files the document
+ *   and refuses to open a case from it, or it was one that failed on the way in.
+ *
+ * Nothing here writes. It is a question, asked before the first model call.
+ */
+export interface RecordedRead {
+  readonly docType: DocType;
+  /** The case the earlier read filed it against, when the store can say. */
+  readonly deductionId?: string;
+}
+
+export async function recordedRead(
+  // Only the id: everything this asks is a question about records, not about
+  // bytes. Taking the narrower type is what lets a caller that has an id and no
+  // document — the queued upload path, which stops before the read — ask it
+  // without fetching the document to do so.
+  document: Pick<StoredDocument, 'documentId'>,
+  deps: PipelineDeps,
+  options: ReadOptions = {},
+): Promise<RecordedRead | undefined> {
+  const recorded = await deps.store.latestExtraction(document.documentId);
+  if (recorded === undefined) return undefined;
+
+  if (options.attachToCase !== undefined) {
+    const linked = await deps.store.documentsForCase(options.attachToCase);
+    if (!linked.some((d) => d.documentId === document.documentId)) return undefined;
+    return { docType: recorded.docType, deductionId: options.attachToCase };
+  }
+
+  const deductionId = await deps.store.caseForDocument?.(document.documentId);
+  if (
+    deductionId === undefined &&
+    recorded.docType === 'deduction_notice' &&
+    (options.allowCaseOpen ?? true)
+  ) {
+    return undefined;
+  }
+
+  return {
+    docType: recorded.docType,
+    ...(deductionId !== undefined ? { deductionId } : {}),
+  };
 }
 
 /**
@@ -338,47 +570,84 @@ export interface ProcessedDocument {
  *
  * A file that is not clean stops here, with a reason. That is the invariant-4
  * gate doing its job, not an error to be worked around.
+ *
+ * Two halves, and since ADR 0021 they can run in two places: `ingestDocument`
+ * stores and scans, `readDocument` reads. This is the one that does both in the
+ * same call, and it is the same two functions the Inngest job runs — there is
+ * one implementation of each, not a synchronous one and a background one that
+ * drift.
  */
 export async function processUpload(
   input: IngestInput,
   deps: PipelineDeps,
-  options: {
-    readonly attachToCase?: string;
-    /**
-     * Whether this upload may open a new case on its own. False for a document
-     * that arrived by email from a sender we could not authenticate: the file is
-     * still ingested, classified and extracted, but a human decides which case
-     * it belongs to rather than an unauthenticated stranger creating one.
-     */
-    readonly allowCaseOpen?: boolean;
-  } = {},
+  options: ReadOptions = {},
 ): Promise<ProcessedDocument> {
   // Before the bytes are touched, and so before anything is read or paid for.
   // A case the tenant cannot resolve ends the request here rather than quietly
   // becoming "no case given" and opening a new one (`CaseNotFoundError`).
-  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
-  let caseRecord: CaseRecord | undefined = attachedCase;
+  // `readDocument` resolves it again, because a read that starts from an id
+  // cannot inherit this one's answer; this call is what makes the refusal
+  // arrive before the document is stored.
+  await resolveAttachTarget(options.attachToCase, deps);
 
   const ingest = await ingestDocument(input, deps);
 
   if (ingest.verdict.status !== 'clean') {
-    // The detail is the whole message. Without it this reads `error (none)`,
-    // which says a scan did not pass and not one word about why — and the two
-    // causes want opposite responses: `none` is a variable nobody set, and a
-    // named signature is a file nobody should open.
-    return {
-      ingest,
-      haltedBecause:
-        `not scanned clean: ${ingest.verdict.status} (${ingest.verdict.scanner})` +
-        (ingest.verdict.detail !== undefined ? ` — ${ingest.verdict.detail}` : ''),
-    };
+    return { ingest, haltedBecause: scanGateHalt(ingest.verdict) };
   }
+
+  // The same bytes we already hold. Only then can a read already have happened,
+  // so this is the one path where the question is worth a query: if it has, the
+  // upload is a re-upload and reading it again would open a second case and pay
+  // for the page twice (`recordedRead`). The reviewer is sent to the case it
+  // already opened rather than told nothing happened.
+  if (ingest.deduplicated) {
+    const already = await recordedRead(ingest.document, deps, options);
+    if (already !== undefined) {
+      const existing =
+        already.deductionId === undefined
+          ? undefined
+          : await deps.store.getCase(already.deductionId);
+      return {
+        ingest,
+        ...(existing !== undefined ? { case: existing } : {}),
+        ...(existing === undefined
+          ? {
+              haltedBecause:
+                `this document was already read as a ${already.docType}; ` +
+                'it was not read again',
+            }
+          : {}),
+      };
+    }
+  }
+
+  return { ingest, ...(await readDocument(ingest.document, deps, options)) };
+}
+
+/**
+ * The read half: classify, extract, and open or attach a case.
+ *
+ * Takes a document that is already stored and already scanned, so it is exactly
+ * what a job can run from an id — and exactly what `processUpload` runs when
+ * there is no job. The scan gate is inside `readablePayload`, and on this path
+ * it throws rather than returning a reason: reaching here with an unclean
+ * verdict is a caller that skipped the gate, which is a fault and not an
+ * answer.
+ */
+export async function readDocument(
+  document: StoredDocument,
+  deps: PipelineDeps,
+  options: ReadOptions = {},
+): Promise<DocumentRead> {
+  const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
+  let caseRecord: CaseRecord | undefined = attachedCase;
 
   // Read the document once. Classification and extraction both need the page
   // text, and on a scan that text costs money and carries the boxes a reviewer
   // follows — reading twice would pay twice and, because the second read finds
   // the stored text and so never calls OCR, would arrive with no boxes at all.
-  const readable = await readablePayload(ingest.document, deps);
+  const readable = await readablePayload(document, deps);
 
   const classification = await deps.classifier.classify(readable.payload);
 
@@ -392,11 +661,12 @@ export async function processUpload(
       await deps.store.recordModelCall(withCase(call, deductionId));
     }
     await deps.store.recordClassification(
-      ingest.document.documentId,
+      document.documentId,
       classification.docType,
       classification.confidence,
     );
-    await recordExtraction(ingest.document, extraction, deps, deductionId);
+    await recordExtraction(document, extraction, deps, deductionId);
+    await reportProvenanceGap(document, extraction, deps, deductionId);
   };
 
   // The case is opened before anything is recorded, because the notice that
@@ -414,7 +684,7 @@ export async function processUpload(
   const mayOpenCase = options.allowCaseOpen ?? true;
   if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
     try {
-      caseRecord = await openCaseFromNotice(ingest.document, extraction, deps);
+      caseRecord = await openCaseFromNotice(document, extraction, deps);
     } catch (error) {
       // If recording also fails the database is the problem, and that error is
       // the louder one — it is not caught here either.
@@ -426,21 +696,25 @@ export async function processUpload(
   await recordTheRead(caseRecord?.deductionId);
 
   if (attachedCase !== undefined) {
-    await deps.store.linkDocument(attachedCase.deductionId, ingest.document.documentId, 'evidence');
+    await deps.store.linkDocument(attachedCase.deductionId, document.documentId, 'evidence');
     await deps.store.appendEvent({
-      orgId: input.orgId,
+      // The document's tenant, not a caller's claim about it. They are the same
+      // on every path that gets here — a document is only ever found or stored
+      // under the org it belongs to — and this is the one the row itself says.
+      orgId: document.orgId,
       deductionId: attachedCase.deductionId,
       eventType: 'evidence.uploaded',
       payload: {
-        document_id: ingest.document.documentId,
+        document_id: document.documentId,
         doc_type: classification.docType,
-        filename: input.filename,
+        // What the document is called, which is what it was uploaded as
+        // (ADR 0011). A job reads this off the row rather than off an event.
+        filename: document.filename,
       },
     });
   }
 
   return {
-    ingest,
     classification,
     extraction,
     ...(caseRecord !== undefined ? { case: caseRecord } : {}),
@@ -456,8 +730,12 @@ export async function processUpload(
  * `undefined` only when no case was named. A named case that does not resolve
  * throws, because `getCase` cannot tell "no such case" from "another tenant's
  * case" and neither of those is a reason to open a new one.
+ *
+ * Exported because the check has to happen before the bytes are stored on every
+ * path, including the one where the read happens later in a job and this is the
+ * only part of it the reviewer is still around to be told about (ADR 0021).
  */
-async function resolveAttachTarget(
+export async function resolveAttachTarget(
   attachToCase: string | undefined,
   deps: PipelineDeps,
 ): Promise<CaseRecord | undefined> {
@@ -615,8 +893,10 @@ export async function openCaseFromNotice(
     },
   });
 
-  // The guard is doc_type_known; the classifier has just answered it.
-  applyTransition(opened.state, 'classified', { doc_type_known: true });
+  // The guard is doc_type_known; the classifier has just answered it. The
+  // trigger is named because the table is keyed by (from, to, trigger) — this
+  // edge is crossed by `document.classified` and by nothing else.
+  applyTransition(opened.state, 'classified', 'document.classified', { doc_type_known: true });
   const classified = await deps.store.transitionCase(opened.deductionId, 'classified');
   await deps.store.appendEvent({
     orgId: document.orgId,
@@ -633,30 +913,208 @@ export { RejectedUploadError };
 /**
  * Reconciles a case from whatever typed documents it already has. Returns
  * undefined when there is no notice yet — there is nothing to reconcile against.
+ *
+ * Every document is parsed against its own schema before it is used, rather
+ * than cast. The store rebuilds and validates what it returns
+ * (`restoreDocument`), so this normally agrees with it immediately; what the
+ * parse is here for is the case where it does not. A stored document that no
+ * longer satisfies its schema is not quietly reconciled as if it did, and it is
+ * not quietly dropped either — it becomes a finding, because a reviewer reading
+ * this page needs to know that a document on the case could not be used.
  */
 export async function reconcileCase(
   deductionId: string,
   deps: PipelineDeps,
 ): Promise<Reconciliation | undefined> {
   const documents = await deps.store.documentsForCase(deductionId);
-  const byType = new Map<DocType, unknown>();
+  const byType = new Map<DocType, RestoredExtraction>();
 
   for (const document of documents) {
     const extraction = await deps.store.latestExtraction(document.documentId);
     if (extraction === undefined) continue;
-    if (!byType.has(extraction.docType)) byType.set(extraction.docType, extraction.document);
+    if (!byType.has(extraction.docType)) byType.set(extraction.docType, extraction);
   }
 
-  const notice = byType.get('deduction_notice');
-  if (notice === undefined) return undefined;
+  const stored = byType.get('deduction_notice');
+  if (stored === undefined) return undefined;
 
-  const shipment = byType.get('bol') ?? byType.get('pod');
-  return reconcileNotice({
-    notice: notice as never,
-    ...(byType.has('invoice') ? { invoice: byType.get('invoice') as never } : {}),
-    ...(byType.has('po') ? { po: byType.get('po') as never } : {}),
-    ...(shipment !== undefined ? { shipment: shipment as never } : {}),
+  const unusable: Finding[] = [];
+  const notice = DeductionNoticeSchema.safeParse(stored.document);
+  let noticeData: DeductionNotice;
+
+  if (notice.success) {
+    noticeData = notice.data;
+  } else {
+    const unreadable = unreadableFields(notice.error, stored.document);
+    if (unreadable === undefined) {
+      // A notice whose shape is wrong in some way that is not a missing value —
+      // a number where a string belongs, a group that is not an array. Nothing
+      // is reconciled against that, and nothing pretends it was. The fields are
+      // still stored and still shown; it is the arithmetic that is refused.
+      return {
+        lines: [],
+        claimedTotalCents: null,
+        lineSumCents: null,
+        findings: [unusableDocument('deduction_notice', stored)],
+        internallyConsistent: false,
+      };
+    }
+    // Every failure is a required field that came back with no value, which is
+    // what a field stored without provenance looks like from here
+    // (`fieldsLostOnStorage` says the same thing at the write). The rest of the
+    // notice is intact and is worth more than the refusal: reconciliation runs,
+    // and the fields that could not be read are named. `reconcileNotice` reads
+    // no field object directly, so an absent one is a missing finding rather
+    // than a throw.
+    noticeData = stored.document as DeductionNotice;
+    unusable.push(unreadableNotice(unreadable));
+  }
+
+  const supporting = <T>(
+    docType: DocType,
+    schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
+  ): T | undefined => {
+    const found = byType.get(docType);
+    if (found === undefined) return undefined;
+    const parsed = schema.safeParse(found.document);
+    if (parsed.success) return parsed.data;
+    unusable.push(unusableDocument(docType, found));
+    return undefined;
+  };
+
+  const invoice = supporting('invoice', InvoiceSchema);
+  const po = supporting('po', PurchaseOrderSchema);
+  // Both are asked, and neither short-circuits the other: a `pod` on the case
+  // that will not parse is a document a reviewer has to be told about whether
+  // or not a `bol` happened to answer first.
+  const bol = supporting('bol', ShipmentDocumentSchema);
+  const pod = supporting('pod', ShipmentDocumentSchema);
+  const shipment = bol ?? pod;
+  // Correspondence is where a customer said in writing what they later charged
+  // for — a moved appointment, a waived fee. Without it every
+  // `reconcileAppointment` finding is unreachable from the case page, which is
+  // most of what a freight case turns on.
+  const correspondence = supporting('correspondence', CorrespondenceSchema);
+
+  const reconciliation = reconcileNotice({
+    notice: noticeData,
+    ...(invoice !== undefined ? { invoice } : {}),
+    ...(po !== undefined ? { po } : {}),
+    ...(shipment !== undefined ? { shipment } : {}),
+    ...(correspondence !== undefined ? { correspondence: [correspondence] } : {}),
   });
+
+  if (unusable.length === 0) return reconciliation;
+  const findings = [...unusable, ...reconciliation.findings];
+  return {
+    ...reconciliation,
+    findings,
+    // Recomputed, because a blocking finding added here is as blocking as one
+    // `reconcileNotice` raised: a notice whose money we could not read is not
+    // an internally consistent claim.
+    internallyConsistent: !findings.some((finding) => finding.severity === 'blocking'),
+  };
+}
+
+/**
+ * Fields a stored document failed its schema on *only* because they came back
+ * with no value, or `undefined` when anything else was wrong with it.
+ *
+ * The distinction is the whole of B1. A required field stored without
+ * provenance gets no `extraction_results` row (`flatten.ts`), so the rebuilt
+ * document states it as absent and Zod rejects the document — one unquoted date
+ * on a scan used to cost the case every line of its reconciliation. Any other
+ * failure is a shape we do not understand, and that one is still refused.
+ */
+function unreadableFields(
+  error: { issues: readonly { code: string; path: readonly PropertyKey[] }[] },
+  document: unknown,
+): readonly string[] | undefined {
+  const fields = new Set<string>();
+  for (const issue of error.issues) {
+    if (issue.code !== 'invalid_type') return undefined;
+    // Asked of the document rather than read off the message: "no value" is a
+    // fact about the object, and a Zod message is a string that changes with
+    // the library.
+    if (valueAtPath(document, issue.path) !== null) return undefined;
+    const segments = issue.path.map(String);
+    // The failure is on the `value` inside a field object. A path with nothing
+    // in front of it is the document itself, not a field of it, and that is not
+    // something to reconcile around.
+    if (segments.at(-1) !== 'value' || segments.length < 2) return undefined;
+    fields.add(fieldPathOf(segments));
+  }
+  return fields.size === 0 ? undefined : [...fields].sort();
+}
+
+function valueAtPath(document: unknown, path: readonly PropertyKey[]): unknown {
+  let node: unknown = document;
+  for (const key of path) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = (node as Record<PropertyKey, unknown>)[key];
+  }
+  return node;
+}
+
+/**
+ * Money we could not read is a different kind of missing from a date we could
+ * not read.
+ *
+ * A notice with no readable deduction amount has nothing to reconcile *to*: the
+ * arithmetic that says whether the claim adds up is over these fields, and a
+ * sum with a hole in it agreeing with a total is not agreement. Anything else
+ * missing — a date, a claim id, a reason code — leaves the money intact, so the
+ * reconciliation is still worth doing and the gap is still worth saying.
+ */
+function isMoneyField(fieldPath: string): boolean {
+  const leaf = fieldPath.split('.').at(-1) ?? fieldPath;
+  return leaf === 'unit_cost' || leaf.includes('_amount') || leaf.includes('_total');
+}
+
+/**
+ * The notice was reconciled, and these fields were not in it.
+ *
+ * Blocking when one of them carries money, a warning otherwise — never silence,
+ * and never the empty reconciliation that a refusal used to produce.
+ */
+function unreadableNotice(fields: readonly string[]): Finding {
+  const money = fields.filter(isMoneyField);
+  return {
+    code: 'stored_document_not_typed',
+    severity: money.length > 0 ? 'blocking' : 'warning',
+    message:
+      `the stored deduction_notice came back without ${fields.join(', ')} — ` +
+      'stored with no page or no quote, so there is no row to rebuild it from. ' +
+      (money.length > 0
+        ? `${money.join(', ')} carries money, so the reconciliation below cannot be trusted ` +
+          'to add up'
+        : 'the rest of the notice reconciled normally'),
+  };
+}
+
+/**
+ * A document on the case that could not be read back as its own type.
+ *
+ * Said out loud, with what the rebuild objected to, because the alternative is
+ * a page that silently reconciles less than the case contains.
+ *
+ * No `fieldPath`: that is a path into a document (`lines[0].unit_cost`), and
+ * what is wrong here is the document itself. A doc type in that slot is a path
+ * the reviewer UI cannot find a field for, and naming the document is the
+ * message's job — which it does.
+ */
+function unusableDocument(docType: DocType, stored: RestoredExtraction): Finding {
+  const why = stored.issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path}: ${issue.problem}`)
+    .join('; ');
+  return {
+    code: 'stored_document_not_typed',
+    severity: docType === 'deduction_notice' ? 'blocking' : 'warning',
+    message:
+      `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
+      `reconciliation${why === '' ? '' : ` (${why})`}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +1170,10 @@ export async function ingestInboundEmail(
             filename: attachment.filename,
             bytes,
             declaredMimeType: attachment.contentType,
+            // The channel, recorded on the `uploads` row this opens. No
+            // `uploadedBy`: the sender is not one of our members, and `From:`
+            // is forgeable, so the column stays null rather than naming a
+            // person on the strength of a header.
             source: 'email_in',
           },
           deps,
@@ -754,6 +1216,9 @@ export async function ingestInboundEmail(
             orgId: org.orgId,
             filename: emailBodyFilename(email),
             bytes: body.bytes,
+            // Its own channel, not `email_in`: a notice written in the message
+            // and one attached to it are different things to have found, and
+            // coverage counts them separately (migration 0014, ADR 0016).
             source: 'email_body',
             pageText: [body.text],
           },
