@@ -3,10 +3,6 @@
 - Status: accepted
 - Date: 2026-09-21
 
-*Numbering: this is 0028. The identity decision it builds on — "a deduction has
-many identifiers and one row" — is cited throughout as ADR 0025 and its table's
-migration as 0021, which is where a parallel renumbering puts them.*
-
 ## Context
 
 `detectShortPays` (`packages/core-domain/src/short-pay.ts`, the arithmetic behind
