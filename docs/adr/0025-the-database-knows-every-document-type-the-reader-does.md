@@ -148,6 +148,15 @@ The pairing test is a real constraint on future work: a thirteenth document
 type is now a two-file change, code and migration, and CI says so before
 production does. That is the point.
 
+What is *not* covering this is an eval run. No recorded suite classifies a
+document as `correspondence` — the only fixtures that would are in the
+`customer` and `logistics` packs, both still pending cassettes — so a read of
+one has never been replayed end to end here, and `pnpm eval` would not have
+caught the drift and will not catch the next one. That is why this is guarded
+by the pairing test and the SQL suite rather than by a cassette. The gap closes
+when those two suites are recorded, and the first `correspondence` document
+they replay is the first one this repository has read.
+
 ## Invariants touched
 
 - **1 (no submission without an approval).** Untouched. This migration adds no
