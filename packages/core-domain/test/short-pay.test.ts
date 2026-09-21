@@ -5,7 +5,7 @@ import type {
   LedgerCredit,
   LedgerInvoice,
   LedgerPayment,
-} from '@recouple/adapters';
+} from '../src/ledger';
 import { cents } from '../src/money';
 import { detectShortPays } from '../src/short-pay';
 import type { LedgerAnomaly, ShortPayCandidate } from '../src/short-pay';
@@ -184,7 +184,27 @@ describe('detectShortPays — gapStatus', () => {
     expect(only(report.candidates).gapStatus).toBe('open');
   });
 
-  it("is 'open' when a credit explains part of it and the rest is still owed", () => {
+  it("is 'credited' when a credit memo covers the whole gap — the case that hides a deduction", () => {
+    // $100,000 invoiced, $92,000 paid, and somebody inside the business raised
+    // an $8,000 credit memo that took the invoice to zero. Nothing was
+    // recovered and the deduction is now invisible on every AR report. This is
+    // the single most important row this function produces.
+    const report = detectShortPays(
+      [invoice('inv-1', { balanceCents: 0 })],
+      [payment('pay-1', [['inv-1', 92_000]])],
+      [credit('cm-1', [['inv-1', 8_000]], { memo: 'Write off Sysco shortage' })],
+    );
+    const candidate = only(report.candidates);
+    expect(candidate.appliedPaymentsCents).toBe(92_000);
+    expect(candidate.appliedCreditsCents).toBe(8_000);
+    // The credit explains the gap; it does not shrink it.
+    expect(candidate.gapCents).toBe(8_000);
+    expect(candidate.gapStatus).toBe('credited');
+    expect(candidate.creditMemos).toEqual(['Write off Sysco shortage']);
+    expect(report.anomalies).toEqual([]);
+  });
+
+  it("is 'mixed' when a credit covers only part of the gap", () => {
     const report = detectShortPays(
       [invoice('inv-1', { balanceCents: 5_000 })],
       [payment('pay-1', [['inv-1', 92_000]])],
@@ -192,11 +212,14 @@ describe('detectShortPays — gapStatus', () => {
     );
     const candidate = only(report.candidates);
     expect(candidate.appliedCreditsCents).toBe(3_000);
-    expect(candidate.gapCents).toBe(5_000);
-    expect(candidate.gapStatus).toBe('open');
+    expect(candidate.gapCents).toBe(8_000);
+    expect(candidate.gapStatus).toBe('mixed');
   });
 
-  it("is 'credited' when the ledger closed the invoice anyway — money written off without a fight", () => {
+  it("is 'mixed' when the ledger closed the invoice by something this window cannot see", () => {
+    // Balance zero, but no credit in the window accounts for the $8,000. We
+    // will not call that 'credited' on a guess, and we will not call it 'open'
+    // when the ledger says it is closed.
     const report = detectShortPays(
       [invoice('inv-1', { balanceCents: 0 })],
       [payment('pay-1', [['inv-1', 92_000]])],
@@ -204,29 +227,6 @@ describe('detectShortPays — gapStatus', () => {
     );
     const candidate = only(report.candidates);
     expect(candidate.gapCents).toBe(8_000);
-    expect(candidate.gapStatus).toBe('credited');
-  });
-
-  it("is 'credited' when a credit covers part and the balance is nevertheless zero", () => {
-    const report = detectShortPays(
-      [invoice('inv-1', { balanceCents: 0 })],
-      [payment('pay-1', [['inv-1', 92_000]])],
-      [credit('cm-1', [['inv-1', 3_000]], { memo: 'Spoilage allowance Q2' })],
-    );
-    const candidate = only(report.candidates);
-    expect(candidate.gapCents).toBe(5_000);
-    expect(candidate.gapStatus).toBe('credited');
-    expect(candidate.creditMemos).toEqual(['Spoilage allowance Q2']);
-  });
-
-  it("is 'mixed' when part was written off and part is still open", () => {
-    const report = detectShortPays(
-      [invoice('inv-1', { balanceCents: 2_000 })],
-      [payment('pay-1', [['inv-1', 92_000]])],
-      [credit('cm-1', [['inv-1', 3_000]])],
-    );
-    const candidate = only(report.candidates);
-    expect(candidate.gapCents).toBe(5_000);
     expect(candidate.gapStatus).toBe('mixed');
   });
 });
@@ -269,13 +269,16 @@ describe('detectShortPays — what is not a short pay', () => {
     expect(report.candidates).toEqual([]);
   });
 
-  it('leaves an invoice alone when payments and credits together close it', () => {
+  it('does NOT leave an invoice alone because a credit closed the balance', () => {
+    // The old reading of this — payments + credits === total, so nothing is
+    // missing — is precisely how a deduction disappears. A credit is the
+    // supplier's own write-off, not the customer's money.
     const report = detectShortPays(
       [invoice('inv-1', { balanceCents: 0 })],
       [payment('pay-1', [['inv-1', 92_000]])],
       [credit('cm-1', [['inv-1', 8_000]])],
     );
-    expect(report.candidates).toEqual([]);
+    expect(only(report.candidates).gapCents).toBe(8_000);
   });
 });
 
@@ -597,7 +600,7 @@ describe('detectShortPays — properties', () => {
     );
   });
 
-  it('reports a gap that is exactly total − payments − credits', () => {
+  it('reports a gap that is exactly total − payments, whatever the credits say', () => {
     fc.assert(
       fc.property(rawLedger, (raw) => {
         const { invoices, payments, credits } = buildLedger(raw);
@@ -607,7 +610,27 @@ describe('detectShortPays — properties', () => {
           const credited = appliedTo(credits, candidate.invoiceExternalId);
           expect(candidate.appliedPaymentsCents).toBe(paid);
           expect(candidate.appliedCreditsCents).toBe(credited);
-          expect(candidate.gapCents).toBe(candidate.invoiceTotalCents - paid - credited);
+          // Credits are reported beside the gap, never subtracted from it.
+          expect(candidate.gapCents).toBe(candidate.invoiceTotalCents - paid);
+        }
+      }),
+    );
+  });
+
+  it('never lets a credit shrink a gap: the same payments give the same gap with or without them', () => {
+    fc.assert(
+      fc.property(rawLedger, (raw) => {
+        const { invoices, payments, credits } = buildLedger(raw);
+        const withCredits = detectShortPays(invoices, payments, credits);
+        const without = detectShortPays(invoices, payments, []);
+        const gapsOf = (report: { candidates: readonly ShortPayCandidate[] }): ReadonlyMap<string, number> =>
+          new Map(report.candidates.map((c) => [c.invoiceExternalId, c.gapCents]));
+        const before = gapsOf(without);
+        for (const [id, gap] of gapsOf(withCredits)) {
+          // An invoice can drop out entirely when a credit overapplies it, but
+          // a gap that survives must not have moved.
+          const baseline = before.get(id);
+          if (baseline !== undefined) expect(gap).toBe(baseline);
         }
       }),
     );

@@ -131,11 +131,7 @@ importers:
         specifier: workspace:*
         version: link:../core-domain
 
-  packages/core-domain:
-    dependencies:
-      '@recouple/adapters':
-        specifier: workspace:*
-        version: link:../adapters
+  packages/core-domain: {}
 
   packages/decision:
     dependencies:

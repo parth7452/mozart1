@@ -26,17 +26,9 @@
  * so a payment in one currency applied to an invoice in another is invisible
  * here. `currency_mismatch` is raised per invoice against the rest of the
  * window, which is the most this port's shape allows.
- *
- * The ledger row types are imported from `@recouple/adapters`, where the port
- * declares them, and that makes the two packages cyclic at the *type* level —
- * pnpm says so on install. It is deliberate and it is type-only:
- * `verbatimModuleSyntax` erases an `import type` entirely, so nothing is
- * required at runtime and no cycle exists in the built graph. The alternative
- * was a second copy of `LedgerInvoice` living here, free to drift from the one
- * the QBO adapter fills in — which on a money path is the worse of the two.
  */
 
-import type { LedgerCredit, LedgerInvoice, LedgerPayment } from '@recouple/adapters';
+import type { LedgerCredit, LedgerInvoice, LedgerPayment } from './ledger';
 import { ZERO, addCents, formatCents, subCents } from './money';
 import type { Cents } from './money';
 
@@ -48,7 +40,7 @@ export interface ShortPayCandidate {
   readonly invoiceTotalCents: Cents;
   readonly appliedPaymentsCents: Cents;   // sum of payment applications to this invoice
   readonly appliedCreditsCents: Cents;    // sum of credit applications to this invoice
-  readonly gapCents: Cents;               // total − payments − credits, always > 0 here
+  readonly gapCents: Cents;               // total − payments: money the customer did not pay. Always > 0 here
   /** 'open' = the gap is still on the invoice's balance; 'credited' = the ledger already wrote it off with a credit. */
   readonly gapStatus: 'open' | 'credited' | 'mixed';
   readonly paymentReferences: readonly string[];  // every non-empty payment.reference, verbatim, deduped
@@ -132,23 +124,31 @@ function dedupeNonEmpty(values: readonly (string | undefined)[]): readonly strin
 /**
  * Finds the invoices a customer paid short.
  *
- * A candidate is an invoice that was *paid* — something was applied to it — and
- * still came up short once every payment and credit against it is counted. An
- * invoice nobody has paid at all is unpaid, not short-paid, and is not a
- * deduction; it is excluded on purpose, because dunning AR is a different
- * product.
+ * A candidate is an invoice that was *paid* and paid short: something was
+ * applied to it, and less than it was for. An invoice nobody has paid at all is
+ * unpaid, not short-paid, and is not a deduction; it is excluded on purpose,
+ * because dunning AR is a different product.
  *
- * `gapStatus` says where the missing money went, which is the difference
- * between a fight worth having and one already lost:
+ * **The gap is `total − payments`. Credits do not reduce it — they explain
+ * it.** That is the whole point, and it is the one rule here most likely to be
+ * "corrected" by somebody who has not seen a deductions ledger. When a customer
+ * pays $92,000 against a $100,000 invoice and the supplier's own bookkeeper
+ * raises an $8,000 credit memo to clear the balance, the invoice goes to zero
+ * and the deduction disappears from every report anybody looks at. Nothing was
+ * recovered; $8,000 was written off. Netting the credit against the gap would
+ * make this function blind to exactly the money it exists to find — so the
+ * credit is reported beside the gap, never subtracted from it.
  *
- * - `'open'` — the gap is still sitting on the invoice's balance. The customer
- *   has not settled it; nobody has written anything off yet.
- * - `'credited'` — the ledger shows the invoice closed (`balanceCents` is zero)
- *   even though the arithmetic says money is missing. Somebody inside the
- *   business already wrote the difference off without disputing it, which is
- *   exactly the money this product exists to go and get back.
- * - `'mixed'` — the balance is neither the whole gap nor zero: part written
- *   off, part still open.
+ * `gapStatus` says what happened to that gap, which is the difference between a
+ * fight not yet lost and one lost quietly:
+ *
+ * - `'open'` — the gap is still sitting on the invoice's balance. Nobody has
+ *   written anything off yet.
+ * - `'credited'` — credit memos cover the whole gap. The business already ate
+ *   it without disputing it, which is the money this product exists to go and
+ *   get back.
+ * - `'mixed'` — neither: part of the gap is written off, or the ledger closed
+ *   the invoice by some means this window does not contain.
  *
  * Candidates come back sorted by `gapCents` descending, then `invoiceNumber`
  * ascending, then `externalId` ascending — a total order, so the same ledger
@@ -283,12 +283,18 @@ export function detectShortPays(
 
     // Nothing was paid: unpaid, not short-paid.
     if (tally.paymentsCents <= 0) continue;
+    // Paid in full: nothing was deducted.
+    if (tally.paymentsCents >= invoice.totalCents) continue;
 
-    const gapCents = subCents(invoice.totalCents, applied);
-    if (gapCents <= 0) continue;
+    // Credits explain the gap; they do not shrink it. See the note above.
+    const gapCents = subCents(invoice.totalCents, tally.paymentsCents);
 
     const gapStatus: ShortPayCandidate['gapStatus'] =
-      invoice.balanceCents === gapCents ? 'open' : invoice.balanceCents === 0 ? 'credited' : 'mixed';
+      invoice.balanceCents === gapCents
+        ? 'open'
+        : tally.creditsCents >= gapCents
+          ? 'credited'
+          : 'mixed';
 
     let lastPaymentOn: string | undefined;
     for (const payment of tally.payments) {
