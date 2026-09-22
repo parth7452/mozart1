@@ -30,13 +30,13 @@ Types:
 - deduction_notice: a retailer telling a supplier it is deducting or charging back money (claim number, reason codes, deducted amounts)
 - remittance_advice: a payment advice listing invoices paid, often with short-pay lines
 - invoice: a supplier's invoice to a customer
-- po: a purchase order from a buyer
+- po: a purchase order — a buyer ordering goods or services in stated quantities
 - bol: a bill of lading — the carrier's record of what was tendered for a shipment. A bill of lading signed at delivery is still a bol: what the document calls itself decides, not whether someone signed it
 - pod: a delivery receipt whose purpose is to record the delivery itself — a proof of delivery, delivery confirmation or signed gate receipt. Not a bill of lading that happens to carry a signature
 - asn: an advance ship notice / 856
 - correspondence: a **message** one party sent the other — an email or its export, a portal message, a letter. It has a sender, a recipient and a time sent, and it usually changes or waives something already agreed: an approved reschedule, a granted exception, a waiver. A contract, agreement or confirmation document is NOT correspondence even when it records that both sides accepted it — a rate confirmation, a price agreement and a signed deal sheet are agreements, and they go to price_agreement or promo_agreement. Ask whether someone sent it, not whether it confirms something
 - promo_agreement: a promotional deal sheet, allowance agreement or buyer approval
-- price_agreement: a price list, cost-change confirmation or pricing agreement
+- price_agreement: a document that sets the prices or rates to be charged — a price list, a cost-change confirmation, a pricing or rate agreement, a rate confirmation, or a service order, statement of work or order terms that fixes rates
 - routing_guide: a retailer's routing, packaging or compliance guide
 - other: none of the above
 
@@ -44,6 +44,13 @@ When a document's printed title names its own type, that title decides — even 
 also carries evidence of what happened to it later: a delivery stamp, a signature block, received
 quantities, an exception noted on arrival. A signed and stamped bill of lading is a bol. Classify
 what the document IS, not what was done to it.
+
+Setting prices is not ordering. A po orders quantities: it lists what the buyer is buying and how
+much of each, usually with a unit cost per line. A document that fixes what will be charged —
+rates per hour, per load or per unit, and the conditions they apply under — and orders no quantity
+is a price_agreement, including when "order" is in its title (a service order, order terms). A PO
+number on the page never decides the type: invoices, notices, receipts and agreements all cite the
+order they belong to. Promotional allowances and deal terms are promo_agreement.
 
 Report calibrated confidence. If the document is ambiguous or unreadable, say so with a low number rather than picking the most likely type confidently.`;
 
