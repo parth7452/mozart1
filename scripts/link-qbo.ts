@@ -9,8 +9,9 @@
  * change it), so the first token set is placed by a person, from the `.env`
  * file at the top of this repository. This is that person's command, and it is
  * the same shape as `pnpm link:retailer`: it resolves the org and the member it
- * acts as with the admin connection, then does every write through the tenant's
- * own policies as `app_rw`.
+ * acts as through `app.member_for_link()` as `app_rw` (ADR 0034), then does
+ * every write through the tenant's own policies as `app_rw`. `DATABASE_URL` is
+ * the login the app uses, never the owner.
  *
  * **It seals with the real KMS cipher and there is no flag that changes that.**
  * `@recouple/crypto/testing` holds a local cipher for tests; this file does not
@@ -23,10 +24,10 @@
  */
 
 import 'dotenv/config';
-import { Pool } from 'pg';
 import { KmsTokenCipher } from '@recouple/crypto';
 import {
   closeAllPools,
+  resolveOperator,
   PostgresLedgerSyncStore,
   PostgresQboTokenStore,
   PostgresStore,
@@ -130,29 +131,20 @@ const refreshExpiresAt =
 
 const region = (process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? '').trim();
 
-const admin = new Pool({ connectionString });
-
 async function main(): Promise<void> {
-  const org = await admin.query<{ id: string }>(`select id from organizations where slug = $1`, [
-    slug,
-  ]);
-  const orgId = org.rows[0]?.id;
-  if (orgId === undefined) throw new Error(`no organization with slug ${JSON.stringify(slug)}`);
-
-  // The member this is attributed to has to be a member of *this* tenant and
-  // has to be allowed to write. Both are the database's answer, not ours — and
-  // the tenant policies will ask again when the rows are written.
-  const actor = await admin.query<{ id: string; role: string }>(
-    `select u.id, m.role
-       from users u join memberships m on m.user_id = u.id
-      where lower(u.email) = lower($1) and m.org_id = $2`,
-    [actorEmail, orgId],
+  // Resolved as the app resolves anything (ADR 0034): `app_rw`, no claims, one
+  // definer function that answers this and nothing else. The member has to be a
+  // member of *this* tenant and has to be allowed to write. Both are the
+  // database's answer, not ours — and the tenant policies ask again on write.
+  const actor = await resolveOperator(
+    { connectionString: connectionString as string },
+    { slug, email: actorEmail },
   );
-  const actorId = actor.rows[0]?.id;
-  if (actorId === undefined) throw new Error(`${actorEmail} is not a member of ${slug}`);
-  if (actor.rows[0]?.role === 'read_only') {
+  if (actor.role === 'read_only') {
     throw new Error(`${actorEmail} is read_only in ${slug} and may not connect a ledger`);
   }
+  const orgId = actor.orgId;
+  const actorId = actor.userId;
 
   const tenant = { orgId, userId: actorId };
   const config = { connectionString: connectionString as string };
@@ -221,7 +213,6 @@ async function main(): Promise<void> {
   } finally {
     await store.close();
     await closeAllPools();
-    await admin.end();
   }
 }
 

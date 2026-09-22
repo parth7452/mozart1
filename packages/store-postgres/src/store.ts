@@ -2451,6 +2451,49 @@ export class PostgresStore
   }
 
   /**
+   * This tenant's debtor with a given retailer key, through RLS.
+   *
+   * `pnpm link:retailer` read this on an owner connection outside the policies
+   * until ADR 0034. It never creates one: a debtor is master data a person owns.
+   */
+  async debtorByRetailerKey(
+    retailerKey: string,
+  ): Promise<{ debtorId: string; displayName: string } | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string; display_name: string }>(
+        `select id, display_name from debtors where retailer_key = $1`,
+        [retailerKey],
+      );
+      const row = rows[0];
+      return row === undefined ? undefined : { debtorId: row.id, displayName: row.display_name };
+    });
+  }
+
+  /** Every retailer key this tenant has a debtor for, sorted, through RLS. */
+  async retailerKeys(): Promise<readonly string[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ retailer_key: string }>(
+        `select retailer_key from debtors order by retailer_key`,
+      );
+      return rows.map((row) => row.retailer_key);
+    });
+  }
+
+  /**
+   * How many of this tenant's cases carry a printed retailer name and no
+   * debtor: what `resolveUnmatchedCases` would re-check. For a dry run.
+   */
+  async countUnmatchedCases(): Promise<number> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ n: string }>(
+        `select count(*) as n from deductions
+          where debtor_id is null and retailer_name_as_printed is not null`,
+      );
+      return Number(rows[0]?.n ?? 0);
+    });
+  }
+
+  /**
    * Records that a debtor answers to another spelling of its name.
    *
    * This is the human half of ADR 0019, and the only way "WALMART STORES, INC."
