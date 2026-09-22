@@ -647,6 +647,25 @@ the **real** cipher and no flag that changes that; `docs/qbo-credentials.md` is
 the once-per-deployment AWS setup written for somebody who does not work in AWS.
 Nothing here has met a live KMS or a live Intuit rotation.
 
+**A ledger window is anchored on what was paid** (ADR 0035, migration 0027).
+The first production sync (2026-09-22) examined 12 invoices, found nothing and
+recorded 8 anomalies: every entity was filtered by its own `TxnDate`, so a
+payment inside the window applied to an invoice dated before it was
+`application_to_unknown_invoice` — and in a net-30/net-60 world that is most
+short-pays. `syncLedger` now lists **payments and credits** in the window, then
+reads the invoices they name by id through `getInvoiceHistories` — a new read on
+the `AccountingSource` port that returns each invoice with **every** application
+the ledger has for it, whatever the date, and throws rather than return part of
+one, because a partial tally reads as a short-pay that never happened.
+`settlementLedger` in `core-domain` joins the two reads (one copy of each
+payment, applications trimmed to the invoices asked for) and the detector is
+unchanged. `packages/qbo/test/settlement-window.test.ts` replays the recorded
+sandbox: 0 candidates and 8 anomalies before, the 3 short-pays and 1 anomaly
+after. A run's anomalies are now rows, `ledger_sync_anomalies` — kind and ledger
+ids, no detail text, written once and complete through
+`app.record_ledger_sync_anomalies()` in the run row's own transaction. Not yet
+shown in the app.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

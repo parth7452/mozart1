@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountingSource } from '@recouple/adapters';
 import { QboAccountingSource } from '../src/source';
-import { QboInvalidWindow, QboMalformedResponse } from '../src/errors';
+import { QboInvalidId, QboInvalidWindow, QboMalformedResponse } from '../src/errors';
+import { QBO_IDS_PER_QUERY } from '../src/client';
 import {
   AUGUST,
   configFor,
@@ -48,8 +49,10 @@ describe('QboAccountingSource', () => {
     expect(source.kind).toBe('qbo');
     // The port has no writer, and neither does this. If a `writeX` ever appears
     // on the adapter it has to appear on the port first, which is an ADR.
+    // `getInvoiceHistories` is a read, and ADR 0035 is its ADR.
     expect(Object.getOwnPropertyNames(QboAccountingSource.prototype).sort()).toEqual([
       'constructor',
+      'getInvoiceHistories',
       'listCredits',
       'listInvoices',
       'listPayments',
@@ -215,6 +218,149 @@ describe('QboAccountingSource', () => {
       QboInvalidWindow,
     );
 
+    expect(calls).toHaveLength(0);
+  });
+});
+
+/** A QBO invoice row, as the query endpoint returns one. */
+function invoiceRow(id: string, total: number, balance: number, paymentIds: readonly string[]) {
+  return {
+    Id: id,
+    DocNumber: `D-${id}`,
+    TxnDate: '2026-05-01',
+    TotalAmt: total,
+    Balance: balance,
+    CustomerRef: { value: '58', name: 'Sysco Baltimore, LLC' },
+    CurrencyRef: { value: 'USD', name: 'United States Dollar' },
+    LinkedTxn: paymentIds.map((txnId) => ({ TxnId: txnId, TxnType: 'Payment' })),
+  };
+}
+
+function paymentRow(id: string, lines: readonly { amount: number; links: readonly [string, string][] }[]) {
+  return {
+    Id: id,
+    TxnDate: '2026-05-20',
+    TotalAmt: lines.reduce((sum, line) => sum + line.amount, 0),
+    CustomerRef: { value: '58', name: 'Sysco Baltimore, LLC' },
+    Line: lines.map((line) => ({
+      Amount: line.amount,
+      LinkedTxn: line.links.map(([txnType, txnId]) => ({ TxnType: txnType, TxnId: txnId })),
+    })),
+  };
+}
+
+/** Serves rows by `Id in (…)` and nothing else, and records every statement. */
+function byIdFetch(ledger: Record<string, readonly ({ readonly Id: string } & Record<string, unknown>)[]>) {
+  return recordingFetch(({ statement }) => {
+    const entity = entityOf(statement) ?? '';
+    const list = /\bId in \(([^)]*)\)/.exec(statement ?? '');
+    if (list === null) throw new Error(`not a by-id query: ${String(statement)}`);
+    const wanted = new Set((list[1] ?? '').split(',').map((p) => p.trim().replace(/^'|'$/g, '')));
+    const found = (ledger[entity] ?? []).filter((row) => wanted.has(row.Id));
+    return jsonResponse({ QueryResponse: found.length === 0 ? {} : { [entity]: found } });
+  });
+}
+
+describe('QboAccountingSource.getInvoiceHistories (ADR 0035)', () => {
+  it('returns each invoice with every payment its own LinkedTxn names, whatever their dates', async () => {
+    const { fetchImpl, calls } = byIdFetch({
+      Invoice: [invoiceRow('145', 3120, 0, ['301', '302'])],
+      Payment: [
+        paymentRow('301', [{ amount: 1850, links: [['Invoice', '145']] }]),
+        // Applies credit memo 77 to invoice 145: a credit, not cash. One line
+        // linking both, the shape `resolveCreditApplications` reads (ADR 0026).
+        paymentRow('302', [
+          {
+            amount: 1270,
+            links: [
+              ['Invoice', '145'],
+              ['CreditMemo', '77'],
+            ],
+          },
+        ]),
+      ],
+      CreditMemo: [
+        {
+          Id: '77',
+          TxnDate: '2026-05-19',
+          TotalAmt: 1270,
+          CustomerRef: { value: '58', name: 'Sysco Baltimore, LLC' },
+          PrivateNote: 'promo allowance',
+        },
+      ],
+    });
+
+    const histories = await sourceOver(fetchImpl).getInvoiceHistories(['145']);
+
+    expect(histories.invoices.map((i) => i.externalId)).toEqual(['145']);
+    expect(histories.payments.map((p) => p.externalId).sort()).toEqual(['301', '302']);
+    expect(histories.credits).toEqual([
+      expect.objectContaining({
+        externalId: '77',
+        appliedTo: [{ invoiceExternalId: '145', amountCents: 127_000 }],
+      }),
+    ]);
+    // Three reads, each by id, none by date.
+    expect(calls.map((c) => entityOf(c.statement))).toEqual(['Invoice', 'Payment', 'CreditMemo']);
+    expect(calls.every((c) => !(c.statement ?? '').includes('TxnDate'))).toBe(true);
+  });
+
+  it('leaves out an id the ledger does not have, without failing', async () => {
+    const { fetchImpl } = byIdFetch({ Invoice: [invoiceRow('145', 100, 100, [])] });
+    const histories = await sourceOver(fetchImpl).getInvoiceHistories(['145', '999']);
+    expect(histories.invoices.map((i) => i.externalId)).toEqual(['145']);
+    expect(histories.payments).toEqual([]);
+  });
+
+  it('refuses to return a partial history: a linked payment QuickBooks does not return is loud', async () => {
+    const { fetchImpl } = byIdFetch({
+      Invoice: [invoiceRow('145', 3120, 1270, ['301', '302'])],
+      Payment: [paymentRow('301', [{ amount: 1850, links: [['Invoice', '145']] }])],
+    });
+    // Tallied without 302, invoice 145 would read as a short-pay.
+    await expect(sourceOver(fetchImpl).getInvoiceHistories(['145'])).rejects.toThrow(
+      QboMalformedResponse,
+    );
+    await expect(sourceOver(fetchImpl).getInvoiceHistories(['145'])).rejects.toThrow(
+      /links Payment 302, which QuickBooks did not return/,
+    );
+  });
+
+  it('chunks the id list and asks for each id once', async () => {
+    const ids = Array.from({ length: QBO_IDS_PER_QUERY + 5 }, (_, n) => String(n + 1));
+    const { fetchImpl, calls } = byIdFetch({ Invoice: [] });
+    await sourceOver(fetchImpl).getInvoiceHistories([...ids, '1', '2']);
+
+    expect(calls).toHaveLength(2);
+    const asked = calls.flatMap((call) =>
+      (/\bId in \(([^)]*)\)/.exec(call.statement ?? '')?.[1] ?? '').split(',').map((p) => p.trim()),
+    );
+    expect(asked).toHaveLength(ids.length);
+    expect(new Set(asked).size).toBe(ids.length);
+  });
+
+  it('will not put an id that is not digits into a query', async () => {
+    const { fetchImpl, calls } = byIdFetch({ Invoice: [] });
+    const source = sourceOver(fetchImpl);
+    await expect(source.getInvoiceHistories(["1') or ('1'='1"])).rejects.toThrow(QboInvalidId);
+    await expect(source.getInvoiceHistories(['12a'])).rejects.toThrow(QboInvalidId);
+    expect(calls).toHaveLength(0);
+
+    // And an id off the ledger's own LinkedTxn is held to the same rule.
+    const poisoned = byIdFetch({ Invoice: [invoiceRow('145', 10, 5, ["7' or '1'='1"])] });
+    await expect(sourceOver(poisoned.fetchImpl).getInvoiceHistories(['145'])).rejects.toThrow(
+      QboInvalidId,
+    );
+    expect(poisoned.calls).toHaveLength(1);
+  });
+
+  it('asks nothing at all for no ids', async () => {
+    const { fetchImpl, calls } = byIdFetch({});
+    expect(await sourceOver(fetchImpl).getInvoiceHistories([])).toEqual({
+      invoices: [],
+      payments: [],
+      credits: [],
+    });
     expect(calls).toHaveLength(0);
   });
 });

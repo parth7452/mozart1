@@ -9,7 +9,7 @@
  * It models the one behaviour of a real ledger API that callers depend on and
  * would otherwise only discover against a vendor: the window filters, and it
  * filters *inclusively* on both ends, on `issuedOn` for invoices and credits
- * and on `receivedOn` for payments. Rows come back in the order they were
+ * and on `receivedOn` for payments — and a by-id read ignores dates entirely. Rows come back in the order they were
  * given, so a test that cares about order can pin it.
  *
  * It does no arithmetic and holds no opinion about what the rows mean. That is
@@ -21,6 +21,7 @@ import type {
   AccountingSourceKind,
   LedgerCredit,
   LedgerInvoice,
+  LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
 } from '../accounting';
@@ -65,5 +66,23 @@ export class InMemoryAccountingSource implements AccountingSource {
 
   async listCredits(window: LedgerWindow): Promise<readonly LedgerCredit[]> {
     return this.credits.filter((credit) => withinWindow(credit.issuedOn, window));
+  }
+
+  /**
+   * By id, whatever the date — and every payment and credit with an
+   * application to a returned invoice, whatever theirs. Complete by
+   * construction, which is the promise the port makes (ADR 0035 §2).
+   */
+  async getInvoiceHistories(invoiceExternalIds: readonly string[]): Promise<LedgerInvoiceHistories> {
+    const asked = new Set(invoiceExternalIds);
+    const invoices = this.invoices.filter((invoice) => asked.has(invoice.externalId));
+    const found = new Set(invoices.map((invoice) => invoice.externalId));
+    const touches = (row: LedgerPayment | LedgerCredit): boolean =>
+      row.appliedTo.some((application) => found.has(application.invoiceExternalId));
+    return {
+      invoices,
+      payments: this.payments.filter(touches),
+      credits: this.credits.filter(touches),
+    };
   }
 }

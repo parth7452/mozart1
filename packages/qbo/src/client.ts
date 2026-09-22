@@ -15,6 +15,7 @@ import type { LedgerWindow } from '@recouple/adapters';
 import { DateParseError, parsePrintedDate } from '@recouple/core-domain';
 import {
   QboAuthError,
+  QboInvalidId,
   QboInvalidWindow,
   QboMalformedResponse,
   QboRateLimited,
@@ -32,6 +33,14 @@ export const INTUIT_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tok
 
 /** QBO's own ceiling on `MAXRESULTS`. */
 export const QBO_MAX_PAGE_SIZE = 1000;
+
+/**
+ * How many ids go in one `Id in (…)` query.
+ *
+ * Well under `QBO_MAX_PAGE_SIZE`, so a chunk's answer always fits one page, and
+ * short enough that the statement stays a modest GET query string.
+ */
+export const QBO_IDS_PER_QUERY = 100;
 
 /** The entities this adapter reads. There is deliberately nothing else here. */
 export type QboEntity = 'Invoice' | 'Payment' | 'CreditMemo';
@@ -105,16 +114,57 @@ export class QboClient {
     if (from > to) {
       throw new QboInvalidWindow(`window runs backwards: from ${from} to ${to}`);
     }
+    // The dates are interpolated, so they are validated above: `from` and `to`
+    // have been proven to be `YYYY-MM-DD` calendar days and cannot carry a
+    // quote out of the literal.
+    return this.queryAll(entity, `TxnDate >= '${from}' and TxnDate <= '${to}'`);
+  }
 
+  /**
+   * Every row of one entity whose `Id` is one of these, whatever its date
+   * (ADR 0035 §2).
+   *
+   * Chunked at `QBO_IDS_PER_QUERY`, deduplicated, and every id proven to be
+   * digits first, because each is interpolated between single quotes. Rows come
+   * back in QBO's order within a chunk and chunk by chunk; an id QBO does not
+   * have is simply not among them, and deciding whether that matters is the
+   * caller's business.
+   */
+  async queryByIds(entity: QboEntity, ids: readonly string[]): Promise<readonly JsonObject[]> {
+    const unique = [...new Set(ids.map((id) => assertQboId(id)))];
+    const rows: JsonObject[] = [];
+    for (let at = 0; at < unique.length; at += QBO_IDS_PER_QUERY) {
+      const chunk = unique.slice(at, at + QBO_IDS_PER_QUERY);
+      const list = chunk.map((id) => `'${id}'`).join(', ');
+      const found = await this.queryAll(entity, `Id in (${list})`, rows.length);
+      if (found.length > chunk.length) {
+        throw new QboMalformedResponse(
+          `asked for ${chunk.length} ${entity} rows by id and got ${found.length}`,
+          `QueryResponse.${entity}`,
+        );
+      }
+      rows.push(...found);
+    }
+    return rows;
+  }
+
+  /**
+   * Every row of one entity matching a `where` clause the caller has already
+   * made safe, following `STARTPOSITION`/`MAXRESULTS` until a short page says
+   * there are no more. `offset` is only for error paths, so an index names the
+   * row's position in the list a caller finally sees.
+   */
+  private async queryAll(
+    entity: QboEntity,
+    where: string,
+    offset = 0,
+  ): Promise<readonly JsonObject[]> {
     const rows: JsonObject[] = [];
     let startPosition = 1;
 
     for (let page = 0; page < this.maxPages; page += 1) {
-      // The dates are interpolated, so they are validated above: `from` and `to`
-      // have been proven to be `YYYY-MM-DD` calendar days and cannot carry a
-      // quote out of the literal.
       const statement =
-        `select * from ${entity} where TxnDate >= '${from}' and TxnDate <= '${to}' ` +
+        `select * from ${entity} where ${where} ` +
         `STARTPOSITION ${startPosition} MAXRESULTS ${this.pageSize}`;
 
       const body = await this.query(statement);
@@ -129,9 +179,9 @@ export class QboClient {
       }
 
       // The index in the error path is the row's position across the whole
-      // window, not its position on this page, so it matches the list a caller
+      // result, not its position on this page, so it matches the list a caller
       // sees.
-      const base = rows.length;
+      const base = offset + rows.length;
       pageRows.forEach((row, index) => {
         rows.push(readObject(row, `QueryResponse.${entity}[${base + index}]`));
       });
@@ -365,6 +415,20 @@ export function assertWindowDate(value: string, which: 'from' | 'to'): string {
     }
     throw error;
   }
+}
+
+/**
+ * A QBO entity id, proven to be decimal digits.
+ *
+ * Not politeness, for `assertWindowDate`'s reason: the id is interpolated into
+ * QBO's query language between single quotes, and it arrives off a ledger row
+ * (a `LinkedTxn.TxnId`) rather than from our own code.
+ */
+export function assertQboId(value: string): string {
+  if (typeof value !== 'string' || !/^\d{1,20}$/.test(value)) {
+    throw new QboInvalidId(`a QuickBooks id must be decimal digits, got ${describe(value)}`);
+  }
+  return value;
 }
 
 function tokenField(payload: JsonObject, key: string, realmId: string): string {

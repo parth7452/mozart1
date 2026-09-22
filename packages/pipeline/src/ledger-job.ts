@@ -21,11 +21,16 @@
  * reported as a success is how a coverage number goes wrong (CLAUDE.md).
  */
 
-import type { LedgerWindow } from '@recouple/core-domain';
+import type { LedgerAnomaly, LedgerAnomalyKind, LedgerWindow } from '@recouple/core-domain';
 import { syncLedger, type DiscoveryStore, type LedgerSource, type SyncReport } from './discovery';
 
 /**
- * How many days back a run walks, inclusive of today.
+ * How many days of payment and credit activity a run walks, inclusive of today.
+ *
+ * Days of *payment* activity since ADR 0035, not of invoicing: the window
+ * selects the payments and credits dated in it, and the invoices they name are
+ * read by id whatever their age. An invoice therefore stays in view for this
+ * many days after its last payment or credit.
  *
  * Consecutive daily runs therefore overlap by 34 days, and the overlap is the
  * design rather than slack (ADR 0031 §6): ADR 0026 says a caller walking month
@@ -71,8 +76,33 @@ export interface LedgerSyncRunRecord {
   readonly skippedCount: number;
   readonly declinedCount: number;
   readonly anomalyCount: number;
+  /**
+   * Which invoices the sync could not reason about, as kind and ids (ADR 0035
+   * §5). Exactly `anomalyCount` of them — the store and the database both
+   * refuse any other number — and never the detector's `detail`, which quotes
+   * the ledger.
+   */
+  readonly anomalies: readonly LedgerSyncAnomalyRecord[];
   /** A class name, never a message (invariant 4). */
   readonly errorClass?: string;
+}
+
+/** One anomaly as a run row's child carries it: a closed-set kind and ledger ids. */
+export interface LedgerSyncAnomalyRecord {
+  readonly kind: LedgerAnomalyKind;
+  readonly invoiceExternalId: string;
+  readonly transactionExternalId?: string;
+}
+
+/** The detector's anomaly, stripped to what may be stored: no `detail`. */
+export function toAnomalyRecord(anomaly: LedgerAnomaly): LedgerSyncAnomalyRecord {
+  return {
+    kind: anomaly.kind,
+    invoiceExternalId: anomaly.invoiceExternalId,
+    ...(anomaly.transactionExternalId !== undefined
+      ? { transactionExternalId: anomaly.transactionExternalId }
+      : {}),
+  };
 }
 
 /**
@@ -268,6 +298,7 @@ export async function syncLedgerJob(
     outcome: LedgerSyncOutcome,
     counts: Counts,
     errorClass?: string,
+    anomalies: readonly LedgerSyncAnomalyRecord[] = [],
   ): Promise<LedgerSyncJobResult> => {
     const runId = await deps.runs.recordLedgerSyncRun({
       orgId: input.orgId,
@@ -279,6 +310,7 @@ export async function syncLedgerJob(
       finishedAt: deps.now(),
       outcome,
       ...counts,
+      anomalies,
       ...(errorClass !== undefined ? { errorClass } : {}),
     });
     return { runId, connectionId: connection.connectionId, orgId: input.orgId, outcome, window, ...counts };
@@ -331,18 +363,24 @@ export async function syncLedgerJob(
       finishedAt: deps.now(),
       outcome: 'failed',
       ...NOTHING,
+      anomalies: [],
       errorClass: error instanceof Error ? error.name : typeof error,
     });
     throw error;
   }
 
-  return record('completed', {
-    invoicesExamined: report.invoicesExamined,
-    openedCount: report.opened.length,
-    skippedCount: report.skipped.length,
-    declinedCount: report.declined.length,
-    anomalyCount: report.anomalies.length,
-  });
+  return record(
+    'completed',
+    {
+      invoicesExamined: report.invoicesExamined,
+      openedCount: report.opened.length,
+      skippedCount: report.skipped.length,
+      declinedCount: report.declined.length,
+      anomalyCount: report.anomalies.length,
+    },
+    undefined,
+    report.anomalies.map(toAnomalyRecord),
+  );
 }
 
 interface Counts {

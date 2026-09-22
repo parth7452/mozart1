@@ -28,7 +28,9 @@ import {
   buildLedgerExtract,
   DEFAULT_MIN_DISPUTE_CENTS,
   detectShortPays,
+  invoicesNamedBy,
   resolveIdentity,
+  settlementLedger,
   triageCandidate,
 } from '@recouple/core-domain';
 import type {
@@ -40,6 +42,7 @@ import type {
   LedgerCredit,
   LedgerExtract,
   LedgerInvoice,
+  LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
   ShortPayCandidate,
@@ -53,11 +56,15 @@ import type {
  * written out here rather than imported so that `pipeline` does not take a
  * dependency on `adapters` for three method signatures. The row types are
  * `core-domain`'s either way, which is where they are declared.
+ *
+ * There is no `listInvoices` here, and that is the point of ADR 0035: the sync
+ * never asks for invoices by *their* date. It asks for the payments and credits
+ * dated in the window, then for the invoices those name, by id.
  */
 export interface LedgerSource {
-  listInvoices(window: LedgerWindow): Promise<readonly LedgerInvoice[]>;
   listPayments(window: LedgerWindow): Promise<readonly LedgerPayment[]>;
   listCredits(window: LedgerWindow): Promise<readonly LedgerCredit[]>;
+  getInvoiceHistories(invoiceExternalIds: readonly string[]): Promise<LedgerInvoiceHistories>;
 }
 
 /** What a ledger sync needs to write. `PostgresDiscoveryStore` is one. */
@@ -209,12 +216,26 @@ export async function syncLedger(input: SyncLedgerInput): Promise<SyncReport> {
 
   const minDisputeCents = input.minDisputeCents ?? DEFAULT_MIN_DISPUTE_CENTS;
 
-  const [invoices, payments, credits] = await Promise.all([
-    input.source.listInvoices(input.window),
+  // The window is anchored on what was *paid* (ADR 0035 §1): a short-pay
+  // happens when a payment lands, and a payment lands after its invoice by the
+  // terms of trade. Invoice-date anchoring hid every short-pay on an invoice
+  // older than the window — on the sandbox, all of them.
+  const [windowPayments, windowCredits] = await Promise.all([
     input.source.listPayments(input.window),
     input.source.listCredits(input.window),
   ]);
+  const activity = { payments: windowPayments, credits: windowCredits };
 
+  // Then the invoices that activity names, whatever their dates, each with
+  // every application the ledger has for it — a tally over only the in-window
+  // ones reads as a short-pay that never happened (ADR 0035 §3).
+  const named = invoicesNamedBy(activity);
+  const histories: LedgerInvoiceHistories =
+    named.length === 0
+      ? { invoices: [], payments: [], credits: [] }
+      : await input.source.getInvoiceHistories(named);
+
+  const { invoices, payments, credits } = settlementLedger(activity, histories);
   const report = detectShortPays(invoices, payments, credits);
 
   // Read once, before the loop: the identity state a sync matches against is

@@ -168,6 +168,7 @@ describe('syncing one connection on a schedule', () => {
     expect(row?.skippedCount).toBe(0);
     expect(row?.declinedCount).toBe(0);
     expect(row?.anomalyCount).toBe(0);
+    expect(row?.anomalies).toEqual([]);
     expect(row?.requestedBy).toBe(USER);
     expect(row?.windowFrom).toBe('2026-08-19');
     // A completed run carries no error class — the database refuses one, and
@@ -238,17 +239,50 @@ describe('syncing one connection on a schedule', () => {
     expect(discovery.cases).toEqual([]);
   });
 
+  it('records which invoices it could not reason about, as ids and never as ledger text', async () => {
+    const runs = new RunStore(connectionRecord());
+    const source = new InMemoryAccountingSource({
+      invoices: [invoice()],
+      payments: [
+        payment(),
+        payment({
+          externalId: 'pay-ghost',
+          appliedTo: [{ invoiceExternalId: 'inv-gone', amountCents: cents(12_345) }],
+        }),
+      ],
+      credits: [],
+    });
+
+    const result = await syncLedgerJob(
+      { runs, discovery: new InMemoryDiscoveryStore(), sources: ready(source), now: () => AT },
+      { connectionId: CONNECTION, orgId: ORG, actor: { userId: USER } },
+    );
+
+    expect(result.anomalyCount).toBe(1);
+    const row = runs.written[0];
+    expect(row?.anomalyCount).toBe(1);
+    expect(row?.anomalies).toEqual([
+      {
+        kind: 'application_to_unknown_invoice',
+        invoiceExternalId: 'inv-gone',
+        transactionExternalId: 'pay-ghost',
+      },
+    ]);
+    // The detector's detail names an amount; the run's record does not carry it.
+    expect(JSON.stringify(row)).not.toContain('123.45');
+  });
+
   it('records a failed run and then rethrows', async () => {
     const runs = new RunStore(connectionRecord());
     const exploding: LedgerSource = {
-      async listInvoices() {
-        throw new TypeError('the vendor sent something unreadable');
-      },
       async listPayments() {
-        return [];
+        throw new TypeError('the vendor sent something unreadable');
       },
       async listCredits() {
         return [];
+      },
+      async getInvoiceHistories() {
+        return { invoices: [], payments: [], credits: [] };
       },
     };
 

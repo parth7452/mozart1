@@ -201,6 +201,13 @@ describeDb('the accounting-connection registry on Postgres', () => {
       skippedCount: 7,
       declinedCount: 11,
       anomalyCount: 1,
+      anomalies: [
+        {
+          kind: 'application_to_unknown_invoice',
+          invoiceExternalId: '96',
+          transactionExternalId: '128',
+        },
+      ],
     });
 
     const { rows } = await admin.query<{
@@ -232,6 +239,57 @@ describeDb('the accounting-connection registry on Postgres', () => {
     expect(row?.error_class).toBeNull();
     expect(row?.requested_by).toBe(analystId);
     expect(row?.started_at.toISOString()).toBe(startedAt.toISOString());
+
+    // And which invoice it could not reason about, as ids — in the same
+    // transaction as the run row (ADR 0035 §5).
+    const anomalies = await admin.query<{
+      org_id: string;
+      kind: string;
+      invoice_external_id: string;
+      transaction_external_id: string | null;
+    }>(
+      `select org_id, kind, invoice_external_id, transaction_external_id
+         from ledger_sync_anomalies where run_id = $1`,
+      [runId],
+    );
+    expect(anomalies.rows).toEqual([
+      {
+        org_id: orgId,
+        kind: 'application_to_unknown_invoice',
+        invoice_external_id: '96',
+        transaction_external_id: '128',
+      },
+    ]);
+  });
+
+  it('refuses a run whose anomaly list is not its anomaly count, before anything is written', async () => {
+    const before = await admin.query<{ n: string }>(
+      `select count(*) as n from ledger_sync_runs where connection_id = $1`,
+      [connectionId],
+    );
+    await expect(
+      runs.recordLedgerSyncRun({
+        orgId,
+        connectionId,
+        requestedBy: analystId,
+        windowFrom: '2026-08-19',
+        windowTo: '2026-09-22',
+        startedAt: new Date('2026-09-22T07:00:00.000Z'),
+        finishedAt: new Date('2026-09-22T07:00:01.000Z'),
+        outcome: 'completed',
+        invoicesExamined: 12,
+        openedCount: 0,
+        skippedCount: 0,
+        declinedCount: 0,
+        anomalyCount: 8,
+        anomalies: [],
+      }),
+    ).rejects.toThrow(/partial list is not the list/);
+    const after = await admin.query<{ n: string }>(
+      `select count(*) as n from ledger_sync_runs where connection_id = $1`,
+      [connectionId],
+    );
+    expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
   });
 
   it('records a refusal on behalf of a member who may no longer write', async () => {
@@ -254,6 +312,7 @@ describeDb('the accounting-connection registry on Postgres', () => {
       skippedCount: 0,
       declinedCount: 0,
       anomalyCount: 0,
+      anomalies: [],
       errorClass: 'LedgerSyncRefusedError',
     });
 
@@ -277,6 +336,7 @@ describeDb('the accounting-connection registry on Postgres', () => {
       skippedCount: 0,
       declinedCount: 0,
       anomalyCount: 0,
+      anomalies: [],
     };
 
     // Definer, and bounded to the caller's own claims: an org that is not this
@@ -321,6 +381,7 @@ describeDb('the accounting-connection registry on Postgres', () => {
         skippedCount: 0,
         declinedCount: 0,
         anomalyCount: 0,
+        anomalies: [],
       }),
     ).rejects.toThrow(/non-negative/);
   });
