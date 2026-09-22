@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   APPROVAL_ACTIONS,
@@ -24,6 +26,20 @@ describe('the invariant register', () => {
     for (const invariant of INVARIANTS) {
       expect(invariant.enforcedBy.length).toBeGreaterThan(0);
     }
+  });
+
+  it('points only at suites that exist', () => {
+    // A pointer to a renamed or deleted suite reads exactly like a pointer to
+    // one that runs. Entries carry annotations — "…/15_every_table_has_rls.sql
+    // (every public table, by enumeration)" — so the path is picked out of the
+    // string rather than the whole string being taken for one.
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const named = INVARIANTS.flatMap((invariant) =>
+      invariant.enforcedBy.flatMap((entry) => entry.match(/supabase\/tests\/\S+\.sql/g) ?? []),
+    );
+    expect(named.length).toBeGreaterThan(0);
+    const missing = named.filter((suite) => !existsSync(`${root}${suite}`));
+    expect(missing).toEqual([]);
   });
 
   it('covers exactly the approval actions the database triggers guard', () => {

@@ -113,9 +113,11 @@ describeDb('the accounting-connection registry on Postgres', () => {
 
   it('is refused to a caller that is acting for a tenant', async () => {
     // The guard that keeps the one cross-tenant query to the one caller it is
-    // for: `authenticated` inherits every grant `app_rw` holds, and a request
-    // always carries claims. `listConnectionsToSync` sets a role and no claims,
-    // which is why it works and this does not.
+    // for: a request always carries claims, and anything granted to `app_rw` is
+    // reachable by whoever can become it — which included every signed-in
+    // Supabase user until migration 0028 revoked `authenticated`'s membership
+    // (ADR 0037); the guard stays as defence in depth. `listConnectionsToSync`
+    // sets a role and no claims, which is why it works and this does not.
     const client = await admin.connect();
     try {
       await client.query('begin');
