@@ -30,3 +30,15 @@ asserts what we think the contract is, a recorded one asserts what Intuit
 actually sent, and it is worth being able to see the two disagree. These are
 HTTP fixtures, not model cassettes — `pnpm record:cassettes` does not touch them
 and they are not part of the eval baseline.
+
+`pnpm qbo:verify --record` is what does the recording, against a real sandbox
+from a laptop (`packages/qbo/scripts/verify-sandbox.mts`). It writes
+`recorded-<entity>-query.json` and `recorded-token-refresh.json`, so a recorded
+file never lands on a hand-written one, and it replaces the realm id, the client
+id and every token with `__REDACTED__` first. A response body it has already
+saved under that name is not saved twice — the Payment query runs twice per run,
+once for the payments and once to resolve what each credit memo was applied to —
+and a genuine second page becomes `recorded-<entity>-query-2.json`. Commit a
+recorded fixture only if it came from a real Intuit sandbox: one produced
+against a fake serves the hand-written file's purpose while claiming the
+recorded file's authority.
