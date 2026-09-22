@@ -250,7 +250,7 @@ function paymentRow(id: string, lines: readonly { amount: number; links: readonl
 }
 
 /** Serves rows by `Id in (…)` and nothing else, and records every statement. */
-function byIdFetch(ledger: Record<string, readonly { Id: string }[]>) {
+function byIdFetch(ledger: Record<string, readonly ({ readonly Id: string } & Record<string, unknown>)[]>) {
   return recordingFetch(({ statement }) => {
     const entity = entityOf(statement) ?? '';
     const list = /\bId in \(([^)]*)\)/.exec(statement ?? '');
