@@ -266,6 +266,64 @@ describe('syncing a customer’s ledger', () => {
     expect(report.opened).toHaveLength(1);
   });
 
+  it('finds a short-pay on an invoice dated long before the window (ADR 0035)', async () => {
+    // Net 60 and a slow remittance: invoiced in April, short-paid in July. An
+    // invoice-date window never saw this invoice; a payment-date one does.
+    const store = new InMemoryDiscoveryStore();
+    const report = await syncLedger({
+      source: ledger({ invoices: [invoice({ issuedOn: '2026-04-02' })], payments: [payment()] }),
+      window: WINDOW,
+      store,
+      orgId: ORG,
+    });
+
+    expect(report.anomalies).toEqual([]);
+    expect(report.invoicesExamined).toBe(1);
+    expect(report.opened).toEqual([
+      expect.objectContaining({ invoiceExternalId: 'inv-1', gapCents: 80_000 }),
+    ]);
+  });
+
+  it('tallies against a payment dated before the window, so a paid invoice is not a short-pay', async () => {
+    // $920,000 in June — before the window — and the last $80,000 in July.
+    // The window sees only July's; the invoice's history brings June's in.
+    const store = new InMemoryDiscoveryStore();
+    const report = await syncLedger({
+      source: ledger({
+        invoices: [invoice({ issuedOn: '2026-05-01', balanceCents: cents(0) })],
+        payments: [
+          payment({ externalId: 'pay-june', receivedOn: '2026-06-20' }),
+          payment({
+            externalId: 'pay-july',
+            receivedOn: '2026-07-20',
+            totalCents: cents(80_000),
+            appliedTo: [{ invoiceExternalId: 'inv-1', amountCents: cents(80_000) }],
+          }),
+        ],
+      }),
+      window: WINDOW,
+      store,
+      orgId: ORG,
+    });
+
+    expect(report.candidates).toEqual([]);
+    expect(report.anomalies).toEqual([]);
+    expect(store.cases).toHaveLength(0);
+  });
+
+  it('does not examine an invoice nothing paid in the window', async () => {
+    // Invoiced in the window, unpaid: not a short-pay, and not read at all.
+    const store = new InMemoryDiscoveryStore();
+    const report = await syncLedger({
+      source: ledger({ invoices: [invoice({ issuedOn: '2026-07-10' })], payments: [] }),
+      window: WINDOW,
+      store,
+      orgId: ORG,
+    });
+    expect(report.invoicesExamined).toBe(0);
+    expect(report.candidates).toEqual([]);
+  });
+
   it('does not swallow a store failure', async () => {
     const store = new InMemoryDiscoveryStore();
     const failing = {

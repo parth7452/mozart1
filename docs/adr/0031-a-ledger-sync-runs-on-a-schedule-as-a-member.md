@@ -1,6 +1,6 @@
 # 0031 — A ledger sync runs on a schedule, as a member
 
-- Status: accepted
+- Status: accepted; §6's window semantics and its overlap claim re-examined by ADR 0035
 - Date: 2026-09-22
 
 ## Context

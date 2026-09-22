@@ -56,7 +56,14 @@ describe('AccountingSource', () => {
     // list methods, so this alias is `never` unless something writeable is
     // added — at which point `keyof` grows and the assignment below fails to
     // compile. Write-back is Phase 4 and belongs behind its own port.
-    type ReadOnlySurface = 'kind' | 'listInvoices' | 'listPayments' | 'listCredits';
+    // `getInvoiceHistories` is a read (ADR 0035), and naming it here is how a
+    // fifth method is made to arrive with an ADR rather than without one.
+    type ReadOnlySurface =
+      | 'kind'
+      | 'listInvoices'
+      | 'listPayments'
+      | 'listCredits'
+      | 'getInvoiceHistories';
     type Unexpected = Exclude<keyof AccountingSource, ReadOnlySurface>;
     const noWriteMethods: Unexpected[] = [];
     expect(noWriteMethods).toEqual([]);
@@ -149,6 +156,31 @@ describe('InMemoryAccountingSource', () => {
     expect(await bare.listInvoices(wide)).toEqual([]);
     expect(await bare.listPayments(wide)).toEqual([]);
     expect(await bare.listCredits(wide)).toEqual([]);
+  });
+
+  it('reads invoice histories by id, ignoring every date (ADR 0035 §2)', async () => {
+    const applied = (id: string, amount: number) => [{ invoiceExternalId: id, amountCents: cents(amount) }];
+    const ledger = new InMemoryAccountingSource({
+      invoices: [invoice('inv-old', '2025-01-15'), invoice('inv-other', '2026-06-15')],
+      payments: [
+        { ...payment('pay-long-ago', '2025-02-01'), appliedTo: applied('inv-old', 50_000) },
+        { ...payment('pay-recent', '2026-09-01'), appliedTo: applied('inv-old', 42_000) },
+        { ...payment('pay-elsewhere', '2026-09-01'), appliedTo: applied('inv-other', 1) },
+      ],
+      credits: [
+        { ...credit('cm-old', '2025-03-01'), appliedTo: applied('inv-old', 8_000) },
+        credit('cm-unapplied', '2026-09-01'),
+      ],
+    });
+
+    const histories = await ledger.getInvoiceHistories(['inv-old', 'inv-nowhere']);
+    expect(histories.invoices.map((i) => i.externalId)).toEqual(['inv-old']);
+    // Every application to it, whatever the date — and nothing that touches
+    // only some other invoice.
+    expect(histories.payments.map((p) => p.externalId)).toEqual(['pay-long-ago', 'pay-recent']);
+    expect(histories.credits.map((c) => c.externalId)).toEqual(['cm-old']);
+
+    expect(await ledger.getInvoiceHistories([])).toEqual({ invoices: [], payments: [], credits: [] });
   });
 
   it('stands in for the other ledgers behind the same port', () => {

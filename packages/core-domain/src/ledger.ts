@@ -61,6 +61,22 @@ export interface LedgerApplication {
   readonly amountCents: Cents;
 }
 
+/**
+ * Some invoices, and everything the ledger has applied to them (ADR 0035 §2).
+ *
+ * `invoices` holds the ones the ledger has of those asked for, whatever their
+ * dates. `payments` and `credits` hold every payment and credit applied to any
+ * of them, whatever *their* dates — which is what makes a tally over them
+ * complete rather than a tally over whatever happened to fall in a window. A
+ * payment or credit here may also apply to invoices nobody asked about;
+ * `settlementLedger` trims those.
+ */
+export interface LedgerInvoiceHistories {
+  readonly invoices: readonly LedgerInvoice[];
+  readonly payments: readonly LedgerPayment[];
+  readonly credits: readonly LedgerCredit[];
+}
+
 /** Inclusive ISO date range. */
 export interface LedgerWindow {
   readonly from: string;

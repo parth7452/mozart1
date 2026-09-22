@@ -301,8 +301,17 @@ begin
   perform test.expect_error(
     format('delete from ledger_sync_runs where id = %L', run_a),
     'append-only', 'for a delete as well');
+  -- Since migration 0027 `ledger_sync_anomalies` references this table, so a
+  -- plain truncate is refused by that foreign key before any statement trigger
+  -- fires — a real refusal, but somebody else's rule. Suite 14's pattern: assert
+  -- that, then assert the CASCADE that would get past it is stopped by the
+  -- trigger, by name, so this still tests the trigger rather than the key.
   perform test.expect_error(
-    'truncate ledger_sync_runs', 'append-only', 'and a truncate');
+    'truncate ledger_sync_runs', 'referenced in a foreign key constraint',
+    'a plain truncate is stopped by the reference from ledger_sync_anomalies');
+  perform test.expect_error(
+    'truncate ledger_sync_runs cascade', 'append-only',
+    'and the cascade that would get past that is stopped by the trigger');
 
   -- =========================================================================
   -- RLS isolation on the run log

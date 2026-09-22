@@ -7,6 +7,7 @@ export * from './packet';
 export * from './retailers';
 export * from './reason-codes';
 export * from './short-pay';
+export * from './settlement';
 export * from './state-machine';
 export * from './triage';
 export * from './thresholds';

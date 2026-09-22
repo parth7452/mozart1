@@ -49,9 +49,27 @@ export interface ShortPayCandidate {
   readonly lastPaymentOn?: string;
 }
 
+/** The four kinds, as a value, so a database check constraint can be asserted against it. */
+export const LEDGER_ANOMALY_KINDS = [
+  'overapplied',
+  'application_to_unknown_invoice',
+  'negative_amount',
+  'currency_mismatch',
+] as const;
+export type LedgerAnomalyKind = (typeof LEDGER_ANOMALY_KINDS)[number];
+
 export interface LedgerAnomaly {
   readonly invoiceExternalId: string;
-  readonly kind: 'overapplied' | 'application_to_unknown_invoice' | 'negative_amount' | 'currency_mismatch';
+  readonly kind: LedgerAnomalyKind;
+  /**
+   * The payment or credit whose application raised it. Absent for an anomaly
+   * about the invoice itself (a negative total, a currency, an overapplication).
+   */
+  readonly transactionExternalId?: string;
+  /**
+   * For a person reading a log, never for a table: it quotes the ledger's own
+   * invoice numbers and renders amounts as text (ADR 0035 §5).
+   */
   readonly detail: string;
 }
 
@@ -216,6 +234,7 @@ export function detectShortPays(
         anomalies.push({
           invoiceExternalId: id,
           kind: 'negative_amount',
+          transactionExternalId: payment.externalId,
           detail: `payment ${payment.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}`,
         });
       }
@@ -223,7 +242,8 @@ export function detectShortPays(
         anomalies.push({
           invoiceExternalId: id,
           kind: 'application_to_unknown_invoice',
-          detail: `payment ${payment.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}, which is not in this window`,
+          transactionExternalId: payment.externalId,
+          detail: `payment ${payment.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}, which the ledger did not return`,
         });
         continue;
       }
@@ -244,6 +264,7 @@ export function detectShortPays(
         anomalies.push({
           invoiceExternalId: id,
           kind: 'negative_amount',
+          transactionExternalId: credit.externalId,
           detail: `credit ${credit.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}`,
         });
       }
@@ -251,7 +272,8 @@ export function detectShortPays(
         anomalies.push({
           invoiceExternalId: id,
           kind: 'application_to_unknown_invoice',
-          detail: `credit ${credit.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}, which is not in this window`,
+          transactionExternalId: credit.externalId,
+          detail: `credit ${credit.externalId} applies ${formatCents(application.amountCents)} to invoice ${id}, which the ledger did not return`,
         });
         continue;
       }

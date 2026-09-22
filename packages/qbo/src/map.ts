@@ -142,6 +142,26 @@ export function resolveCreditApplications(
   return byCredit;
 }
 
+/**
+ * The ids of every transaction of one type an invoice's own `LinkedTxn` names.
+ *
+ * For `'Payment'` that is every payment applied to the invoice — including the
+ * zero-dollar payment that applies a credit memo to it — which is how
+ * `getInvoiceHistories` finds an invoice's whole history rather than the part
+ * of it that fell in a window (ADR 0035 §2).
+ */
+export function linkedTxnIds(row: JsonObject, txnType: string, path: string): readonly string[] {
+  const ids: string[] = [];
+  readArray(row['LinkedTxn'], `${path}.LinkedTxn`).forEach((rawLink, index) => {
+    const linkPath = `${path}.LinkedTxn[${index}]`;
+    const link = readObject(rawLink, linkPath);
+    if (readString(link, 'TxnType', linkPath) === txnType) {
+      ids.push(readString(link, 'TxnId', linkPath));
+    }
+  });
+  return ids;
+}
+
 interface PaymentLine {
   readonly amountCents: LedgerApplication['amountCents'];
   readonly invoiceIds: readonly string[];

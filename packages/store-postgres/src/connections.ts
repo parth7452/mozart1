@@ -1,6 +1,6 @@
 /**
  * The accounting-connection registry and the ledger-sync log, on Postgres
- * (ADR 0031, migration 0024).
+ * (ADR 0031, migration 0024; the log's anomalies, ADR 0035, migration 0027).
  *
  * Two tables and two questions, and they are asked by callers with different
  * amounts of identity — which is the whole reason this file has both a free
@@ -66,6 +66,27 @@ export const LEDGER_SYNC_OUTCOMES = [
 ] as const;
 export type LedgerSyncOutcome = (typeof LEDGER_SYNC_OUTCOMES)[number];
 
+/**
+ * The four kinds `ledger_sync_anomalies.kind` admits (migration 0027) — the
+ * detector's `LEDGER_ANOMALY_KINDS`, repeated rather than imported so this
+ * package's contract with its own check constraint is written down here, and
+ * asserted against both by `test/ledger-anomalies.test.ts`.
+ */
+export const LEDGER_SYNC_ANOMALY_KINDS = [
+  'overapplied',
+  'application_to_unknown_invoice',
+  'negative_amount',
+  'currency_mismatch',
+] as const;
+export type LedgerSyncAnomalyKind = (typeof LEDGER_SYNC_ANOMALY_KINDS)[number];
+
+/** One anomaly of a run, as the table keeps it: a kind and ledger ids, no text. */
+export interface LedgerSyncAnomalyInput {
+  readonly kind: LedgerSyncAnomalyKind;
+  readonly invoiceExternalId: string;
+  readonly transactionExternalId?: string;
+}
+
 export interface LedgerSyncRunInput {
   readonly orgId: string;
   readonly connectionId: string;
@@ -82,6 +103,12 @@ export interface LedgerSyncRunInput {
   readonly skippedCount: number;
   readonly declinedCount: number;
   readonly anomalyCount: number;
+  /**
+   * Exactly `anomalyCount` of them (ADR 0035 §5). Written in the same
+   * transaction as the run row, so a run with a count and no rows cannot be
+   * committed through this store; the database refuses any other number too.
+   */
+  readonly anomalies: readonly LedgerSyncAnomalyInput[];
   /**
    * An error's **class name**, never its message (invariant 4, ADR 0031 §2).
    * The database refuses one on a `completed` run.
@@ -323,6 +350,19 @@ export class PostgresLedgerSyncStore {
    * `not null` column as a null and fail with a message about the wrong thing.
    */
   async recordLedgerSyncRun(input: LedgerSyncRunInput): Promise<string> {
+    // Checked here as well as there, for `count`'s reason: a mismatch should
+    // fail with a message about the mismatch, before anything is sent.
+    if (input.anomalies.length !== input.anomalyCount) {
+      throw new Error(
+        `a ledger sync run counted ${input.anomalyCount} anomalies and carries ` +
+          `${input.anomalies.length}; a partial list is not the list (ADR 0035 §5)`,
+      );
+    }
+    for (const anomaly of input.anomalies) {
+      if (!(LEDGER_SYNC_ANOMALY_KINDS as readonly string[]).includes(anomaly.kind)) {
+        throw new Error(`unknown ledger anomaly kind ${JSON.stringify(anomaly.kind)}`);
+      }
+    }
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
         `select app.record_ledger_sync_run(
@@ -351,6 +391,26 @@ export class PostgresLedgerSyncStore {
       if (id === undefined || id === null) {
         // The function returns the new id or raises. Nothing else is a result.
         throw new Error('app.record_ledger_sync_run() returned no run id');
+      }
+      // The run's anomalies, through their own door, in this transaction: if
+      // this fails the run row goes with it (ADR 0035 §5). Kind and ids only —
+      // never the detector's detail, which quotes the ledger.
+      if (input.anomalies.length > 0) {
+        const payload = input.anomalies.map((anomaly) => ({
+          kind: anomaly.kind,
+          invoice_external_id: anomaly.invoiceExternalId,
+          transaction_external_id: anomaly.transactionExternalId ?? null,
+        }));
+        const written = await client.query<{ n: number }>(
+          'select app.record_ledger_sync_anomalies($1::uuid, $2::jsonb) as n',
+          [id, JSON.stringify(payload)],
+        );
+        if (written.rows[0]?.n !== input.anomalies.length) {
+          throw new Error(
+            `app.record_ledger_sync_anomalies() wrote ${String(written.rows[0]?.n)} of ` +
+              `${input.anomalies.length} anomalies for run ${id}`,
+          );
+        }
       }
       return id;
     });

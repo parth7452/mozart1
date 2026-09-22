@@ -81,3 +81,13 @@ export class QboRequestFailed extends QboError {
  * exactly `YYYY-MM-DD` and a real calendar day before a request is built.
  */
 export class QboInvalidWindow extends QboError {}
+
+/**
+ * The caller handed us an id we will not put in a query (ADR 0035 §2).
+ *
+ * `QboInvalidWindow`'s reason, for ids: `Id in ('…')` interpolates each one
+ * between single quotes, and the ids come off the ledger's own `LinkedTxn`
+ * rows. QBO's entity ids are decimal digits, so anything else is refused before
+ * a request is built.
+ */
+export class QboInvalidId extends QboError {}
