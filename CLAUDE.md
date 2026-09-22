@@ -192,7 +192,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Six recorded suites and two waiting on cassettes, every one of them scored
+Seven recorded suites and one waiting on cassettes, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -204,7 +204,7 @@ does):
 | dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
-| authored_pending | shapes the numbers do not cover yet | not yet recorded | — | — |
+| authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
 | customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -223,7 +223,7 @@ baseline is being compared against. Record with
 `pnpm record:cassettes --suite customer` (it spends money), then
 `pnpm eval --record-baseline`.
 
-Classification is 39/39. The two misses in the corpus are both the same field
+Classification is 40/40. The two misses in the corpus are both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
 revision 2 replaces revision 1" and the model reports the change in prose
@@ -237,7 +237,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0235 per document across 39 of them, and 311 of 821 fields carry a
+About $0.0233 per document across 40 of them, and 311 of 833 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
