@@ -325,9 +325,11 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0025 as
-of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0025 applied 2026-09-22 and
-the new tables, views, functions and grants read back and verified).
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0026 as
+of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0026 applied 2026-09-22 and
+the new tables, views, functions and grants read back and verified — for 0026,
+`app.member_for_link(text, text)` exists, is security definer, and only the
+owner and `app_rw` hold EXECUTE).
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
