@@ -282,7 +282,7 @@ begin
   -- =========================================================================
   -- Invariant 2's grant half, for every role — derived from the triggers.
   -- =========================================================================
-  -- Suites 01, 11, 14, 21 and 23 ask whether app_rw holds UPDATE or DELETE on
+  -- Suites 11, 14, 20, 21 and 23 ask whether app_rw holds UPDATE or DELETE on
   -- the tables they were written for. Nothing asked whether anybody else did,
   -- and Supabase's defaults gave the request roles ALL on every one of them.
   --
