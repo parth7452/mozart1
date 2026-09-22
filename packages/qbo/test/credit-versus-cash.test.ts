@@ -172,6 +172,13 @@ describe('pairing a credit-memo line to the invoice line it funded', () => {
     expect(() => toLedgerPayment(row, 'Payment[0]')).toThrow(QboMalformedResponse);
   });
 
+  it('refuses a credit line on a payment with no invoice line for it to have settled', () => {
+    const row = paymentRow('905', 0, [{ amount: 100, links: [['CreditMemo', '73']] }]);
+    expect(() => toLedgerPayment(row, 'Payment[0]')).toThrow(
+      /which invoice the credit settled cannot be said/,
+    );
+  });
+
   it('refuses more credit than the invoice line it is said to have settled', () => {
     const row = paymentRow('904', 0, [
       { amount: 100, links: [['Invoice', '71']] },
