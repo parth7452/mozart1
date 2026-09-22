@@ -285,6 +285,37 @@ export const NOTICES = {
     text: 'this case predates provenance recording, so nothing on it says which channel found the deduction and a decline is counted against that channel. It can be recorded by an operator (ADR 0024) and the case declined afterwards. Nothing was written — the case was not declined and is untouched, and this is in the logs.',
   },
 
+  // --- answering a possible duplicate ---------------------------------------
+  //
+  // Nothing here merges two cases, and every sentence says so. A verdict is a
+  // record of what a person concluded about a pair the matcher refused to merge
+  // (ADR 0032); a notice that implied the cases had been joined would be this
+  // app claiming something it did not do on a money path.
+  duplicate_role: {
+    tone: 'bad',
+    text: 'your role can review cases but not say whether two of them are one deduction',
+  },
+  duplicate_verdict: {
+    tone: 'bad',
+    text: 'say whether these are the same deduction or two different ones',
+  },
+  duplicate_confirmed: {
+    tone: 'good',
+    text: 'recorded: these two are one deduction. Both cases stay exactly as they are — nothing was merged, and nothing was sent anywhere.',
+  },
+  duplicate_dismissed: {
+    tone: 'good',
+    text: 'recorded: these are two different deductions, and both stay open',
+  },
+  duplicate_already: {
+    tone: 'bad',
+    text: 'this pair was already answered; the first answer stands',
+  },
+  duplicate_unknown_pair: {
+    tone: 'bad',
+    text: 'nothing names those two cases as a possible duplicate of each other — the page you answered from is out of date. Nothing was recorded.',
+  },
+
   // --- uploading ------------------------------------------------------------
   upload_role: { tone: 'bad', text: 'your role can review documents but not add them' },
   upload_too_large: { tone: 'bad', text: `that file is larger than ${UPLOAD_MAX_MB} MB` },

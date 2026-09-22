@@ -41,9 +41,13 @@ import type {
   DeclinedLine,
   DiscoveredVia,
   DocumentReadLease,
+  DuplicateReviewStore,
+  DuplicateVerdict,
+  DuplicateVerdictRecord,
   IngestSource,
   JobStore,
   PipelineStore,
+  PossibleDuplicatePair,
   RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
@@ -709,7 +713,12 @@ export class InMemoryBlobStore implements BlobStore {
 }
 
 export class PostgresStore
-  implements PipelineStore, CaseWorkflowStore, JobStore, UnreadDocumentsStore
+  implements
+    PipelineStore,
+    CaseWorkflowStore,
+    DuplicateReviewStore,
+    JobStore,
+    UnreadDocumentsStore
 {
   private readonly pool: Pool;
   /** Held for the length of a read, so deliberately not the working pool. */
@@ -3340,6 +3349,34 @@ export class PostgresStore
   /** Everything the case page shows, in one transaction under one tenant's claims. */
   async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
     return this.withTenant((client) => workflow.getWorkflow(client, deductionId));
+  }
+
+  // -------------------------------------------------------------------------
+  // DuplicateReviewStore (ADR 0032): the pairs identity resolution left
+  // -------------------------------------------------------------------------
+  //
+  // `resolveIdentity` merges only an exact match; a probable one opens the case
+  // and names the other deduction on an event (ADR 0025 §6). These two are what
+  // makes that a deferral to a person rather than to nobody: the list, and the
+  // verdict. Both run as `app_rw` under the tenant's claims like everything else
+  // here — the service role appears nowhere (invariant 6).
+
+  async possibleDuplicates(options?: {
+    readonly deductionId?: string;
+    readonly limit?: number;
+  }): Promise<readonly PossibleDuplicatePair[]> {
+    return this.withTenant((client) => workflow.possibleDuplicates(client, options));
+  }
+
+  async recordDuplicateVerdict(input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly verdict: DuplicateVerdict;
+    readonly recordedBy: string;
+  }): Promise<DuplicateVerdictRecord> {
+    return this.withTenant((client) =>
+      workflow.recordDuplicateVerdict(client, this.tenant, input),
+    );
   }
 }
 

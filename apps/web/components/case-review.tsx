@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
-import type { CaseWorkflow } from '@recouple/pipeline';
+import type { CaseWorkflow, PossibleDuplicatePair } from '@recouple/pipeline';
 import {
   DECLINE_REASONS,
   MISSING_EVIDENCE_TYPES,
@@ -12,6 +12,7 @@ import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format
 import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
+import { DuplicateNotice } from './possible-duplicates';
 import type { Viewer } from './case-list';
 import { WorkspaceShell } from './workspace-shell';
 
@@ -60,6 +61,13 @@ export interface CaseReviewProps {
   readonly viewerUserId?: string;
   /** Everything that has happened to this case, from one `getWorkflow` read. */
   readonly workflow?: CaseWorkflow | undefined;
+  /**
+   * The unanswered pairs this case is one half of (ADR 0032). Shown to every
+   * reader, because "another case may be this same deduction" is something to
+   * know before deciding anything about it; only a member who may write is
+   * offered the two answers.
+   */
+  readonly duplicates?: readonly PossibleDuplicatePair[] | undefined;
   /**
    * The outcome of the action just taken, carried back on the redirect as a
    * notice *key* out of `lib/notices.ts` — never as the sentence, which arrives
@@ -128,6 +136,7 @@ export function CaseReview({
   mayApprove = false,
   viewerUserId = '',
   workflow,
+  duplicates,
   notice,
   noticeAbout,
 }: CaseReviewProps) {
@@ -299,6 +308,12 @@ export function CaseReview({
                 </form>
               </div>
             ) : null}
+
+            <DuplicateNotice
+              deductionId={summary.deductionId}
+              pairs={duplicates ?? []}
+              mayAct={mayAct}
+            />
 
             <CaseActions
               deductionId={summary.deductionId}

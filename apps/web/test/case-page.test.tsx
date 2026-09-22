@@ -119,6 +119,9 @@ const store = {
   async getWorkflow() {
     return workflow;
   },
+  async possibleDuplicates() {
+    return [];
+  },
   async documentsForCase() {
     return [document];
   },
