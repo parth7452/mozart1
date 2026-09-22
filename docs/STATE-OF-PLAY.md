@@ -1,13 +1,15 @@
 # State of play
 
-*2026-09-21*
+*2026-09-22*
 
 A supplier can sign in, upload a deduction notice, and get back a case where
-every extracted field traces to the quote it came from. Phase 3 is now complete
-**in code**: a reviewer can decide, assemble a packet, have a second person
-approve it, record the filing and record the outcome. None of that has been run
-through the deployed app yet, because the production app is not synced with
-Inngest — that sync is what stands between here and the first end-to-end run.
+every extracted field traces to the quote it came from — and then take that case
+all the way through Phase 3 in the deployed app. One production case has been:
+decided, assembled into a packet, approved by the second member, filed and given
+an outcome (2026-09-21, ending `partial`). The ledger sync has run once in
+production against the QuickBooks sandbox (2026-09-22), before ADR 0035 and ADR
+0036 fixed what it read; the fixed code is deployed and migration 0027 is
+applied, so the next run is the first one that means anything.
 
 ## Live in production
 
@@ -21,41 +23,44 @@ Verified on the deployed app, not only in tests:
   text layer a scan has no other way to get
 - **A second member with role `approver`**, so separation of duties has a person
   to exercise it: the preparer of a decision cannot approve it
+- **Phase 3 end to end.** One case: `case.discovered > case.classified >
+  decision.recorded > packet.assembled > approval.granted >
+  submission.recorded > outcome.recorded`, state `partial`. The approval
+  trigger admitted the submission because an approval named that decision
+- **The Inngest binding.** The concurrency cap fits the plan, the app is
+  synced, and the ledger sync ran as a job acting as the connection's member
+- **A sealed QuickBooks credential** (ADR 0033): one connection, its token set
+  stored as ciphertext and rotated as new rows
 
 The scanner runs as its own container on Fly, with clamd bound to loopback
 behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0026, applied
-2026-09-22 (0018 on 2026-09-21) — the filed record is immutable there too, and
-complete when written, not only in test; the remittance tolerances, the coverage
-denominator views, the ledger-sync registry and run log, the sealed credential
-store, and the operator commands' lookup on the prescribed login are all live.
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0027, applied
+2026-09-22 and read back: `ledger_sync_anomalies` exists with RLS on, both
+append-only triggers, SELECT-only grants for `app_rw` and `app_ro`, and
+`app.record_ledger_sync_anomalies` definer with EXECUTE held by the owner and
+`app_rw` alone. The deployed app is `main` at `2977894` (ADR 0036).
 
 ## Built, not yet exercised
 
-The gap between *it worked once* and *it works*. Each of these is implemented
-and tested in isolation and has never been run through the deployed app:
+The gap between *it worked once* and *it works*:
 
 | | What would prove it |
 | --- | --- |
-| **Phase 3 end to end** | One case: decide → assemble → approve as the second member → record the filing → record the outcome, in the deployed app. Blocked on the Inngest sync below |
-| **The Inngest binding** | ADR 0021 chooses the job path by environment. The production app has **not** been synced with Inngest: the sync was refused because the app declares a concurrency cap above the plan limit. Fix in flight |
+| **The fixed ledger sync** | The next run (daily, 07:00 UTC) over the sandbox should report the three short-pays and one anomaly `settlement-window.test.ts` replays, where the 2026-09-22 run found nothing and eight anomalies. Its anomalies are rows now, not a count |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
-| **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes. The Inngest job is the answer to that; it is the same sync that is blocked |
+| **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
 
 ## Blocked, and on whom
 
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
-| Inngest sync (concurrency cap over the plan limit) | **next change** | Nothing about Phase 3 can be demonstrated end to end until the deployed app registers its functions |
-| `ANTHROPIC_API_KEY` for cassette recording | **you** | LOG-001 is wired and self-consistent but not scored by `pnpm eval` until its cassettes exist. One local command |
-| ~~Positioning line~~ | **done** | `CLAUDE.md` and `README.md` now open on staffing and logistics first, retail CPG as upside |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| ~~Provenance at ingest~~ | **done** | `ingestDocument` writes the `uploads` row before it stores the bytes, so `documents.upload_id` is set on everything stored since. `declined_candidates.discovered_from` is derived from the notice's own arrival — the `assumedDiscoveredFrom` parameter is gone — and a case whose notice records no arrival is refused rather than attributed to a guess. Coverage can be grouped by channel; a declined web upload and a declined email-in case land in different ones. Two things it leaves behind are under *Follow-ups this change created* |
+| A QuickBooks connect flow | **next change** | `pnpm link:qbo` is an operator command; no customer can connect a ledger themselves |
 
 ## Where the phases stand
 
@@ -63,13 +68,11 @@ Against the build order in `CLAUDE.md`:
 
 - **Phase 0 — foundations.** Done. Approval trigger, append-only tables, hash
   chains, RLS, the SQL invariant suite, money maths, the case state machine.
-- **Phase 1 — ingest + classify.** Substantially done and live. The Inngest
-  binding exists in code (ADR 0021): both keys give a job, neither reads inside
-  the request, one without the other is an error. Remaining: the production
-  sync, and fixtures for formats still missing.
-- **Phase 3 — packet, approval, submission, outcomes.** **Complete in code**
-  (PRs #5, #7, #8, #9), ahead of 1.5 and 2 per ADR 0020, with the dispute
-  decision made by a human rather than by Jev:
+- **Phase 1 — ingest + classify.** Substantially done and live, including the
+  Inngest binding (ADR 0021). Remaining: fixtures for formats still missing.
+- **Phase 3 — packet, approval, submission, outcomes.** **Complete, and run
+  once end to end in production** (PRs #5, #7, #8, #9), ahead of 1.5 and 2 per
+  ADR 0020, with the dispute decision made by a human rather than by Jev:
   - **ADR 0020** and **migration 0016** — a human `decisions` row
     (`provider = 'human'`, non-null `prepared_by`), the append-only `packets`
     table, an approval that names the packet it approved
@@ -81,13 +84,18 @@ Against the build order in `CLAUDE.md`:
   - **ADR 0022** and **migration 0017** — `packet_hash`, `confirmation_number`
     and `submitted_at` frozen, so the record of what was filed cannot be
     rewritten after the fact
-- **Phase 1.5 — ERP read + triage.** Not started.
+- **Phase 1.5 — ERP read + triage.** ERP read is built: QuickBooks behind the
+  `AccountingSource` port (ADR 0026), a daily sync as a member (ADR 0031), a
+  sealed token store (ADR 0033), a window anchored on payments (ADR 0035), credit
+  memos read as not cash (ADR 0036), and short-pays opening cases. Triage — an
+  ordered work queue over what the sync and the uploads open — is not started.
 - **Phase 2 — evidence + decision.** Not started. Phase 2's model decision lands
   in the slot Phase 3 has already used, with a corpus of human decisions in the
   same `schema_id` to score against.
 
-The case state machine has 14 states. Cases reach state 2 in production; the
-states above it are exercised only in tests.
+The case state machine has 14 states. One production case has reached
+`partial`, through every Phase 3 transition; `won`, `lost`, `written_off` and
+the states between are still exercised only in tests.
 
 ## What the store gives back
 
@@ -124,9 +132,9 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## What not to claim yet
 
-- **Nothing has ever been submitted or recovered.** No dispute has been sent to
-  a retailer, no money has come back, no fee has been invoiced. Phase 3 existing
-  in code is not Phase 3 having happened.
+- **A recovery rate.** One case in production carries a filing and a `partial`
+  outcome — the Phase 3 end-to-end run. One case is not a rate, and no fee has
+  been invoiced (Phase 4).
 - **Every fixture is synthetic**, including the new 15-document pack. The eval
   numbers — 100% recall, 100% precision, 99.8% grounding — measure documents we
   generated or were given as labelled test data. They are a floor, not a result.
@@ -137,17 +145,18 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## Next
 
-1. **Fix the concurrency cap and sync Inngest**, then run one case end to end in
-   production — upload, decide, assemble, approve as the second member, file,
-   outcome.
-2. **Score the customer pack** as its own suite.
-3. **Cassettes for LOG-001 and `authored_pending`**, once the key is in place.
-   LOG-001's findings are reachable from a case page now, so recording it
-   measures the argument rather than five unread documents.
-4. ~~Provenance at ingest~~ — done, and so are both follow-ups it left (ADR
-   0024, migration 0019). Apply 0019 to production with the next deploy: until
-   then `uploads` is still editable there, and the pre-provenance cases there
-   still have no way to record how they arrived.
+1. **Watch the next ledger sync** (07:00 UTC) and check it against the replayed
+   sandbox: three short-pays, one anomaly, each anomaly a row.
+2. **A QuickBooks connect flow** in the app, so a customer can connect their own
+   ledger rather than an operator running `pnpm link:qbo`.
+3. **Coverage and ledger anomalies on a page.** The views and the table exist;
+   nothing renders them.
+4. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
+   92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
+   review floor unexamined, and the STF-201 camera pages ground at 64–83%.
+5. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
+   confirmed duplicate still counts twice in coverage.
+6. **Triage**, the rest of Phase 1.5.
 
 ## Follow-ups this change created
 
@@ -231,5 +240,4 @@ one was, and what it became:
    those: every table in `public` carries `relrowsecurity`, by enumeration, so a
    future table cannot ship without it.
 
-Nothing in production has been migrated for this yet — Supabase
-`hvheqbgkvwhlqutklwfh` still carries 0018.
+Production carries both: migration 0019 was applied on 2026-09-21.

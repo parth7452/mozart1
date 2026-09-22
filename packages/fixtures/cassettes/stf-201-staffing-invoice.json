@@ -1,0 +1,222 @@
+{
+  "key": "stf-201-staffing-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "invoice_number": {
+      "value": "ES-260901",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "ES-260901 I September 1, 2026 I Net 30 I USD"
+    },
+    "invoice_date": {
+      "value": "September 1, 2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "ES-260901 I September 1, 2026 I Net 30 I USD"
+    },
+    "po_number": {
+      "value": "BF-201",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Briarfield Packaging Co. I PO BF-201 I Assignment AS-201"
+    },
+    "customer_name": {
+      "value": "Briarfield Packaging Co.",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Briarfield Packaging Co. I PO BF-201 I Assignment AS-201"
+    },
+    "invoice_total": {
+      "value": "$7,200.00",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "$7,200.00 I Period August 24-28, 2026"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "Regular",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Regular: 180 hours x $30.00 = $5,400.00"
+        },
+        "qty": {
+          "value": 180,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Regular: 180 hours x $30.00 = $5,400.00"
+        },
+        "unit_cost": {
+          "value": "$30.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Regular: 180 hours x $30.00 = $5,400.00"
+        },
+        "extended_amount": {
+          "value": "$5,400.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Regular: 180 hours x $30.00 = $5,400.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Overtime",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "40 hours x $45.00 = $1,800.00"
+        },
+        "qty": {
+          "value": 40,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "40 hours x $45.00 = $1,800.00"
+        },
+        "unit_cost": {
+          "value": "$45.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "40 hours x $45.00 = $1,800.00"
+        },
+        "extended_amount": {
+          "value": "$1,800.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "40 hours x $45.00 = $1,800.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:35:15.420Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6177,
+    "outputTokens": 892,
+    "costMicros": 21274,
+    "latencyMs": 7518
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "STAFFING INVOICE\nElmbridge Staffing LLC / Billing\nINVOICE ES-260901 | September 1, 2026 | Net 30 | USD\nBILL TO Briarfield Packaging Co. I PO BF-201 | Assignment AS-201\nHOURS BILLED\n\nRegular: 180 hours x $30.00 = $5,400.00\nOVERTIME\n\n40 hours x $45.00 = $1,800.00\nTOTAL\n\n$7,200.00 I Period August 24-28, 2026\nNOTE Overtime rate includes the $30.00 base rate plus a $15.00 premium.\nSTF-201 I ES-260901 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "STAFFING INVOICE",
+        "page": 1,
+        "bbox": [
+          0.1284332260856143,
+          0.11549189555768863,
+          0.36188097487203763,
+          0.1401101692617077
+        ],
+        "kind": "Title",
+        "confidence": 0.911982998251915
+      },
+      {
+        "text": "Elmbridge Staffing LLC / Billing",
+        "page": 1,
+        "bbox": [
+          0.12869394220380392,
+          0.15715201448260613,
+          0.33826357699444387,
+          0.17595129455409136
+        ],
+        "kind": "Text",
+        "confidence": 0.8115114152431488
+      },
+      {
+        "text": "INVOICE ES-260901 | September 1, 2026 | Net 30 | USD",
+        "page": 1,
+        "bbox": [
+          0.12897108134143742,
+          0.2199179000286201,
+          0.41951875719345266,
+          0.2615583252848761
+        ],
+        "kind": "Text",
+        "confidence": 0.4366272553801537
+      },
+      {
+        "text": "BILL TO Briarfield Packaging Co. I PO BF-201 | Assignment AS-201",
+        "page": 1,
+        "bbox": [
+          0.12949969871727504,
+          0.2760203406765637,
+          0.4890622372887399,
+          0.31926144205545526
+        ],
+        "kind": "Text",
+        "confidence": 0.6589258581399917
+      },
+      {
+        "text": "HOURS BILLED\n\nRegular: 180 hours x $30.00 = $5,400.00",
+        "page": 1,
+        "bbox": [
+          0.13058670039704792,
+          0.3365380321589218,
+          0.3799063176529432,
+          0.3760169144009505
+        ],
+        "kind": "Text",
+        "confidence": 0.5168347015976906
+      },
+      {
+        "text": "OVERTIME\n\n40 hours x $45.00 = $1,800.00",
+        "page": 1,
+        "bbox": [
+          0.129856900211601,
+          0.39567876404762486,
+          0.3167760452693812,
+          0.4328267404146162
+        ],
+        "kind": "Text",
+        "confidence": 0.6331787601113319
+      },
+      {
+        "text": "TOTAL\n\n$7,200.00 I Period August 24-28, 2026",
+        "page": 1,
+        "bbox": [
+          0.13094390189137384,
+          0.4514676863991413,
+          0.36568188790770606,
+          0.4895822127601113
+        ],
+        "kind": "Text",
+        "confidence": 0.5914685994386673
+      },
+      {
+        "text": "NOTE Overtime rate includes the $30.00 base rate plus a $15.00 premium.",
+        "page": 1,
+        "bbox": [
+          0.13196007909443958,
+          0.502111915843346,
+          0.539923451087294,
+          0.5458729218377596
+        ],
+        "kind": "Text",
+        "confidence": 0.6732083559036255
+      },
+      {
+        "text": "STF-201 I ES-260901 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.1369814312535732,
+          0.9067742032436226,
+          0.2997073447401171,
+          0.9199955364214403
+        ],
+        "kind": "Footer",
+        "confidence": 0.7036526486277581
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 3938
+  }
+}

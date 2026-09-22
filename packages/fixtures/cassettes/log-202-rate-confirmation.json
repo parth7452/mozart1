@@ -1,0 +1,109 @@
+{
+  "key": "log-202-rate-confirmation",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.85,
+  "document": {
+    "agreement_type": {
+      "value": "Carrier Rate Confirmation",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "CARRIER RATE CONFIRMATION"
+    },
+    "counterparty": {
+      "value": "Crestline Dispatch",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Westhaven Transportation and Crestline Dispatch acceptance recorded August 28, 2026."
+    },
+    "effective_from": {
+      "value": "August 28, 2026",
+      "confidence": 0.5,
+      "source_page": 1,
+      "source_quote": "RC-202 | August 28, 2026 | Load LD-202 | PO WP-202"
+    },
+    "approved_by": {
+      "value": "Crestline Dispatch",
+      "confidence": 0.5,
+      "source_page": 1,
+      "source_quote": "Westhaven Transportation and Crestline Dispatch acceptance recorded August 28, 2026."
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "Linehaul $5,000.00 + fuel $600.00 = $5,600.00.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Linehaul $5,000.00 + fuel $600.00 = $5,600.00."
+        },
+        "amount": {
+          "value": "$5,600.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$5,600.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Flat $500.00 only if gate check-in is later than 30 minutes after the latest customer-approved appointment.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Flat $500.00 only if gate check-in is later than 30 minutes after the latest customer-approved appointment."
+        },
+        "amount": {
+          "value": "$500.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$500.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "80 cartons tendered. Agreed shortage value is $150.00 per carton. Carrier accepts responsibility for shortages acknowledged on the delivery receipt.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "80 cartons tendered. Agreed shortage value is $150.00 per carton. Carrier accepts responsibility for shortages acknowledged on the delivery receipt."
+        },
+        "amount": {
+          "value": "$150.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$150.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:38:05.120Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3983,
+    "outputTokens": 1409,
+    "costMicros": 22056,
+    "latencyMs": 35356
+  }
+}

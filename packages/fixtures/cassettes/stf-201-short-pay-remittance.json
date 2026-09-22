@@ -1,0 +1,244 @@
+{
+  "key": "stf-201-short-pay-remittance",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "payer_name": {
+      "value": "Briarfield Packaging Co.",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Briarfield Packaging Co. / Accounts Payable"
+    },
+    "payment_reference": {
+      "value": "BF-918-201",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "September 18, 2026 | ACH reference BF-918-201"
+    },
+    "payment_date": {
+      "value": "September 18, 2026",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "September 18, 2026 | ACH reference BF-918-201"
+    },
+    "payment_total": {
+      "value": "$6,600.00",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "ES-260901 | Gross $7,200.00 | Deduction $600.00 | Paid $6,600.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "ES-260901",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "ES-260901 | Gross $7,200.00 | Deduction $600.00 | Paid $6,600.00"
+        },
+        "gross_amount": {
+          "value": "$7,200.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Gross $7,200.00"
+        },
+        "deduction_amount": {
+          "value": "$600.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Deduction $600.00"
+        },
+        "net_amount": {
+          "value": "$6,600.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Paid $6,600.00"
+        },
+        "reason_code": {
+          "value": "OT-UNAUTH / CB-201",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "OT-UNAUTH / CB-201: overtime premium disallowed; approval not found by AP."
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:35:01.856Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6293,
+    "outputTokens": 640,
+    "costMicros": 18986,
+    "latencyMs": 7638
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "SHORT-PAY REMITTANCE\nBriarfield Packaging Co. / Accounts Payable\nPAYMENT\nSeptember 18, 2026 | ACH reference BF-918-201\nINVOICE SETTLEMENT\nES-260901 | Gross $7,200.00 | Deduction $600.00 I Paid $6,600.00\nDEDUCTION\nOT-UNAUTH/CB-201: overtime premium disallowed; approval not found by AP.\nSERVICE PERIOD\nAugust 24-28, 2026 | Assignment AS-201 I PO BF-201\nREVIEW\nSupplier may contest the deduction by October 18, 2026. Status: open.\nSTF-2011 ES-260901 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "SHORT-PAY REMITTANCE",
+        "page": 1,
+        "bbox": [
+          0.13145471702209657,
+          0.0831391741316271,
+          0.4299221489504109,
+          0.10286235079388018
+        ],
+        "kind": "Title",
+        "confidence": 0.9266449600458144
+      },
+      {
+        "text": "Briarfield Packaging Co. / Accounts Payable",
+        "page": 1,
+        "bbox": [
+          0.1302555101903198,
+          0.1189420628451419,
+          0.41346362833377337,
+          0.13290937778807083
+        ],
+        "kind": "Text",
+        "confidence": 0.7799796313047409
+      },
+      {
+        "text": "PAYMENT",
+        "page": 1,
+        "bbox": [
+          0.12798486589944677,
+          0.1765959340322562,
+          0.19175090981065518,
+          0.1843073038903174
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8729393482208252
+      },
+      {
+        "text": "September 18, 2026 | ACH reference BF-918-201",
+        "page": 1,
+        "bbox": [
+          0.12633481570445101,
+          0.19471940420627737,
+          0.4174299547651146,
+          0.209242834286683
+        ],
+        "kind": "Text",
+        "confidence": 0.7688310742378235
+      },
+      {
+        "text": "INVOICE SETTLEMENT",
+        "page": 1,
+        "bbox": [
+          0.12573247437609944,
+          0.22866904272340446,
+          0.27193166771243404,
+          0.23826307943919411
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8584020197391511
+      },
+      {
+        "text": "ES-260901 | Gross $7,200.00 | Deduction $600.00 I Paid $6,600.00",
+        "page": 1,
+        "bbox": [
+          0.12532178710676892,
+          0.24866677500061626,
+          0.5272678096040654,
+          0.2621466136893499
+        ],
+        "kind": "Text",
+        "confidence": 0.6756466209888458
+      },
+      {
+        "text": "DEDUCTION",
+        "page": 1,
+        "bbox": [
+          0.12348008285275228,
+          0.28167227849721366,
+          0.20180818482400426,
+          0.29048187069235953
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8661537498235703
+      },
+      {
+        "text": "OT-UNAUTH/CB-201: overtime premium disallowed; approval not found by AP.",
+        "page": 1,
+        "bbox": [
+          0.12183003265775652,
+          0.3025861299192179,
+          0.6062000781964162,
+          0.31748357192434945
+        ],
+        "kind": "Text",
+        "confidence": 0.8744160801172256
+      },
+      {
+        "text": "SERVICE PERIOD",
+        "page": 1,
+        "bbox": [
+          0.12120943856187923,
+          0.3356056413536839,
+          0.23407907810286072,
+          0.344814459778086
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8453936666250229
+      },
+      {
+        "text": "August 24-28, 2026 | Assignment AS-201 I PO BF-201",
+        "page": 1,
+        "bbox": [
+          0.11894427009593232,
+          0.3565124888067538,
+          0.4469775351237897,
+          0.3700679703681614
+        ],
+        "kind": "Text",
+        "confidence": 0.7467404037714005
+      },
+      {
+        "text": "REVIEW",
+        "page": 1,
+        "bbox": [
+          0.11952653339066865,
+          0.39001107172041904,
+          0.16998813493502452,
+          0.3989635448859167
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8584120750427247
+      },
+      {
+        "text": "Supplier may contest the deduction by October 18, 2026. Status: open.",
+        "page": 1,
+        "bbox": [
+          0.11723398577343308,
+          0.4109179191734889,
+          0.5483223771583423,
+          0.4275243296190529
+        ],
+        "kind": "Text",
+        "confidence": 0.8921913653612137
+      },
+      {
+        "text": "STF-2011 ES-260901 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.09842085819928274,
+          0.8749392699183866,
+          0.2786377346720247,
+          0.8891111007664727
+        ],
+        "kind": "Footer",
+        "confidence": 0.7317155793309212
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 5113
+  }
+}

@@ -192,7 +192,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Six recorded suites and two waiting on cassettes, every one of them scored
+Eight recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -204,8 +204,8 @@ does):
 | dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
-| authored_pending | shapes the numbers do not cover yet | not yet recorded | — | — |
-| customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
+| authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
+| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 92.9% | 13/15 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -219,11 +219,23 @@ rewrites `pendingSuites` and nothing else, so the bookkeeping no longer needs
 the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
-baseline is being compared against. Record with
-`pnpm record:cassettes --suite customer` (it spends money), then
-`pnpm eval --record-baseline`.
+baseline is being compared against. `customer` was recorded on 2026-09-22
+($0.39, OCR through Reducto for the twelve photographs), so `pendingSuites` is
+empty.
 
-Classification is 39/39. The two misses in the corpus are both the same field
+`customer`'s misses are the useful part of it. Two classifications: `stf-203-dispatch-note` read as `correspondence`
+(expected `other`) at 0.85, below the review floor so a human sees it, and
+`stf-203-service-order-terms` read as `po` (expected `price_agreement`) at 0.95,
+*above* the floor — the one that would pass unexamined. Two fields:
+`log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
+rather than Westhaven Paper Supply, and
+`stf-203-short-payment-notice`'s reason code came back as the payer's own code
+(`CB-203`) rather than `PREMIUM-NOAUTH`. Grounding on the four STF-201 camera
+pages is 64–83%: values right, quotes that do not survive being checked against
+the OCR text layer.
+
+Classification is 53/55, both misses in `customer`. Before it, the two field
+misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
 revision 2 replaces revision 1" and the model reports the change in prose
@@ -237,7 +249,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0235 per document across 39 of them, and 311 of 821 fields carry a
+About $0.0232 per document across 55 of them, and 416 of 1,025 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -254,8 +266,11 @@ everything else (ADR 0015). Signing in resolves a tenant rather than creating
 one — `app.link_auth_user()` and `app.my_orgs()`, both security definer and both
 taking the identity from the claims rather than an argument (migration 0012, ADR
 0012). Document bytes are durable and served through a route under the same
-policies, not a signed URL (migration 0013, ADR 0014). Still no approve button,
-for the same reason.
+policies, not a signed URL (migration 0013, ADR 0014). The case page carries
+Phase 3's five actions — decide, assemble, approve, record the filing, record
+the outcome — each shown only where the state machine and the member's role
+allow it, and the approve card never to the preparer (ADR 0020). One production
+case has been taken through all five (2026-09-21, ending `partial`).
 
 Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed,
 and delegates the whole choice to `scannerFromEnv` so there is one answer to
@@ -325,11 +340,12 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0026 as
-of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0026 applied 2026-09-22 and
-the new tables, views, functions and grants read back and verified — for 0026,
-`app.member_for_link(text, text)` exists, is security definer, and only the
-owner and `app_rw` hold EXECUTE).
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0027 as
+of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22 and
+the new tables, views, functions and grants read back and verified — for 0027,
+`ledger_sync_anomalies` has RLS on, `no_update_delete` and `no_truncate`,
+`app_rw` and `app_ro` hold SELECT only, and `app.record_ledger_sync_anomalies`
+is security definer with EXECUTE held by the owner and `app_rw` alone).
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both

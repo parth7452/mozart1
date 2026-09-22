@@ -1,0 +1,129 @@
+{
+  "key": "stf-203-service-order-terms",
+  "docType": "price_agreement",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.95,
+  "document": {
+    "agreement_type": {
+      "value": "SERVICE ORDER TERMS",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "SERVICE ORDER TERMS"
+    },
+    "counterparty": {
+      "value": "Faircrest Assembly Ltd.",
+      "confidence": 0.75,
+      "source_page": 1,
+      "source_quote": "Faircrest Assembly Ltd. / Procurement"
+    },
+    "effective_from": {
+      "value": "August 20",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "PO FC-203 | Effective August 20-September 30, 2026"
+    },
+    "effective_to": {
+      "value": "September 30, 2026",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "PO FC-203 | Effective August 20-September 30, 2026"
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "$30.00 per hour for all approved attendance hours.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$30.00 per hour for all approved attendance hours."
+        },
+        "amount": {
+          "value": "$30.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$30.00 per hour for all approved attendance hours."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "An additional $15.00 per hour may be charged only with advance written approval from the customer purchasing manager.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "An additional $15.00 per hour may be charged only with advance written approval\nfrom the customer purchasing manager."
+        },
+        "amount": {
+          "value": "$15.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "An additional $15.00 per hour may be charged only with advance written approval"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Timekeeping staff may confirm hours but cannot approve premium pricing. Supplier internal notes do not constitute customer approval.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Timekeeping staff may confirm hours but cannot approve premium pricing. Supplier\ninternal notes do not constitute customer approval."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Net 30. Any premium dispute must include the written purchasing approval identifying assignment and authorized hours.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Net 30. Any premium dispute must include the written purchasing approval\nidentifying assignment and authorized hours."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "approved_by": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:39:09.088Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3987,
+    "outputTokens": 876,
+    "costMicros": 16734,
+    "latencyMs": 6730
+  }
+}

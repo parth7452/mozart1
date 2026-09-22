@@ -1,0 +1,322 @@
+{
+  "key": "stf-201-time-register",
+  "docType": "other",
+  "classifiedAs": "other",
+  "classifierConfidence": 0.95,
+  "document": {
+    "document_kind": {
+      "value": "Weekly Time Register",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "WEEKLY TIME REGISTER"
+    },
+    "key_facts": [
+      {
+        "label": {
+          "value": "Company",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Briarfield Packaging Co. / Plant Operations"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Register",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "TR-201 | Assignment AS-201 | Week ending August 28, 2026"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Worker A17",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 40.00 | Overtime 12.00 | Total 52.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Worker B23",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 40.00 | Overtime 10.00 | Total 50.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Worker C08",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 40.00 | Overtime 8.00 | Total 48.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Worker D11",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 40.00 | Overtime 10.00 | Total 50.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Worker E04",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 20.00 | Overtime 0.00 | Total 20.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Totals",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular 180.00 | Overtime 40.00 | Total 220.00"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Approval",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Approved August 28, 2026, 6:14 PM Eastern by Lena Ortiz, Shift Supervisor. Approval reference APR-201."
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Document reference",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "STF-201 | ES-260901 | Page 1 of 1"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:35:49.849Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6033,
+    "outputTokens": 796,
+    "costMicros": 20026,
+    "latencyMs": 28791
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "WEEKLY TIME REGISTER\nBriarfield Packaging Co. / Plant Operations\nREGISTER TR-201 | Assignment AS-201 I Week ending August 28, 2026\nWORKER A17 Regular 40.00 I Overtime 12.00 | Total 52.00\nWORKER B23 Regular 40.00 | Overtime 10.00 | Total 50.00\nWORKER C08 Regular 40.00 | Overtime 8.00 | Total 48.00\nWORKER D11 Regular 40.00 | Overtime 10.00 | Total 50.00\nWORKER E04\n\nRegular 20.00 I Overtime 0.001 Total 20.00\nTOTALS\n\nRegular 180.00 | Overtime 40.00 | Total 220.00\nAPPROVAL\nApproved August 28, 2026, 6:14 PM Eastern by Lena Ortiz, Shift Supervisor. Approval reference APR-201.\nSTF-2011 ES-260901 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "WEEKLY TIME REGISTER",
+        "page": 1,
+        "bbox": [
+          0.15132941043988116,
+          0.08782092711559207,
+          0.45821142320934605,
+          0.10525056909193001
+        ],
+        "kind": "Title",
+        "confidence": 0.9184273242950439
+      },
+      {
+        "text": "Briarfield Packaging Co. / Plant Operations",
+        "page": 1,
+        "bbox": [
+          0.15012417583261134,
+          0.12473474046841962,
+          0.4412033619046914,
+          0.13921913533810826
+        ],
+        "kind": "Text",
+        "confidence": 0.8307747930288314
+      },
+      {
+        "text": "REGISTER TR-201 | Assignment AS-201 I Week ending August 28, 2026",
+        "page": 1,
+        "bbox": [
+          0.14689050132597473,
+          0.1843733899577495,
+          0.5261748255640314,
+          0.21971933172965996
+        ],
+        "kind": "Text",
+        "confidence": 0.6168028444051743
+      },
+      {
+        "text": "WORKER A17 Regular 40.00 I Overtime 12.00 | Total 52.00",
+        "page": 1,
+        "bbox": [
+          0.14416199755910472,
+          0.23982931230636537,
+          0.4210304689358886,
+          0.27416919696066555
+        ],
+        "kind": "Text",
+        "confidence": 0.5962353974580765
+      },
+      {
+        "text": "WORKER B23 Regular 40.00 | Overtime 10.00 | Total 50.00",
+        "page": 1,
+        "bbox": [
+          0.14267654348078987,
+          0.2961335372623786,
+          0.4189390038938977,
+          0.33046746891598283
+        ],
+        "kind": "Text",
+        "confidence": 0.5633915364742279
+      },
+      {
+        "text": "WORKER C08 Regular 40.00 | Overtime 8.00 | Total 48.00",
+        "page": 1,
+        "bbox": [
+          0.14057732149849822,
+          0.3520500730460128,
+          0.40896163938381574,
+          0.3863066156905701
+        ],
+        "kind": "Text",
+        "confidence": 0.5710346132516861
+      },
+      {
+        "text": "WORKER D11 Regular 40.00 | Overtime 10.00 | Total 50.00",
+        "page": 1,
+        "bbox": [
+          0.13787208855253036,
+          0.4078058778108573,
+          0.4153388139526898,
+          0.4416866372844275
+        ],
+        "kind": "Text",
+        "confidence": 0.5229615852236748
+      },
+      {
+        "text": "WORKER E04\n\nRegular 20.00 I Overtime 0.001 Total 20.00",
+        "page": 1,
+        "bbox": [
+          0.13638663447421565,
+          0.46418749177591745,
+          0.40536920638290863,
+          0.4979849092397448
+        ],
+        "kind": "Text",
+        "confidence": 0.6522420793771744
+      },
+      {
+        "text": "TOTALS\n\nRegular 180.00 | Overtime 40.00 | Total 220.00",
+        "page": 1,
+        "bbox": [
+          0.13368915846854854,
+          0.5202416907027021,
+          0.4287379587556176,
+          0.5547601653778799
+        ],
+        "kind": "Text",
+        "confidence": 0.43926277905702593
+      },
+      {
+        "text": "APPROVAL",
+        "page": 1,
+        "bbox": [
+          0.1315976934265576,
+          0.5786711369071583,
+          0.20991273266619687,
+          0.5878104812625982
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6279529675841331
+      },
+      {
+        "text": "Approved August 28, 2026, 6:14 PM Eastern by Lena Ortiz, Shift Supervisor. Approval reference APR-201.",
+        "page": 1,
+        "bbox": [
+          0.130144236729664,
+          0.5953745128315097,
+          0.7353542963144207,
+          0.6259647511416094
+        ],
+        "kind": "Text",
+        "confidence": 0.7314858466386795
+      },
+      {
+        "text": "STF-2011 ES-260901 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.12033946412519003,
+          0.8838829721907541,
+          0.29744204738434565,
+          0.8944577338410544
+        ],
+        "kind": "Footer",
+        "confidence": 0.7480219036340714
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4013
+  }
+}

@@ -1,0 +1,294 @@
+{
+  "key": "stf-203-workforce-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.98,
+  "document": {
+    "invoice_number": {
+      "value": "OW-260903",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "OW-260903"
+    },
+    "invoice_date": {
+      "value": "September 3, 2026",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "September 3, 2026"
+    },
+    "po_number": {
+      "value": "FC-203",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "PO FC-203"
+    },
+    "customer_name": {
+      "value": "Faircrest Assembly Ltd.",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Faircrest Assembly Ltd."
+    },
+    "invoice_total": {
+      "value": "$4,950.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "$4,950.00"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "STANDARD HOURS",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "STANDARD HOURS"
+        },
+        "qty": {
+          "value": 150,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "150 hours x $30.00 = $4,500.00"
+        },
+        "unit_cost": {
+          "value": "$30.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "150 hours x $30.00 = $4,500.00"
+        },
+        "extended_amount": {
+          "value": "$4,500.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "150 hours x $30.00 = $4,500.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "WEEKEND PREMIUM",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "WEEKEND PREMIUM"
+        },
+        "qty": {
+          "value": 30,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "30 of the above hours x $15.00 additional premium = $450.00"
+        },
+        "unit_cost": {
+          "value": "$15.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "30 of the above hours x $15.00 additional premium = $450.00"
+        },
+        "extended_amount": {
+          "value": "$450.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "30 of the above hours x $15.00 additional premium = $450.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:38:30.446Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6177,
+    "outputTokens": 800,
+    "costMicros": 20354,
+    "latencyMs": 6708
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "WORKFORCE INVOICE\nOakmere Workforce LLC / Billing\nINVOICE\nOW-260903 September 3, 2026 | USD | Net 30\nCUSTOMER\nFaircrest Assembly Ltd. | Assignment AS-203 | PO FC-203\nSTANDARD HOURS\n150 hours x $30.00 = $4,500.00\nWEEKEND PREMIUM\n30 of the above hours x $15.00 additional premium $450.00\nTOTAL\n$4,950.00\nPERIOD\nAugust 24-30, 2026. Weekend hours are included in 150 standard hours, not additional hours.\nSTF-203|OW-260903 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "WORKFORCE INVOICE",
+        "page": 1,
+        "bbox": [
+          0.15272727272727274,
+          0.09395348837209302,
+          0.3890909090909091,
+          0.10744186046511628
+        ],
+        "kind": "Title",
+        "confidence": 0.9058866113424302
+      },
+      {
+        "text": "Oakmere Workforce LLC / Billing",
+        "page": 1,
+        "bbox": [
+          0.15151515151515152,
+          0.1288372093023256,
+          0.4187878787878788,
+          0.1386046511627907
+        ],
+        "kind": "Text",
+        "confidence": 0.7394049018621445
+      },
+      {
+        "text": "INVOICE",
+        "page": 1,
+        "bbox": [
+          0.15151515151515152,
+          0.19069767441860466,
+          0.20424242424242425,
+          0.1972093023255814
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7545115858316421
+      },
+      {
+        "text": "OW-260903 September 3, 2026 | USD | Net 30",
+        "page": 1,
+        "bbox": [
+          0.14909090909090908,
+          0.20790697674418604,
+          0.4945454545454545,
+          0.22
+        ],
+        "kind": "Text",
+        "confidence": 0.6054747819900512
+      },
+      {
+        "text": "CUSTOMER",
+        "page": 1,
+        "bbox": [
+          0.1484848484848485,
+          0.24558139534883722,
+          0.21030303030303032,
+          0.25209302325581395
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7400756865739821
+      },
+      {
+        "text": "Faircrest Assembly Ltd. | Assignment AS-203 | PO FC-203",
+        "page": 1,
+        "bbox": [
+          0.1478787878787879,
+          0.26325581395348835,
+          0.5818181818181818,
+          0.2753488372093023
+        ],
+        "kind": "Text",
+        "confidence": 0.6518470793962479
+      },
+      {
+        "text": "STANDARD HOURS",
+        "page": 1,
+        "bbox": [
+          0.14727272727272728,
+          0.30093023255813955,
+          0.25757575757575757,
+          0.3074418604651163
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7194442361593246
+      },
+      {
+        "text": "150 hours x $30.00 = $4,500.00",
+        "page": 1,
+        "bbox": [
+          0.14727272727272728,
+          0.3209302325581395,
+          0.3842424242424243,
+          0.3297674418604651
+        ],
+        "kind": "Text",
+        "confidence": 0.639151108264923
+      },
+      {
+        "text": "WEEKEND PREMIUM",
+        "page": 1,
+        "bbox": [
+          0.14484848484848484,
+          0.35674418604651165,
+          0.26484848484848483,
+          0.36372093023255814
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7314965575933456
+      },
+      {
+        "text": "30 of the above hours x $15.00 additional premium $450.00",
+        "page": 1,
+        "bbox": [
+          0.14545454545454545,
+          0.3767441860465116,
+          0.6145454545454545,
+          0.38651162790697674
+        ],
+        "kind": "Text",
+        "confidence": 0.672473007440567
+      },
+      {
+        "text": "TOTAL",
+        "page": 1,
+        "bbox": [
+          0.14363636363636365,
+          0.413953488372093,
+          0.18303030303030304,
+          0.42046511627906974
+        ],
+        "kind": "Section Header",
+        "confidence": 0.713229450583458
+      },
+      {
+        "text": "$4,950.00",
+        "page": 1,
+        "bbox": [
+          0.14363636363636365,
+          0.43488372093023253,
+          0.21515151515151515,
+          0.4437209302325581
+        ],
+        "kind": "Text",
+        "confidence": 0.7105920970439911
+      },
+      {
+        "text": "PERIOD",
+        "page": 1,
+        "bbox": [
+          0.14303030303030304,
+          0.4711627906976744,
+          0.1890909090909091,
+          0.47767441860465115
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7811412513256073
+      },
+      {
+        "text": "August 24-30, 2026. Weekend hours are included in 150 standard hours, not additional hours.",
+        "page": 1,
+        "bbox": [
+          0.1406060606060606,
+          0.4916279069767442,
+          0.7315151515151516,
+          0.5172093023255814
+        ],
+        "kind": "Text",
+        "confidence": 0.8998726218938828
+      },
+      {
+        "text": "STF-203|OW-260903 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.1296969696969697,
+          0.9083720930232558,
+          0.3490909090909091,
+          0.9181395348837209
+        ],
+        "kind": "Footer",
+        "confidence": 0.7707332402467728
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 2682
+  }
+}

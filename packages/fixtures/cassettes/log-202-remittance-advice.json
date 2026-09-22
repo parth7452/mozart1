@@ -1,0 +1,268 @@
+{
+  "key": "log-202-remittance-advice",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "payer_name": {
+      "value": "Westhaven Paper Supply",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply / Vendor Payments"
+    },
+    "payment_reference": {
+      "value": "ACH-WP-202",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "RM-202 | September 18, 2026 | Payment ACH-WP-202"
+    },
+    "payment_date": {
+      "value": "September 18, 2026",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "RM-202 | September 18, 2026 | Payment ACH-WP-202"
+    },
+    "payment_total": {
+      "value": "$4,800.00",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "CF-260902 | Gross $5,600.00 | Paid $4,800.00"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "CF-260902",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "CF-260902 | Gross $5,600.00 | Paid $4,800.00"
+        },
+        "gross_amount": {
+          "value": "$5,600.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "CF-260902 | Gross $5,600.00 | Paid $4,800.00"
+        },
+        "deduction_amount": {
+          "value": "$800.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$800.00 | Load LD-202 | PO WP-202"
+        },
+        "net_amount": {
+          "value": "$4,800.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "CF-260902 | Gross $5,600.00 | Paid $4,800.00"
+        },
+        "reason_code": {
+          "value": "CB-202-A",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "CB-202-A / LATE: $500.00. Original appointment missed."
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:36:30.308Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6293,
+    "outputTokens": 663,
+    "costMicros": 19216,
+    "latencyMs": 5615
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "REMITTANCE ADVICE\nWesthaven Paper Supply / Vendor Payments\nREMITTANCE\nRM-202 September 18, 2026 | Payment ACH-WP-202\nINVOICE\nCF-260902 Gross $5,600.00 | Paid $4,800.00\nDEDUCTION 1\nCB-202-A/LATE: $500.00. Original appointment missed.\nDEDUCTION 2\nCB-202-B/SHORT: $300.00. Two cartons short.\nTOTAL DEDUCTIONS\n$800.00 Load LD-202 | PO WP-202\nSTATUS\nDeductions pending carrier response; reply by October 18, 2026.\nLOG-202 CF-260902 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "REMITTANCE ADVICE",
+        "page": 1,
+        "bbox": [
+          0.11679410893103881,
+          0.10105247366186985,
+          0.4057990050371587,
+          0.12435322321257988
+        ],
+        "kind": "Title",
+        "confidence": 0.9187996000051498
+      },
+      {
+        "text": "Westhaven Paper Supply / Vendor Payments",
+        "page": 1,
+        "bbox": [
+          0.11903503396757886,
+          0.1433732385775406,
+          0.4067205308820073,
+          0.163856937725151
+        ],
+        "kind": "Text",
+        "confidence": 0.8180202871561051
+      },
+      {
+        "text": "REMITTANCE",
+        "page": 1,
+        "bbox": [
+          0.12174827307604319,
+          0.2178773267385281,
+          0.22022833168481787,
+          0.22894459181579796
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7260185152292251
+      },
+      {
+        "text": "RM-202 September 18, 2026 | Payment ACH-WP-202",
+        "page": 1,
+        "bbox": [
+          0.12266466509280924,
+          0.2365407783295324,
+          0.4429552370688532,
+          0.25497965345205675
+        ],
+        "kind": "Text",
+        "confidence": 0.6084531128406525
+      },
+      {
+        "text": "INVOICE",
+        "page": 1,
+        "bbox": [
+          0.12353228552490698,
+          0.2805655630431577,
+          0.18504093049398396,
+          0.2903267411437296
+        ],
+        "kind": "Section Header",
+        "confidence": 0.716028356552124
+      },
+      {
+        "text": "CF-260902 Gross $5,600.00 | Paid $4,800.00",
+        "page": 1,
+        "bbox": [
+          0.12503650325385085,
+          0.2992191647919868,
+          0.387722722423141,
+          0.3149532775784386
+        ],
+        "kind": "Text",
+        "confidence": 0.5433191135525703
+      },
+      {
+        "text": "DEDUCTION 1",
+        "page": 1,
+        "bbox": [
+          0.1259041236859486,
+          0.34113411672282506,
+          0.22253086280360507,
+          0.35123018889997776
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7008267253637314
+      },
+      {
+        "text": "CB-202-A/LATE: $500.00. Original appointment missed.",
+        "page": 1,
+        "bbox": [
+          0.12676661028996375,
+          0.35807187870702395,
+          0.4597608916400807,
+          0.3763354269063702
+        ],
+        "kind": "Text",
+        "confidence": 0.7446051508188247
+      },
+      {
+        "text": "DEDUCTION 2",
+        "page": 1,
+        "bbox": [
+          0.12820408796332225,
+          0.4006428290342737,
+          0.2248487955518957,
+          0.41120381302635955
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7308806329965591
+      },
+      {
+        "text": "CB-202-B/SHORT: $300.00. Two cartons short.",
+        "page": 1,
+        "bbox": [
+          0.1290665745673374,
+          0.4188216691259944,
+          0.40744953708434056,
+          0.43351958014315284
+        ],
+        "kind": "Text",
+        "confidence": 0.7408254623413086
+      },
+      {
+        "text": "TOTAL DEDUCTIONS",
+        "page": 1,
+        "bbox": [
+          0.13046811529886196,
+          0.458146116689337,
+          0.2743647691688271,
+          0.46978270170794184
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7023544073104858
+      },
+      {
+        "text": "$800.00 Load LD-202 | PO WP-202",
+        "page": 1,
+        "bbox": [
+          0.1312766964901262,
+          0.4776468034160558,
+          0.33764202510252017,
+          0.4925633806396683
+        ],
+        "kind": "Text",
+        "confidence": 0.5328521445393563
+      },
+      {
+        "text": "STATUS",
+        "page": 1,
+        "bbox": [
+          0.13269620569256776,
+          0.5178774350103394,
+          0.18513590638614028,
+          0.5278966785745909
+        ],
+        "kind": "Section Header",
+        "confidence": 0.708420267701149
+      },
+      {
+        "text": "Deductions pending carrier response; reply by October 18, 2026.",
+        "page": 1,
+        "bbox": [
+          0.1334868184129149,
+          0.5314662560057795,
+          0.48773780158409963,
+          0.5516071811361838
+        ],
+        "kind": "Text",
+        "confidence": 0.7321203231811524
+      },
+      {
+        "text": "LOG-202 CF-260902 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.14736361178890753,
+          0.9108736961370147,
+          0.2961245875945478,
+          0.9230855110245547
+        ],
+        "kind": "Footer",
+        "confidence": 0.7149659737944604
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4692
+  }
+}

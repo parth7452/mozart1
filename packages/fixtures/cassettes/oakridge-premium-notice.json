@@ -1,0 +1,141 @@
+{
+  "key": "oakridge-premium-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.99,
+  "document": {
+    "retailer_name": {
+      "value": "Oakridge Manufacturing Co.",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "OAKRIDGE MANUFACTURING CO."
+    },
+    "vendor_number": {
+      "value": "NS-4412",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Vendor Number: NS-4412"
+    },
+    "claim_id": {
+      "value": "SP-4417",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Claim Number: SP-4417"
+    },
+    "invoice_number": {
+      "value": "NS-260914",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice Number: NS-260914"
+    },
+    "deduction_total": {
+      "value": "$1,275.00",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Total Short Paid: $1,275.00"
+    },
+    "deduction_date": {
+      "value": "09/14/2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Deduction Date: 09/14/2026"
+    },
+    "dispute_deadline": {
+      "value": "10/14/2026",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Dispute Deadline: 10/14/2026"
+    },
+    "remittance_or_check": {
+      "value": "ACH-771902",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment Reference: ACH-771902"
+    },
+    "lines": [
+      {
+        "description": {
+          "value": "Weekend shift premium, unauthorised",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekend shift premium, unauthorised  PREMIUM-NOAUTH  $1,275.00"
+        },
+        "deduction_amount": {
+          "value": "$1,275.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$1,275.00"
+        },
+        "reason_code": {
+          "value": "PREMIUM-NOAUTH",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "PREMIUM-NOAUTH"
+        },
+        "reason_description": {
+          "value": "Premium hours billed without prior written authorisation",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "PREMIUM-NOAUTH: Premium hours billed without prior written authorisation"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "po_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:27:19.277Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4671,
+    "outputTokens": 790,
+    "costMicros": 17242,
+    "latencyMs": 6649
+  }
+}

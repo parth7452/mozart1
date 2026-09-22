@@ -1,0 +1,382 @@
+{
+  "key": "log-202-appointment-revision",
+  "docType": "correspondence",
+  "classifiedAs": "correspondence",
+  "classifierConfidence": 0.92,
+  "document": {
+    "message_reference": {
+      "value": "AP-202 revision 2",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "AP-202 revision 2 | Load LD-202 | Issued August 31, 2026"
+    },
+    "sent_at": {
+      "value": "Issued August 31, 2026",
+      "confidence": 0.75,
+      "source_page": 1,
+      "source_quote": "Issued August 31, 2026"
+    },
+    "sender": {
+      "value": "Westhaven Paper Supply / Scheduling",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply / Scheduling"
+    },
+    "sender_organisation": {
+      "value": "Westhaven Paper Supply",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply / Scheduling"
+    },
+    "subject": {
+      "value": "REVISED DELIVERY APPOINTMENT",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "REVISED DELIVERY APPOINTMENT"
+    },
+    "references": [
+      {
+        "label": {
+          "value": "Reference",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "AP-202 revision 2 | Load LD-202 | Issued August 31, 2026"
+        },
+        "value": {
+          "value": "AP-202 revision 2",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "AP-202 revision 2"
+        }
+      },
+      {
+        "label": {
+          "value": "Load",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Load LD-202"
+        },
+        "value": {
+          "value": "LD-202",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "LD-202"
+        }
+      },
+      {
+        "label": {
+          "value": "Document",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "LOG-202 | CF-260902 | Page 1 of 1"
+        },
+        "value": {
+          "value": "LOG-202",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "LOG-202"
+        }
+      },
+      {
+        "label": {
+          "value": "Confirmation",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "LOG-202 | CF-260902 | Page 1 of 1"
+        },
+        "value": {
+          "value": "CF-260902",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "CF-260902"
+        }
+      }
+    ],
+    "commitments": [
+      {
+        "commitment_text": {
+          "value": "Revision 2 replaces the original appointment.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Revision 2 replaces the original appointment."
+        },
+        "effective_at": {
+          "value": "September 1, 2026, 1:00 PM Eastern",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "September 1, 2026, 1:00 PM Eastern"
+        },
+        "supersedes": {
+          "value": "the original appointment",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "Revision 2 replaces the original appointment."
+        },
+        "establishes": {
+          "value": "AP-202 revision 2",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "AP-202 revision 2 | Load LD-202 | Issued August 31, 2026"
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Assess timeliness against this revised appointment. Other shipment obligations remain unchanged."
+        },
+        "attributed_to": {
+          "value": "Customer receiving crew unavailable in the morning.",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "Customer receiving crew unavailable in the morning."
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "Approved by Dana Wells, Receiving Manager, August 31 at 4:05 PM Eastern. Carrier acknowledgment at 4:12 PM.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Approved by Dana Wells, Receiving Manager, August 31 at 4:05 PM Eastern. Carrier acknowledgment at 4:12 PM."
+        },
+        "effective_at": {
+          "value": "August 31 at 4:05 PM Eastern",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "August 31 at 4:05 PM Eastern"
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Assess timeliness against this revised appointment. Other shipment obligations remain unchanged."
+        },
+        "attributed_to": {
+          "value": "Dana Wells, Receiving Manager",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Approved by Dana Wells, Receiving Manager"
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "recipient": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:37:28.168Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6896,
+    "outputTokens": 2827,
+    "costMicros": 42062,
+    "latencyMs": 22087
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "REVISED DELIVERY APPOINTMENT\nWesthaven Paper Supply / Scheduling\nREFERENCE\nAP-202 revision 2 | Load LD-202 | Issued August 31, 2026\nORIGINAL\nSeptember 1, 2026, 9:00 AM Eastern\nREVISED\nSeptember 1, 2026, 1:00 PM Eastern\nREASON\nCustomer receiving crew unavailable in the morning. Revision 2 replaces the original appointment.\nAPPROVAL\nApproved by Dana Wells, Receiving Manager, August 31 at 4:05 PM Eastern. Carrier acknowledgment at 4:12 PM.\nINSTRUCTION\nAssess timeliness against this revised appointment. Other shipment obligations remain unchanged.\nLOG-202 CF-260902 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "REVISED DELIVERY APPOINTMENT",
+        "page": 1,
+        "bbox": [
+          0.14918720825536205,
+          0.09307234473690393,
+          0.5813921924114792,
+          0.12550328676360312
+        ],
+        "kind": "Title",
+        "confidence": 0.9327493995428086
+      },
+      {
+        "text": "Westhaven Paper Supply / Scheduling",
+        "page": 1,
+        "bbox": [
+          0.1486503981335647,
+          0.12655847861702146,
+          0.3825230103043423,
+          0.14808617054275608
+        ],
+        "kind": "Text",
+        "confidence": 0.8405248522758484
+      },
+      {
+        "text": "REFERENCE",
+        "page": 1,
+        "bbox": [
+          0.14894320372057226,
+          0.18565753085500059,
+          0.2346833263448138,
+          0.19565599137986542
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8265730112791061
+      },
+      {
+        "text": "AP-202 revision 2 | Load LD-202 | Issued August 31, 2026",
+        "page": 1,
+        "bbox": [
+          0.1485032208239415,
+          0.20519730139055467,
+          0.4737474271799069,
+          0.2266447392534585
+        ],
+        "kind": "Text",
+        "confidence": 0.6956926912069321
+      },
+      {
+        "text": "ORIGINAL",
+        "page": 1,
+        "bbox": [
+          0.14796641070214414,
+          0.23914831404882422,
+          0.21912977519228918,
+          0.24786033254142245
+        ],
+        "kind": "Section Header",
+        "confidence": 0.809485387802124
+      },
+      {
+        "text": "September 1, 2026, 9:00 AM Eastern",
+        "page": 1,
+        "bbox": [
+          0.14820964072081447,
+          0.2591678252156955,
+          0.3558025687389723,
+          0.2744779121175055
+        ],
+        "kind": "Text",
+        "confidence": 0.8572449833154678
+      },
+      {
+        "text": "REVISED",
+        "page": 1,
+        "bbox": [
+          0.14755663792881726,
+          0.29265395909581293,
+          0.20842223312110786,
+          0.3011133260846045
+        ],
+        "kind": "Section Header",
+        "confidence": 0.800520658493042
+      },
+      {
+        "text": "September 1, 2026, 1:00 PM Eastern",
+        "page": 1,
+        "bbox": [
+          0.1466077311221851,
+          0.31310862533450606,
+          0.3541619282502764,
+          0.3274889546800119
+        ],
+        "kind": "Text",
+        "confidence": 0.8323967695236205
+      },
+      {
+        "text": "REASON",
+        "page": 1,
+        "bbox": [
+          0.1465217485752892,
+          0.34660962106778864,
+          0.2049643392269082,
+          0.35500954064391976
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8070035487413406
+      },
+      {
+        "text": "Customer receiving crew unavailable in the morning. Revision 2 replaces the original appointment.",
+        "page": 1,
+        "bbox": [
+          0.14546207143759252,
+          0.3666142703814948,
+          0.6196769038156619,
+          0.405184346836259
+        ],
+        "kind": "Text",
+        "confidence": 0.9004274904727936
+      },
+      {
+        "text": "APPROVAL",
+        "page": 1,
+        "bbox": [
+          0.1459624745808312,
+          0.41733064275957077,
+          0.22261633017755406,
+          0.4271061754869591
+        ],
+        "kind": "Section Header",
+        "confidence": 0.814363220334053
+      },
+      {
+        "text": "Approved by Dana Wells, Receiving Manager, August 31 at 4:05 PM Eastern. Carrier acknowledgment at 4:12 PM.",
+        "page": 1,
+        "bbox": [
+          0.1442970463079666,
+          0.43825018777641606,
+          0.625175141172883,
+          0.47698374461599635
+        ],
+        "kind": "Text",
+        "confidence": 0.8982983529567719
+      },
+      {
+        "text": "INSTRUCTION",
+        "page": 1,
+        "bbox": [
+          0.14477808400617195,
+          0.488966560154492,
+          0.24446984818430872,
+          0.49977172208030624
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8208853423595428
+      },
+      {
+        "text": "Assess timeliness against this revised appointment. Other shipment obligations remain unchanged.",
+        "page": 1,
+        "bbox": [
+          0.1431320211783407,
+          0.5094212263931851,
+          0.6288754905696335,
+          0.5487385568362384
+        ],
+        "kind": "Text",
+        "confidence": 0.9048736721277237
+      },
+      {
+        "text": "LOG-202 CF-260902 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.1395501887264476,
+          0.872294186708808,
+          0.30786612018385795,
+          0.8889626470456472
+        ],
+        "kind": "Footer",
+        "confidence": 0.7200865328311921
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4135
+  }
+}
