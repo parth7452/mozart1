@@ -666,6 +666,31 @@ ids, no detail text, written once and complete through
 `app.record_ledger_sync_anomalies()` in the run row's own transaction. Not yet
 shown in the app.
 
+**A credit memo is not cash, in either shape QuickBooks writes it** (ADR 0036,
+no migration). ADR 0026 knew that applying a credit to an invoice is a write-off
+rather than money arriving, and read it off the one line shape the hand-written
+fixture has: a Payment line naming both the Invoice and the CreditMemo. The
+sandbox recording holds the other shape for the ordinary case — payment 74 is
+`TotalAmt: 0` with a $100 line naming Invoice 71 beside a $100 line naming
+CreditMemo 73 — so line by line that invoice line was $100 of cash on a payment
+that carried none, and credit memo 73 resolved to no invoice at all. Invoice 71
+($205, $105 of cash, $100 written off) read as paid in full, which is precisely
+the deduction `short-pay.ts` argues at length must never be netted away, arriving
+through the mapper instead of the detector. `readPaymentApplications` now reads
+a Payment once into cash and credits and **asserts the bound nothing checked
+before**: cash applications summing past `TotalAmt` is `QboMalformedResponse`.
+Pairing an invoice line to the credit line funding it is taken only where
+arithmetic forces it — one invoice line makes the split subtraction; several
+require an exact equal-amount match, one to one — and a credit matching none of
+them, or two, refuses rather than apportions, the way two invoices on one line
+already refused (two credit memos on one line now refuse too, where they used to
+credit each the whole amount). The detector, `DEFAULT_MIN_DISPUTE_CENTS` and
+every tolerance are untouched: only which numbers reach them moved. The full
+recording now yields four short-pays rather than three, invoice 71 being the
+fourth — an expectation moved because it was wrong, not because it was in the
+way. Under ADR 0035's production window it stays three, since payments 72 and 74
+are dated before it.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

@@ -4,8 +4,14 @@
  * Run `be42505b-cf27-4376-8edc-17d97811bdba` synced the Intuit sandbox company
  * over 2026-08-19..2026-09-22 and recorded 12 invoices examined, nothing opened
  * and 8 anomalies. Every one of the eight was a payment inside the window applied
- * to an invoice dated before it — so the three short-pays in that ledger, all
- * paid inside the window, were invisible.
+ * to an invoice dated before it — so the three short-pays paid inside that
+ * window were invisible.
+ *
+ * Three in that window; four in the ledger. The fourth is invoice 71, paid
+ * before the window and settled with a credit memo, and it was invisible for a
+ * second reason the axis had nothing to do with: the mapper read the credit as
+ * cash (ADR 0036). Both counts are asserted below, each against the window that
+ * earns it.
  *
  * This replays the recorded Intuit responses (`fixtures/recorded-*.json`, from a
  * real sandbox, redacted) through the real adapter. The fake serves them the way
@@ -141,7 +147,24 @@ describe('the production ledger sync of 2026-09-22, replayed from the recorded s
 
   it('under invoice-date windows the full recording does find them: the defect is the axis', async () => {
     const report = await byInvoiceDate(RECORDED_WINDOW);
-    expect(report.candidates.map((c) => c.invoiceExternalId).sort()).toEqual(['13', '16', '67']);
+    // Four, not the three this said before ADR 0036. Invoice 71 is the fourth,
+    // and it was always there: $205, $105 of cash on payment 72, and $100
+    // settled by credit memo 73 through payment 74. The mapper counted that
+    // credit as cash, so 71 tallied as paid in full. It is a short-pay the
+    // ledger has already written off — the loudest kind there is.
+    expect(report.candidates.map((c) => c.invoiceExternalId).sort()).toEqual([
+      '13',
+      '16',
+      '67',
+      '71',
+    ]);
+    expect(report.candidates.find((c) => c.invoiceExternalId === '71')).toMatchObject({
+      invoiceTotalCents: 20_500,
+      appliedPaymentsCents: 10_500,
+      appliedCreditsCents: 10_000,
+      gapCents: 10_000,
+      gapStatus: 'credited',
+    });
     expect(report.anomalies.map((a) => a.invoiceExternalId)).toEqual(['96']);
   });
 
@@ -199,6 +222,31 @@ describe('the production ledger sync of 2026-09-22, replayed from the recorded s
     expect(invoiceQueries[0]).toContain(`Id in ('12', '13', '16', '27', '42', '63', '67', '9', '96')`);
     // Eight of the nine came back; 96 is not in the recorded ledger.
     expect(report.invoicesExamined).toBe(8);
+  });
+
+  it('finds the written-off short-pay once its payments are in the window (ADR 0036)', async () => {
+    // Payments 72 (2026-08-04) and 74 (2026-08-10) are both before the
+    // production window, so invoice 71 is named by neither of the two halves
+    // this composition reads and cannot appear above. Over a window that holds
+    // them it does, and it is a *fourth* candidate rather than a replacement
+    // for any of the three: nothing about the other invoices moved.
+    const { report } = await byPaymentDate({ from: '2026-08-01', to: '2026-09-22' });
+
+    expect(report.candidates.map((c) => c.invoiceExternalId).sort()).toEqual([
+      '13',
+      '16',
+      '67',
+      '71',
+    ]);
+    expect(report.candidates.find((c) => c.invoiceExternalId === '71')).toMatchObject({
+      invoiceTotalCents: 20_500,
+      // $105 of cash arrived; the mapper used to call it $205.
+      appliedPaymentsCents: 10_500,
+      appliedCreditsCents: 10_000,
+      gapCents: 10_000,
+      // Written off with a credit memo, not disputed. Nothing was recovered.
+      gapStatus: 'credited',
+    });
   });
 
   it('tallies an invoice against an application dated before the window', async () => {
