@@ -224,9 +224,14 @@ baseline is being compared against. `customer` was recorded on 2026-09-22
 empty.
 
 `customer`'s misses are the useful part of it. Two classifications: `stf-203-dispatch-note` read as `correspondence`
-(expected `other`) at 0.85, below the review floor so a human sees it, and
+(expected `other`) at 0.85, below the review floor, and
 `stf-203-service-order-terms` read as `po` (expected `price_agreement`) at 0.95,
-*above* the floor — the one that would pass unexamined. Two fields:
+*above* it. The floor is the eval's word, not the product's: nothing in
+production reads `org_settings.min_classification_confidence` or calls
+`classificationIsActionable` (only `scripts/run-evals.ts` does), and the
+`classification_confidence_meets_tenant_minimum` guard has no evaluator, so a
+document opens a case on its type whatever the confidence. Both misses would
+pass unexamined today. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
 rather than Westhaven Paper Supply, and
 `stf-203-short-payment-notice`'s reason code came back as the payer's own code
