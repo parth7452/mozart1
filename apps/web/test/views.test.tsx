@@ -4,10 +4,11 @@ import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
-import type { CaseWorkflow, UnreadDocument } from '@recouple/pipeline';
+import type { CaseWorkflow, PossibleDuplicatePair, UnreadDocument } from '@recouple/pipeline';
 import { CaseList, type Viewer } from '../components/case-list';
 import { UnreadDocuments, waiting } from '../components/unread-documents';
 import { CaseReview } from '../components/case-review';
+import { basisSentence, PossibleDuplicates } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { deadline, fieldLabel, money } from '../lib/format';
 
@@ -1081,5 +1082,136 @@ describe('the timeline', () => {
     expect(html).toContain('Outcome: partial');
     expect(html).toContain('$1,800.00 recovered');
     expect(html).toContain('you · 2026-09-25 10:00 UTC');
+  });
+});
+
+/**
+ * A pair the matcher would not merge, as the store hands one back (ADR 0032).
+ *
+ * The older side is the case we already held; the newer one is the arrival that
+ * agreed with it on everything but an identifier.
+ */
+function duplicatePair(
+  overrides: { olderClaim?: string; newerClaim?: string; basis?: readonly string[] } = {},
+): PossibleDuplicatePair {
+  const side = (deductionId: string, claimId: string, openedAt: string) => ({
+    deductionId,
+    state: 'discovered' as const,
+    claimId,
+    invoiceNumber: 'INV-77812',
+    retailer: 'Walmart (APDP)',
+    retailerMatched: true,
+    deductionAmountCents: 42_150,
+    deductionDate: '2026-07-02',
+    openedAt,
+  });
+  return {
+    noticedAt: '2026-09-21T09:00:00.000Z',
+    basis: overrides.basis ?? ['invoice_number', 'amount_cents', 'deduction_date'],
+    older: side(
+      'aaaaaaaa-1111-2222-3333-444444444444',
+      overrides.olderClaim ?? 'APDP-99812',
+      '2026-09-01T09:00:00.000Z',
+    ),
+    newer: side(
+      'bbbbbbbb-1111-2222-3333-444444444444',
+      overrides.newerClaim ?? 'CM-40021',
+      '2026-09-20T09:00:00.000Z',
+    ),
+  };
+}
+
+describe('the pairs identity resolution would not merge', () => {
+  it('shows both cases side by side, with what agreed and the two answers', () => {
+    const html = renderToStaticMarkup(<PossibleDuplicates pairs={[duplicatePair()]} />);
+
+    expect(html).toContain('Possible duplicates');
+    expect(html).toContain('APDP-99812');
+    expect(html).toContain('CM-40021');
+    expect(html).toContain('$421.50');
+    // What agreed, in a person's words rather than a field path.
+    expect(html).toContain('the same invoice');
+    expect(html).toContain('a deduction date within a week');
+    // Both answers, posted to the case the pair names, with the other half of
+    // the pair travelling in the form.
+    expect(html).toContain('action="/cases/aaaaaaaa-1111-2222-3333-444444444444/duplicate"');
+    expect(html).toContain('value="bbbbbbbb-1111-2222-3333-444444444444"');
+    expect(html).toContain('value="same"');
+    expect(html).toContain('value="different"');
+  });
+
+  it('never says the cases were merged, because they were not', () => {
+    // The whole asymmetry rests on this: nothing here joins two cases, and a
+    // button that read as if it did would be claiming something the store does
+    // not do (ADR 0032 §5).
+    const html = renderToStaticMarkup(<PossibleDuplicates pairs={[duplicatePair()]} />);
+    expect(html).toMatch(/neither was merged/);
+    expect(html).not.toMatch(/merge them/i);
+  });
+
+  it('renders nothing at all when there is nothing to answer', () => {
+    expect(renderToStaticMarkup(<PossibleDuplicates pairs={[]} />)).toBe('');
+  });
+
+  it('escapes a claim id that came off somebody else’s document', () => {
+    const html = renderToStaticMarkup(
+      <PossibleDuplicates
+        pairs={[duplicatePair({ newerClaim: '<img src=x onerror="alert(1)">' })]}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x onerror=');
+  });
+
+  it('says what agreed without ever saying what it said', () => {
+    expect(basisSentence(['invoice_number'])).toBe('the same invoice');
+    expect(basisSentence(['invoice_number', 'amount_cents'])).toBe(
+      'the same invoice and the same amount',
+    );
+    // A basis this page has no words for is still named rather than dropped.
+    expect(basisSentence(['something_new'])).toBe('something new');
+    expect(basisSentence([])).toBe('nothing this page can name');
+  });
+});
+
+describe('a case that may already be a case', () => {
+  const base = {
+    viewer,
+    summary: summary({ deductionId: 'aaaaaaaa-1111-2222-3333-444444444444' }),
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+  };
+
+  it('tells a reviewer on the case page, and offers both answers', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview {...base} mayAct={true} duplicates={[duplicatePair()]} />,
+    );
+
+    expect(html).toContain('This may already be a case');
+    // The *other* case, whichever side of the pair this one is.
+    expect(html).toContain('CM-40021');
+    expect(html).toContain('action="/cases/aaaaaaaa-1111-2222-3333-444444444444/duplicate"');
+    expect(html).toContain('Same deduction');
+    expect(html).toContain('Different deductions');
+    // And it does not claim anything was merged or moved.
+    expect(html).toMatch(/Nothing was merged/);
+  });
+
+  it('tells a reader who may not act as well, without offering the buttons', () => {
+    // Knowing another case may be this same deduction matters before anybody
+    // decides anything about it; answering is what the role gates.
+    const html = renderToStaticMarkup(
+      <CaseReview {...base} mayAct={false} duplicates={[duplicatePair()]} />,
+    );
+    expect(html).toContain('This may already be a case');
+    expect(html).not.toContain('Same deduction');
+    expect(html).not.toContain('/duplicate"');
+  });
+
+  it('says nothing when the case is in no unanswered pair', () => {
+    const html = renderToStaticMarkup(<CaseReview {...base} mayAct={true} duplicates={[]} />);
+    expect(html).not.toContain('This may already be a case');
   });
 });

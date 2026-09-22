@@ -53,7 +53,7 @@ export default async function CasePage({
     const summary = (await store.listCases()).find((row) => row.deductionId === id);
     if (summary === undefined) notFound();
 
-    const [fields, costMicros, reconciliation, workflow] = await Promise.all([
+    const [fields, costMicros, reconciliation, workflow, duplicates] = await Promise.all([
       store.fieldsForCase(id),
       store.costForCase(id),
       reconcileCase(id, {
@@ -78,6 +78,12 @@ export default async function CasePage({
         now: () => new Date(),
       }),
       store.getWorkflow(id),
+      // Whether this case is one half of a pair identity resolution refused to
+      // merge (ADR 0032). Asked for every reader, not only for a member who may
+      // answer it: deciding what to do about a deduction is exactly where
+      // knowing that another case may be the same one matters, and a reader who
+      // cannot answer still should not assemble a packet for it twice.
+      store.possibleDuplicates({ deductionId: id }),
     ]);
 
     return (
@@ -92,6 +98,7 @@ export default async function CasePage({
         mayApprove={mayApprove(session.org.role)}
         viewerUserId={session.userId}
         workflow={workflow}
+        duplicates={duplicates}
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
       />

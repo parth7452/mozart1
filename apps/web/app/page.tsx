@@ -40,6 +40,12 @@ export default async function CaseListPage({
         // RLS-scoped like every other read here, so what comes back is this
         // tenant's documents because the policies say so.
         unread={mayUpload ? await store.unreadDocuments(UNREAD_AFTER_MINUTES) : undefined}
+        // The pairs identity resolution refused to merge and nobody has
+        // answered (ADR 0032). Asked only for a member who could answer one,
+        // for the reason the unread documents are: a list of things you may not
+        // act on is a query paid for on every page view and shown to nobody who
+        // can do anything about it.
+        duplicates={mayUpload ? await store.possibleDuplicates() : undefined}
         notice={upload ?? action ?? reread}
         noticeAbout={aboutFrom(about)}
       />

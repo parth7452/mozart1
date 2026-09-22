@@ -301,6 +301,42 @@ describeDb('possible duplicates: the pairs a person answers', () => {
     expect(await verdictEvents(pair.older)).toHaveLength(1);
   });
 
+  it('records one verdict when two answers land at the same moment', async () => {
+    // The genuine race, not a double click. READ COMMITTED lets two
+    // transactions both read no verdict and both write one, and there is no
+    // unique index over "a pair" to catch the second — so the row locks on both
+    // cases are what makes the check and the writes one decision. Taken in id
+    // order, which is also why the two cannot deadlock waiting on each other.
+    const pair = await probablePair('raced');
+
+    const answers = await Promise.allSettled([
+      store.recordDuplicateVerdict({
+        deductionId: pair.newer,
+        otherDeductionId: pair.older,
+        verdict: 'same',
+        recordedBy: userId,
+      }),
+      store.recordDuplicateVerdict({
+        deductionId: pair.older,
+        otherDeductionId: pair.newer,
+        verdict: 'different',
+        recordedBy: userId,
+      }),
+    ]);
+
+    expect(answers.filter((answer) => answer.status === 'fulfilled')).toHaveLength(1);
+    const refused = answers.find((answer) => answer.status === 'rejected');
+    expect((refused as PromiseRejectedResult).reason).toBeInstanceOf(
+      DuplicateVerdictAlreadyRecordedError,
+    );
+    // One answer, on each case, and the two agree about which it was.
+    const onNewer = await verdictEvents(pair.newer);
+    const onOlder = await verdictEvents(pair.older);
+    expect(onNewer).toHaveLength(1);
+    expect(onOlder).toHaveLength(1);
+    expect(onNewer[0]?.event_type).toBe(onOlder[0]?.event_type);
+  });
+
   it('refuses a verdict on two cases nothing named as a pair', async () => {
     const left = await probablePair('unrelated-left');
     const right = await probablePair('unrelated-right');

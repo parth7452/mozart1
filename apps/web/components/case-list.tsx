@@ -1,4 +1,4 @@
-import type { UnreadDocument } from '@recouple/pipeline';
+import type { PossibleDuplicatePair, UnreadDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import { caseMetrics } from '../lib/case-presentation';
@@ -6,6 +6,7 @@ import { WorkspaceShell } from './workspace-shell';
 import { CaseTable } from './case-table';
 import { resolveNotice } from '../lib/notices';
 import { UnreadDocuments } from './unread-documents';
+import { PossibleDuplicates } from './possible-duplicates';
 
 export interface Viewer {
   readonly email: string;
@@ -27,6 +28,7 @@ export function CaseList({
   today,
   mayUpload,
   unread,
+  duplicates,
   notice,
   noticeAbout,
 }: {
@@ -43,6 +45,16 @@ export function CaseList({
    * at a list of things they are not allowed to fix.
    */
   unread?: readonly UnreadDocument[] | undefined;
+  /**
+   * The pairs the matcher called possible duplicates and nobody has answered
+   * (ADR 0032).
+   *
+   * Shown, like the unread documents, only to a member who may answer one — the
+   * database refuses the rest, and a list of things you are not allowed to
+   * resolve is not a list worth drawing. Nothing here merges two cases; the
+   * section says so in its own words.
+   */
+  duplicates?: readonly PossibleDuplicatePair[] | undefined;
   /**
    * What happened to the last upload, as a notice *key* — never the sentence
    * itself, which arrives in a query string anybody can write
@@ -167,6 +179,7 @@ export function CaseList({
             </div>
           </form>
         ) : null}
+        {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>
