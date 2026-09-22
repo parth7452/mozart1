@@ -574,6 +574,35 @@ skips rather than opens, and `packages/pipeline/test/ledger-job.test.ts` asks
 that rather than asserting it. Nothing creates a connection yet: the consent
 flow is a later change, and so is the KMS token store.
 
+**A possible duplicate is answered by a person** (ADR 0032, no migration).
+Identity resolution has handed every `probable` pair to a human since ADR 0025
+and nothing has ever shown one to a human: the pair was recorded on a
+`case.possible_duplicate` event nobody read, so the asymmetry was a deferral to
+nobody. `possibleDuplicates` reads those events back — both halves joined to
+`deductions`, so a pair naming a deduction this tenant cannot see is not a pair
+this tenant is shown, and RLS decides that rather than a filter — and the case
+list and the case page both show it. `recordDuplicateVerdict` writes the
+answer: one append-only `case.duplicate_confirmed` or `case.duplicate_dismissed`
+event on **each** case, naming the other and the basis that agreed, under row
+locks taken in id order so two reviewers cannot deadlock, and a second verdict
+on a pair is refused by name rather than appended. `deduction_events.event_type`
+is free text with no check constraint, so nothing in the database had to widen.
+
+**A verdict records what a person concluded and nothing else.** No state moves,
+no row is hidden, and no identifier is re-pointed — which is not restraint but
+arithmetic: `deduction_identifiers` is append-only and unique on `(org_id,
+source, identifier_kind, identifier)`, so the rows naming the duplicate are
+exactly the rows that would collide, and the two ways round it are a fabricated
+`source` (ADR 0024's misattribution) or matching an invoice number as an exact
+key (refused by ADR 0025 §6, because one invoice carries many deductions). So
+`openCase` resolves against exactly the identifiers it resolved against before,
+and an arrival that exact-matches both halves of a confirmed pair is still
+`ambiguous` — the first thing the follow-up should fix. A confirmed duplicate
+also still counts in `coverage_by_period*`, which is an over-count that is
+written down rather than discovered later; excluding it belongs with the merge
+decision, since which row's dollars survive is the same question as which row
+survives. A `merged` case state is that decision's too.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.
