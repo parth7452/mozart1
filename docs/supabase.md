@@ -100,14 +100,40 @@ postgres superuser in production. On Supabase, create one and grant it the
 membership:
 
 ```sql
-create role recouple_app login password '…';
-grant app_rw to recouple_app;
-grant app_ro to recouple_app;
+create role recouple_app login noinherit password '…';
+grant app_rw to recouple_app with inherit false, set true;
+grant app_ro to recouple_app with inherit false, set true;
 ```
 
-The app never runs *as* that role's own privileges: every unit of work opens a
-transaction, does `set local role app_rw`, and sets the claims. The login role is
-a door, not a permission set.
+`noinherit` and `inherit false` are the point, and production is set up this
+way. The login holds no privilege of its own and inherits none: it cannot read a
+table, or even use schema `app`, until it says `set role`. So the app never runs
+*as* that role: every unit of work opens a transaction, does
+`set local role app_rw`, and sets the claims. The login role is a door, not a
+permission set. A plain `grant app_rw to recouple_app` would inherit `app_rw`'s
+privileges outright, and code that forgot to switch role would work locally and
+nowhere else.
+
+### How the operator commands connect
+
+`pnpm link:retailer`, `pnpm link:provenance` and `pnpm link:qbo` use the same
+`DATABASE_URL` as the app, which means the same login and never the owner
+(ADR 0034). Each takes `--org <slug>` and `--as <member email>`, and has to turn
+them into ids before it can act as that member. It cannot do that under RLS,
+because the policies on `organizations` and `users` key on the org id it is
+trying to learn. So it does exactly one thing outside them:
+
+1. In one transaction, `set local role app_rw` with no claims, and call
+   `app.member_for_link(slug, email)`. That definer function returns the org id,
+   the user id and the role, and nothing else. It refuses any caller that
+   carries a claim, so no request path can use it.
+2. Refuse a `read_only` member.
+3. Do everything else through `PostgresStore`, as `app_rw` with that member's
+   claims, like the app.
+
+Running one of them against the owner login is not needed and not supported.
+`packages/store-postgres/test/operator-login.test.ts` creates a login shaped
+like `recouple_app` and runs each command as it.
 
 ### Auth settings to check in the dashboard
 

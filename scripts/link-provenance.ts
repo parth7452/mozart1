@@ -32,17 +32,18 @@
  * why `--dry-run` prints exactly what would be written before anything is.
  *
  * This is an operator's job, not a request path. It resolves the org and the
- * member it acts as with the admin connection, then does every write through
- * `PostgresStore` as `app_rw`, so the tenant policies apply to the change the
- * same way they apply to the app.
+ * member it acts as through `app.member_for_link()` as `app_rw` (ADR 0034), then
+ * does every write through `PostgresStore` as `app_rw`, so the tenant policies
+ * apply to the change the same way they apply to the app. `DATABASE_URL` is the
+ * login the app uses, never the owner.
  */
 
-import { Pool } from 'pg';
 import { UNREAD_DOCUMENTS_MAX_LIMIT } from '@recouple/pipeline';
 import {
   ArrivalAlreadyRecordedError,
   ASSERTABLE_SOURCES,
   closeAllPools,
+  resolveOperator,
   isAssertableSource,
   PostgresStore,
 } from '@recouple/store-postgres';
@@ -111,29 +112,20 @@ if (!listOnly) {
   }
 }
 
-const admin = new Pool({ connectionString });
-
 async function main(): Promise<void> {
-  const org = await admin.query<{ id: string }>(`select id from organizations where slug = $1`, [
-    slug,
-  ]);
-  const orgId = org.rows[0]?.id;
-  if (orgId === undefined) throw new Error(`no organization with slug ${JSON.stringify(slug)}`);
-
-  // The member the assertion is attributed to has to be a member of *this*
-  // tenant and has to be allowed to write. Both are the database's answer, not
-  // ours — and `recorded_by` is not null precisely so this name survives.
-  const actor = await admin.query<{ id: string; role: string }>(
-    `select u.id, m.role
-       from users u join memberships m on m.user_id = u.id
-      where lower(u.email) = lower($1) and m.org_id = $2`,
-    [actorEmail, orgId],
+  // Resolved as the app resolves anything (ADR 0034): `app_rw`, no claims, one
+  // definer function that answers this and nothing else. The member has to be a
+  // member of *this* tenant and has to be allowed to write. Both are the
+  // database's answer, not ours — and the tenant policies ask again on write.
+  const actor = await resolveOperator(
+    { connectionString: connectionString as string },
+    { slug, email: actorEmail },
   );
-  const actorId = actor.rows[0]?.id;
-  if (actorId === undefined) throw new Error(`${actorEmail} is not a member of ${slug}`);
-  if (actor.rows[0]?.role === 'read_only') {
+  if (actor.role === 'read_only') {
     throw new Error(`${actorEmail} is read_only in ${slug} and may not record an arrival`);
   }
+  const orgId = actor.orgId;
+  const actorId = actor.userId;
 
   const store = new PostgresStore(
     { connectionString: connectionString as string },
@@ -222,7 +214,6 @@ async function main(): Promise<void> {
   } finally {
     await store.close();
     await closeAllPools();
-    await admin.end();
   }
 }
 
