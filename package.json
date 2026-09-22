@@ -22,11 +22,13 @@
     "render:scans": "tsx scripts/render-scans.mts",
     "build:review": "tsx scripts/build-review-bundle.mts",
     "build:web": "pnpm --filter @recouple/web build",
-    "render:web": "./scripts/render-web.sh"
+    "render:web": "./scripts/render-web.sh",
+    "link:qbo": "tsx scripts/link-qbo.ts"
   },
   "devDependencies": {
     "@recouple/adapters": "workspace:*",
     "@recouple/core-domain": "workspace:*",
+    "@recouple/crypto": "workspace:*",
     "@recouple/decision": "workspace:*",
     "@recouple/evals": "workspace:*",
     "@recouple/extraction": "workspace:*",

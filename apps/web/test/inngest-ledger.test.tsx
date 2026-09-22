@@ -28,7 +28,29 @@ import {
   type LedgerSyncRequestedData,
   type SyncableConnection,
 } from '../lib/inngest-ledger';
-import { accountingSourceFromEnv, qboTokenStoreFromEnv } from '../lib/ledger-sync';
+import { KmsTokenCipher, type KmsDataKeyProvider } from '@recouple/crypto';
+import { PostgresQboTokenStore, QboRealmMismatchError } from '@recouple/store-postgres';
+import {
+  accountingSourceFromEnv,
+  qboTokenCipherFromEnv,
+  qboTokenStoreFromEnv,
+} from '../lib/ledger-sync';
+
+/**
+ * A KMS that is never called.
+ *
+ * The web-side assertions are about *what gets built*, not about sealing —
+ * `packages/crypto/test/cipher.test.ts` owns that, and
+ * `packages/store-postgres/test/qbo-token-store.test.ts` owns the round trip
+ * through a real database. So this one throws if anything reaches it, which is
+ * the assertion that no test here quietly starts calling AWS.
+ */
+function stubKms(): KmsDataKeyProvider {
+  const refuse = (): never => {
+    throw new Error('the web factory tests must not reach KMS');
+  };
+  return { generateDataKey: refuse, decryptDataKey: refuse };
+}
 
 /**
  * The scheduled half of the Inngest binding (ADR 0031).
@@ -472,24 +494,66 @@ describe('how the runtime is asked to run these', () => {
 });
 
 describe('what this deployment can read a ledger with', () => {
-  it('is nothing, because there is no production token store yet', () => {
-    // ADR 0031 §7, and this is the assertion that keeps it honest: the moment a
-    // KMS-backed store lands, this test is what says the seam was reached.
-    expect(qboTokenStoreFromEnv({})).toBeUndefined();
+  const identity = { orgId: ORG_A, userId: USER_A };
 
+  it('is nothing when no KMS key is configured', () => {
+    // ADR 0031 §7 left this as "there is no production token store"; ADR 0033
+    // built one and the fail-closed half is unchanged. No key id, no cipher, no
+    // store — `scannerFromEnv`'s rule, and the run row still says
+    // `not_configured` rather than the fleet throwing.
+    expect(qboTokenCipherFromEnv({})).toBeUndefined();
+    expect(qboTokenStoreFromEnv(identity, connectionRecord(), {})).toBeUndefined();
+
+    const resolved = accountingSourceFromEnv(
+      {
+        QBO_CLIENT_ID: 'client',
+        QBO_CLIENT_SECRET: 'secret',
+        QBO_ENVIRONMENT: 'sandbox',
+      },
+      { identity },
+    ).resolve(connectionRecord());
+    expect(resolved.kind).toBe('not_configured');
+    if (resolved.kind === 'not_configured') {
+      expect(resolved.reason).toContain('QBO_TOKEN_KMS_KEY_ID');
+    }
+  });
+
+  it('builds a per-connection store once there is a key and a member', async () => {
+    // The seam ADR 0031 §7 named, reached. The cipher is injected over a
+    // stubbed KMS so nothing here calls AWS, and the store is real: it is what
+    // a sync would hand `QboAccountingSource`.
+    const store = qboTokenStoreFromEnv(
+      identity,
+      connectionRecord(),
+      { QBO_TOKEN_KMS_KEY_ID: 'alias/recouple-qbo-tokens', DATABASE_URL: 'postgres://x/y' },
+      new KmsTokenCipher({ keyId: 'alias/recouple-qbo-tokens', kms: stubKms() }),
+    );
+
+    expect(store).toBeInstanceOf(PostgresQboTokenStore);
+    // Scoped to this connection's company: the port takes a realm and this one
+    // answers for exactly one (ADR 0033 §5).
+    await expect(store?.load('some-other-realm')).rejects.toThrow(QboRealmMismatchError);
+  });
+
+  it('builds nothing when there is a key but no member to act as', () => {
+    // A token store runs as `app_rw` with a member's claims. Without one there
+    // are no claims to set, and a store with no tenant is not a store this
+    // system has (invariant 6).
     const resolved = accountingSourceFromEnv({
       QBO_CLIENT_ID: 'client',
       QBO_CLIENT_SECRET: 'secret',
       QBO_ENVIRONMENT: 'sandbox',
+      QBO_TOKEN_KMS_KEY_ID: 'alias/k',
     }).resolve(connectionRecord());
+
     expect(resolved.kind).toBe('not_configured');
     if (resolved.kind === 'not_configured') {
-      expect(resolved.reason).toContain('token store');
+      expect(resolved.reason).toContain('member to act as');
     }
   });
 
   it('names the variables an unconfigured environment is missing', () => {
-    const resolved = accountingSourceFromEnv({}).resolve(connectionRecord());
+    const resolved = accountingSourceFromEnv({}, { identity }).resolve(connectionRecord());
     expect(resolved.kind).toBe('not_configured');
     if (resolved.kind === 'not_configured') {
       expect(resolved.reason).toContain('QBO_CLIENT_ID');
@@ -509,7 +573,7 @@ describe('what this deployment can read a ledger with', () => {
         QBO_CLIENT_SECRET: 'secret',
         QBO_ENVIRONMENT: 'production',
       },
-      new InMemoryQboTokenStore(),
+      { tokenStoreFor: () => new InMemoryQboTokenStore() },
     ).resolve(connectionRecord());
 
     expect(resolved.kind).toBe('ready');
@@ -520,16 +584,19 @@ describe('what this deployment can read a ledger with', () => {
     // reported as a customer's books is not a failure anybody would notice
     // (ADR 0026).
     expect(() =>
-      accountingSourceFromEnv({
-        QBO_CLIENT_ID: 'client',
-        QBO_CLIENT_SECRET: 'secret',
-        QBO_ENVIRONMENT: 'staging',
-      }).resolve(connectionRecord()),
+      accountingSourceFromEnv(
+        {
+          QBO_CLIENT_ID: 'client',
+          QBO_CLIENT_SECRET: 'secret',
+          QBO_ENVIRONMENT: 'staging',
+        },
+        { identity },
+      ).resolve(connectionRecord()),
     ).toThrow(/sandbox/);
   });
 
   it('has no source for a provider this build does not know', () => {
-    const resolved = accountingSourceFromEnv({}).resolve(
+    const resolved = accountingSourceFromEnv({}, { identity }).resolve(
       connectionRecord({ provider: 'netsuite' }),
     );
     expect(resolved.kind).toBe('not_configured');
