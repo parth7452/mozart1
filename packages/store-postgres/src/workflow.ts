@@ -53,6 +53,8 @@ import {
   DecisionNotFoundError,
   DuplicateApprovalError,
   DuplicateSubmissionError,
+  DuplicateVerdictAlreadyRecordedError,
+  NoSuchDuplicatePairError,
   InvalidRecoveryAmountError,
   NoApprovalForSubmissionError,
   NotACanonicalReasonError,
@@ -69,9 +71,13 @@ import {
   type ApprovalRecord,
   type CaseOutcome,
   type CaseWorkflow,
+  type DuplicateCandidateCase,
+  type DuplicateVerdict,
+  type DuplicateVerdictRecord,
   type HumanDecisionRecord,
   type OutcomeRecord,
   type PacketRecord,
+  type PossibleDuplicatePair,
   type SubmissionRecord,
   type WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
@@ -1294,6 +1300,379 @@ export async function getWorkflow(
     ...(approval !== undefined ? { approval } : {}),
     ...(submission !== undefined ? { submission } : {}),
     ...(outcome !== undefined ? { outcome } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 6. The pairs identity resolution left for a person (ADR 0032)
+// ---------------------------------------------------------------------------
+//
+// `resolveIdentity` merges only on an exact identifier match; a probable one
+// opens the case anyway and records `case.possible_duplicate` naming the other
+// deduction (ADR 0025 §6). Until now nothing read those events, so the pair
+// stopped nowhere. These two are the human half: the list, and the verdict.
+//
+// A verdict is two append-only events and nothing else. It does not merge, move
+// a state or re-point an identifier — ADR 0032 §5 says why the last of those
+// cannot be written at all while `deduction_identifiers` is append-only and
+// unique per source.
+
+/** The event a probable match leaves behind. */
+const PAIR_NAMED = 'case.possible_duplicate';
+/** The two a person leaves behind, one of them, on both cases. */
+const PAIR_CONFIRMED = 'case.duplicate_confirmed';
+const PAIR_DISMISSED = 'case.duplicate_dismissed';
+
+/** Which event a verdict is. One place, so the read and the write agree. */
+function eventTypeFor(verdict: DuplicateVerdict): string {
+  return verdict === 'same' ? PAIR_CONFIRMED : PAIR_DISMISSED;
+}
+
+/** Which verdict an event was, for a refusal that has to name the first one. */
+function verdictFor(eventType: string): DuplicateVerdict {
+  return eventType === PAIR_CONFIRMED ? 'same' : 'different';
+}
+
+/**
+ * The most pairs one call will answer with, however many it was asked for.
+ *
+ * A screen, not a database dump — `UNREAD_DOCUMENTS_MAX_LIMIT`'s reason. A
+ * tenant with a thousand unanswered pairs has a problem no list can show them.
+ */
+export const POSSIBLE_DUPLICATES_MAX_LIMIT = 100;
+
+/**
+ * An id as the payload spells it.
+ *
+ * `payload->>'of'` is text and `deductions.id` is a uuid, so the pair is matched
+ * as text on both sides rather than by casting the payload — a cast is a
+ * statement that fails the whole query on one malformed value, and this read
+ * runs over every event a tenant has. Postgres prints a uuid in lower case, so
+ * folding an id from a URL is what makes the two comparable.
+ */
+function idKey(id: string): string {
+  return id.trim().toLowerCase();
+}
+
+interface CandidateRow {
+  state: CaseState;
+  claim_id: string | null;
+  amount: string;
+  deduction_date: Date | string | null;
+  created_at: Date | string;
+  debtor_name: string | null;
+  retailer_name_as_printed: string | null;
+  invoice_number: string | null;
+}
+
+interface PairRow extends Record<string, unknown> {
+  event_id: string;
+  event_time: Date | string;
+  basis: unknown;
+  a_id: string;
+  z_id: string;
+}
+
+/** One side of a pair, out of the columns the query aliased for it. */
+function candidate(deductionId: string, row: CandidateRow): DuplicateCandidateCase {
+  const debtorName = row.debtor_name ?? undefined;
+  // The debtor when one matched, else the name the document printed, with a
+  // flag saying which — the case list's rule (ADR 0019), so a reviewer
+  // comparing two cases is never told a printed name is a matched one.
+  const retailer = debtorName ?? row.retailer_name_as_printed ?? undefined;
+  const deductionDate = isoDate(row.deduction_date);
+  return {
+    deductionId,
+    state: row.state,
+    ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+    ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+    ...(retailer !== undefined ? { retailer } : {}),
+    retailerMatched: debtorName !== undefined,
+    // Integer cents, converted once, from the column's own text (invariant 3).
+    deductionAmountCents: exactCents(row.amount, 'deduction_amount_cents'),
+    ...(deductionDate !== undefined ? { deductionDate } : {}),
+    openedAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+/** The basis as the event recorded it: names of facts, never their values. */
+function basisOf(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+/**
+ * The columns each side of a pair is summarised by, aliased with a prefix.
+ *
+ * Written once and used twice rather than typed out for `a` and `z` in turn:
+ * the two sides of a pair are shown next to each other, and a list where one
+ * column means something different on the left than on the right is a list a
+ * reviewer compares wrongly.
+ */
+function sideColumns(alias: string, prefix: string): string {
+  return [
+    `${alias}.state as ${prefix}_state`,
+    `${alias}.claim_id as ${prefix}_claim_id`,
+    `${alias}.amount as ${prefix}_amount`,
+    `${alias}.deduction_date as ${prefix}_deduction_date`,
+    `${alias}.created_at as ${prefix}_created_at`,
+    `${alias}.debtor_name as ${prefix}_debtor_name`,
+    `${alias}.retailer_name_as_printed as ${prefix}_retailer_name_as_printed`,
+    `${alias}.invoice_number as ${prefix}_invoice_number`,
+  ].join(',\n                ');
+}
+
+/** The prefixed columns of one side, back as the row shape `candidate` reads. */
+function sideOf(row: PairRow, prefix: string): CandidateRow {
+  return {
+    state: row[`${prefix}_state`] as CaseState,
+    claim_id: row[`${prefix}_claim_id`] as string | null,
+    amount: row[`${prefix}_amount`] as string,
+    deduction_date: row[`${prefix}_deduction_date`] as Date | string | null,
+    created_at: row[`${prefix}_created_at`] as Date | string,
+    debtor_name: row[`${prefix}_debtor_name`] as string | null,
+    retailer_name_as_printed: row[`${prefix}_retailer_name_as_printed`] as string | null,
+    invoice_number: row[`${prefix}_invoice_number`] as string | null,
+  };
+}
+
+/** Which of the two was opened first. The one a confirmation says survives. */
+function olderFirst(
+  left: DuplicateCandidateCase,
+  right: DuplicateCandidateCase,
+): readonly [DuplicateCandidateCase, DuplicateCandidateCase] {
+  if (left.openedAt !== right.openedAt) {
+    return left.openedAt < right.openedAt ? [left, right] : [right, left];
+  }
+  // Two cases opened in one transaction carry the identical `created_at`, which
+  // defaults to the transaction's start time. The id is arbitrary but fixed, so
+  // the same pair answers the same way every time it is asked rather than
+  // changing when the planner does — `declineCase`'s reason for the same tie
+  // break.
+  return left.deductionId < right.deductionId ? [left, right] : [right, left];
+}
+
+export async function possibleDuplicates(
+  client: PoolClient,
+  options?: { readonly deductionId?: string; readonly limit?: number },
+): Promise<readonly PossibleDuplicatePair[]> {
+  const limit = options?.limit ?? POSSIBLE_DUPLICATES_MAX_LIMIT;
+  // Loud, not coerced. A `NaN` reaches the driver as a bind parameter that
+  // answers nothing at all, and "nothing to answer" is the one reply this list
+  // must never give wrongly — `unreadDocuments` refuses the same way.
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(`possibleDuplicates limit must be a positive integer, got ${String(limit)}`);
+  }
+  const only = options?.deductionId === undefined ? null : idKey(options.deductionId);
+
+  const { rows } = await client.query<PairRow>(
+    `with named as (
+       select e.id as event_id,
+              e.event_time,
+              coalesce(e.payload->'basis', '[]'::jsonb) as basis,
+              e.deduction_id::text as side_a,
+              lower(e.payload->>'of') as side_b
+         from deduction_events e
+        where e.event_type = $1
+          and e.payload->>'of' is not null
+     ),
+     answered as (
+       select v.deduction_id::text as side_a, lower(v.payload->>'of') as side_b
+         from deduction_events v
+        where v.event_type in ($2, $3)
+          and v.payload->>'of' is not null
+     ),
+     summary as (
+       select d.id::text as id,
+              d.state,
+              d.claim_id,
+              d.deduction_amount_cents::text as amount,
+              d.deduction_date,
+              d.created_at,
+              b.display_name as debtor_name,
+              d.retailer_name_as_printed,
+              (select i.identifier from deduction_identifiers i
+                where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
+                order by i.first_seen_at asc, i.id asc limit 1) as invoice_number
+         from deductions d
+         left join debtors b on b.id = d.debtor_id
+     )
+     select distinct on (least(n.side_a, n.side_b), greatest(n.side_a, n.side_b))
+            n.event_id::text as event_id,
+            n.event_time,
+            n.basis,
+            a.id as a_id,
+            ${sideColumns('a', 'a')},
+            z.id as z_id,
+            ${sideColumns('z', 'z')}
+       from named n
+       -- Both halves, through RLS: a pair naming a deduction this tenant cannot
+       -- see is not a pair this tenant is shown, and it is the database that
+       -- decides that rather than a filter here.
+       join summary a on a.id = n.side_a
+       join summary z on z.id = n.side_b
+      where not exists (
+        select 1 from answered v
+         where (v.side_a = n.side_a and v.side_b = n.side_b)
+            or (v.side_a = n.side_b and v.side_b = n.side_a)
+      )
+        and ($4::text is null or n.side_a = $4 or n.side_b = $4)
+      order by least(n.side_a, n.side_b), greatest(n.side_a, n.side_b), n.event_id desc
+      limit $5`,
+    [
+      PAIR_NAMED,
+      PAIR_CONFIRMED,
+      PAIR_DISMISSED,
+      only,
+      Math.min(limit, POSSIBLE_DUPLICATES_MAX_LIMIT),
+    ],
+  );
+
+  return rows
+    .map((row) => {
+      const [older, newer] = olderFirst(
+        candidate(row.a_id, sideOf(row, 'a')),
+        candidate(row.z_id, sideOf(row, 'z')),
+      );
+      return {
+        noticedAt: new Date(row.event_time).toISOString(),
+        basis: basisOf(row.basis),
+        older,
+        newer,
+        eventId: row.event_id,
+      };
+    })
+    // `distinct on` fixed the order the pairs were deduplicated in; a reviewer
+    // wants the most recently noticed first, which is this one.
+    .sort((left, right) => (left.eventId < right.eventId ? 1 : -1))
+    .map(({ eventId: _eventId, ...pair }) => pair);
+}
+
+export async function recordDuplicateVerdict(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly verdict: DuplicateVerdict;
+    readonly recordedBy: string;
+  },
+): Promise<DuplicateVerdictRecord> {
+  const action = 'answering a possible duplicate';
+  requireCaller(input.recordedBy, tenant.userId, action);
+
+  const here = idKey(input.deductionId);
+  const there = idKey(input.otherDeductionId);
+  // A case is not a duplicate of itself, and no event says it is — so this is
+  // the same refusal a pair nobody named gets, rather than a second one.
+  if (here === there) {
+    throw new NoSuchDuplicatePairError(input.deductionId, input.otherDeductionId);
+  }
+
+  // Both cases, locked, in id order: two reviewers answering two overlapping
+  // pairs at once take the same two rows in the same sequence and so cannot
+  // deadlock. The lock is what makes the check below and the writes after it one
+  // decision — READ COMMITTED lets two transactions both read no verdict and
+  // both write one, and there is no unique index to catch the second.
+  //
+  // `lockCase` is also where the role and the visibility refusals come from: a
+  // `read_only` member gets no row because `tenant_update` is gated on
+  // `app.member_may_write()`, and another tenant's case is absent by name. Both
+  // halves are locked, so a cross-tenant pair is refused on whichever half this
+  // tenant cannot see.
+  for (const deductionId of [here, there].sort()) {
+    await lockCase(client, deductionId, action, input.recordedBy, WRITER_ROLES);
+  }
+
+  const { rows: named } = await client.query<{ basis: unknown }>(
+    `select coalesce(e.payload->'basis', '[]'::jsonb) as basis
+       from deduction_events e
+      where e.event_type = $1
+        and ((e.deduction_id::text = $2 and lower(e.payload->>'of') = $3)
+          or (e.deduction_id::text = $3 and lower(e.payload->>'of') = $2))
+      order by e.id asc
+      limit 1`,
+    [PAIR_NAMED, here, there],
+  );
+  const pair = named[0];
+  if (pair === undefined) {
+    throw new NoSuchDuplicatePairError(input.deductionId, input.otherDeductionId);
+  }
+
+  const { rows: answered } = await client.query<{
+    event_type: string;
+    event_time: Date | string;
+  }>(
+    `select e.event_type, e.event_time
+       from deduction_events e
+      where e.event_type in ($1, $2)
+        and ((e.deduction_id::text = $3 and lower(e.payload->>'of') = $4)
+          or (e.deduction_id::text = $4 and lower(e.payload->>'of') = $3))
+      order by e.id asc
+      limit 1`,
+    [PAIR_CONFIRMED, PAIR_DISMISSED, here, there],
+  );
+  const standing = answered[0];
+  if (standing !== undefined) {
+    throw new DuplicateVerdictAlreadyRecordedError(
+      input.deductionId,
+      input.otherDeductionId,
+      verdictFor(standing.event_type),
+      new Date(standing.event_time).toISOString(),
+    );
+  }
+
+  // Which of the two was opened first. Derived rather than read off the event's
+  // direction, so both sides of a pair get the same answer (ADR 0032 §4).
+  const { rows: opened } = await client.query<{ id: string }>(
+    `select d.id::text as id from deductions d
+      where d.id::text in ($1, $2)
+      order by d.created_at asc, d.id asc`,
+    [here, there],
+  );
+  const older = opened[0]?.id;
+  const newer = opened[1]?.id;
+  if (older === undefined || newer === undefined) {
+    // Unreachable: both were locked a moment ago inside this transaction.
+    throw new CaseNotVisibleError(input.deductionId);
+  }
+
+  const basis = basisOf(pair.basis);
+  const eventType = eventTypeFor(input.verdict);
+  const payload = (of: string): Record<string, unknown> => ({
+    of,
+    verdict: input.verdict,
+    // What the matcher said agreed, carried across so the answer and the
+    // question are readable together. Names of facts, never their values
+    // (invariant 4).
+    basis,
+    older_deduction_id: older,
+    newer_deduction_id: newer,
+    // Only on a confirmation, because only a confirmation says one of them is
+    // the deduction. It survives nothing today — no state moves and no row is
+    // hidden — and it is what a merge operation will be built on (ADR 0032 §5).
+    ...(input.verdict === 'same' ? { surviving_deduction_id: older } : {}),
+    recorded_by: input.recordedBy,
+  });
+
+  // One event per case, in one transaction, each naming the other. A verdict on
+  // one side only would be a pair that reads as answered from one case and open
+  // from the other, and the list and the case page read from different sides.
+  await appendEvent(client, tenant, here, eventType, payload(there));
+  await appendEvent(client, tenant, there, eventType, payload(here));
+
+  const { rows: recorded } = await client.query<{ now: string }>(
+    `select now()::text as now`,
+  );
+
+  return {
+    verdict: input.verdict,
+    deductionId: here,
+    otherDeductionId: there,
+    survivingDeductionId: older,
+    basis,
+    recordedBy: input.recordedBy,
+    recordedAt: new Date(recorded[0]?.now ?? Date.now()).toISOString(),
   };
 }
 

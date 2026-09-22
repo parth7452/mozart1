@@ -1285,3 +1285,181 @@ export class DuplicateSubmissionError extends CaseWorkflowError {
     this.name = 'DuplicateSubmissionError';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Possible duplicates: the human half of identity resolution (ADR 0032)
+// ---------------------------------------------------------------------------
+//
+// `resolveIdentity` resolves only an exact identifier match on its own (ADR
+// 0025 §6). A `probable` match opens the case anyway and records a
+// `case.possible_duplicate` event naming the other deduction, because losing a
+// disputable deduction to a wrong merge is the worse error. Everything below is
+// what was missing: the pair is shown to a person, and the person answers it.
+//
+// A verdict is a record of what somebody concluded and nothing more. It does not
+// merge the two cases, move either one's state, or re-point an identifier — ADR
+// 0032 §5 says why the last of those is not possible today.
+
+/** What a person concluded about a pair. */
+export type DuplicateVerdict = 'same' | 'different';
+
+/**
+ * One side of a possible-duplicate pair, as much of it as a reviewer needs to
+ * tell two cases apart.
+ *
+ * The claim id, the invoice number and the retailer are untrusted text off
+ * somebody else's document, shown as printed and never mapped. The amount is
+ * integer cents (invariant 3), converted once by the store from the column's own
+ * text, so a value no JS number holds exactly stops the read rather than landing
+ * in a page.
+ */
+export interface DuplicateCandidateCase {
+  readonly deductionId: string;
+  readonly state: CaseState;
+  readonly claimId?: string;
+  /** From `deduction_identifiers`, where a deduction's names live (ADR 0025). */
+  readonly invoiceNumber?: string;
+  /** The matched debtor's display name, else the name the document printed. */
+  readonly retailer?: string;
+  /** Whether that name is a debtor's or only what was printed (ADR 0019). */
+  readonly retailerMatched: boolean;
+  readonly deductionAmountCents: number;
+  readonly deductionDate?: string;
+  /** When the case was opened, ISO-8601. What makes one of the pair the older. */
+  readonly openedAt: string;
+}
+
+/**
+ * A pair the matcher named and nobody has answered yet.
+ *
+ * `older` and `newer` rather than "surviving" and "duplicate": which is which is
+ * a fact about when they were opened, and calling one of them the duplicate
+ * before a person has said so is the prejudgement this gate exists to avoid. A
+ * confirmation names the older one as the survivor (ADR 0032 §4), and it is the
+ * verdict that says so rather than the list.
+ */
+export interface PossibleDuplicatePair {
+  /** The `case.possible_duplicate` event that raised it, ISO-8601. */
+  readonly noticedAt: string;
+  /**
+   * Which facts agreed, in the matcher's own words — `invoice_number`,
+   * `amount_cents`, `deduction_date`, `debtor_id` — and never their values
+   * (invariant 4).
+   */
+  readonly basis: readonly string[];
+  readonly older: DuplicateCandidateCase;
+  readonly newer: DuplicateCandidateCase;
+}
+
+/** What was recorded, and on which pair. */
+export interface DuplicateVerdictRecord {
+  readonly verdict: DuplicateVerdict;
+  readonly deductionId: string;
+  readonly otherDeductionId: string;
+  /**
+   * The older of the two, which a confirmed verdict names as the survivor.
+   * Present whatever the verdict, because a dismissal is a statement about the
+   * same pair and a reader should not have to work out which way round it was.
+   */
+  readonly survivingDeductionId: string;
+  readonly basis: readonly string[];
+  readonly recordedBy: string;
+  readonly recordedAt: string;
+}
+
+/**
+ * The pairs a person has to answer, and their answers.
+ *
+ * A separate port from `CaseWorkflowStore` for the reason `UnreadDocumentsStore`
+ * is one: a pair exists only where `resolveIdentity` ran against a real table of
+ * identifiers, so the in-memory pipeline store never produces one and a required
+ * method there would model a shape that store cannot create. Its refusals are
+ * `CaseWorkflowError`s all the same, and the write runs behind the same actor,
+ * role and visibility checks as the Phase 3 workflow, because it is the same
+ * kind of act: a person deciding something about money-bearing cases rather than
+ * the pipeline running unattended (ADR 0020 §6).
+ */
+export interface DuplicateReviewStore {
+  /**
+   * Every pair of this tenant's cases the matcher called a possible duplicate
+   * and nobody has answered, newest first.
+   *
+   * Both halves are joined to `deductions`, so a pair naming a deduction this
+   * tenant cannot see is not a pair this tenant is shown — RLS decides that, not
+   * a filter we remembered to write. Capped, because this is a page a person
+   * looks at.
+   */
+  possibleDuplicates(options?: {
+    /** Only the pairs this case is one half of. */
+    readonly deductionId?: string;
+    readonly limit?: number;
+  }): Promise<readonly PossibleDuplicatePair[]>;
+
+  /**
+   * Records what a person concluded about one pair: two
+   * `case.duplicate_confirmed` or `case.duplicate_dismissed` events, one on each
+   * case, each naming the other.
+   *
+   * `recordedBy` is the session's own user and never a form field — the store
+   * refuses anyone else, the way every other human act here does.
+   *
+   * @throws {ActorIsNotTheSessionError} `recordedBy` is not this session
+   * @throws {CaseNotVisibleError} either case is not one this tenant may see,
+   *   which is also the answer for the far half of a cross-tenant pair
+   * @throws {WrongRoleError} this member may read the cases but not write
+   * @throws {NoSuchDuplicatePairError} nothing named these two as a pair
+   * @throws {DuplicateVerdictAlreadyRecordedError} this pair was already answered
+   */
+  recordDuplicateVerdict(input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly verdict: DuplicateVerdict;
+    readonly recordedBy: string;
+  }): Promise<DuplicateVerdictRecord>;
+}
+
+/**
+ * Nothing names these two cases as a possible duplicate of each other.
+ *
+ * A stale page, a hand-made POST, or a case paired with itself. Not a fault: the
+ * pair list is computed from `case.possible_duplicate` events rather than
+ * stored, and a verdict on a pair the matcher never raised would be a record of
+ * an answer to a question nobody asked.
+ */
+export class NoSuchDuplicatePairError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly otherDeductionId: string,
+  ) {
+    super(
+      `duplicate verdict refused: nothing names case ${deductionId} and case ` +
+        `${otherDeductionId} as a possible duplicate of each other`,
+    );
+    this.name = 'NoSuchDuplicatePairError';
+  }
+}
+
+/**
+ * This pair already has a verdict, and the first one stands.
+ *
+ * Refused rather than appended. The pair list is "named and not yet answered",
+ * so a second verdict would make the answer depend on which event is read
+ * first, and `deduction_events` is append-only — there is no correcting the
+ * first one afterwards. Reversing a verdict is a later decision with its own
+ * ADR (0032 §3), not something a double-clicked button decides.
+ */
+export class DuplicateVerdictAlreadyRecordedError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly otherDeductionId: string,
+    readonly verdict: DuplicateVerdict,
+    readonly recordedAt: string,
+  ) {
+    super(
+      `duplicate verdict refused: case ${deductionId} and case ${otherDeductionId} were ` +
+        `already answered as ${verdict === 'same' ? 'one deduction' : 'different deductions'} ` +
+        `at ${recordedAt}`,
+    );
+    this.name = 'DuplicateVerdictAlreadyRecordedError';
+  }
+}
