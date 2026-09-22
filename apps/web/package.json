@@ -12,6 +12,7 @@
   "dependencies": {
     "@recouple/core-domain": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "@recouple/qbo": "workspace:*",
     "@recouple/store-postgres": "workspace:*",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.60.0",

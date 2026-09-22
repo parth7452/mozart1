@@ -96,6 +96,9 @@ importers:
       '@recouple/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
+      '@recouple/qbo':
+        specifier: workspace:*
+        version: link:../../packages/qbo
       '@recouple/store-postgres':
         specifier: workspace:*
         version: link:../../packages/store-postgres
