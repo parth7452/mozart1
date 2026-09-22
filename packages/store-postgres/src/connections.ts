@@ -199,6 +199,77 @@ export class PostgresLedgerSyncStore {
     }
   }
 
+  /**
+   * The connection for one provider account, if this tenant has one.
+   *
+   * By `(provider, provider_account_id)` rather than by id, because that is the
+   * question an operator connecting a ledger asks: *is this company already
+   * connected here?* A tenant may hold one connection per company (migration
+   * 0024's unique), so an answer is unambiguous, and another tenant's is not
+   * found rather than forbidden — RLS doing the work.
+   */
+  async connectionForAccount(
+    provider: AccountingProvider,
+    providerAccountId: string,
+  ): Promise<AccountingConnectionRow | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        org_id: string;
+        provider: string;
+        provider_account_id: string;
+        enabled: boolean;
+        created_by: string;
+      }>(
+        `select id, org_id, provider, provider_account_id, enabled, created_by
+           from accounting_connections
+          where provider = $1 and provider_account_id = $2`,
+        [provider, providerAccountId],
+      );
+      return rows[0] === undefined ? undefined : rowToConnection(rows[0]);
+    });
+  }
+
+  /**
+   * Register a connection for this tenant, as this member.
+   *
+   * `created_by` is this store's own member and is not a parameter: it is the
+   * member a scheduled sync will act as (ADR 0031 §3), and a connection
+   * attributed to somebody who is not the person running the command is a
+   * connection that acts as a person who never agreed to it. `tenant_insert`
+   * asks `app.member_may_write()`, so a `read_only` member is refused by the
+   * database rather than by this code.
+   *
+   * It holds no secret, by construction: the row names a company, and what
+   * proves we may read those books is a `accounting_credentials` row sealed
+   * elsewhere (ADR 0033).
+   */
+  async createConnection(input: {
+    readonly provider: AccountingProvider;
+    readonly providerAccountId: string;
+  }): Promise<AccountingConnectionRow> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        org_id: string;
+        provider: string;
+        provider_account_id: string;
+        enabled: boolean;
+        created_by: string;
+      }>(
+        `insert into accounting_connections (org_id, provider, provider_account_id, created_by)
+         values ($1, $2, $3, $4)
+         returning id, org_id, provider, provider_account_id, enabled, created_by`,
+        [this.tenant.orgId, input.provider, input.providerAccountId, this.tenant.userId],
+      );
+      const row = rows[0];
+      if (row === undefined) {
+        throw new Error('inserting an accounting connection returned no row');
+      }
+      return rowToConnection(row);
+    });
+  }
+
   /** Whether this member may write in this tenant — the database's answer. */
   async memberMayWrite(actor: {
     readonly orgId: string;
@@ -231,18 +302,7 @@ export class PostgresLedgerSyncStore {
         [connectionId],
       );
       const row = rows[0];
-      if (row === undefined) return undefined;
-      if (!isAccountingProvider(row.provider)) {
-        throw new UnknownAccountingProviderError(row.id, row.provider);
-      }
-      return {
-        connectionId: row.id,
-        orgId: row.org_id,
-        provider: row.provider,
-        providerAccountId: row.provider_account_id,
-        enabled: row.enabled,
-        createdBy: row.created_by,
-      };
+      return row === undefined ? undefined : rowToConnection(row);
     });
   }
 
@@ -295,6 +355,34 @@ export class PostgresLedgerSyncStore {
       return id;
     });
   }
+}
+
+/**
+ * One registry row, as this package's types see it.
+ *
+ * A provider the database took and this build does not know is raised, not
+ * skipped, for `listConnectionsToSync`'s reason: a connection nobody syncs
+ * because nobody recognised it is a silent gap in a coverage number.
+ */
+function rowToConnection(row: {
+  readonly id: string;
+  readonly org_id: string;
+  readonly provider: string;
+  readonly provider_account_id: string;
+  readonly enabled: boolean;
+  readonly created_by: string;
+}): AccountingConnectionRow {
+  if (!isAccountingProvider(row.provider)) {
+    throw new UnknownAccountingProviderError(row.id, row.provider);
+  }
+  return {
+    connectionId: row.id,
+    orgId: row.org_id,
+    provider: row.provider,
+    providerAccountId: row.provider_account_id,
+    enabled: row.enabled,
+    createdBy: row.created_by,
+  };
 }
 
 /** A count column: a non-negative integer, or a loud failure rather than a null. */
