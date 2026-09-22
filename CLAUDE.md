@@ -140,7 +140,8 @@ append-only tables.
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
-| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here |
+| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033) |
+| `crypto` | The `TokenCipher` port and `KmsTokenCipher`. It reads no environment variable and holds no key material: AWS credentials are the SDK's provider chain's business and the key id is a constructor argument. `LocalTokenCipher` is under `@recouple/crypto/testing` and the index must never re-export it |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
@@ -603,6 +604,46 @@ also still counts in `coverage_by_period*`, which is an over-count that is
 written down rather than discovered later; excluding it belongs with the merge
 decision, since which row's dollars survive is the same question as which row
 survives. A `merged` case state is that decision's too.
+
+**A token is sealed before it is stored** (ADR 0033, migration 0025).
+`qboTokenStoreFromEnv` returned `undefined` — the named KMS port with no
+implementation — so every connection recorded `not_configured` and the ERP
+discovery path was a scheduler with nothing behind it. Supabase Vault was
+refused on environment parity (`pnpm db:test` is vanilla Postgres 16 and has no
+`pgsodium`, so the table could not be created by a migration the suite applies)
+and because it puts the decryption path inside the database; an external secrets
+manager was refused because a rotation here is hourly, not rare. What landed is
+envelope encryption: a `TokenCipher` port, `KmsTokenCipher` over AWS KMS
+(`GenerateDataKey`/`Decrypt`, credentials left to the SDK's own provider chain
+so nothing in `packages/qbo` or `packages/crypto` reads an AWS variable), and
+AES-256-GCM in process. `LocalTokenCipher` lives under `@recouple/crypto/testing`
+and the index does not re-export it, asserted the way
+`InMemoryAccountingSource`'s absence is — it does real envelope encryption, so a
+test that passes with it is evidence about the real one.
+
+The encryption context is `{orgId, realmId}` and it is authenticated at both
+layers, so a ciphertext lifted into another tenant's row does not open: a
+row-level compromise of the database is not a cross-tenant credential leak.
+`accounting_credentials` is append-only on 0004's pattern and **the current
+tokens are the latest row** — a rotation is a new row, the chain is the audit
+trail, and the reason is not habit: an UPDATE here is the one statement that can
+strand a customer irrecoverably, where a failed INSERT leaves the previous row
+still good. `seq` breaks the `created_at` tie that `now()` being
+transaction-fixed would otherwise leave to the planner. The tenancy tie is a
+composite foreign key on `(org_id, connection_id)`, ADR 0025 §7's pattern, and
+suite 21 asserts the column list against the catalogue in both directions so a
+later migration adding `refresh_token` fails there rather than in review.
+`PostgresQboTokenStore` is scoped to **one** connection — the realm is fixed
+from the row the job already read through RLS, and another is
+`QboRealmMismatchError` rather than a lookup. A row that will not open is
+`CredentialUnreadableError` carrying ids and a class name, never ciphertext, and
+never `undefined`: "never authorised" and "will not decrypt" send a person to
+two different places. Fail closed is unchanged — no `QBO_TOKEN_KMS_KEY_ID` and
+no member to act as means no store, and the run row still says
+`not_configured`. `pnpm link:qbo` places the first token set from `.env` with
+the **real** cipher and no flag that changes that; `docs/qbo-credentials.md` is
+the once-per-deployment AWS setup written for somebody who does not work in AWS.
+Nothing here has met a live KMS or a live Intuit rotation.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
