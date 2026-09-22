@@ -7,7 +7,9 @@ import {
   readDocumentFunction,
   type JobStoreHandle,
 } from '../../../lib/inngest';
+import { ledgerSyncFunctions } from '../../../lib/inngest-ledger';
 import { pipelineDepsFor, storeForActor } from '../../../lib/pipeline';
+import { connectionsToSync, ledgerSyncDepsFor } from '../../../lib/ledger-sync';
 
 /**
  * Where Inngest calls us back to run the read (ADR 0021).
@@ -104,6 +106,20 @@ function handlers(): Served | undefined {
         // see: `app_rw` with those claims, the same store a request builds.
         storeFor: (identity) => storeForActor(identity),
         depsFor: (store: JobStoreHandle): JobDeps => pipelineDepsFor(store),
+      }),
+      // The schedule, and the per-connection sync it fans out to (ADR 0031).
+      // The fan-out lists connections with no tenant claims, because it is the
+      // query that decides which tenants to adopt; every sync it triggers runs
+      // as the connection's own member, through RLS, like everything else.
+      ...ledgerSyncFunctions(client, {
+        connectionsToSync,
+        // Copied into a mutable array because that is what the SDK's signature
+        // takes; the payloads themselves are the ones the fan-out memoized, so
+        // a retry sends the same `syncKey`s.
+        send: async (events) => {
+          await client.send([...events]);
+        },
+        depsFor: (identity) => ledgerSyncDepsFor(identity),
       }),
     ],
   });
