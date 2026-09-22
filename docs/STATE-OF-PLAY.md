@@ -27,9 +27,10 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0018, applied
-2026-09-21 — the filed record is immutable there too, and complete when
-written, not only in test.
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0024, applied
+2026-09-22 (0018 on 2026-09-21) — the filed record is immutable there too, and
+complete when written, not only in test; the remittance tolerances, the coverage
+denominator views and the ledger-sync registry and run log are all live.
 
 ## Built, not yet exercised
 
