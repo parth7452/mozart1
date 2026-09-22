@@ -1,6 +1,6 @@
 # 0030 — Coverage has a denominator
 
-- Status: accepted
+- Status: accepted; §1's denominator counts a case that was opened and then declined once, not twice, since ADR 0038
 - Date: 2026-09-21
 
 ## Context

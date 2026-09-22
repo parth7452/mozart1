@@ -733,6 +733,21 @@ dashboard is the founder's switch, after 0028 is applied, the ledger sync has
 run and both members have signed in; docs/supabase.md has the pre- and
 post-apply queries. **Production does not carry 0028 yet.**
 
+**Coverage counts each deduction once** (ADR 0038, migration 0029).
+`coverage_by_period_by_source` added `opened + declined`, and `declineCase`
+writes a declined row naming the case with its full amount while the case stays
+in `deductions` — so the first case a reviewer declined would have been in its
+channel's denominator twice. Production has no declines, so nothing published
+moved. `discovered_cents` is now every case opened, in the month it was found,
+plus the declines that never became a case (`deduction_id is null`); a later
+decline moves no month's denominator. `declined_count` and `declined_cents`
+still report every decline, because `coverage_by_period_totals.coverage_of_seen`
+is 0014's `filed ÷ (filed + declined)` and narrowing them would make it rise
+whenever a case is declined — so `opened + declined` is no longer `discovered`,
+and the view's column comments say so. Same columns, same order, still
+`security_invoker`; suite 25 and `coverage-declined-case.test.ts` decline a real
+case and find its dollars once. **Production does not carry 0029 yet.**
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.
