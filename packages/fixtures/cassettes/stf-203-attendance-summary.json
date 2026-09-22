@@ -1,0 +1,332 @@
+{
+  "key": "stf-203-attendance-summary",
+  "docType": "other",
+  "classifiedAs": "other",
+  "classifierConfidence": 0.95,
+  "document": {
+    "document_kind": {
+      "value": "Attendance Summary",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "ATTENDANCE SUMMARY"
+    },
+    "key_facts": [
+      {
+        "label": {
+          "value": "Company",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Faircrest Assembly Ltd. / Timekeeping"
+        },
+        "detail": {
+          "value": "Faircrest Assembly Ltd. / Timekeeping",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Faircrest Assembly Ltd. / Timekeeping"
+        }
+      },
+      {
+        "label": {
+          "value": "Record ID",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "TS-203 | AS-203 | Week August 24-30, 2026"
+        },
+        "detail": {
+          "value": "TS-203 | AS-203 | Week August 24-30, 2026",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "TS-203 | AS-203 | Week August 24-30, 2026"
+        }
+      },
+      {
+        "label": {
+          "value": "Worker J12 Hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        },
+        "detail": {
+          "value": "Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        }
+      },
+      {
+        "label": {
+          "value": "Worker K08 Hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        },
+        "detail": {
+          "value": "Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        }
+      },
+      {
+        "label": {
+          "value": "Worker L19 Hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        },
+        "detail": {
+          "value": "Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 40 hours | Weekend 10 hours | Total 50 hours"
+        }
+      },
+      {
+        "label": {
+          "value": "Totals",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 120 hours | Weekend 30 hours | Total 150 hours"
+        },
+        "detail": {
+          "value": "Weekday 120 hours | Weekend 30 hours | Total 150 hours",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Weekday 120 hours | Weekend 30 hours | Total 150 hours"
+        }
+      },
+      {
+        "label": {
+          "value": "Verification",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Attendance verified August 31 by Quinn Lee, Timekeeping Clerk."
+        },
+        "detail": {
+          "value": "Attendance verified August 31 by Quinn Lee, Timekeeping Clerk.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Attendance verified August 31 by Quinn Lee, Timekeeping Clerk."
+        }
+      },
+      {
+        "label": {
+          "value": "Scope",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "This record confirms attendance only. It does not authorize premium rates or changes to the purchase order."
+        },
+        "detail": {
+          "value": "This record confirms attendance only. It does not authorize premium rates or changes to the purchase order.",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "This record confirms attendance only. It does not authorize premium rates or changes to the purchase order."
+        }
+      },
+      {
+        "label": {
+          "value": "Document Footer ID",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "STF-203 | OW-260903 | Page 1 of 1"
+        },
+        "detail": {
+          "value": "STF-203 | OW-260903 | Page 1 of 1",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "STF-203 | OW-260903 | Page 1 of 1"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:38:48.625Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6033,
+    "outputTokens": 1578,
+    "costMicros": 27846,
+    "latencyMs": 11626
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "ATTENDANCE SUMMARY\nFaircrest Assembly Ltd. / Timekeeping\nRECORD\n\nTS-203 AS-203 | Week August 24-30, 2026\nWORKER J12 Weekday 40 hours | Weekend 10 hours | Total 50 hours\nWORKER K08\nWeekday 40 hours | Weekend 10 hours | Total 50 hours\nWORKER L19 Weekday 40 hours | Weekend 10 hours | Total 50 hours\nTOTALS\nWeekday 120 hours | Weekend 30 hours | Total 150 hours\nVERIFICATION\nAttendance verified August 31 by Quinn Lee, Timekeeping Clerk.\nSCOPE\nThis record confirms attendance only. It does not authorize premium rates or changes to the purchase order.\nSTF-203 OW-260903 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "ATTENDANCE SUMMARY",
+        "page": 1,
+        "bbox": [
+          0.15233025595449556,
+          0.10727171274336712,
+          0.4149492422785076,
+          0.12285743723453654
+        ],
+        "kind": "Title",
+        "confidence": 0.8651463985443115
+      },
+      {
+        "text": "Faircrest Assembly Ltd. / Timekeeping",
+        "page": 1,
+        "bbox": [
+          0.15058593712203275,
+          0.14167568822789425,
+          0.4840696975210107,
+          0.15562870397672207
+        ],
+        "kind": "Text",
+        "confidence": 0.6166604787111283
+      },
+      {
+        "text": "RECORD\n\nTS-203 AS-203 | Week August 24-30, 2026",
+        "page": 1,
+        "bbox": [
+          0.14624442612130636,
+          0.2030364612531731,
+          0.48244538096798595,
+          0.2346861452330077
+        ],
+        "kind": "Text",
+        "confidence": 0.5422850757837296
+      },
+      {
+        "text": "WORKER J12 Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+        "page": 1,
+        "bbox": [
+          0.14292550596417006,
+          0.2564968184931842,
+          0.5712479241989682,
+          0.2895114785540304
+        ],
+        "kind": "Text",
+        "confidence": 0.5334755271673203
+      },
+      {
+        "text": "WORKER K08",
+        "page": 1,
+        "bbox": [
+          0.14179491307016867,
+          0.3104400154655812,
+          0.22189643395074393,
+          0.3177326057550661
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6071962922811508
+      },
+      {
+        "text": "Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+        "page": 1,
+        "bbox": [
+          0.14020488288115063,
+          0.3294963972210652,
+          0.5688247353353484,
+          0.3439138337460985
+        ],
+        "kind": "Text",
+        "confidence": 0.48060603588819506
+      },
+      {
+        "text": "WORKER L19 Weekday 40 hours | Weekend 10 hours | Total 50 hours",
+        "page": 1,
+        "bbox": [
+          0.137476545365959,
+          0.3643595309252634,
+          0.5658221068972739,
+          0.398769426779659
+        ],
+        "kind": "Text",
+        "confidence": 0.49931676834821703
+      },
+      {
+        "text": "TOTALS",
+        "page": 1,
+        "bbox": [
+          0.13695967841041892,
+          0.41923880547153863,
+          0.1849425894576708,
+          0.4262176157175527
+        ],
+        "kind": "Section Header",
+        "confidence": 0.617402458190918
+      },
+      {
+        "text": "Weekday 120 hours | Weekend 30 hours | Total 150 hours",
+        "page": 1,
+        "bbox": [
+          0.1341421963444781,
+          0.4387484250685151,
+          0.5809501084195217,
+          0.45380855153675903
+        ],
+        "kind": "Text",
+        "confidence": 0.4944401741027832
+      },
+      {
+        "text": "VERIFICATION",
+        "page": 1,
+        "bbox": [
+          0.13302703231482121,
+          0.4736233995290707,
+          0.23130889838407015,
+          0.4810936011639164
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7992282211780548
+      },
+      {
+        "text": "Attendance verified August 31 by Quinn Lee, Timekeeping Clerk.",
+        "page": 1,
+        "bbox": [
+          0.13140614439711423,
+          0.4931448598824045,
+          0.6442847395220164,
+          0.5097804647678258
+        ],
+        "kind": "Text",
+        "confidence": 0.8315919309854507
+      },
+      {
+        "text": "SCOPE",
+        "page": 1,
+        "bbox": [
+          0.13091242073809084,
+          0.5280257547211387,
+          0.17101718220358428,
+          0.5349276000508296
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8003482609987259
+      },
+      {
+        "text": "This record confirms attendance only. It does not authorize premium rates or changes to the purchase order.",
+        "page": 1,
+        "bbox": [
+          0.12843094505241087,
+          0.5475412946962939,
+          0.7603423716716646,
+          0.5806848874337825
+        ],
+        "kind": "Text",
+        "confidence": 0.9089754372835159
+      },
+      {
+        "text": "STF-203 OW-260903 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.11233863951946156,
+          0.8767103751667289,
+          0.3312785107976234,
+          0.8890793608419336
+        ],
+        "kind": "Footer",
+        "confidence": 0.7450609803199768
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 5024
+  }
+}

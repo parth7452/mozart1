@@ -1,0 +1,289 @@
+{
+  "key": "log-202-delivery-receipt",
+  "docType": "pod",
+  "classifiedAs": "pod",
+  "classifierConfidence": 0.95,
+  "document": {
+    "document_number": {
+      "value": "POD-202",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "POD-202 | Load LD-202 | September 1, 2026"
+    },
+    "ship_date": {
+      "value": "September 1, 2026",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "POD-202 | Load LD-202 | September 1, 2026"
+    },
+    "po_number": {
+      "value": "WP-202",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "PO WP-202 | Appointment AP-202 revision 2 | Condition exception accepted by carrier."
+    },
+    "ship_to": {
+      "value": "Westhaven Paper Supply / Receiving",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply / Receiving"
+    },
+    "gate_check_in_at": {
+      "value": "12:45 PM Eastern",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Gate check-in 12:45 PM Eastern | Unloading complete 1:25 PM Eastern"
+    },
+    "appointment_reference": {
+      "value": "AP-202 revision 2",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "PO WP-202 | Appointment AP-202 revision 2 | Condition exception accepted by carrier."
+    },
+    "total_cartons_shipped": {
+      "value": 80,
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Manifest quantity 80 cartons | Received 78 cartons | Short 2 cartons"
+    },
+    "total_cartons_received": {
+      "value": 78,
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Manifest quantity 80 cartons | Received 78 cartons | Short 2 cartons"
+    },
+    "signed_by": {
+      "value": "Simon Reed",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Receiver: Simon Reed | Carrier driver: Alex Moss. Electronic acknowledgment recorded 1:29 PM Eastern by both parties."
+    },
+    "signature_present": {
+      "value": true,
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "Electronic acknowledgment recorded 1:29 PM Eastern by both parties."
+    },
+    "carrier_name": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "ship_from": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "appointment_at": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "lines": []
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:37:00.271Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6860,
+    "outputTokens": 1120,
+    "costMicros": 24920,
+    "latencyMs": 10116
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "DELIVERY RECEIPT\nWesthaven Paper Supply/Receiving\nRECEIPT\nPOD-202 | Load LD-202 | September 1, 2026\nARRIVAL\nGate check-in 12:45 PM Eastern | Unloading complete 1:25 PM Eastern\nCOUNTS\nManifest quantity 80 cartons | Received 78 cartons | Short 2 cartons\nEXCEPTION\nTwo cartons missing on arrival. No seal or packaging damage reported.\nACKNOWLEDGMENT\nReceiver: Simon Reed | Carrier driver: Alex Moss. Electronic acknowledgment recorded 1:29 PM Eastern by both parties.\nLINKED RECORDS\nPO WP-202 | Appointment AP-202 revision 2 | Condition exception accepted by carrier.\nLOG-2021 CF-260902 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "DELIVERY RECEIPT",
+        "page": 1,
+        "bbox": [
+          0.1334244141060261,
+          0.08518804833345918,
+          0.3854587099507306,
+          0.10766921195939255
+        ],
+        "kind": "Title",
+        "confidence": 0.9141680479049682
+      },
+      {
+        "text": "Westhaven Paper Supply/Receiving",
+        "page": 1,
+        "bbox": [
+          0.1327541297277986,
+          0.1251858089136205,
+          0.3646467479865173,
+          0.14306277143456156
+        ],
+        "kind": "Text",
+        "confidence": 0.8491420298814774
+      },
+      {
+        "text": "RECEIPT",
+        "page": 1,
+        "bbox": [
+          0.13300640711133824,
+          0.19125849725612978,
+          0.1944773781472405,
+          0.20044711468182164
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8679172486066818
+      },
+      {
+        "text": "POD-202 | Load LD-202 | September 1, 2026",
+        "page": 1,
+        "bbox": [
+          0.132767019836544,
+          0.21172867928638167,
+          0.3882208709288657,
+          0.22824190513370882
+        ],
+        "kind": "Text",
+        "confidence": 0.7084287866950035
+      },
+      {
+        "text": "ARRIVAL",
+        "page": 1,
+        "bbox": [
+          0.13276886128693888,
+          0.24941444692190046,
+          0.19664659522354705,
+          0.25818899715112403
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8690641164779663
+      },
+      {
+        "text": "Gate check-in 12:45 PM Eastern | Unloading complete 1:25 PM Eastern",
+        "page": 1,
+        "bbox": [
+          0.13190706708007238,
+          0.26894202547180995,
+          0.5376408878092245,
+          0.289539395309394
+        ],
+        "kind": "Text",
+        "confidence": 0.7895954996347427
+      },
+      {
+        "text": "COUNTS",
+        "page": 1,
+        "bbox": [
+          0.1325147424970228,
+          0.3071054542412447,
+          0.18974487576703572,
+          0.31620504015450984
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8479807168245316
+      },
+      {
+        "text": "Manifest quantity 80 cartons | Received 78 cartons | Short 2 cartons",
+        "page": 1,
+        "bbox": [
+          0.13166952125567294,
+          0.3270979751375806,
+          0.5101242405243049,
+          0.3466580571917093
+        ],
+        "kind": "Text",
+        "confidence": 0.7084313213825226
+      },
+      {
+        "text": "EXCEPTION",
+        "page": 1,
+        "bbox": [
+          0.1322771966726235,
+          0.36386657686773616,
+          0.213773834535895,
+          0.3744047989734354
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8692098379135131
+      },
+      {
+        "text": "Two cartons missing on arrival. No seal or packaging damage reported.",
+        "page": 1,
+        "bbox": [
+          0.13084271443023468,
+          0.38570614836228817,
+          0.5316635715648751,
+          0.4043419985142503
+        ],
+        "kind": "Text",
+        "confidence": 0.8970208883285522
+      },
+      {
+        "text": "ACKNOWLEDGMENT",
+        "page": 1,
+        "bbox": [
+          0.13208936974477412,
+          0.421092641840654,
+          0.27837709609846506,
+          0.43206188951488034
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8835323005914688
+      },
+      {
+        "text": "Receiver: Simon Reed | Carrier driver: Alex Moss. Electronic acknowledgment recorded 1:29 PM Eastern by both parties.",
+        "page": 1,
+        "bbox": [
+          0.13063094877930773,
+          0.4424799897762691,
+          0.678676825544528,
+          0.4813966533184755
+        ],
+        "kind": "Text",
+        "confidence": 0.8451772212982178
+      },
+      {
+        "text": "LINKED RECORDS",
+        "page": 1,
+        "bbox": [
+          0.13189417705936374,
+          0.49506935007241226,
+          0.2569611416180909,
+          0.5051284978380786
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8808200657367706
+      },
+      {
+        "text": "PO WP-202 | Appointment AP-202 revision 2 | Condition exception accepted by carrier.",
+        "page": 1,
+        "bbox": [
+          0.13103238285249724,
+          0.5164566980080274,
+          0.6233341689370384,
+          0.537013085070909
+        ],
+        "kind": "Text",
+        "confidence": 0.7294233947992325
+      },
+      {
+        "text": "LOG-2021 CF-260902 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.13008956535647911,
+          0.8854103544739664,
+          0.2854648012085046,
+          0.8965703839605358
+        ],
+        "kind": "Footer",
+        "confidence": 0.6870716974139214
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 3912
+  }
+}

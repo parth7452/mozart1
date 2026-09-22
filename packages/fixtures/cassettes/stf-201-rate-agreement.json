@@ -1,0 +1,109 @@
+{
+  "key": "stf-201-rate-agreement",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.92,
+  "document": {
+    "agreement_type": {
+      "value": "Staffing Rate Agreement",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "STAFFING RATE AGREEMENT"
+    },
+    "counterparty": {
+      "value": "Briarfield Packaging Co.",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Elmbridge Staffing LLC and Briarfield Packaging Co."
+    },
+    "effective_from": {
+      "value": "August 1",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "SA-201 | Effective August 1-December 31, 2026"
+    },
+    "effective_to": {
+      "value": "December 31, 2026",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "SA-201 | Effective August 1-December 31, 2026"
+    },
+    "approved_by": {
+      "value": "Customer shift supervisors or plant managers",
+      "confidence": 0.5,
+      "source_page": 1,
+      "source_quote": "Customer shift supervisors or plant managers may approve overtime in writing."
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "Regular $30.00 per hour",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular $30.00 per hour; overtime $45.00 per hour."
+        },
+        "amount": {
+          "value": "$30.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Regular $30.00 per hour"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Overtime $45.00 per hour",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "overtime $45.00 per hour"
+        },
+        "amount": {
+          "value": "$45.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "overtime $45.00 per hour"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Only hours supported by the approved weekly time register may be invoiced. Currency USD. Payment terms net 30.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Only hours supported by the approved weekly time register may be invoiced. Currency USD. Payment terms net 30."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:36:18.592Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3935,
+    "outputTokens": 719,
+    "costMicros": 15060,
+    "latencyMs": 6219
+  }
+}

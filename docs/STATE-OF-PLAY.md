@@ -59,7 +59,6 @@ The gap between *it worked once* and *it works*:
 
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
-| `REDUCTO_API_KEY` for cassette recording | **you** | `customer` is not scored by `pnpm eval` until its cassettes exist, and twelve of its fifteen pages are camera photographs, so the recording needs OCR. `authored_pending` is recorded (2026-09-22: 100% / 100%, grounded 100%, 1/1) |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
 | A QuickBooks connect flow | **next change** | `pnpm link:qbo` is an operator command; no customer can connect a ledger themselves |
 
@@ -152,7 +151,9 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    ledger rather than an operator running `pnpm link:qbo`.
 3. **Coverage and ledger anomalies on a page.** The views and the table exist;
    nothing renders them.
-4. **Score the customer pack**, once `REDUCTO_API_KEY` is in place.
+4. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
+   92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
+   review floor unexamined, and the STF-201 camera pages ground at 64–83%.
 5. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
    confirmed duplicate still counts twice in coverage.
 6. **Triage**, the rest of Phase 1.5.

@@ -1,0 +1,334 @@
+{
+  "key": "stf-203-short-payment-notice",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "retailer_name": {
+      "value": "Faircrest Assembly Ltd.",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Faircrest Assembly Ltd. / Accounts Payable"
+    },
+    "claim_id": {
+      "value": "SP-203",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "SP-203 | September 18, 2026 | Payment FC-918-203"
+    },
+    "invoice_number": {
+      "value": "OW-260903",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "OW-260903 | Gross $4,950.00 | Paid $4,500.00"
+    },
+    "po_number": {
+      "value": "FC-203",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Assignment AS-203 | PO FC-203 | Week ending August 30, 2026"
+    },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "deduction_total": {
+      "value": "$450.00",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "CB-203 / PREMIUM-NOAUTH: $450.00 weekend premium withheld."
+    },
+    "deduction_date": {
+      "value": "September 18, 2026",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "SP-203 | September 18, 2026 | Payment FC-918-203"
+    },
+    "dispute_deadline": {
+      "value": "October 18, 2026",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Send written authorization or request clarification by October 18, 2026."
+    },
+    "remittance_or_check": {
+      "value": "FC-918-203",
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "Payment FC-918-203"
+    },
+    "lines": [
+      {
+        "deduction_amount": {
+          "value": "$450.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "CB-203 / PREMIUM-NOAUTH: $450.00 weekend premium withheld."
+        },
+        "reason_code": {
+          "value": "CB-203",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "CB-203 / PREMIUM-NOAUTH: $450.00 weekend premium withheld."
+        },
+        "reason_description": {
+          "value": "PREMIUM-NOAUTH: weekend premium withheld",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "CB-203 / PREMIUM-NOAUTH: $450.00 weekend premium withheld."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "description": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "vendor_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:38:19.712Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6962,
+    "outputTokens": 935,
+    "costMicros": 23274,
+    "latencyMs": 7870
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "SHORT PAYMENT NOTICE\nFaircrest Assembly Ltd. / Accounts Payable\nNOTICE\nSP-203 September 18, 2026 | Payment FC-918-203\nINVOICE\nOW-260903 Gross $4,950.00 | Paid $4,500.00\nDEDUCTION\nCB-203 PREMIUM-NOAUTH: $450.00 weekend premium withheld.\nCUSTOMER NOTE\nAttendance is accepted. We have not located written approval of the additional weekend premium.\nREFERENCES\nAssignment AS-203 | PO FC-203 | Week ending August 30, 2026\nDISPUTE WINDOW\nSend written authorization or request clarification by October 18, 2026.\nSTF-203 OW-260903 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "SHORT PAYMENT NOTICE",
+        "page": 1,
+        "bbox": [
+          0.13919275453985958,
+          0.08155053928062708,
+          0.44189895446144956,
+          0.10127862542640356
+        ],
+        "kind": "Title",
+        "confidence": 0.9191996097564696
+      },
+      {
+        "text": "Faircrest Assembly Ltd. / Accounts Payable",
+        "page": 1,
+        "bbox": [
+          0.1374716425600216,
+          0.11683668766262456,
+          0.52924088148611,
+          0.13665121708017397
+        ],
+        "kind": "Text",
+        "confidence": 0.8053554356098176
+      },
+      {
+        "text": "NOTICE",
+        "page": 1,
+        "bbox": [
+          0.13567618935008532,
+          0.1844647261181705,
+          0.1873118012625481,
+          0.1915634485615546
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8091600805521011
+      },
+      {
+        "text": "SP-203 September 18, 2026 | Payment FC-918-203",
+        "page": 1,
+        "bbox": [
+          0.13607267587296884,
+          0.20086820366368868,
+          0.5435436823944737,
+          0.21807214591405713
+        ],
+        "kind": "Text",
+        "confidence": 0.7080031871795655
+      },
+      {
+        "text": "INVOICE",
+        "page": 1,
+        "bbox": [
+          0.13556355111924204,
+          0.2411334851237582,
+          0.19448910850304868,
+          0.24924532285011025
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7838830769062042
+      },
+      {
+        "text": "OW-260903 Gross $4,950.00 | Paid $4,500.00",
+        "page": 1,
+        "bbox": [
+          0.13414205680295874,
+          0.2580141295892583,
+          0.5088713861047839,
+          0.2739145071271045
+        ],
+        "kind": "Text",
+        "confidence": 0.7375239163637162
+      },
+      {
+        "text": "DEDUCTION",
+        "page": 1,
+        "bbox": [
+          0.13365996522124665,
+          0.2990937067877195,
+          0.2107473088820452,
+          0.3064828786606578
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8400699406862259
+      },
+      {
+        "text": "CB-203 PREMIUM-NOAUTH: $450.00 weekend premium withheld.",
+        "page": 1,
+        "bbox": [
+          0.13224748196230166,
+          0.3153191111764868,
+          0.6232825296841132,
+          0.33022193320598536
+        ],
+        "kind": "Text",
+        "confidence": 0.8627795904874802
+      },
+      {
+        "text": "CUSTOMER NOTE",
+        "page": 1,
+        "bbox": [
+          0.13172934615123652,
+          0.35547201636375303,
+          0.24337634787088147,
+          0.3641854993370388
+        ],
+        "kind": "Section Header",
+        "confidence": 0.874687272310257
+      },
+      {
+        "text": "Attendance is accepted. We have not located written approval of the additional weekend premium.",
+        "page": 1,
+        "bbox": [
+          0.1296838361072211,
+          0.36879465530638167,
+          0.7883425743832505,
+          0.4046738045149763
+        ],
+        "kind": "Text",
+        "confidence": 0.9420788943767548
+      },
+      {
+        "text": "REFERENCES",
+        "page": 1,
+        "bbox": [
+          0.1301681804320951,
+          0.4315957007745814,
+          0.2169604329591217,
+          0.43956058491508804
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8710490971803666
+      },
+      {
+        "text": "Assignment AS-203 | PO FC-203 | Week ending August 30, 2026",
+        "page": 1,
+        "bbox": [
+          0.12808662615872662,
+          0.4445379892520813,
+          0.6319286392707504,
+          0.4637716197888574
+        ],
+        "kind": "Text",
+        "confidence": 0.7603179693222046
+      },
+      {
+        "text": "DISPUTE WINDOW",
+        "page": 1,
+        "bbox": [
+          0.12884355497514063,
+          0.48796709488800655,
+          0.2502134876756902,
+          0.4981864198605273
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8751511991024018
+      },
+      {
+        "text": "Send written authorization or request clarification by October 18, 2026.",
+        "page": 1,
+        "bbox": [
+          0.12734096114281293,
+          0.4986843332549943,
+          0.7378919164966541,
+          0.5219254744058549
+        ],
+        "kind": "Text",
+        "confidence": 0.9155108958482743
+      },
+      {
+        "text": "STF-203 OW-260903 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.11744456721639918,
+          0.8994077341779049,
+          0.35228849353309866,
+          0.9188263533773703
+        ],
+        "kind": "Footer",
+        "confidence": 0.7432840257883072
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4864
+  }
+}

@@ -192,7 +192,7 @@ Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and Postmark email-in.
 
-Seven recorded suites and one waiting on cassettes, every one of them scored
+Eight recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -205,7 +205,7 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | not yet recorded | — | — |
+| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 92.9% | 13/15 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -219,11 +219,23 @@ rewrites `pendingSuites` and nothing else, so the bookkeeping no longer needs
 the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
-baseline is being compared against. Record with
-`pnpm record:cassettes --suite customer` (it spends money), then
-`pnpm eval --record-baseline`.
+baseline is being compared against. `customer` was recorded on 2026-09-22
+($0.39, OCR through Reducto for the twelve photographs), so `pendingSuites` is
+empty.
 
-Classification is 40/40. The two misses in the corpus are both the same field
+`customer`'s misses are the useful part of it. Two classifications: `stf-203-dispatch-note` read as `correspondence`
+(expected `other`) at 0.85, below the review floor so a human sees it, and
+`stf-203-service-order-terms` read as `po` (expected `price_agreement`) at 0.95,
+*above* the floor — the one that would pass unexamined. Two fields:
+`log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
+rather than Westhaven Paper Supply, and
+`stf-203-short-payment-notice`'s reason code came back as the payer's own code
+(`CB-203`) rather than `PREMIUM-NOAUTH`. Grounding on the four STF-201 camera
+pages is 64–83%: values right, quotes that do not survive being checked against
+the OCR text layer.
+
+Classification is 53/55, both misses in `customer`. Before it, the two field
+misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
 revision 2 replaces revision 1" and the model reports the change in prose
@@ -237,7 +249,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0233 per document across 40 of them, and 311 of 833 fields carry a
+About $0.0232 per document across 55 of them, and 416 of 1,025 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather

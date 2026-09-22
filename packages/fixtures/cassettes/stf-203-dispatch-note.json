@@ -1,0 +1,316 @@
+{
+  "key": "stf-203-dispatch-note",
+  "docType": "other",
+  "classifiedAs": "correspondence",
+  "classifierConfidence": 0.85,
+  "document": {
+    "document_kind": {
+      "value": "Internal Dispatch Handoff Note",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "DISPATCH HANDOFF NOTE"
+    },
+    "key_facts": [
+      {
+        "label": {
+          "value": "Note ID / Date",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "INT-203 | August 28, 2026, 5:40 PM Eastern"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Author",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Morgan Vale, Dispatch Coordinator"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Assignment",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "AS-203 | Customer Faircrest Assembly Ltd. | PO FC-203"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Handoff Details",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Scheduled J12, K08 and L19 for 10 weekend hours each. The team expects the $15.00 hourly weekend premium."
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Follow-up",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Customer written premium authorization has not been attached. Contact the purchasing manager before closing the billing file."
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Attachments",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "None. Internal planning note; no customer response recorded."
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "label": {
+          "value": "Document Footer Reference",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "STF-203 | OW-260903 | Page 1 of 1"
+        },
+        "detail": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:39:00.936Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6033,
+    "outputTokens": 594,
+    "costMicros": 18006,
+    "latencyMs": 6575
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "DISPATCH HANDOFF NOTE\nOakmere Workforce LLC / Internal Operations\nNOTE\nINT-203 August 28, 2026, 5:40 PM Eastern\nAUTHOR\nMorgan Vale, Dispatch Coordinator\nASSIGNMENT\nAS-203 Customer Faircrest Assembly Ltd. | PO FC-203\nHANDOFF\nScheduled J12, K08 and L19 for 10 weekend hours each. The team expects the $15.00 hourly weekend premium.\nFOLLOW-UP\nCustomer written premium authorization has not been attached. Contact the purchasing manager before closing the billing file.\nATTACHMENTS\nNone. Internal planning note; no customer response recorded.\nSTF-203 | OW-260903 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "DISPATCH HANDOFF NOTE",
+        "page": 1,
+        "bbox": [
+          0.14243953161165418,
+          0.08708070165820753,
+          0.4542448064376907,
+          0.10880702306500303
+        ],
+        "kind": "Title",
+        "confidence": 0.9235870391130447
+      },
+      {
+        "text": "Oakmere Workforce LLC / Internal Operations",
+        "page": 1,
+        "bbox": [
+          0.14063368605309418,
+          0.12287944601288335,
+          0.5318102893507726,
+          0.14447161968478583
+        ],
+        "kind": "Text",
+        "confidence": 0.7974524259567262
+      },
+      {
+        "text": "NOTE",
+        "page": 1,
+        "bbox": [
+          0.14091933247076577,
+          0.18753724419896264,
+          0.17377049549957063,
+          0.19530659395087221
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7569569379091263
+      },
+      {
+        "text": "INT-203 August 28, 2026, 5:40 PM Eastern",
+        "page": 1,
+        "bbox": [
+          0.1410898676431074,
+          0.20847176693899994,
+          0.48793280992048604,
+          0.22403944603212017
+        ],
+        "kind": "Text",
+        "confidence": 0.813453808426857
+      },
+      {
+        "text": "AUTHOR",
+        "page": 1,
+        "bbox": [
+          0.13935528141927644,
+          0.24427051129367577,
+          0.18977278439690515,
+          0.2517509994037686
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8334294348955155
+      },
+      {
+        "text": "Morgan Vale, Dispatch Coordinator",
+        "page": 1,
+        "bbox": [
+          0.13832171652632633,
+          0.2665881110364636,
+          0.41422203078910536,
+          0.27911947104693907
+        ],
+        "kind": "Text",
+        "confidence": 0.8479039788246154
+      },
+      {
+        "text": "ASSIGNMENT",
+        "page": 1,
+        "bbox": [
+          0.13837348614078598,
+          0.3014749313516058,
+          0.22212939547391292,
+          0.30975469680343565
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8642503082752228
+      },
+      {
+        "text": "AS-203 Customer Faircrest Assembly Ltd. | PO FC-203",
+        "page": 1,
+        "bbox": [
+          0.13734783895169467,
+          0.32193222475104627,
+          0.5744781873269287,
+          0.33794020748795034
+        ],
+        "kind": "Text",
+        "confidence": 0.7795200735330582
+      },
+      {
+        "text": "HANDOFF",
+        "page": 1,
+        "bbox": [
+          0.13801353515458845,
+          0.3591505043727526,
+          0.19630123592783674,
+          0.3662449088029487
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8740881621837616
+      },
+      {
+        "text": "Scheduled J12, K08 and L19 for 10 weekend hours each. The team expects the $15.00 hourly weekend premium.",
+        "page": 1,
+        "bbox": [
+          0.1367107683304393,
+          0.3800728743580299,
+          0.7413529353719271,
+          0.41264038799859376
+        ],
+        "kind": "Text",
+        "confidence": 0.9394823819398881
+      },
+      {
+        "text": "FOLLOW-UP",
+        "page": 1,
+        "bbox": [
+          0.13614861135646497,
+          0.4335566817292653,
+          0.21200265207853708,
+          0.4403622245176446
+        ],
+        "kind": "Section Header",
+        "confidence": 0.866968110203743
+      },
+      {
+        "text": "Customer written premium authorization has not been attached. Contact the purchasing manager before closing the billing file.",
+        "page": 1,
+        "bbox": [
+          0.13481417371688065,
+          0.4512235156136848,
+          0.731657402297478,
+          0.4883628022066768
+        ],
+        "kind": "Text",
+        "confidence": 0.9415044337511063
+      },
+      {
+        "text": "ATTACHMENTS",
+        "page": 1,
+        "bbox": [
+          0.1342599344467651,
+          0.507962859085778,
+          0.22709805934466215,
+          0.5158686936124711
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8825098395347596
+      },
+      {
+        "text": "None. Internal planning note; no customer response recorded.",
+        "page": 1,
+        "bbox": [
+          0.13385613154996656,
+          0.5247056161759038,
+          0.6255668680562683,
+          0.5435858558061925
+        ],
+        "kind": "Text",
+        "confidence": 0.9046178519725799
+      },
+      {
+        "text": "STF-203 | OW-260903 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.12701097202466177,
+          0.8888545065087611,
+          0.3496933522988408,
+          0.9073622175115118
+        ],
+        "kind": "Footer",
+        "confidence": 0.690936604142189
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 3976
+  }
+}

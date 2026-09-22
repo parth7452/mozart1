@@ -1,0 +1,358 @@
+{
+  "key": "stf-201-overtime-approval",
+  "docType": "correspondence",
+  "classifiedAs": "correspondence",
+  "classifierConfidence": 0.92,
+  "document": {
+    "message_reference": {
+      "value": "APR-201",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "APR-201 I August 23, 2026, 3:10 PM Eastern"
+    },
+    "sent_at": {
+      "value": "August 23, 2026, 3:10 PM Eastern",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "APR-201 I August 23, 2026, 3:10 PM Eastern"
+    },
+    "sender": {
+      "value": "Lena Ortiz, Shift Supervisor",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Lena Ortiz, Shift Supervisor / Elmbridge Staffing Dispatch"
+    },
+    "sender_organisation": {
+      "value": "Briarfield Packaging Co.",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "Briarfield Packaging Co. / Message record"
+    },
+    "recipient": {
+      "value": "Elmbridge Staffing Dispatch",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Lena Ortiz, Shift Supervisor / Elmbridge Staffing Dispatch"
+    },
+    "subject": {
+      "value": "AS-201 - approved overtime for August 24-28",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "AS-201 - approved overtime for August 24-28"
+    },
+    "references": [
+      {
+        "label": {
+          "value": "Subject reference",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "AS-201 - approved overtime for August 24-28"
+        },
+        "value": {
+          "value": "AS-201",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "AS-201 - approved overtime for August 24-28"
+        }
+      },
+      {
+        "label": {
+          "value": "Reference PO",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Reference PO BF-201."
+        },
+        "value": {
+          "value": "BF-201",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Reference PO BF-201."
+        }
+      },
+      {
+        "label": {
+          "value": "Document ID",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "STF-201 I ES-260901 I Page 1 of 1"
+        },
+        "value": {
+          "value": "STF-201",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "STF-201 I ES-260901 I Page 1 of 1"
+        }
+      },
+      {
+        "label": {
+          "value": "Export/thread reference",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "STF-201 I ES-260901 I Page 1 of 1"
+        },
+        "value": {
+          "value": "ES-260901",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "STF-201 I ES-260901 I Page 1 of 1"
+        }
+      }
+    ],
+    "commitments": [
+      {
+        "commitment_text": {
+          "value": "Please schedule 40 overtime hours across A17, B23, C08 and D11 this week. I approve billing those hours at the $45.00 contracted overtime rate.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Please schedule 40 overtime hours across A17, B23, C08 and D11 this week. I approve billing those hours at the $45.00 contracted overtime rate."
+        },
+        "effective_at": {
+          "value": "August 24-28",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "AS-201 - approved overtime for August 24-28"
+        },
+        "establishes": {
+          "value": "AS-201",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "AS-201 - approved overtime for August 24-28"
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "I approve billing those hours at the $45.00 contracted overtime rate."
+        },
+        "attributed_to": {
+          "value": "Lena Ortiz, Shift Supervisor",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Lena Ortiz, Shift Supervisor / Elmbridge Staffing Dispatch"
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "commitment_text": {
+          "value": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM. Reference PO BF-201.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM. Reference PO BF-201."
+        },
+        "effective_at": {
+          "value": "August 23 at 3:22 PM",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM."
+        },
+        "waives_charge": {
+          "value": false,
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM. Reference PO BF-201."
+        },
+        "attributed_to": {
+          "value": "Elmbridge Dispatch",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM."
+        },
+        "supersedes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "establishes": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:36:11.020Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6896,
+    "outputTokens": 1774,
+    "costMicros": 31532,
+    "latencyMs": 15364
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "OVERTIME APPROVAL\nBriarfield Packaging Co. / Message record\nMESSAGE\nAPR-2011 August 23, 2026, 3:10 PM Eastern\nFROM/TO\nLena Ortiz, Shift Supervisor/Elmbridge Staffing Dispatch\nSUBJECT\nAS-201 approved overtime for August 24-28\nAUTHORIZATION\nPlease schedule 40 overtime hours across A17, B23, C08 and D11 this week. I approve billing those hours at the $45.00 contracted overtime rate.\nCONFIRMATION\nElmbridge Dispatch acknowledged August 23 at 3:22 PM. Reference PO BF-201.\nSTF-201 I ES-260901 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "OVERTIME APPROVAL",
+        "page": 1,
+        "bbox": [
+          0.14785369294144907,
+          0.08992171481109339,
+          0.4396288385239997,
+          0.12035818181624738
+        ],
+        "kind": "Title",
+        "confidence": 0.9271606773138046
+      },
+      {
+        "text": "Briarfield Packaging Co. / Message record",
+        "page": 1,
+        "bbox": [
+          0.14855577845071277,
+          0.1299629262504858,
+          0.44984500213315365,
+          0.15695178429999676
+        ],
+        "kind": "Text",
+        "confidence": 0.7973905771970748
+      },
+      {
+        "text": "MESSAGE",
+        "page": 1,
+        "bbox": [
+          0.14772575453047507,
+          0.1955516552435551,
+          0.22142960837469558,
+          0.20643135725997133
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8640175849199295
+      },
+      {
+        "text": "APR-2011 August 23, 2026, 3:10 PM Eastern",
+        "page": 1,
+        "bbox": [
+          0.1470520297287806,
+          0.21787937301789229,
+          0.4396193849122023,
+          0.239518342923938
+        ],
+        "kind": "Text",
+        "confidence": 0.8520344972610473
+      },
+      {
+        "text": "FROM/TO",
+        "page": 1,
+        "bbox": [
+          0.14734698126645285,
+          0.2541851910821763,
+          0.22228421155778358,
+          0.26556355819909855
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7614822119474411
+      },
+      {
+        "text": "Lena Ortiz, Shift Supervisor/Elmbridge Staffing Dispatch",
+        "page": 1,
+        "bbox": [
+          0.14604553907004733,
+          0.2755663641412894,
+          0.5113802139106111,
+          0.30109598591877784
+        ],
+        "kind": "Text",
+        "confidence": 0.8070008724927902
+      },
+      {
+        "text": "SUBJECT",
+        "page": 1,
+        "bbox": [
+          0.14645078231927935,
+          0.3123369903155541,
+          0.2134703282447976,
+          0.3225656707741003
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7959334522485733
+      },
+      {
+        "text": "AS-201 approved overtime for August 24-28",
+        "page": 1,
+        "bbox": [
+          0.14584323254452075,
+          0.33419989997991056,
+          0.4359217764914101,
+          0.3543767315749634
+        ],
+        "kind": "Text",
+        "confidence": 0.8457043766975403
+      },
+      {
+        "text": "AUTHORIZATION",
+        "page": 1,
+        "bbox": [
+          0.1449048076350828,
+          0.3704718610536693,
+          0.2652223501717234,
+          0.38219024909533006
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8634960353374481
+      },
+      {
+        "text": "Please schedule 40 overtime hours across A17, B23, C08 and D11 this week. I approve billing those hours at the $45.00 contracted overtime rate.",
+        "page": 1,
+        "bbox": [
+          0.14428528332798854,
+          0.39188689110330766,
+          0.7287481596154969,
+          0.4337534780901942
+        ],
+        "kind": "Text",
+        "confidence": 0.9297754615545273
+      },
+      {
+        "text": "CONFIRMATION",
+        "page": 1,
+        "bbox": [
+          0.14442582646947702,
+          0.4439961849069361,
+          0.25568054156244285,
+          0.4559254536296376
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8732823818922042
+      },
+      {
+        "text": "Elmbridge Dispatch acknowledged August 23 at 3:22 PM. Reference PO BF-201.",
+        "page": 1,
+        "bbox": [
+          0.14451216911636533,
+          0.46122794196674805,
+          0.647937107903928,
+          0.49061726066412426
+        ],
+        "kind": "Text",
+        "confidence": 0.8920619577169419
+      },
+      {
+        "text": "STF-201 I ES-260901 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.13908518658162194,
+          0.8836799897155444,
+          0.31357108488952756,
+          0.9024827111553511
+        ],
+        "kind": "Footer",
+        "confidence": 0.7291036605834961
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4073
+  }
+}

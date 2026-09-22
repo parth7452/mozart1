@@ -1,0 +1,222 @@
+{
+  "key": "log-202-freight-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.95,
+  "document": {
+    "invoice_number": {
+      "value": "CF-260902",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "CF-260902 | September 2, 2026 | Terms net 30"
+    },
+    "invoice_date": {
+      "value": "September 2, 2026",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "CF-260902 | September 2, 2026 | Terms net 30"
+    },
+    "po_number": {
+      "value": "WP-202",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply | Load LD-202 | PO WP-202"
+    },
+    "customer_name": {
+      "value": "Westhaven Paper Supply",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Westhaven Paper Supply | Load LD-202 | PO WP-202"
+    },
+    "invoice_total": {
+      "value": "$5,600.00",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "$5,600.00 | USD | Delivery September 1, 2026"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "LINEHAUL",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "LINEHAUL"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "$5,000.00"
+        },
+        "unit_cost": {
+          "value": "$5,000.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$5,000.00"
+        },
+        "extended_amount": {
+          "value": "$5,000.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$5,000.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "FUEL SURCHARGE",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "FUEL SURCHARGE"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "$600.00"
+        },
+        "unit_cost": {
+          "value": "$600.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$600.00"
+        },
+        "extended_amount": {
+          "value": "$600.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$600.00"
+        }
+      }
+    ]
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-22T20:36:44.982Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6177,
+    "outputTokens": 1037,
+    "costMicros": 22724,
+    "latencyMs": 9084
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "FREIGHT INVOICE\nCrestline Freight LLC / Receivables\nINVOICE\n\nCF-260902 September 2, 2026 | Terms net 30\nCUSTOMER Westhaven Paper Supply | Load LD-202 | PO WP-202\nSHIPMENT 80 cartons of paper stock | Columbus, OH to Pittsburgh, PA\nLINEHAUL\n\n$5,000.00\nFUEL SURCHARGE\n\n$600.00\nINVOICE TOTAL\n$5,600.00 USD | Delivery September 1, 2026\nLOG-202 | CF-260902 | Page 1 of 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "FREIGHT INVOICE",
+        "page": 1,
+        "bbox": [
+          0.15166235720990912,
+          0.11453598091276469,
+          0.36641918618202296,
+          0.13133682768365154
+        ],
+        "kind": "Title",
+        "confidence": 0.9252795875072479
+      },
+      {
+        "text": "Crestline Freight LLC / Receivables",
+        "page": 1,
+        "bbox": [
+          0.1505126852915354,
+          0.15080717031964838,
+          0.3579902200969075,
+          0.1670779108200203
+        ],
+        "kind": "Text",
+        "confidence": 0.8687284409999847
+      },
+      {
+        "text": "INVOICE\n\nCF-260902 September 2, 2026 | Terms net 30",
+        "page": 1,
+        "bbox": [
+          0.14869227335029528,
+          0.21405327327069523,
+          0.39339117152825653,
+          0.24739758979113374
+        ],
+        "kind": "Text",
+        "confidence": 0.5812135890126229
+      },
+      {
+        "text": "CUSTOMER Westhaven Paper Supply | Load LD-202 | PO WP-202",
+        "page": 1,
+        "bbox": [
+          0.14604814562261365,
+          0.26938209911929856,
+          0.430124189079167,
+          0.302148446292626
+        ],
+        "kind": "Text",
+        "confidence": 0.612174554169178
+      },
+      {
+        "text": "SHIPMENT 80 cartons of paper stock | Columbus, OH to Pittsburgh, PA",
+        "page": 1,
+        "bbox": [
+          0.1446160568525067,
+          0.32379159246105066,
+          0.45778103529085357,
+          0.35681802585132305
+        ],
+        "kind": "Text",
+        "confidence": 0.6878026813268661
+      },
+      {
+        "text": "LINEHAUL\n\n$5,000.00",
+        "page": 1,
+        "bbox": [
+          0.14381822924636048,
+          0.37820650426565566,
+          0.21151707709065112,
+          0.40717812133534015
+        ],
+        "kind": "Text",
+        "confidence": 0.7943457394838334
+      },
+      {
+        "text": "FUEL SURCHARGE\n\n$600.00",
+        "page": 1,
+        "bbox": [
+          0.14179424184005285,
+          0.4326105791445547,
+          0.2609906245386829,
+          0.4611125961241886
+        ],
+        "kind": "Text",
+        "confidence": 0.8475169509649276
+      },
+      {
+        "text": "INVOICE TOTAL\n$5,600.00 USD | Delivery September 1, 2026",
+        "page": 1,
+        "bbox": [
+          0.1402915488570126,
+          0.48608990305374933,
+          0.38259461080499774,
+          0.5212728845878905
+        ],
+        "kind": "Text",
+        "confidence": 0.6666438370943069
+      },
+      {
+        "text": "LOG-202 | CF-260902 | Page 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.1292102177771426,
+          0.8776424679947171,
+          0.2748384636397368,
+          0.8910351017026874
+        ],
+        "kind": "Footer",
+        "confidence": 0.703169333934784
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4180
+  }
+}
