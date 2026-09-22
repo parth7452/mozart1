@@ -254,8 +254,11 @@ everything else (ADR 0015). Signing in resolves a tenant rather than creating
 one — `app.link_auth_user()` and `app.my_orgs()`, both security definer and both
 taking the identity from the claims rather than an argument (migration 0012, ADR
 0012). Document bytes are durable and served through a route under the same
-policies, not a signed URL (migration 0013, ADR 0014). Still no approve button,
-for the same reason.
+policies, not a signed URL (migration 0013, ADR 0014). The case page carries
+Phase 3's five actions — decide, assemble, approve, record the filing, record
+the outcome — each shown only where the state machine and the member's role
+allow it, and the approve card never to the preparer (ADR 0020). One production
+case has been taken through all five (2026-09-21, ending `partial`).
 
 Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed,
 and delegates the whole choice to `scannerFromEnv` so there is one answer to
@@ -325,11 +328,12 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0026 as
-of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0026 applied 2026-09-22 and
-the new tables, views, functions and grants read back and verified — for 0026,
-`app.member_for_link(text, text)` exists, is security definer, and only the
-owner and `app_rw` hold EXECUTE).
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0027 as
+of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22 and
+the new tables, views, functions and grants read back and verified — for 0027,
+`ledger_sync_anomalies` has RLS on, `no_update_delete` and `no_truncate`,
+`app_rw` and `app_ro` hold SELECT only, and `app.record_ledger_sync_anomalies`
+is security definer with EXECUTE held by the owner and `app_rw` alone).
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
