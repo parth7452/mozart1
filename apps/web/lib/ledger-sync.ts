@@ -37,6 +37,28 @@ import { tenantStore } from './store';
 export type QboEnvironment = 'sandbox' | 'production';
 
 /**
+ * The environment, as these factories read it.
+ *
+ * `Record` rather than `NodeJS.ProcessEnv` — which `scannerFromEnv` takes —
+ * only because Next augments that type with a required `NODE_ENV`, so a test
+ * naming the three variables it cares about would have to cast. `process.env`
+ * is assignable to this, and nothing here reads a variable outside the three it
+ * names.
+ */
+export type EnvVars = Readonly<Record<string, string | undefined>>;
+
+/**
+ * `accountingSourceFromEnv`'s answer, narrowed.
+ *
+ * `LedgerSourceFactory.resolve` may be async, because a later factory (a KMS
+ * token store's) will be. This one is not, and saying so is what lets a caller
+ * — and a test — read the verdict without awaiting it.
+ */
+export interface EnvAccountingSourceFactory extends LedgerSourceFactory {
+  resolve(connection: LedgerConnectionRecord): ResolvedLedgerSource;
+}
+
+/**
  * The token store a production sync would use. There is none yet.
  *
  * Returning `undefined` rather than throwing is the whole design: the caller
@@ -51,9 +73,7 @@ export type QboEnvironment = 'sandbox' | 'production';
  * stranded the connection and the repair is going back to the customer for
  * consent.
  */
-export function qboTokenStoreFromEnv(
-  _env: NodeJS.ProcessEnv = process.env,
-): QboTokenStore | undefined {
+export function qboTokenStoreFromEnv(_env: EnvVars = process.env): QboTokenStore | undefined {
   return undefined;
 }
 
@@ -74,7 +94,7 @@ export interface QboAppConfig {
 }
 
 export function qboAppConfigFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
+  env: EnvVars = process.env,
 ): QboAppConfig | { readonly missing: string } {
   const clientId = nonEmpty(env.QBO_CLIENT_ID);
   const clientSecret = nonEmpty(env.QBO_CLIENT_SECRET);
@@ -118,9 +138,9 @@ export function qboAppConfigFromEnv(
  * reachable from here.
  */
 export function accountingSourceFromEnv(
-  environment: NodeJS.ProcessEnv = process.env,
+  environment: EnvVars = process.env,
   tokenStore: QboTokenStore | undefined = qboTokenStoreFromEnv(environment),
-): LedgerSourceFactory {
+): EnvAccountingSourceFactory {
   return {
     resolve(connection: LedgerConnectionRecord): ResolvedLedgerSource {
       if (connection.provider !== 'qbo') {
@@ -190,10 +210,13 @@ export function ledgerSyncDepsFor(
   return {
     deps: { runs, discovery, sources, now: () => new Date() },
     async close(): Promise<void> {
-      // The pools are shared per connection string and outlive any one job
-      // (`sessionPool`), so there is nothing to end here — and ending them
-      // would close the pool the next delivery is about to use. Present so the
-      // caller's `finally` has one shape whether or not that stays true.
+      // The same call `runReadRequested` makes in its `finally` — and today the
+      // same no-op, because the pools are shared per connection string and
+      // outlive any one job (`sessionPool`): ending them here would close the
+      // pool the next delivery is about to use. Called anyway, so a store that
+      // ever does hold something per instance is released by the code that
+      // built it rather than by nobody.
+      await store.close();
     },
   };
 }

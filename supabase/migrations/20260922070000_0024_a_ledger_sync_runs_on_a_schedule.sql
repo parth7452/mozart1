@@ -426,26 +426,49 @@ grant execute on function app.record_ledger_sync_run(uuid, uuid, uuid, date, dat
 -- Not the service role, and the difference is exact: the service-role key
 -- bypasses RLS on every table for every caller that holds it, in a request
 -- path. This bypasses one policy on one table and hands back ids. What it does
--- expose is said out loud in ADR 0031 §5 — an app_rw caller can learn which org
--- ids have an enabled connection — and that is no new reach, because
--- app.current_org_id() reads a session setting the caller sets itself.
+-- expose is said out loud in ADR 0031 §5 — an app_rw caller that sets no claims
+-- can learn which org ids have an enabled connection — and that is no new
+-- reach, because app.current_org_id() reads a session setting the caller sets
+-- itself, so such a caller can already adopt any tenant's claims and read that
+-- tenant's rows, which is strictly more.
+--
+-- It is callable only by a caller that has no tenant. That is not decoration:
+-- `authenticated` is a member of `app_rw` (migration 0006), so anything granted
+-- to `app_rw` is reachable by a signed-in request, and this is the one function
+-- in the schema whose answer is not bounded by the caller's claims. A request
+-- always carries `request.jwt.claims`; the fan-out sets `set local role app_rw`
+-- and no claims at all, because it has none to set. Refusing a caller who has a
+-- tenant therefore keeps this to exactly the one caller it is for, and makes
+-- "use it from a request path" a thing the database says no to rather than a
+-- thing a reviewer has to notice.
 create or replace function app.ledger_connections_to_sync()
   returns table (connection_id uuid, org_id uuid, provider text, created_by uuid)
-  language sql
+  language plpgsql
   stable
   security definer
   set search_path = pg_catalog, public, extensions
 as $$
-  select c.id, c.org_id, c.provider, c.created_by
-    from accounting_connections c
-   where c.enabled
-   order by c.org_id, c.id;
+begin
+  if app.current_org_id() is not null then
+    raise exception
+      'ledger_connections_to_sync is the untenanted fan-out query: a caller '
+      'acting for a tenant must read accounting_connections through RLS instead'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return query
+    select c.id, c.org_id, c.provider, c.created_by
+      from accounting_connections c
+     where c.enabled
+     order by c.org_id, c.id;
+end
 $$;
 
 comment on function app.ledger_connections_to_sync() is
   'Every enabled accounting connection, as ids, across every org — for the '
   'cron fan-out, which has no tenant because it decides which tenants to adopt '
-  '(ADR 0031 §5). Ids and a closed-set provider name only.';
+  '(ADR 0031 §5). Ids and a closed-set provider name only, and refused outright '
+  'for a caller that has a tenant: those read the table through RLS.';
 
 revoke all on function app.ledger_connections_to_sync() from public;
 grant execute on function app.ledger_connections_to_sync() to app_rw;

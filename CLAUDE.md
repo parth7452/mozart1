@@ -546,6 +546,34 @@ Model spend and the extraction are recorded against **no** case: one read pays
 for many, and attributing it to one would overstate the number a contingency fee
 is set against.
 
+**The ledger sync runs on a schedule, as a member** (ADR 0031, migration 0024).
+`syncLedger` was a function nothing called, so the coverage thesis was measured
+at zero by construction. `accounting_connections` says which orgs have a ledger,
+which provider account, whether it is still wanted and who connected it — and
+holds no token, no secret and no credential, because those belong in KMS-backed
+storage; it is the one table added in a while that is *not* append-only, since
+`enabled` flips. `ledger_sync_runs` is append-only on 0004's pattern, which
+forces ADR 0023's shape: written once, when the run finishes, complete. A run
+killed mid-flight leaves no row, which the next day's overlapping window covers
+and ADR 0031 §2 says out loud rather than glossing.
+
+A cron has no session, so the sync acts as the connection's `created_by` and
+asks `memberMayWrite` of the database the way `readDocumentJob` does; a member
+who may no longer write gets the run recorded as `refused` and nothing is read.
+`app.record_ledger_sync_run()` is the only door into the run table — `app_rw`
+holds SELECT and no INSERT — and is definer for exactly that case, bounded to
+the caller's own org claim and own subject so it reaches no further than its
+caller. `app.ledger_connections_to_sync()` hands the fan-out ids only, because
+the fan-out is the query that decides which tenants to adopt. The service role
+appears nowhere. `accountingSourceFromEnv` is `scannerFromEnv`'s shape: there is
+no production `QboTokenStore` yet, so every connection today gets a
+`not_configured` run row and the rest of the fleet carries on. The window is a
+trailing 35 days (`LEDGER_SYNC_WINDOW_DAYS`) so consecutive daily runs overlap,
+which `syncLedger`'s identity resolution already makes free — the second pass
+skips rather than opens, and `packages/pipeline/test/ledger-job.test.ts` asks
+that rather than asserting it. Nothing creates a connection yet: the consent
+flow is a later change, and so is the KMS token store.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

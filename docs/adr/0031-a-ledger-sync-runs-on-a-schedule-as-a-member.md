@@ -170,12 +170,21 @@ the service-role key bypasses RLS on every table for every caller that holds it,
 in a request path, at the API layer. This bypasses one policy on one table and
 hands back ids.
 
-What it does expose, said out loud: any caller holding `app_rw` can learn which
-org ids have an enabled connection and who owns it. That is no new reach —
-`app.current_org_id()` reads a session setting the caller sets itself, so
-anything holding the application's connection string can already adopt any
-tenant's claims and read that tenant's rows. The application never calls this
-function from a request path; only the fan-out does.
+**And it refuses a caller that has a tenant.** `authenticated` is a member of
+`app_rw` (migration 0006), so anything granted to `app_rw` is reachable from a
+signed-in request, and this is the one function in the schema whose answer is
+not bounded by the caller's claims. A request always carries
+`request.jwt.claims`; the fan-out sets `set local role app_rw` and no claims at
+all, because it has none to set. So the function raises when
+`app.current_org_id()` is not null. That keeps it to exactly the one caller it
+exists for, and makes "read it from a request path" something the database says
+no to rather than something a reviewer has to catch.
+
+What remains exposed, said out loud: a caller holding `app_rw` *and* setting no
+claims can learn which org ids have an enabled connection and who owns it. That
+is no new reach — `app.current_org_id()` reads a session setting the caller sets
+itself, so anything holding the application's connection string can already
+adopt any tenant's claims and read that tenant's rows, which is strictly more.
 
 ### 6. A trailing window, overlapping on purpose
 
