@@ -89,13 +89,23 @@ export function UnattachedDocuments({
 }
 
 /**
- * How a case reads in the picker: its claim, who took the money, and how much.
+ * How a case reads in the picker: what names it, who took the money, and how
+ * much.
  *
- * The claim id and the printed retailer name come off somebody else's document,
- * and an option's text is text — React escapes it like any other child.
+ * A claim id when the notice printed one. A case the ledger sync or a
+ * remittance line opened has none — nobody filed a claim, an invoice was paid
+ * short — so it is named by that invoice instead, which is what a reviewer
+ * holding a delivery receipt would look for. "no claim id" said only what the
+ * case lacked.
+ *
+ * The claim id, the invoice number and the printed name come off somebody
+ * else's document or ledger, and an option's text is text — React escapes it
+ * like any other child.
  */
 export function caseLabel(summary: CaseSummary): string {
-  const claim = summary.claimId ?? 'no claim id';
+  const named =
+    summary.claimId ??
+    (summary.invoiceNumber !== undefined ? `invoice ${summary.invoiceNumber}` : 'no claim id');
   const who = summary.debtorName ?? summary.retailerNameAsPrinted ?? 'retailer unknown';
-  return `${claim} · ${who} · ${money(summary.deductionAmountCents)}`;
+  return `${named} · ${who} · ${money(summary.deductionAmountCents)}`;
 }
