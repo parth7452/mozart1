@@ -360,6 +360,13 @@ export const NOTICES = {
     tone: 'good',
     text: 'read as a {0}; attach it to a case from that case’s page',
   },
+  upload_remittance_cases: {
+    // A remittance that short-paid more than one line opens a case per line
+    // (ADR 0028). Sending the reviewer to one of them would be a choice the
+    // document did not make, so they go to the list, where all of them are.
+    tone: 'good',
+    text: 'read as a remittance advice; {0} short-paid lines opened or joined cases, listed below',
+  },
   upload_read_no_case: {
     tone: 'good',
     text: 'that document was read and did not open a case; attach it to a case from that case’s page',
@@ -622,6 +629,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   outcome_amount_refused: [SENTENCE],
   outcome_wrong_state: [oneOf(CASE_STATES)],
   upload_read_as: [oneOf(DOC_TYPES)],
+  upload_remittance_cases: [COUNT],
   upload_duplicate_case: [CLAIM_ID],
 };
 
