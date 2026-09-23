@@ -22,15 +22,16 @@ begin
             '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 0.51, 10, analyst)
     returning id into unapproved_dec;
 
-  -- The approvals that let the three gated tables be written at all. Inserted
-  -- as the owner because separation of duties refuses an approval by the
-  -- analyst who prepared the decision (migration 0005) — what this suite is
-  -- about is what happens *after* a legitimately approved row exists.
+  -- The approvals that let the three gated tables be written at all, written
+  -- by the approver they name in the approver's own session — an approval in
+  -- anybody else's name is refused (ADR 0041). What this suite is about is
+  -- what happens *after* a legitimately approved row exists.
+  set role app_rw;
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit'), (org, dec, approver, 'writeback'),
            (org, dec, approver, 'writeoff');
 
-  set role app_rw;
   perform test.as_member(org, analyst);
 
   insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,

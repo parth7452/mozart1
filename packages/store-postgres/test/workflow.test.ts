@@ -18,6 +18,7 @@ import {
 import { MAX_RATIONALE_LENGTH } from '@recouple/core-domain';
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
+import { ApprovalAuthorError, approve } from '../src/workflow';
 
 /**
  * The Phase 3 workflow against the real schema, and the contract both stores
@@ -1163,6 +1164,58 @@ describeDb('the workflow on postgres', () => {
         approverId: tenant.approver,
       }),
     ).rejects.toThrow(/cannot act as/);
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*)::text as n from approvals where decision_id = $1`,
+      [decisionId],
+    );
+    expect(rows[0]?.n).toBe('0');
+  });
+
+  it('lets the database refuse an approval written in somebody else\'s name', async () => {
+    // `requireCaller` above is the store checking itself. This is what stands
+    // behind it when the store is wrong (ADR 0041): the analyst who prepared
+    // the decision writes an approval naming the approver, as `app_rw` with
+    // the analyst's own claims — the row separation of duties would pass on
+    // its name alone — and `app.approval_names_its_approver()` refuses it.
+    const deductionId = await tenant.newCase();
+    const h = harnessFor(tenant);
+    const { decisionId, packetId, contentHash } = await toAwaitingApproval(h, deductionId);
+
+    const client = await admin.connect();
+    try {
+      await client.query('begin');
+      await client.query('set local role app_rw');
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: tenant.orgId, sub: tenant.analyst }),
+      ]);
+
+      await client.query('savepoint forged');
+      await expect(
+        client.query(
+          `insert into approvals (org_id, decision_id, approver_id, action_type, packet_hash)
+           values ($1, $2, $3, 'submit', $4)`,
+          [tenant.orgId, decisionId, tenant.approver, Buffer.from(contentHash, 'hex')],
+        ),
+      ).rejects.toThrow(/is not the caller/);
+      await client.query('rollback to savepoint forged');
+
+      // And through the store, with its own check fooled: a tenant context that
+      // says the approver while the claims on the connection say the analyst.
+      // `requireCaller` passes, the database does not, and the refusal reaches
+      // the caller by name rather than as a driver error.
+      await expect(
+        approve(
+          client,
+          { orgId: tenant.orgId, userId: tenant.approver },
+          { decisionId, packetId, approverId: tenant.approver },
+        ),
+      ).rejects.toBeInstanceOf(ApprovalAuthorError);
+    } finally {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
+
     const { rows } = await admin.query<{ n: string }>(
       `select count(*)::text as n from approvals where decision_id = $1`,
       [decisionId],

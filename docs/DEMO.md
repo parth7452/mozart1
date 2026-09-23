@@ -22,8 +22,14 @@ that is the thing worth showing.
 
 You need a signed-in session on a deployment with all four variables set
 (`CLAMAV_SCAN_URL`, `CLAMAV_SCAN_TOKEN`, `ANTHROPIC_API_KEY`, `REDUCTO_API_KEY`
-— see [`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)), or a local `pnpm dev` with
-`docker compose up -d clamd`.
+— see [`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)), or the app running
+locally: `pnpm --filter @recouple/web dev` with `CLAMAV_HOST=127.0.0.1` and
+`docker compose up -d clamd`. There is no root `pnpm dev`; the README's
+[*Running it locally*](../README.md#running-it-locally) has the rest.
+
+Section 4 stops at a card only an `owner` or `approver` other than the preparer
+can use, so sign in as the preparer; you need no second account unless you
+intend to go past it.
 
 Have the five PDFs on the machine you are demoing from.
 
@@ -201,7 +207,8 @@ Worth saying before you are asked:
 
 | What you see | What it means |
 | --- | --- |
-| `not scanned clean: error (none)` | No scanner configured — `CLAMAV_SCAN_URL` and `CLAMAV_SCAN_TOKEN` are not both set |
+| `not scanned clean: error (none)` | No scanner configured — `CLAMAV_SCAN_URL` and `CLAMAV_SCAN_TOKEN` are not both set (locally: `CLAMAV_HOST` is unset) |
+| `not scanned clean: error (clamav)` locally | `CLAMAV_HOST` is set but clamd is not up yet — `docker compose logs -f clamd` and wait for it to load signatures |
 | `not scanned clean: error (clamav-http) — …401` | The token on Vercel and the one on the scan service disagree |
 | `carries active content (/AA)` | The upload gate refusing a PDF with embedded JavaScript. Working as intended — use the fixture documents |
 | An error naming Anthropic | Scan passed, reader failed: `ANTHROPIC_API_KEY` missing |
