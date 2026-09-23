@@ -204,6 +204,26 @@ form.upload button.primary { margin-top: 0; }
 }
 .card.unattached button:hover { background: var(--bg); }
 
+/* Settings → QuickBooks (ADR 0039): what is connected, and the two buttons. */
+.card.connection { margin-bottom: 24px; }
+.card.connection h2 { margin-top: 0; }
+.card.connection .empty { padding: 0 0 14px; font-size: 13px; line-height: 1.5; }
+dl.connection { margin: 0 0 16px; }
+dl.connection > div { display: grid; grid-template-columns: 160px minmax(0,1fr); gap: 12px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--line); }
+dl.connection dt { color: #536176; }
+dl.connection dd { margin: 0; overflow-wrap: anywhere; }
+.connection-actions { display: flex; gap: 12px; align-items: center; }
+.card.connection form button:not(.primary) {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 /* Possible duplicates: two cases that may be one deduction (ADR 0032).
    The same quiet treatment the unread documents get, and for the same reason —
    this is a question to answer, not an alarm, and neither button merges

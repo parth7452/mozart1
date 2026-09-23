@@ -4,7 +4,7 @@ do $test$
 declare
   a jsonb; org_a uuid; analyst_a uuid;
   b jsonb; org_b uuid; analyst_b uuid;
-  reader uuid;
+  reader uuid; owner_a uuid; owner_b uuid;
   conn_a uuid; conn_b uuid;
   cred_1 uuid; cred_2 uuid; latest uuid;
   n int; plaintextish int; missing text; extra text;
@@ -22,6 +22,14 @@ begin
   insert into users (email, full_name) values ('sealed-reader@example.test', 'Reader')
     returning id into reader;
   insert into memberships (org_id, user_id, role) values (org_a, reader, 'read_only');
+
+  -- Only an owner connects a ledger (ADR 0039 §8); any writer stores a rotation.
+  insert into users (email, full_name) values ('sealed-owner-a@example.test', 'Owner A')
+    returning id into owner_a;
+  insert into users (email, full_name) values ('sealed-owner-b@example.test', 'Owner B')
+    returning id into owner_b;
+  insert into memberships (org_id, user_id, role)
+    values (org_a, owner_a, 'owner'), (org_b, owner_b, 'owner');
 
   -- =========================================================================
   -- The column list, against the catalogue, in both directions
@@ -60,14 +68,14 @@ begin
   -- A credential belongs to its connection's tenant, and the database says so
   -- =========================================================================
   set role app_rw;
-  perform test.as_member(org_a, analyst_a);
+  perform test.as_member(org_a, owner_a);
 
   insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-    values (org_a, 'qbo', 'realm-sealed-a', analyst_a) returning id into conn_a;
+    values (org_a, 'qbo', 'realm-sealed-a', owner_a) returning id into conn_a;
 
-  perform test.as_member(org_b, analyst_b);
+  perform test.as_member(org_b, owner_b);
   insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-    values (org_b, 'qbo', 'realm-sealed-b', analyst_b) returning id into conn_b;
+    values (org_b, 'qbo', 'realm-sealed-b', owner_b) returning id into conn_b;
 
   perform test.as_member(org_a, analyst_a);
 
@@ -220,7 +228,7 @@ begin
   -- This migration adds a unique constraint to accounting_connections and
   -- nothing else. It must not have quietly made that table append-only (its
   -- `enabled` flips) nor added a credential column to it.
-  perform test.as_member(org_a, analyst_a);
+  perform test.as_member(org_a, owner_a);
   update accounting_connections set enabled = false where id = conn_a;
   perform test.ok(
     (select not enabled from accounting_connections where id = conn_a),

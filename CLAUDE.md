@@ -140,16 +140,16 @@ append-only tables.
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
-| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033) |
+| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033). `connectQboCompany` is the only way a connection row is made — the button and `link:qbo` both call it — and it seals before it touches the database (ADR 0039) |
 | `crypto` | The `TokenCipher` port and `KmsTokenCipher`. It reads no environment variable and holds no key material: AWS credentials are the SDK's provider chain's business and the key id is a constructor argument. `LocalTokenCipher` is under `@recouple/crypto/testing` and the index must never re-export it |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
 | `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right. `uploads` is append-only since ADR 0024, so that row cannot be re-labelled after the declines attributed to it were counted; a notice stored before provenance existed gets its channel from a `document_arrivals` row an operator writes with `pnpm link:provenance`, which the database refuses for any document ingest already recorded an arrival for and for any channel but the three doors that existed then. `provenance_kind` says which of the two answered — derived like `discovered_from`, never passed in — so a coverage number can report the split rather than needing three joins to find it |
-| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them |
+| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039) |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
 ## Models
@@ -650,8 +650,8 @@ no production `QboTokenStore` yet, so every connection today gets a
 trailing 35 days (`LEDGER_SYNC_WINDOW_DAYS`) so consecutive daily runs overlap,
 which `syncLedger`'s identity resolution already makes free — the second pass
 skips rather than opens, and `packages/pipeline/test/ledger-job.test.ts` asks
-that rather than asserting it. Nothing creates a connection yet: the consent
-flow is a later change, and so is the KMS token store.
+that rather than asserting it. Nothing created a connection then: the KMS token
+store came with ADR 0033 and the consent flow with ADR 0039.
 
 **A possible duplicate is answered by a person** (ADR 0032, no migration).
 Identity resolution has handed every `probable` pair to a human since ADR 0025
@@ -790,7 +790,11 @@ migrations — and suite 24 derives invariant 2's grant half for every role from
 each `block_mutations` trigger's own events. Turning off the Data API in the
 dashboard is the founder's switch, after 0028 is applied, the ledger sync has
 run and both members have signed in; docs/supabase.md has the pre- and
-post-apply queries. Production carries 0028 since 2026-09-23.
+post-apply queries. Production carries 0028 since 2026-09-23, and all three
+conditions held that afternoon: the sync ran at 15:25, and both members signed
+in through `app.mozart.financial/auth/callback` at 16:35 and 16:36. **The Data
+API has been off since 2026-09-23**, and the app's logs showed no error after
+the switch.
 
 **Coverage counts each deduction once** (ADR 0038, migration 0029).
 `coverage_by_period_by_source` added `opened + declined`, and `declineCase`
@@ -806,6 +810,64 @@ whenever a case is declined — so `opened + declined` is no longer `discovered`
 and the view's column comments say so. Same columns, same order, still
 `security_invoker`; suite 25 and `coverage-declined-case.test.ts` decline a real
 case and find its dollars once. Production carries 0029 since 2026-09-23.
+
+**A customer's owner connects their own ledger** (ADR 0039, migration 0030).
+`pnpm link:qbo` was the only way a connection existed, so no customer could
+connect their books without an operator holding their refresh token in a
+`.env`. Settings → QuickBooks now runs the consent in the app. `POST
+/settings/quickbooks/connect` sends an owner to Intuit with one scope and a
+single-use state held in a `__Host-` cookie — `HttpOnly`, `Secure`,
+`SameSite=Lax` because Intuit's redirect back is cross-site, ten minutes.
+`GET /settings/quickbooks/callback` is the one GET in the app that writes and
+the one route that cannot call `isCrossSite`, so the state is its CSRF defence:
+compared in constant time, cleared on every exit, and the only thing the cookie
+says that is taken on trust — the org and the member are re-derived from the
+live session, which must still be an owner there. The code is exchanged in the
+request, never in a job, because it is a credential and an event payload is
+durable in a third party; the new token must then read the company Intuit named
+before anything is written. The redirect URI is derived,
+`${siteUrl}/settings/quickbooks/callback`, so a Connect pressed on any other
+host is sent to the canonical one to start again rather than coming back to a
+host that holds neither the cookie nor the session.
+
+`connectQboCompany` is the one way a connection row is made — `link:qbo` calls
+it too, and `createConnection` is gone. It seals first, so a KMS failure writes
+nothing and leaves a working connection working; then takes the company's lock;
+then writes the claim, the sealed credential and the audit row in one
+transaction. **One enabled connection per company across the deployment**, as
+a partial unique index: an agency's two workspaces may not both sync one
+manufacturer's books, and a company held elsewhere is
+`AccountConnectedElsewhereError` with nothing stored. One row per member per
+company: the same owner reconnecting reuses theirs, and a different owner's
+connect is a move — the old row off, a new row on, `created_by` frozen by
+trigger, since the member a sync acts as is not something to edit. **Owner-only
+is the database's rule as well as the app's**: `app.member_is_owner()` gates
+writes to `accounting_connections`, and `memberships` writes are owner-only too
+— any writer could previously make themselves an owner, which made "owner only"
+worth nothing. A credential row's `created_by` and an audit row's `actor_id`
+must now be the caller.
+
+**A token refresh is serialized per company.** Intuit replaces the refresh
+token on every use and kills the old one, so two refreshes racing from the same
+row leave one of them holding a dead token — and a customer who has to
+reconnect. `QboTokenStore.withRefreshLock` is a transaction-scoped advisory lock
+on the lock pool, seed 2 on `provider:realm`, and the client re-reads the tokens
+under it, so the second of two concurrent refreshes finds the first one's
+tokens and does not refresh at all. Connect, disconnect and both scripts take
+the same lock, and nothing nests it. A wait is capped at 15 seconds
+(`LedgerAccountBusyError`, nothing changed) and every OAuth call at 10, body
+included; a lock connection that fails is destroyed rather than pooled, because
+its aborted transaction would fail the next document read to borrow it. Disconnect turns the connection off and
+commits that first, then revokes at Intuit and audits the result —
+`confirmed`, `failed` with a class name, or `not_attempted` — and a failed
+revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release
+for a connection nobody will press Disconnect on, since one dead connection
+would otherwise hold its company from every other workspace; releasing
+automatically on `invalid_grant` is a follow-up, not built. The first sync is
+queued on connect. No code, token or anything Intuit said reaches a log line, a
+redirect, an event or an audit payload, and the route and store tests spy on all
+four. **Production does not carry 0030 yet**, and nothing here has met a live
+Intuit consent or revoke.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

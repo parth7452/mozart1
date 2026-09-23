@@ -129,3 +129,29 @@ Worth saying before you are asked:
 | `carries active content (/AA)` | The upload gate refusing a PDF with embedded JavaScript. Working as intended — use the fixture documents |
 | An error naming Anthropic | Scan passed, reader failed: `ANTHROPIC_API_KEY` missing |
 | Case opens, no findings | Only the notice is attached. The argument needs `04` and `05` |
+| Settings → QuickBooks says it is not set up | The Intuit app or the KMS key is missing on this deployment — previews never have them. See [`docs/qbo-credentials.md`](qbo-credentials.md) |
+| "…could not be matched to this session" after Intuit | Connect was pressed more than ten minutes earlier, in another browser, or on an address other than `app.mozart.financial` |
+
+---
+
+## Extra · The deductions nobody sent (3 min, optional)
+
+Everything above started with somebody uploading a notice. Most short-pays never
+arrive that way — they are only in the ledger. Signed in as the workspace's
+**owner**, open **Settings → QuickBooks** and press **Connect QuickBooks**.
+Intuit asks you to sign in and pick the sandbox company; you come back to the
+same page.
+
+- **It reads, and never writes.** The accounting scope Intuit grants would
+  allow writing; nothing in the product does. Write-back is Phase 4, behind the
+  approval gate.
+- **The first sync is already queued.** Within a few minutes the case list has a
+  case for each invoice that was paid short — deductions found without anyone
+  sending a document.
+- **Only an owner sees the button**, and the database refuses anybody else. The
+  connection syncs as the owner who made it, and re-checks every night that
+  they still may.
+
+> **Say this:** we never store a QuickBooks sign-in we can read. The token is
+> sealed with a key held in AWS before it reaches the database, and Disconnect
+> both stops the sync and revokes our access at Intuit.

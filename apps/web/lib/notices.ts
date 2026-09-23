@@ -427,8 +427,6 @@ export const NOTICES = {
     text: 'reading that document failed, and the reason is in this deployment’s logs — nothing was stored from the attempt',
   },
 
-  // One per `RejectionCode`, because the door's refusal is a closed set and its
-  // message is a sentence built around a filename somebody else chose.
   // --- attaching a document that was already read -------------------------
   attach_role: {
     tone: 'bad',
@@ -456,6 +454,81 @@ export const NOTICES = {
     text: 'attaching that document failed, and nothing was attached. Try again.',
   },
 
+  // --- QuickBooks (ADR 0039) ------------------------------------------------
+  qbo_role: { tone: 'bad', text: 'only an owner can connect or disconnect QuickBooks' },
+  qbo_not_configured: {
+    tone: 'bad',
+    text: 'QuickBooks is not set up on this deployment yet, so nothing was sent to Intuit',
+  },
+  qbo_wrong_host: {
+    tone: 'bad',
+    text: 'QuickBooks connects from this address only. Press Connect again here.',
+  },
+  qbo_state_invalid: {
+    tone: 'bad',
+    text:
+      'that QuickBooks sign-in could not be matched to this session, so nothing was connected. ' +
+      'It may have expired, or been started in another tab — press Connect again.',
+  },
+  qbo_denied: { tone: 'bad', text: 'the sign-in was cancelled at Intuit; nothing was connected' },
+  qbo_exchange_failed: {
+    tone: 'bad',
+    text: 'Intuit did not complete the sign-in, so nothing was connected. Press Connect again.',
+  },
+  qbo_realm_unverified: {
+    tone: 'bad',
+    text: 'the sign-in could not read the QuickBooks company it named, so nothing was connected',
+  },
+  qbo_connected_elsewhere: {
+    tone: 'bad',
+    text:
+      'that QuickBooks company is already connected in another workspace. It has to be ' +
+      'disconnected there first; nothing was connected here.',
+  },
+  qbo_connect_failed: {
+    tone: 'bad',
+    text: 'connecting QuickBooks failed, and nothing was stored. Try again.',
+  },
+  qbo_connected: {
+    tone: 'good',
+    text:
+      'QuickBooks is connected, and a first sync is on its way — short-paid invoices it finds ' +
+      'will appear on the case list',
+  },
+  qbo_connected_no_scheduler: {
+    tone: 'good',
+    text:
+      'QuickBooks is connected. This deployment has no scheduler, so nothing will read it until ' +
+      'one is set up.',
+  },
+  qbo_connected_not_queued: {
+    tone: 'good',
+    text:
+      'QuickBooks is connected, but the first sync could not be queued. The daily sync at ' +
+      '07:00 UTC will pick it up.',
+  },
+  qbo_disconnected: {
+    tone: 'good',
+    text: 'QuickBooks is disconnected, and Intuit confirmed our access is revoked',
+  },
+  qbo_disconnected_not_revoked: {
+    tone: 'bad',
+    text:
+      'QuickBooks is disconnected here, and nothing will read it — but Intuit did not confirm the ' +
+      'revoke. To be sure, remove the app in QuickBooks under Settings → Apps.',
+  },
+  qbo_already_disconnected: { tone: 'good', text: 'that connection was already off; nothing changed' },
+  qbo_disconnect_unknown: {
+    tone: 'bad',
+    text: 'that is not a connection this workspace has; nothing changed',
+  },
+  qbo_disconnect_failed: {
+    tone: 'bad',
+    text: 'disconnecting failed, and nothing changed. Try again.',
+  },
+
+  // One per `RejectionCode`, because the door's refusal is a closed set and its
+  // message is a sentence built around a filename somebody else chose.
   upload_rejected: { tone: 'bad', text: 'that file was not accepted, and nothing was stored' },
   upload_rejected_empty_file: { tone: 'bad', text: 'that file is empty' },
   upload_rejected_body_too_short: {

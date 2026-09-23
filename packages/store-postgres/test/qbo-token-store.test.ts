@@ -9,7 +9,8 @@ import {
   PostgresQboTokenStore,
   QboRealmMismatchError,
 } from '../src/credentials';
-import { PostgresLedgerSyncStore } from '../src/connections';
+import { OwnerRequiredError, PostgresLedgerSyncStore } from '../src/connections';
+import { connectQboCompany } from '../src/connect-qbo';
 import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
@@ -303,20 +304,52 @@ describeDb('the QuickBooks token store on Postgres', () => {
   });
 
   it('registers a connection through the same role, and finds it again', async () => {
-    // `pnpm link:qbo`'s first half. `created_by` is the store's own member and
-    // not a parameter: the connection names the person a scheduled sync will
-    // act as (ADR 0031 §3).
-    const tenant = { orgId, userId: analystId };
+    // `pnpm link:qbo`'s path, which since ADR 0039 is the button's too:
+    // `connectQboCompany`. `created_by` is the caller's own member and not a
+    // parameter — the connection names the person a scheduled sync will act as
+    // (ADR 0031 §3) — and since migration 0030 that person is an owner.
+    const ownerId = randomUUID();
+    await admin.query(`insert into users (id, email) values ($1, $2)`, [
+      ownerId,
+      `seal-owner-${suffix}@example.test`,
+    ]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'owner')`, [
+      orgId,
+      ownerId,
+    ]);
+    const tenant = { orgId, userId: ownerId };
     const runs = new PostgresLedgerSyncStore(config, tenant, new PostgresStore(config, tenant));
-    const account = `realm-new-${suffix}`;
+    // A realm is digits: it goes into a URL path at Intuit (ADR 0039 §3).
+    const account = String(Date.now()) + suffix.replace(/[^0-9]/g, '').slice(0, 4);
 
     expect(await runs.connectionForAccount('qbo', account)).toBeUndefined();
-    const made = await runs.createConnection({ provider: 'qbo', providerAccountId: account });
+    const made = await connectQboCompany(config, tenant, {
+      realmId: account,
+      tokens: tokens(),
+      cipher,
+      via: 'operator_command',
+    });
 
-    expect(made.orgId).toBe(orgId);
-    expect(made.createdBy).toBe(analystId);
-    expect(made.enabled).toBe(true);
-    expect((await runs.connectionForAccount('qbo', account))?.connectionId).toBe(made.connectionId);
+    expect(made.outcome).toBe('connected');
+    expect(made.connection.orgId).toBe(orgId);
+    expect(made.connection.createdBy).toBe(ownerId);
+    expect(made.connection.enabled).toBe(true);
+    expect((await runs.connectionForAccount('qbo', account))?.connectionId).toBe(
+      made.connection.connectionId,
+    );
+
+    // And an analyst — a writer, but not an owner — is refused by name, and
+    // writes nothing.
+    const analyst = { orgId, userId: analystId };
+    await expect(
+      connectQboCompany(config, analyst, {
+        realmId: `${account}9`,
+        tokens: tokens(),
+        cipher,
+        via: 'operator_command',
+      }),
+    ).rejects.toBeInstanceOf(OwnerRequiredError);
+    expect(await runs.connectionForAccount('qbo', `${account}9`)).toBeUndefined();
   });
 });
 

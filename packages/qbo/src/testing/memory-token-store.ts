@@ -35,4 +35,27 @@ export class InMemoryQboTokenStore implements QboTokenStore {
     this.byRealm.set(realmId, { ...tokens });
     this.saves.push({ realmId, tokens: { ...tokens } });
   }
+
+  /** The tail of each company's queue: the last holder's work, settled or not. */
+  private readonly tails = new Map<string, Promise<unknown>>();
+
+  /**
+   * One holder per company at a time, in the order they asked — a promise
+   * chain in one process, where the Postgres store's is an advisory lock in
+   * the database. Same contract: the next holder starts after the last one's
+   * work has finished, however it finished.
+   */
+  async withRefreshLock<T>(realmId: string, work: () => Promise<T>): Promise<T> {
+    const before = this.tails.get(realmId) ?? Promise.resolve();
+    const mine = before.then(work, work);
+    // The queue continues whether this holder succeeds or throws.
+    this.tails.set(
+      realmId,
+      mine.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return mine;
+  }
 }

@@ -4,7 +4,7 @@ do $test$
 declare
   a jsonb; org_a uuid; analyst_a uuid;
   b jsonb; org_b uuid; analyst_b uuid;
-  reader uuid;
+  reader uuid; owner_a uuid; owner_b uuid;
   conn_a uuid; conn_a2 uuid; conn_b uuid;
   run_a uuid; run_reader uuid;
   n int; secretish int; fn_result text;
@@ -22,6 +22,15 @@ begin
   insert into users (email, full_name) values ('ledgersync-reader@example.test', 'Reader')
     returning id into reader;
   insert into memberships (org_id, user_id, role) values (org_a, reader, 'read_only');
+
+  -- Since ADR 0039 only an owner connects a ledger, and the seed has none. Added
+  -- as the table owner, because who is an owner is now an owner's decision.
+  insert into users (email, full_name) values ('ledgersync-owner-a@example.test', 'Owner A')
+    returning id into owner_a;
+  insert into users (email, full_name) values ('ledgersync-owner-b@example.test', 'Owner B')
+    returning id into owner_b;
+  insert into memberships (org_id, user_id, role)
+    values (org_a, owner_a, 'owner'), (org_b, owner_b, 'owner');
 
   -- =========================================================================
   -- accounting_connections holds no credential of any kind (ADR 0031 §1)
@@ -41,23 +50,31 @@ begin
     format('accounting_connections carries no token/secret/credential column (%s found)', secretish));
 
   set role app_rw;
-  perform test.as_member(org_a, analyst_a);
 
   -- =========================================================================
-  -- The registry: writable by a writer, within its own tenant only
+  -- The registry: writable by an owner, within its own tenant only
   -- =========================================================================
+  -- A writer is not enough any more: connecting a ledger makes that person the
+  -- identity every nightly sync acts as (ADR 0039 §8).
+  perform test.as_member(org_a, analyst_a);
+  perform test.expect_error(
+    format('insert into accounting_connections (org_id, provider, provider_account_id, created_by)
+              values (%L, ''qbo'', ''realm-a-1'', %L)', org_a, analyst_a),
+    'policy', 'an analyst may not connect a ledger');
+
+  perform test.as_member(org_a, owner_a);
   -- `updated_at` is supplied deliberately stale, so the trigger below has
   -- something to move. `now()` is fixed for a transaction, so a row inserted
   -- and updated in one would otherwise show the same instant either way and the
   -- assertion would pass whether or not the trigger fired at all.
   insert into accounting_connections (org_id, provider, provider_account_id, created_by, updated_at)
-    values (org_a, 'qbo', 'realm-a-1', analyst_a, '2020-01-01T00:00:00Z')
+    values (org_a, 'qbo', 'realm-a-1', owner_a, '2020-01-01T00:00:00Z')
     returning id into conn_a;
-  perform test.ok(conn_a is not null, 'a writer may connect a ledger for their own org');
+  perform test.ok(conn_a is not null, 'an owner may connect a ledger for their own org');
 
   perform test.expect_error(
     format('insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-              values (%L, ''qbo'', ''realm-b-stolen'', %L)', org_b, analyst_a),
+              values (%L, ''qbo'', ''realm-b-stolen'', %L)', org_b, owner_a),
     'policy', 'and cannot connect a ledger for another org');
 
   -- The provider list is a check constraint that can grow. A provider this
@@ -65,19 +82,20 @@ begin
   -- discovered at the vendor.
   perform test.expect_error(
     format('insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-              values (%L, ''xero'', ''realm-a-2'', %L)', org_a, analyst_a),
+              values (%L, ''xero'', ''realm-a-2'', %L)', org_a, owner_a),
     'check', 'provider is constrained: xero is refused until a migration adds it');
 
   perform test.expect_error(
     format('insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-              values (%L, ''qbo'', ''   '', %L)', org_a, analyst_a),
+              values (%L, ''qbo'', ''   '', %L)', org_a, owner_a),
     'check', 'and a blank provider account id is refused');
 
-  -- One row per company per provider per tenant: a second connection to the
-  -- same books would double every case the ledger discovers.
+  -- One enabled connection per company, and one row per member (ADR 0039 §6,
+  -- §7): a second connection to the same books would double every case the
+  -- ledger discovers.
   perform test.expect_error(
     format('insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-              values (%L, ''qbo'', ''realm-a-1'', %L)', org_a, analyst_a),
+              values (%L, ''qbo'', ''realm-a-1'', %L)', org_a, owner_a),
     'unique', 'the same company cannot be connected twice');
 
   -- =========================================================================
@@ -113,9 +131,9 @@ begin
   -- =========================================================================
   -- RLS isolation across two orgs
   -- =========================================================================
-  perform test.as_member(org_b, analyst_b);
+  perform test.as_member(org_b, owner_b);
   insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-    values (org_b, 'qbo', 'realm-b-1', analyst_b) returning id into conn_b;
+    values (org_b, 'qbo', 'realm-b-1', owner_b) returning id into conn_b;
 
   select count(*) into n from accounting_connections;
   perform test.ok(n = 1, format('org B sees only its own connection (saw %s)', n));
@@ -163,9 +181,9 @@ begin
   -- A disabled connection is not a connection to sync. Written as a member,
   -- because a write still goes through RLS; read back untenanted, because the
   -- fan-out's query is the untenanted one.
-  perform test.as_member(org_a, analyst_a);
+  perform test.as_member(org_a, owner_a);
   insert into accounting_connections (org_id, provider, provider_account_id, created_by, enabled)
-    values (org_a, 'qbo', 'realm-a-disabled', analyst_a, false) returning id into conn_a2;
+    values (org_a, 'qbo', 'realm-a-disabled', owner_a, false) returning id into conn_a2;
 
   perform test.as_nobody();
   select count(*) into n from app.ledger_connections_to_sync();

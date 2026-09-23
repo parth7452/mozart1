@@ -1,15 +1,15 @@
 # State of play
 
-*2026-09-22*
+*2026-09-23*
 
 A supplier can sign in, upload a deduction notice, and get back a case where
 every extracted field traces to the quote it came from — and then take that case
 all the way through Phase 3 in the deployed app. One production case has been:
 decided, assembled into a packet, approved by the second member, filed and given
-an outcome (2026-09-21, ending `partial`). The ledger sync has run once in
-production against the QuickBooks sandbox (2026-09-22), before ADR 0035 and ADR
-0036 fixed what it read; the fixed code is deployed and migration 0027 is
-applied, so the next run is the first one that means anything.
+an outcome (2026-09-21, ending `partial`). The ledger sync, fixed by ADR 0035
+and ADR 0036, ran against the QuickBooks sandbox on 2026-09-23: nine invoices
+read, three short-pays found — two opened as cases, one declined — and no
+anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
 
 ## Live in production
 
@@ -43,8 +43,10 @@ Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0029, applied
 hold nothing in `public` or `app`, `authenticated` no longer reaches `app_rw`,
 `recouple_app` still does, every `app` function's `search_path` is pinned again
 (invariant 7's guard included), and the coverage denominator counts each
-deduction once. What is left before the Data API is switched off: both members
-sign in to production, and one ledger sync runs (ADR 0037).
+deduction once. Both conditions ADR 0037 set before the Data API is switched
+off are met: the ledger sync ran at 15:25, and both members signed in through
+`app.mozart.financial/auth/callback` at 16:35 and 16:36 — and the Data API was
+switched off the same afternoon, with no error in the app's logs after it.
 
 ## Built, not yet exercised
 
@@ -52,7 +54,7 @@ The gap between *it worked once* and *it works*:
 
 | | What would prove it |
 | --- | --- |
-| **The fixed ledger sync** | The next run (daily, 07:00 UTC) over the sandbox should report the three short-pays and one anomaly `settlement-window.test.ts` replays, where the 2026-09-22 run found nothing and eight anomalies. Its anomalies are rows now, not a count |
+| **QuickBooks connect** (ADR 0039, migration 0030) | Built and tested against a real Postgres, not yet applied. After 0030 is applied: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
@@ -63,7 +65,7 @@ The gap between *it worked once* and *it works*:
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| A QuickBooks connect flow | **next change** | `pnpm link:qbo` is an operator command; no customer can connect a ledger themselves |
+| Production QuickBooks keys | **you** | Intuit's production-keys assessment (privacy and terms pages). Until then only sandbox companies can connect |
 
 ## Where the phases stand
 
@@ -90,7 +92,9 @@ Against the build order in `CLAUDE.md`:
 - **Phase 1.5 — ERP read + triage.** ERP read is built: QuickBooks behind the
   `AccountingSource` port (ADR 0026), a daily sync as a member (ADR 0031), a
   sealed token store (ADR 0033), a window anchored on payments (ADR 0035), credit
-  memos read as not cash (ADR 0036), and short-pays opening cases. Triage — an
+  memos read as not cash (ADR 0036), short-pays opening cases, and a customer's
+  owner connecting their own company from Settings → QuickBooks with every token
+  refresh serialized per company (ADR 0039, not yet applied). Triage — an
   ordered work queue over what the sync and the uploads open — is not started.
 - **Phase 2 — evidence + decision.** Not started. Phase 2's model decision lands
   in the slot Phase 3 has already used, with a corpus of human decisions in the
@@ -148,18 +152,16 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## Next
 
-1. **Watch the next ledger sync** (07:00 UTC) and check it against the replayed
-   sandbox: three short-pays, one anomaly, each anomaly a row.
-2. **A QuickBooks connect flow** in the app, so a customer can connect their own
-   ledger rather than an operator running `pnpm link:qbo`.
-3. **Coverage and ledger anomalies on a page.** The views and the table exist;
+1. **Apply migration 0030**, preview first, and click through QuickBooks
+   connect against the sandbox: Connect, first sync, Disconnect, Connect.
+2. **Coverage and ledger anomalies on a page.** The views and the table exist;
    nothing renders them.
-4. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
+3. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
    92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
    review floor unexamined, and the STF-201 camera pages ground at 64–83%.
-5. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
+4. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
    confirmed duplicate still counts twice in coverage.
-6. **Triage**, the rest of Phase 1.5.
+5. **Triage**, the rest of Phase 1.5.
 
 ## Follow-ups this change created
 
