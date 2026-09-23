@@ -3586,11 +3586,6 @@ export class PostgresStore
   }
 
   /**
-   * The ledger sync's recent runs and, per connection, what its latest
-   * completed run found (ADR 0031, ADR 0035). One tenant transaction as
-   * `app_rw`. Reads only.
-   */
-  /**
    * The cases a person can act on now, most urgent first as the SQL sees it —
    * `rankForReview` gives the final order (ADR 0043). One tenant transaction as
    * `app_rw`; reads only.
@@ -3603,6 +3598,11 @@ export class PostgresStore
     );
   }
 
+  /**
+   * The ledger sync's recent runs and, per connection, what its latest
+   * completed run found (ADR 0031, ADR 0035). One tenant transaction as
+   * `app_rw`. Reads only.
+   */
   async ledgerSyncHealth(options: { readonly runLimit?: number } = {}): Promise<LedgerSyncHealth> {
     const runLimit = options.runLimit ?? LEDGER_RUNS_DEFAULT;
     return this.withTenant((client) => readLedgerSyncHealth(client, runLimit));

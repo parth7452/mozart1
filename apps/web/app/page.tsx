@@ -1,5 +1,6 @@
 import { requireSession, storeFor } from '../lib/session';
 import { mayWrite } from '../lib/pipeline';
+import { mayApprove } from '../lib/workflow';
 import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
 
@@ -29,12 +30,22 @@ export default async function CaseListPage({
   const { upload, action, reread, about } = await searchParams;
   const store = storeFor(session);
   const mayUpload = mayWrite(session.org.role);
+  // One "today" for the read and the render: the SQL cuts the queue at its
+  // limit by the same buckets `rankForReview` draws, and a render on the far
+  // side of midnight from the read could put a case in a different one.
+  const today = new Date();
   try {
     return (
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
         cases={await store.listCases()}
-        today={new Date()}
+        // Every member, `read_only` included: the queue is a reading of cases
+        // they can already see, and it offers no action of its own.
+        queue={{
+          read: await store.reviewQueue({ today }),
+          viewer: { userId: session.userId, mayApprove: mayApprove(session.org.role) },
+        }}
+        today={today}
         mayUpload={mayUpload}
         // Only for a member who can do something about one. The read itself is
         // RLS-scoped like every other read here, so what comes back is this

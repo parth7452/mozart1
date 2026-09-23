@@ -160,6 +160,8 @@ describe('syncing one connection on a schedule', () => {
     expect(result.window).toEqual({ from: '2026-08-19', to: '2026-09-22' });
     expect(result.invoicesExamined).toBe(1);
     expect(result.openedCount).toBe(1);
+    // Nothing was stuck in `discovered`, so the sweep moved nothing.
+    expect(result.classifiedCount).toBe(0);
 
     expect(runs.written).toHaveLength(1);
     const row = runs.written[0];
@@ -174,6 +176,30 @@ describe('syncing one connection on a schedule', () => {
     // A completed run carries no error class — the database refuses one, and
     // nothing here should be offering it one.
     expect(row?.errorClass).toBeUndefined();
+  });
+
+  it('says how many stuck ledger cases the run moved on, and keeps it off the run row', async () => {
+    const runs = new RunStore(connectionRecord());
+    const discovery = new InMemoryDiscoveryStore();
+    // A case opened before ADR 0043, still `discovered`.
+    discovery.cases.push({
+      deductionId: 'stuck-1',
+      documentId: 'doc-stuck-1',
+      state: 'discovered',
+      gapCents: 45_000,
+      customerName: 'Sysco Baltimore, LLC',
+      events: [],
+    });
+
+    const result = await syncLedgerJob(
+      { runs, discovery, sources: ready(ledger()), now: () => AT },
+      { connectionId: CONNECTION, orgId: ORG, actor: { userId: USER } },
+    );
+
+    expect(result.outcome).toBe('completed');
+    expect(result.classifiedCount).toBe(1);
+    expect(discovery.cases.find((c) => c.deductionId === 'stuck-1')?.state).toBe('classified');
+    expect(runs.written[0]).not.toHaveProperty('classifiedCount');
   });
 
   it('refuses, and records the refusal, when the member may no longer write', async () => {

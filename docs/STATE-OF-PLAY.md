@@ -59,6 +59,7 @@ The gap between *it worked once* and *it works*:
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
+| **The review queue** (ADR 0043) | The first 07:00 sync after it deploys moves production's two ledger cases ($450.00 and $239.00) to `classified`, each with a `case.classified` event naming the sync, and their case pages offer decide and decline |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
 
 ## Blocked, and on whom
@@ -95,8 +96,11 @@ Against the build order in `CLAUDE.md`:
   sealed token store (ADR 0033), a window anchored on payments (ADR 0035), credit
   memos read as not cash (ADR 0036), short-pays opening cases, and a customer's
   owner connecting their own company from Settings → QuickBooks with every token
-  refresh serialized per company (ADR 0039, deployed 2026-09-23). Triage — an
-  ordered work queue over what the sync and the uploads open — is not started.
+  refresh serialized per company (ADR 0039, deployed 2026-09-23). Triage step
+  A is built (ADR 0043): the case list opens with a review queue over what the
+  sync and the uploads open, most urgent first, and a ledger case can be
+  decided the day it opens. Step B, a shadow-only model tier, is designed and
+  waits on Jev access.
 - **Phase 2 — evidence + decision.** Not started. Phase 2's model decision lands
   in the slot Phase 3 has already used, with a corpus of human decisions in the
   same `schema_id` to score against.
@@ -168,6 +172,10 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    0032 is not applied to production yet: `mozart-preview` first, on the
    founder's go.
 5. **Triage**, the rest of Phase 1.5.
+   Step A is **built** — ADR 0043: a deterministic review queue in four
+   buckets, and ledger cases that open `classified`. Step B, a shadow-only
+   model tier, has its conditions fixed in the ADR and waits on Jev access and
+   both cassettes.
 
 ## Follow-ups this change created
 

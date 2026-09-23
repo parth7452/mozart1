@@ -98,7 +98,9 @@ It runs as the connection's member through `app_rw`, like everything else the
 sync writes, so the next scheduled run fixes production's two cases with no
 operator step. It touches only `discovered` cases with an `erp_sync` notice, so
 it cannot move a notice read half-way. After the first run it finds nothing and
-costs one query.
+costs one query. The job's result and its step log line carry how many it moved
+(`classified N`). The run row does not: those cases were opened by earlier runs,
+not found in this run's window, and each move is already an event on its case.
 
 It does not reach the crash window ADR 0029 describes, where `openCase` commits
 and the sync dies before the transaction that links the extract. That case has

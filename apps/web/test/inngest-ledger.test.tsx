@@ -400,6 +400,8 @@ describe('one scheduled sync', () => {
       expect(lines[2]).toContain('step sync-ledger completed');
       expect(lines[2]).toContain('window 2026-08-19..2026-09-22');
       expect(lines[2]).toContain('opened 1');
+      // The sweep's count (ADR 0043 §2): nothing was stuck in `discovered`.
+      expect(lines[2]).toContain('classified 0');
       expect(lines[3]).toContain('run returned');
       for (const line of lines) {
         expect(line).toContain(`connection ${CONN_A}`);

@@ -178,6 +178,13 @@ export interface LedgerSyncJobResult {
   readonly declinedCount: number;
   readonly anomalyCount: number;
   /**
+   * Ledger cases this run moved out of `discovered` before it read the ledger
+   * (ADR 0043 §2). Only on a completed run, and never on the run row: it is
+   * about cases opened by earlier runs, not about this run's window, and each
+   * move is already a `case.classified` event on its case.
+   */
+  readonly classifiedCount?: number;
+  /**
    * Why it did not sync, for a log line — never for the run row.
    *
    * `not_configured` names the environment variable that is missing, which is
@@ -369,7 +376,7 @@ export async function syncLedgerJob(
     throw error;
   }
 
-  return record(
+  const completed = await record(
     'completed',
     {
       invoicesExamined: report.invoicesExamined,
@@ -381,6 +388,7 @@ export async function syncLedgerJob(
     undefined,
     report.anomalies.map(toAnomalyRecord),
   );
+  return { ...completed, classifiedCount: report.classified.length };
 }
 
 interface Counts {
