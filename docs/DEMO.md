@@ -45,7 +45,12 @@ What happens, and why each step is worth naming out loud:
   produce model input without a clean verdict. A document from a customer is a
   file from a stranger.
 - **It is classified**, then **extracted** into typed fields, each carrying the
-  page and the verbatim quote it came from.
+  page and the verbatim quote it came from. A notice or remittance opens a case
+  on its own only at or above the workspace's classification floor (0.95) with
+  a reading that fits its type; anything less is held under "Read, not on a
+  case" for a person to open (ADR 0044). This remittance read at exactly 0.95
+  when it was recorded, and classification is not pinned — if it comes back
+  held, press **Open a case from it** there; nothing is read again.
 - **A case opens**, though this is not a notice. It is a remittance: Brookfield
   paid $4,200.00 against a $4,800.00 invoice. A short-paid remittance line is a
   discovered deduction (ADR 0028), so the one line opens one case, for the

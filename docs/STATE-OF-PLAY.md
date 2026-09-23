@@ -63,6 +63,7 @@ The gap between *it worked once* and *it works*:
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
 | **The review queue** (ADR 0043) | The first 07:00 sync after it deploys moves production's two ledger cases ($450.00 and $239.00) to `classified`, each with a `case.classified` event naming the sync, and their case pages offer decide and decline |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
+| **The classification floor** (ADR 0044) | A real notice or remittance classified below 0.950 is held in production — listed under "Read, not on a case" with its confidence, not read again on "Read again" — and "Open a case from it" opens its case with `confirmed_by` on `case.discovered` and no new `model_calls` row. Every real one read so far has been at 0.95 or above, so nothing in production has been held yet |
 
 ## Blocked, and on whom
 
@@ -166,8 +167,13 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    rate per channel over the last 12 months, the month-by-channel table, and
    the ledger sync's runs and anomalies per connection.
 3. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
-   92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
-   review floor unexamined, and the STF-201 camera pages ground at 64–83%.
+   92.9%, 13/15 classified, and the STF-201 camera pages ground at 64–83%. The
+   service order no longer reads as a `po` (2026-09-23). The review floor is now
+   the product's (ADR 0044, built): a notice or remittance below the tenant's
+   floor, or whose reading does not fit its type, is held under "Read, not on a
+   case" for a person to open or attach, so `stf-203-short-payment-notice` — a
+   notice read as a remittance at 0.75 — no longer opens a case per line. A
+   misread *evidence* type still opens nothing either way and is not gated.
 4. ~~**Decide how a confirmed duplicate merges.**~~ **built** — ADR 0042,
    migration 0032: "Same deduction" merges in one click, the database moves the
    copy to `merged`, coverage counts the pair once, and an undo puts it back.
