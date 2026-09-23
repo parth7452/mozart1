@@ -473,6 +473,20 @@ describe('documents that were read and that no case holds', () => {
     expect(
       caseLabel(summary({ claimId: 'LOG-202', debtorName: undefined, retailerNameAsPrinted: 'Westhaven Paper Supply' })),
     ).toBe('LOG-202 · Westhaven Paper Supply · $3,120.00');
+    // A case the ledger or a remittance opened has no claim: it is named by the
+    // invoice that was paid short, which is what a reviewer would look for.
+    expect(
+      caseLabel(
+        summary({
+          claimId: undefined,
+          invoiceNumber: '1007',
+          debtorName: undefined,
+          retailerNameAsPrinted: 'John Melton',
+          deductionAmountCents: 45_000,
+        }),
+      ),
+    ).toBe('invoice 1007 · John Melton · $450.00');
+    // And only when there is nothing to name it by does it say so.
     expect(caseLabel(summary({ claimId: undefined, debtorName: undefined }))).toBe(
       'no claim id · retailer unknown · $3,120.00',
     );
