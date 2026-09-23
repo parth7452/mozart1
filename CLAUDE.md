@@ -983,7 +983,15 @@ and counts its survivor in the month and under the channel of the earliest
 notice across the two; the coverage page's "counted twice" is now only the
 confirmed pairs that could not be merged, each with its reason on the case page.
 Nothing is deleted, no identifier moves, no approval or filing row is written,
-and no UPDATE or DELETE grant is added. Production does not carry 0032 yet.
+and no UPDATE or DELETE grant is added. Production carries 0032 since
+2026-09-23, applied to `mozart-preview` first and read back on both: the stored
+statement's md5 equals the file's, `deductions_state_check` is the only state
+check and admits `merged`, `deduction_merges` has RLS with `app_rw` holding
+SELECT and INSERT and `app_ro` SELECT, its four triggers are in place, the work
+refusal is on all eight tables, the seven functions are pinned and none is
+definer, the three views are `security_invoker`, the coverage view kept its
+columns, the request roles still hold nothing, and the coverage figures did not
+move — no case is merged yet.
 
 **What to work on next is a queue, and a ledger case can be decided** (ADR
 0043, no migration). The case list led with the newest 100 cases whatever their
