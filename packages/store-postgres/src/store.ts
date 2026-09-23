@@ -85,6 +85,7 @@ import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
 import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
+import { readReviewQueue, REVIEW_QUEUE_LIMIT, type ReviewQueueRead } from './review-queue';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -3589,6 +3590,19 @@ export class PostgresStore
    * completed run found (ADR 0031, ADR 0035). One tenant transaction as
    * `app_rw`. Reads only.
    */
+  /**
+   * The cases a person can act on now, most urgent first as the SQL sees it —
+   * `rankForReview` gives the final order (ADR 0043). One tenant transaction as
+   * `app_rw`; reads only.
+   */
+  async reviewQueue(
+    options: { readonly today?: Date; readonly limit?: number } = {},
+  ): Promise<ReviewQueueRead> {
+    return this.withTenant((client) =>
+      readReviewQueue(client, options.today ?? new Date(), options.limit ?? REVIEW_QUEUE_LIMIT),
+    );
+  }
+
   async ledgerSyncHealth(options: { readonly runLimit?: number } = {}): Promise<LedgerSyncHealth> {
     const runLimit = options.runLimit ?? LEDGER_RUNS_DEFAULT;
     return this.withTenant((client) => readLedgerSyncHealth(client, runLimit));

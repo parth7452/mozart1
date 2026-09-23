@@ -11,4 +11,5 @@ export * from './settlement';
 export * from './state-machine';
 export * from './triage';
 export * from './thresholds';
+export * from './work-queue';
 export * from './invariants/index';
