@@ -11,7 +11,7 @@ export function Wordmark() {
 }
 
 /** Which part of the workspace a page belongs to, for the nav and the breadcrumb. */
-export type WorkspaceSection = 'deductions' | 'quickbooks';
+export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks';
 
 /** Shared presentation only. Session resolution stays in the route. */
 export function WorkspaceShell({
@@ -52,6 +52,16 @@ export function WorkspaceShell({
               ▦
             </span>
             Deductions<span aria-hidden="true">↗</span>
+          </Link>
+          <Link
+            className={section === 'coverage' ? 'nav-item active' : 'nav-item'}
+            href="/coverage"
+            aria-current={section === 'coverage' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ◔
+            </span>
+            Coverage<span aria-hidden="true">↗</span>
           </Link>
           <Link
             className={section === 'quickbooks' ? 'nav-item active' : 'nav-item'}
@@ -99,6 +109,8 @@ export function WorkspaceShell({
                 <span className="breadcrumb-divider">/</span>
                 <Link href="/settings/quickbooks">QuickBooks</Link>
               </>
+            ) : section === 'coverage' ? (
+              <Link href="/coverage">Coverage</Link>
             ) : (
               <Link href="/">Deductions</Link>
             )}

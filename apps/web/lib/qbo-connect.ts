@@ -87,6 +87,19 @@ export function qboConnectFromEnv(environment: EnvVars = process.env): QboConnec
   return { kind: 'ready', app, cipher, redirectUri: `${env.siteUrl}${QBO_CALLBACK_PATH}` };
 }
 
+/**
+ * Which QuickBooks environment this deployment reads — `QBO_ENVIRONMENT` and
+ * nothing else, so a page that only labels its numbers never touches the
+ * client secret or the KMS key. Anything but the two known values is
+ * `undefined`: the label is left off rather than guessed.
+ */
+export function qboEnvironmentFromEnv(
+  environment: EnvVars = process.env,
+): 'sandbox' | 'production' | undefined {
+  const value = (environment.QBO_ENVIRONMENT ?? '').trim();
+  return value === 'sandbox' || value === 'production' ? value : undefined;
+}
+
 /** Connecting and disconnecting a ledger is an owner's act (ADR 0039 §8). The database says so too. */
 export function mayConnectLedger(role: string): boolean {
   return role === 'owner';
