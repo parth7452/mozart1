@@ -2194,8 +2194,9 @@ export class PostgresStore
         state: CaseState;
         claim_id: string | null;
         deduction_amount_cents: string;
+        discovered_via: DiscoveredVia;
       }>(
-        `select id, org_id, state, claim_id, deduction_amount_cents
+        `select id, org_id, state, claim_id, deduction_amount_cents, discovered_via
            from deductions where id = $1`,
         [deductionId],
       );
@@ -2207,6 +2208,9 @@ export class PostgresStore
         state: row.state,
         ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
         deductionAmountCents: Number(row.deduction_amount_cents),
+        // What reconcileCase asks to tell a remittance-opened case from any
+        // other case with no notice on it (ADR 0040).
+        discoveredVia: row.discovered_via,
       };
     });
   }
