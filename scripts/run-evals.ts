@@ -17,6 +17,8 @@ import { classificationIsActionable } from '@recouple/core-domain';
 import {
   CassetteClassifier,
   CassetteExtractor,
+  classificationIsCurrent,
+  classifierPromptSha256,
   locateQuote,
   modelFor,
   type Cassette,
@@ -286,6 +288,37 @@ if (skippedSuites.length > 0) {
 if (unsafeDetail.length > 0) {
   console.log('\nclassification misses:');
   for (const line of unsafeDetail) console.log(`  ${line}`);
+}
+
+/**
+ * Classifications this checkout's classifier did not give.
+ *
+ * Replay hands back what the classifier said when a cassette was recorded, so a
+ * prompt change moves no number above: the old answers read as the new
+ * prompt's score. Reported, not gated. Gating would fail every run until the
+ * whole corpus is re-classified, which is a decision about CI for a person to
+ * make, and the first step is that nobody has to infer it from dates.
+ */
+const classifyModel = modelFor('classify');
+const unstamped = documents.filter((d) => cassettes.get(d.key)?.classifier === undefined);
+const stale = documents.filter((d) => {
+  const cassette = cassettes.get(d.key);
+  return (
+    cassette?.classifier !== undefined && !classificationIsCurrent(cassette, classifyModel)
+  );
+});
+if (unstamped.length > 0 || stale.length > 0) {
+  console.log(
+    `\nnote: ${unstamped.length + stale.length} of ${documents.length} classifications replayed here ` +
+      `were not given by this checkout's classifier\n` +
+      `(${classifyModel}, prompt ${classifierPromptSha256().slice(0, 12)}): ` +
+      `${unstamped.length} record nothing about what answered them, ` +
+      `${stale.length} were answered by another model or prompt.\n` +
+      "The classification numbers above are theirs, not this prompt's. Re-ask with\n" +
+      '`pnpm record:cassettes --classify-only` (spends money: one classifier call a document,\n' +
+      'no OCR, no extraction), then `pnpm eval`.',
+  );
+  for (const d of stale) console.log(`  ${d.key}`);
 }
 
 console.log();

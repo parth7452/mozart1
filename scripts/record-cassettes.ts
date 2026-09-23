@@ -9,13 +9,25 @@
  *   pnpm record:cassettes                     # every fixture
  *   pnpm record:cassettes walmart             # only fixtures whose key matches
  *   pnpm record:cassettes --suite customer    # only one suite
+ *   pnpm record:cassettes --classify-only     # re-ask the classifier, nothing else
  *
  * The suite filter exists because a suite is the unit that gets recorded: a new
  * corpus lands whole, and re-recording the other 26 documents to get 15 is
  * money spent on nothing.
+ *
+ * `--classify-only` exists because the classifier's prompt is shared by every
+ * document, so a change to it is a question about all of them — and a full
+ * re-record answers a different question too. It re-runs OCR and extraction,
+ * whose own variation then moves field scores the change never touched, in
+ * suites where one field is more than the eval's tolerance. This re-asks the
+ * classifier and rewrites `classifiedAs`, `classifierConfidence` and the stamp
+ * saying what answered them; the extraction, its cost and the OCR pages stay
+ * byte for byte as recorded. A scan is shown the OCR text its cassette already
+ * holds — the text the classifier saw when it was recorded — so no OCR provider
+ * is called. It refuses a document with no cassette: there is nothing to keep.
  */
 
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import 'dotenv/config';
@@ -23,12 +35,16 @@ import {
   ClaudeClassifier,
   ClaudeExtractor,
   ExtractionError,
+  classifierPromptSha256,
   groundingReport,
   locateQuote,
   modelFor,
   ocrFromEnv,
   OcrError,
+  withClassification,
   type Cassette,
+  type ClassificationResult,
+  type ClassifierStamp,
   type DocType,
   type DocumentPayload,
   type OcrBlock,
@@ -41,6 +57,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const cassetteDir = path.join(here, '..', 'packages', 'fixtures', 'cassettes');
 
 const args = process.argv.slice(2);
+const classifyOnlyAt = args.indexOf('--classify-only');
+const classifyOnly = classifyOnlyAt !== -1;
+if (classifyOnly) args.splice(classifyOnlyAt, 1);
 const suiteAt = args.findIndex((a) => a === '--suite' || a.startsWith('--suite='));
 let suite: string | undefined;
 if (suiteAt !== -1) {
@@ -72,16 +91,115 @@ if (documents.length === 0) {
 }
 
 console.log(
-  `recording ${documents.length} of ${everything.length} fixture documents` +
+  `${classifyOnly ? 're-classifying' : 'recording'} ${documents.length} of ${everything.length} fixture documents` +
     `${suite !== undefined ? ` in suite ${suite}` : ''}${filter !== undefined ? ` matching ${filter}` : ''}`,
 );
 
 const classifier = new ClaudeClassifier();
-const extractor = new ClaudeExtractor();
+
+/** What answered a classification, written onto the cassette beside it. */
+const stampFor = (classification: ClassificationResult): ClassifierStamp => ({
+  model: classification.call.modelVersion,
+  promptSha256: classifierPromptSha256(),
+  classifiedAt: new Date().toISOString(),
+});
+
+/**
+ * The payload a fixture is read as. Fixtures go through the same front door as
+ * the real thing — which for a notice that arrived in a message is not the
+ * upload door. Sniffing magic bytes on text the mail server already parsed
+ * would be checking the wrong thing, so the email-body gate applies instead.
+ */
+function payloadFor(fixture: (typeof everything)[number]): DocumentPayload {
+  const accepted =
+    fixture.mimeType === 'text/plain'
+      ? acceptEmailBody(new TextDecoder().decode(fixture.bytes)).accepted
+      : acceptUpload(fixture.bytes, fixture.filename);
+  return {
+    documentId: fixture.key,
+    orgId: 'fixture-org',
+    filename: fixture.filename,
+    mimeType: accepted.mimeType,
+    base64: Buffer.from(fixture.bytes).toString('base64'),
+    byteSize: accepted.byteSize,
+    pageText: fixture.pageText,
+  };
+}
 
 /** A page that arrives with no text of its own: a scan, a photograph. */
 const needsOcr = (fixture: (typeof everything)[number]): boolean =>
   fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
+
+if (classifyOnly) {
+  let spent = 0;
+  let disagreed = 0;
+  let changed = 0;
+  for (const fixture of documents) {
+    const file = path.join(cassetteDir, `${fixture.key}.json`);
+    process.stdout.write(`\n=== ${fixture.key} (${fixture.filename})\n`);
+    if (!existsSync(file)) {
+      console.error(
+        '  classify  REFUSED   no cassette to re-classify. Record this document in full ' +
+          '(without --classify-only); nothing was written for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
+    const recorded = JSON.parse(readFileSync(file, 'utf8')) as Cassette;
+    if (needsOcr(fixture) && recorded.ocr === undefined) {
+      // The classifier would see the image with no text beside it, which is
+      // not what it saw when this was recorded, so the answer would not be
+      // comparable with the one it replaces.
+      console.error(
+        '  classify  REFUSED   this page has no text layer and its cassette holds no OCR ' +
+          'pages. Record it in full; nothing was written for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
+    const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const payload: DocumentPayload = {
+      ...payloadFor(fixture),
+      ...(ocrPages !== undefined ? { pageText: ocrPages, pageTextSource: 'ocr' as const } : {}),
+    };
+    try {
+      const classification = await classifier.classify(payload);
+      spent += classification.call.costMicros;
+      const agreed = classification.docType === fixture.docType;
+      if (!agreed) disagreed += 1;
+      const moved =
+        classification.docType !== recorded.classifiedAs ||
+        classification.confidence !== recorded.classifierConfidence;
+      if (moved) changed += 1;
+      console.log(
+        `  classify  ${classification.docType} @ ${classification.confidence.toFixed(2)} ` +
+          `${agreed ? '✓' : `✗ expected ${fixture.docType}`} ` +
+          `(was ${recorded.classifiedAs} @ ${recorded.classifierConfidence.toFixed(2)}; ` +
+          `${classification.call.latencyMs}ms, ${classification.call.costMicros}µ$)`,
+      );
+      writeFileSync(
+        file,
+        `${JSON.stringify(withClassification(recorded, classification, stampFor(classification)), null, 2)}\n`,
+      );
+    } catch (error) {
+      if (error instanceof ExtractionError) {
+        spent += error.call.costMicros;
+        console.error(`  FAILED    ${error.message} [${error.call.outcome}]`);
+      } else {
+        console.error(`  FAILED    ${error instanceof Error ? error.message : String(error)}`);
+      }
+      process.exitCode = 1;
+    }
+  }
+  console.log(
+    `\ntotal ${(spent / 1_000_000).toFixed(4)} USD across ${documents.length} documents, ` +
+      `${changed} answer(s) moved, ${disagreed} classification mismatch(es). ` +
+      'Extraction, OCR and their costs were not touched; run `pnpm eval` next.',
+  );
+  process.exit();
+}
+
+const extractor = new ClaudeExtractor();
 
 const ocr = ocrFromEnv();
 const withoutTextLayer = documents.filter(needsOcr);
@@ -110,23 +228,7 @@ let totalMicros = 0;
 let mismatches = 0;
 
 for (const fixture of documents) {
-  // Fixtures go through the same front door as the real thing — which for a
-  // notice that arrived in a message is not the upload door. Sniffing magic
-  // bytes on text the mail server already parsed would be checking the wrong
-  // thing, so the email-body gate applies instead.
-  const accepted =
-    fixture.mimeType === 'text/plain'
-      ? acceptEmailBody(new TextDecoder().decode(fixture.bytes)).accepted
-      : acceptUpload(fixture.bytes, fixture.filename);
-  let payload: DocumentPayload = {
-    documentId: fixture.key,
-    orgId: 'fixture-org',
-    filename: fixture.filename,
-    mimeType: accepted.mimeType,
-    base64: Buffer.from(fixture.bytes).toString('base64'),
-    byteSize: accepted.byteSize,
-    pageText: fixture.pageText,
-  };
+  let payload = payloadFor(fixture);
 
   process.stdout.write(`\n=== ${fixture.key} (${fixture.filename})\n`);
 
@@ -199,6 +301,7 @@ for (const fixture of documents) {
       docType: fixture.docType as DocType,
       classifiedAs: classification.docType,
       classifierConfidence: classification.confidence,
+      classifier: stampFor(classification),
       document: extraction.document,
       recordedWith: modelFor('extract'),
       recordedAt: new Date().toISOString(),

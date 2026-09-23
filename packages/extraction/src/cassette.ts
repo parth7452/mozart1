@@ -8,6 +8,7 @@
  * through exactly the same code as production.
  */
 
+import { createHash } from 'node:crypto';
 import { buildExtractionResult } from './claude';
 import type { OcrBlock, OcrPage } from './ocr';
 import {
@@ -20,6 +21,68 @@ import {
   type ExtractionResult,
   type ModelCallRecord,
 } from './ports';
+import { CLASSIFY_SYSTEM } from './prompt';
+
+/**
+ * What answered a cassette's `classifiedAs`: the classifier model and a hash
+ * of the system prompt it was given.
+ *
+ * A cassette is keyed by filename, and replay hands back whatever the
+ * classifier said when it was recorded. Without this, a prompt change moves no
+ * number in `pnpm eval` — the old answers replay under the new prompt and read
+ * as its score. The system prompt is what is hashed because it is where every
+ * classification change has been made; the per-document instruction and the
+ * text-layer preamble are not covered, and this does not claim they are.
+ */
+export interface ClassifierStamp {
+  readonly model: string;
+  /** sha256 of the classifier's system prompt, hex. */
+  readonly promptSha256: string;
+  readonly classifiedAt: string;
+}
+
+export function classifierPromptSha256(system: string = CLASSIFY_SYSTEM): string {
+  return createHash('sha256').update(system, 'utf8').digest('hex');
+}
+
+/**
+ * Whether the classification a cassette replays was answered by this model
+ * under this prompt. A cassette with no stamp is not current: it was recorded
+ * before anything wrote down what answered it, so nothing says it was.
+ */
+export function classificationIsCurrent(
+  cassette: Pick<Cassette, 'classifier'>,
+  model: string,
+  system: string = CLASSIFY_SYSTEM,
+): boolean {
+  return (
+    cassette.classifier !== undefined &&
+    cassette.classifier.model === model &&
+    cassette.classifier.promptSha256 === classifierPromptSha256(system)
+  );
+}
+
+/**
+ * The cassette with a new classification and everything else exactly as
+ * recorded.
+ *
+ * Re-classifying is a question about the classifier alone, so the extraction,
+ * its cost and the OCR pages are carried over untouched: re-reading them would
+ * spend money on a question nobody asked, and let extraction noise move the
+ * field scores of a change that did not touch extraction.
+ */
+export function withClassification(
+  cassette: Cassette,
+  classification: { readonly docType: DocType; readonly confidence: number },
+  stamp: ClassifierStamp,
+): Cassette {
+  return {
+    ...cassette,
+    classifiedAs: classification.docType,
+    classifierConfidence: classification.confidence,
+    classifier: stamp,
+  };
+}
 
 export interface Cassette {
   readonly key: string;
@@ -28,6 +91,8 @@ export interface Cassette {
   /** What the classifier answered. Differs from docType when it got it wrong. */
   readonly classifiedAs: DocType;
   readonly classifierConfidence: number;
+  /** Absent on every cassette recorded before classifications were stamped. */
+  readonly classifier?: ClassifierStamp;
   readonly document: unknown;
   readonly recordedWith: string;
   readonly recordedAt: string;

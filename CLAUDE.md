@@ -223,10 +223,27 @@ baseline is being compared against. `customer` was recorded on 2026-09-22
 ($0.39, OCR through Reducto for the twelve photographs), so `pendingSuites` is
 empty.
 
-`customer`'s misses are the useful part of it. Two classifications: `stf-203-dispatch-note` read as `correspondence`
-(expected `other`) at 0.85, below the review floor so a human sees it, and
-`stf-203-service-order-terms` read as `po` (expected `price_agreement`) at 0.95,
-*above* the floor — the one that would pass unexamined. Two fields:
+`customer`'s misses are the useful part of it. As first recorded (2026-09-22),
+`stf-203-service-order-terms` — a staffing service order that fixes bill rates
+and orders no quantities — read as `po` at 0.95, so its agreed rates were never
+extracted as an agreement. The classifier's definitions now say that setting
+prices is not ordering, and re-asked (2026-09-23, `--classify-only`) it reads
+`price_agreement` five times in five, where the old prompt read `po` five in
+five. The two classification misses now are `stf-203-dispatch-note`
+(`correspondence`, expected `other`, 0.85) and `stf-203-short-payment-notice`,
+which reads `remittance_advice` at 0.70–0.75 three times in five **under the old
+prompt too** — its correct answer in the first recording was a lucky draw.
+Classification runs with no pinned temperature, so every classification number
+here is one sample, and a suite's classification rate can move by a document
+between runs of the same prompt; a notice read as a remittance opens cases per
+line instead of per claim, which makes that instability a product problem, not
+only an eval one.
+
+The review floor is the eval's word, not the product's: nothing in production
+reads `org_settings.min_classification_confidence` or calls
+`classificationIsActionable` (only `scripts/run-evals.ts` does), and the
+`classification_confidence_meets_tenant_minimum` guard has no evaluator, so a
+document opens a case on its type whatever the confidence. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
 rather than Westhaven Paper Supply, and
 `stf-203-short-payment-notice`'s reason code came back as the payer's own code
@@ -234,7 +251,7 @@ rather than Westhaven Paper Supply, and
 pages is 64–83%: values right, quotes that do not survive being checked against
 the OCR text layer.
 
-Classification is 53/55, both misses in `customer`. Before it, the two field
+Classification is 53/55, both misses in `customer` (the service order is no longer one of them). Before it, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
