@@ -8,7 +8,7 @@ verified there, not only against local Postgres.
 | Project ref | `hvheqbgkvwhlqutklwfh` |
 | Region | `us-east-1` |
 | Postgres | 17.6 (local tests run on 16 — see below) |
-| Applied | migrations 0001–0029, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply) |
+| Applied | migrations 0001–0030, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply) |
 
 ## What was verified on the live project
 
