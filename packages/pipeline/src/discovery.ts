@@ -105,8 +105,8 @@ export interface DiscoveryStore {
    * Moves every one of this tenant's ledger cases still in `discovered` to
    * `classified`, one `case.classified` event each, and says which (ADR 0043
    * §2). A ledger case opens `classified` now; this is for the ones opened
-   * before that, and for one a sync died between opening and linking. It
-   * touches only cases whose notice arrived through `erp_sync`.
+   * before that. It touches only cases whose notice arrived through
+   * `erp_sync`.
    */
   classifyLedgerCases(orgId: string): Promise<readonly string[]>;
   /** The `exact` branch's only write: the ledger's own name for a deduction. */
@@ -226,11 +226,10 @@ export async function syncLedger(input: SyncLedgerInput): Promise<SyncReport> {
 
   const minDisputeCents = input.minDisputeCents ?? DEFAULT_MIN_DISPUTE_CENTS;
 
-  // Ledger cases opened before a ledger case opened `classified`, or left
-  // `discovered` by a run that died between opening a case and linking its
-  // extract, could be neither decided nor declined (ADR 0043 §2). First, before
-  // anything is read from the ledger, so a ledger that cannot be read today does
-  // not keep them stuck another day.
+  // Ledger cases opened before a ledger case opened `classified` could be
+  // neither decided nor declined (ADR 0043 §2). First, before anything is read
+  // from the ledger, so a ledger that cannot be read today does not keep them
+  // stuck another day.
   const classified = await input.store.classifyLedgerCases(input.orgId);
 
   // The window is anchored on what was *paid* (ADR 0035 §1): a short-pay

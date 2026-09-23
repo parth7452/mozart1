@@ -421,14 +421,14 @@ export class PostgresDiscoveryStore {
    * Every one of this tenant's ledger cases still in `discovered`, moved to
    * `classified` with one `case.classified` event each (ADR 0043 §2).
    *
-   * A ledger case opens `classified` now. The ones opened before that — and one
-   * a sync died on between opening it and linking its extract, which
-   * `recordLedgerCase`'s two writes allow — stayed `discovered`, and the case
-   * page offers neither decide nor decline there. Only cases whose notice
-   * arrived through `erp_sync` are touched, so a notice half-way through its
-   * own read is left to its own path. Locked, so two overlapping syncs cannot
-   * both move one case. The sync runs this first on every run; after the first
-   * it finds nothing.
+   * A ledger case opens `classified` now. The ones opened before that stayed
+   * `discovered`, and the case page offers neither decide nor decline there.
+   * Only cases whose notice arrived through `erp_sync` are touched, so a notice
+   * half-way through its own read is left to its own path — and so is a case
+   * `openCase` committed before a sync died short of linking it (ADR 0029's
+   * crash window), which has no notice to say where it came from. Locked, so
+   * two overlapping syncs cannot both move one case. The sync runs this first
+   * on every run; after the first it finds nothing.
    */
   async classifyLedgerCases(orgId: string): Promise<readonly string[]> {
     this.assertOwnTenant(orgId);

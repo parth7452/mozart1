@@ -98,9 +98,14 @@ It runs as the connection's member through `app_rw`, like everything else the
 sync writes, so the next scheduled run fixes production's two cases with no
 operator step. It touches only `discovered` cases with an `erp_sync` notice, so
 it cannot move a notice read half-way. After the first run it finds nothing and
-costs one query. It also heals a ledger case left `discovered` because the sync
-died between opening the case and linking its extract, which the two separate
-writes in `recordLedgerCase` make possible.
+costs one query.
+
+It does not reach the crash window ADR 0029 describes, where `openCase` commits
+and the sync dies before the transaction that links the extract. That case has
+no notice, so nothing on it says it came from the ledger, and the sweep leaves
+it alone. This change neither widens nor narrows that window: the
+classification is written inside the linking transaction, so a case is linked
+and classified together or neither.
 
 ### 3. Step B: a model tier, shadow only, when these conditions hold
 

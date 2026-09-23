@@ -159,6 +159,27 @@ describeDb('discovering a deduction in the ledger', () => {
     expect(row?.mime_type).toBe('application/json');
   });
 
+  /**
+   * ADR 0043 §2: a ledger extract's type is known by construction, so the case
+   * crosses `discovered → classified` in the transaction that links it — and
+   * the case page's decide and decline cards, which a `discovered` case never
+   * gets, are there on the day it opens.
+   */
+  it('opens the case classified, with the event that says the sync did it', async () => {
+    const { rows } = await admin.query<{ state: string }>(
+      `select state from deductions where id = $1`,
+      [recorded0()],
+    );
+    expect(rows[0]?.state).toBe('classified');
+
+    const { rows: events } = await admin.query<{ event_type: string; payload: Record<string, unknown> }>(
+      `select event_type, payload from deduction_events where deduction_id = $1 order by id asc`,
+      [recorded0()],
+    );
+    expect(events.map((e) => e.event_type)).toEqual(['case.discovered', 'case.classified']);
+    expect(events[1]?.payload).toEqual({ classified_by: 'ledger_sync', source: 'erp_sync' });
+  });
+
   it('records the names the ledger knows it by, and the discovery event', async () => {
     const { extract } = extractFor(
       [invoice({ externalId: 'inv-2', invoiceNumber: 'INV-1002' })],
@@ -192,10 +213,11 @@ describeDb('discovering a deduction in the ledger', () => {
     );
     expect(events.map((e) => e.event_type)).toEqual([
       'case.discovered',
+      'case.classified',
       'case.possible_duplicate',
     ]);
     expect(events[0]?.payload.source).toBe('erp_sync');
-    expect(events[1]?.payload.basis).toEqual(['invoice_number', 'amount_cents']);
+    expect(events[2]?.payload.basis).toEqual(['invoice_number', 'amount_cents']);
   });
 
   it('reuses the case when the same ledger state is synced again', async () => {
@@ -227,6 +249,78 @@ describeDb('discovering a deduction in the ledger', () => {
       [orgId, Buffer.from(extract.sha256, 'hex')],
     );
     expect(rows[0]?.count).toBe('1');
+  });
+
+  /**
+   * The cases opened before ADR 0043 are still `discovered` (production holds
+   * two). The sweep moves exactly those: a case whose notice arrived through
+   * `erp_sync`. A notice another channel delivered is left to its own read, a
+   * case with no notice at all (ADR 0029's crash window) is left alone, and so
+   * is another tenant's.
+   */
+  it('moves the ledger cases stuck in discovered, and nothing else, once', async () => {
+    async function stuckCase(
+      org: string,
+      label: string,
+      source: 'erp_sync' | 'web_upload' | undefined,
+    ): Promise<string> {
+      const { rows } = await admin.query<{ id: string }>(
+        `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
+         values ($1, $2, 4_500, 'discovered') returning id`,
+        [org, `STUCK-${suffix}-${label}`],
+      );
+      const deductionId = rows[0]?.id as string;
+      if (source === undefined) return deductionId;
+      const uploadId = randomUUID();
+      const documentId = randomUUID();
+      await admin.query(`insert into uploads (id, org_id, source, created_by) values ($1,$2,$3,$4)`, [
+        uploadId,
+        org,
+        source,
+        source === 'web_upload' ? analystId : null,
+      ]);
+      await admin.query(
+        `insert into documents (id, org_id, upload_id, sha256, byte_size, mime_type, storage_ref, filename)
+         values ($1,$2,$3,$4,64,$5,$6,$7)`,
+        [
+          documentId,
+          org,
+          uploadId,
+          Buffer.from(randomUUID().replace(/-/g, ''), 'hex'),
+          source === 'erp_sync' ? 'application/json' : 'application/pdf',
+          `db://${documentId}`,
+          source === 'erp_sync' ? 'ledger.json' : 'notice.pdf',
+        ],
+      );
+      await admin.query(
+        `insert into deduction_documents (org_id, deduction_id, document_id, role)
+         values ($1,$2,$3,'notice')`,
+        [org, deductionId, documentId],
+      );
+      return deductionId;
+    }
+
+    const ledger = await stuckCase(orgId, 'ledger', 'erp_sync');
+    const notice = await stuckCase(orgId, 'notice', 'web_upload');
+    const orphan = await stuckCase(orgId, 'orphan', undefined);
+    const theirs = await stuckCase(otherOrgId, 'theirs', 'erp_sync');
+
+    expect(await discovery.classifyLedgerCases(orgId)).toEqual([ledger]);
+    // Idempotent: the next run finds nothing and writes nothing.
+    expect(await discovery.classifyLedgerCases(orgId)).toEqual([]);
+
+    const { rows } = await admin.query<{ id: string; state: string; classified: string }>(
+      `select d.id::text as id, d.state,
+              (select count(*) from deduction_events e
+                where e.deduction_id = d.id and e.event_type = 'case.classified')::text as classified
+         from deductions d where d.id = any ($1::uuid[])`,
+      [[ledger, notice, orphan, theirs]],
+    );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(ledger)).toMatchObject({ state: 'classified', classified: '1' });
+    expect(byId.get(notice)).toMatchObject({ state: 'discovered', classified: '0' });
+    expect(byId.get(orphan)).toMatchObject({ state: 'discovered', classified: '0' });
+    expect(byId.get(theirs)).toMatchObject({ state: 'discovered', classified: '0' });
   });
 
   it('declines a candidate that never became a case, and only once', async () => {
@@ -320,6 +414,7 @@ describeDb('discovering a deduction in the ledger', () => {
 
   it('refuses to act for another tenant', async () => {
     await expect(discovery.knownIdentifiers(otherOrgId)).rejects.toThrow(DiscoveryStoreError);
+    await expect(discovery.classifyLedgerCases(otherOrgId)).rejects.toThrow(DiscoveryStoreError);
     await expect(
       discovery.declineCandidate({
         orgId: otherOrgId,
