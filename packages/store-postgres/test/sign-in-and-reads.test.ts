@@ -12,7 +12,7 @@ import {
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import { processUpload, type PipelineDeps } from '@recouple/pipeline';
-import { closeAllPools, PostgresStore } from '../src/store';
+import { closeAllPools, PostgresStore, sessionPool } from '../src/store';
 import { resolveSession } from '../src/session';
 
 const connectionString = process.env.DATABASE_URL;
@@ -191,6 +191,105 @@ describeDb('signing in, and the reads the web app makes', () => {
         email: analystEmail,
       }),
     ).rejects.toThrow(/already linked/);
+  });
+
+  it('refuses an address two users answer to, rather than linking one of them', async () => {
+    // `users.email` is unique case-sensitively only; before migration 0033 a
+    // sign-in linked whichever row the planner returned first (ADR 0045).
+    const lower = randomUUID();
+    const upper = randomUUID();
+    await admin.query(`insert into users (id, email) values ($1, $2), ($3, $4)`, [
+      lower, `twin-${suffix}@example.test`,
+      upper, `TWIN-${suffix}@example.test`,
+    ]);
+    await admin.query(
+      `insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst'), ($1, $3, 'analyst')`,
+      [orgId, lower, upper],
+    );
+
+    const refusal = await resolveSession({ connectionString: connectionString as string }, {
+      authUserId: randomUUID(),
+      email: `Twin-${suffix}@Example.test`,
+    }).then(
+      () => undefined,
+      (error: unknown) => error as Error & { code?: string },
+    );
+    expect(refusal?.message).toMatch(/more than one user answers to/);
+    expect(refusal?.code).toBe('21000'); // cardinality_violation
+    // Not the stranger's refusal: the web app signs a session out on that one
+    // only, and this is an operator's problem, not a verdict on the person.
+    expect(refusal?.message).not.toMatch(/no invitation/);
+    expect(refusal?.code).not.toBe('42501');
+
+    const { rows } = await admin.query<{ n: string }>(
+      `select count(*) as n from users where id in ($1, $2) and auth_user_id is not null`,
+      [lower, upper],
+    );
+    expect(Number(rows[0]?.n)).toBe(0);
+  });
+
+  it('refuses the sign-in link to any caller that carries a claim', async () => {
+    // Its one caller is `resolveSession`, before any claim is set. A caller with
+    // one — a subject alone is the shape of a Data API request — could pair an
+    // unclaimed invitation with an identity of its choosing (ADR 0045).
+    const stranger = randomUUID();
+    const invited = randomUUID();
+    const invitedEmail = `unclaimed-${suffix}@example.test`;
+    await admin.query(`insert into users (id, email) values ($1, $2)`, [invited, invitedEmail]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst')`, [
+      orgId, invited,
+    ]);
+
+    for (const claims of [{ sub: otherAnalystId }, { org_id: otherOrgId, sub: otherAnalystId }]) {
+      const client = await admin.connect();
+      try {
+        await client.query('begin');
+        await client.query('set local role app_rw');
+        await client.query('select set_config($1, $2, true)', [
+          'request.jwt.claims',
+          JSON.stringify(claims),
+        ]);
+        await expect(
+          client.query('select app.link_auth_user($1, $2)', [stranger, invitedEmail]),
+        ).rejects.toThrow(/takes no claims/);
+      } finally {
+        await client.query('rollback').catch(() => undefined);
+        client.release();
+      }
+    }
+
+    const { rows } = await admin.query<{ auth_user_id: string | null }>(
+      `select auth_user_id from users where id = $1`,
+      [invited],
+    );
+    expect(rows[0]?.auth_user_id).toBeNull();
+  });
+
+  it('signs in on a pooled connection that was last left carrying a claim', async () => {
+    // Every claim in the store is transaction-local, so this should not happen;
+    // `resolveSession` clears the setting itself rather than depend on that. A
+    // shared pool of one connection makes the connection it borrows the one
+    // dirtied here.
+    const pooledId = randomUUID();
+    const pooledEmail = `pooled-${suffix}@example.test`;
+    await admin.query(`insert into users (id, email) values ($1, $2)`, [pooledId, pooledEmail]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst')`, [
+      orgId, pooledId,
+    ]);
+
+    const single = { connectionString: connectionString as string, max: 1 };
+    const pool = sessionPool(single);
+    await pool.query('select set_config($1, $2, false)', [
+      'request.jwt.claims',
+      JSON.stringify({ sub: otherAnalystId }),
+    ]);
+    try {
+      const resolved = await resolveSession(single, { authUserId: randomUUID(), email: pooledEmail });
+      expect(resolved.userId).toBe(pooledId);
+      expect(resolved.orgs.map((o) => o.orgId)).toEqual([orgId]);
+    } finally {
+      await pool.query(`select set_config('request.jwt.claims', '', false)`);
+    }
   });
 
   it('shows a member only their own tenants', async () => {

@@ -199,6 +199,10 @@ export async function listConnectionsToSync(
   try {
     await client.query('begin');
     await client.query(`set local role ${role}`);
+    // The fan-out list is refused to any caller carrying a claim, an org or a
+    // subject (ADR 0045), and this caller has none because it has not adopted a
+    // tenant yet. Cleared rather than assumed, as `resolveOperator` does.
+    await client.query(`select set_config('request.jwt.claims', '', true)`);
     const { rows } = await client.query<{
       connection_id: string;
       org_id: string;

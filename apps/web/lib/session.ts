@@ -26,6 +26,13 @@ export interface Session {
  * Nothing here trusts a cookie for identity. The org cookie only picks between
  * tenants the database has already said this user belongs to — a forged value
  * falls through to the first real membership.
+ *
+ * An identity the database refuses — no invitation, or no membership anywhere —
+ * is signed out before it is sent to the login page (ADR 0045), so its session
+ * is not kept alive and refreshed by the proxy for as long as the tab is open.
+ * Only those two answers sign anybody out: a fault is not a verdict on the
+ * person, and a member whose sign-in hit an unreachable database keeps their
+ * session.
  */
 export async function requireSession(): Promise<Session> {
   const supabase = await supabaseForRequest();
@@ -43,11 +50,14 @@ export async function requireSession(): Promise<Session> {
     });
   } catch (cause) {
     // A refusal the person can act on, or a fault somebody has to fix.
-    // `messageFor` decides which, and records the ones that are ours.
-    redirect(`/login?denied=${encodeURIComponent(messageFor(cause))}`);
+    // `refusalOf` decides which, and `messageFor` records the ones that are ours.
+    const refusal = refusalOf(cause);
+    if (refusal === 'not_invited') await signOutRefused(supabase, 'no invitation');
+    redirect(`/login?denied=${encodeURIComponent(messageFor(cause, refusal))}`);
   }
 
   if (resolved.orgs.length === 0) {
+    await signOutRefused(supabase, 'no membership');
     redirect('/login?denied=no+membership+for+this+account');
   }
 
@@ -57,6 +67,61 @@ export async function requireSession(): Promise<Session> {
   if (org === undefined) redirect('/login?denied=no+membership+for+this+account');
 
   return { userId: resolved.userId, email: user.email, org, orgs: resolved.orgs };
+}
+
+/** The two answers from the database that are refusals of this identity. */
+type Refusal = 'not_invited' | 'linked_elsewhere';
+
+/**
+ * Whether what `resolveSession` threw is one of `app.link_auth_user()`'s two
+ * refusals of the person, or something else.
+ *
+ * Both are raised with SQLSTATE 42501 and a fixed opening (migrations 0012 and
+ * 0033), and both are asked for rather than searched for anywhere in whatever
+ * was thrown: one of them now signs a session out, and a fault that happened to
+ * mention an invitation must not. 0033's own new refusals — a caller carrying a
+ * claim, an address two users answer to — are 42501 and 21000 with other
+ * wording, and are faults here: an operator's to fix, not the person's.
+ */
+function refusalOf(cause: unknown): Refusal | undefined {
+  if (!(cause instanceof Error)) return undefined;
+  if ((cause as { code?: unknown }).code !== '42501') return undefined;
+  if (cause.message.startsWith('no invitation for ')) return 'not_invited';
+  if (cause.message.startsWith('account for ') && cause.message.endsWith(' is already linked to another identity')) {
+    return 'linked_elsewhere';
+  }
+  return undefined;
+}
+
+/**
+ * Ends a session the database has refused, at the provider as well as here.
+ *
+ * `signOut()`'s default scope is global: it revokes every refresh token this
+ * identity holds, so the session cannot be refreshed from any cookie anywhere.
+ * In a route handler the cookies are cleared at once. A server component
+ * cannot write cookies (`supabaseForRequest` tolerates that), so there the
+ * revocation is what counts: the proxy's next `getUser()` is answered
+ * `session_not_found`, and auth-js removes the session itself.
+ *
+ * A sign-out that fails is logged and the refusal goes ahead regardless.
+ * `resolveSession` refuses this identity on every request whatever its cookie
+ * says, so the cookie outliving the redirect costs a refresh, not access.
+ */
+async function signOutRefused(
+  supabase: Awaited<ReturnType<typeof supabaseForRequest>>,
+  why: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error !== null) {
+      console.error(
+        `[sign-in refused] ${why}: signing the session out failed ` +
+          `(${error.name}, HTTP ${error.status ?? '(none)'}); the refusal stands`,
+      );
+    }
+  } catch (cause) {
+    console.error(`[sign-in refused] ${why}: signing the session out threw; the refusal stands`, cause);
+  }
 }
 
 /**
@@ -77,16 +142,15 @@ export async function requireSession(): Promise<Session> {
  * person can quote. The code is the timestamp, which is enough to find the log
  * line and costs nothing to say out loud.
  */
-function messageFor(cause: unknown): string {
-  const message = cause instanceof Error ? cause.message : String(cause);
-
-  if (message.includes('no invitation')) {
+function messageFor(cause: unknown, refusal: Refusal | undefined): string {
+  if (refusal === 'not_invited') {
     return 'that address has not been invited to a workspace';
   }
-  if (message.includes('already linked')) {
+  if (refusal === 'linked_elsewhere') {
     return 'that address is already linked to another sign-in';
   }
 
+  const message = cause instanceof Error ? cause.message : String(cause);
   const reference = new Date().toISOString();
   console.error(
     `[sign-in failed] ${reference} — resolveSession could not complete. ` +

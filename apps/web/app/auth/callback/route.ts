@@ -4,7 +4,11 @@ import { supabaseForRequest } from '../../../lib/supabase';
 /**
  * Where the magic link lands. Exchanges the code for a session and sends the
  * reviewer to the case list; `requireSession` does the rest, because resolving
- * which tenant they belong to is the same work on every request.
+ * which tenant they belong to is the same work on every request. That includes
+ * refusing an identity the database does not know. `requireSession` signs the
+ * refused identity out at the provider before it redirects (ADR 0045), so a
+ * session made here for somebody with no invitation does not outlive the first
+ * page that asks who they are.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);

@@ -29,7 +29,9 @@ export interface SessionResolverConfig {
  * which answers one question and nothing more.
  *
  * Throws when there is no invitation for the address, which is the answer to an
- * authenticated stranger: a verified email is not an entitlement.
+ * authenticated stranger: a verified email is not an entitlement. Also throws,
+ * with a different message, when two users' addresses differ only in case — an
+ * operator's problem to resolve, not a refusal of this person (ADR 0045).
  */
 export async function resolveSession(
   config: SessionResolverConfig,
@@ -44,6 +46,12 @@ export async function resolveSession(
     try {
       await client.query('begin');
       await client.query(`set local role ${config.role ?? 'app_rw'}`);
+      // `app.link_auth_user()` refuses any caller that carries a claim (ADR
+      // 0045): this is the one caller it is for, and it has none yet because it
+      // does not know who this is. Stated rather than assumed — every claim here
+      // is set transaction-locally, but saying so keeps sign-in from depending
+      // on how the pooled connection was last used (`resolveOperator`'s reason).
+      await client.query(`select set_config('request.jwt.claims', '', true)`);
 
       const linked = await client.query<{ user_id: string }>(
         'select app.link_auth_user($1, $2) as user_id',

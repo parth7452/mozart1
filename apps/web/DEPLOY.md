@@ -111,5 +111,26 @@ Site URL, so the magic link lands somewhere that cannot complete the sign-in.
 ## Who can sign in
 
 Only an address that already has a `users` row and a `memberships` row.
-`app.link_auth_user()` refuses anyone else — a verified email is not an
-entitlement (ADR 0012). Invite someone by inserting those two rows.
+`app.link_auth_user()` refuses anyone else, because a verified email is not an
+entitlement (ADR 0015). An identity it refuses, or one with no membership left,
+is signed out at the provider rather than kept with a live cookie (ADR 0045).
+
+The login form creates no Supabase Auth user (`shouldCreateUser: false`, ADR
+0045), so inviting someone takes three steps:
+
+1. Insert their `users` row and a `memberships` row for their tenant, as the
+   owner.
+2. In the Supabase dashboard: **Authentication → Users → Add user → Send
+   invitation**, with the same address. This creates the auth user and emails
+   the invitation.
+3. They follow the invitation link once, which confirms the address, then sign
+   in from the login form. The invitation link does not sign them in by itself.
+   It lands on the Site URL with the session in the URL fragment, and the app
+   only takes a session from `/auth/callback`.
+
+Skip step 2 and the form still says a link is on its way. It says that for
+every address, so it cannot be used to find out who has an account. The app's
+log records `otp_disabled` instead. With "Allow new users to sign up" switched
+off (recommended, the founder's switch, docs/supabase.md), someone who has not
+yet followed their invitation gets `signup_disabled` in the log and no mail.
+Re-send the invitation.
