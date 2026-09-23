@@ -53,7 +53,7 @@ export default async function CasePage({
     const summary = (await store.listCases()).find((row) => row.deductionId === id);
     if (summary === undefined) notFound();
 
-    const [fields, costMicros, reconciliation, workflow, duplicates] = await Promise.all([
+    const [fields, costMicros, reconciliation, workflow, duplicates, merges] = await Promise.all([
       store.fieldsForCase(id),
       store.costForCase(id),
       reconcileCase(id, {
@@ -84,6 +84,9 @@ export default async function CasePage({
       // knowing that another case may be the same one matters, and a reader who
       // cannot answer still should not assemble a packet for it twice.
       store.possibleDuplicates({ deductionId: id }),
+      // What this case was merged into, or absorbed, and the confirmed pairs
+      // that could not be merged and why (ADR 0042).
+      store.mergesFor(id),
     ]);
 
     return (
@@ -99,6 +102,7 @@ export default async function CasePage({
         viewerUserId={session.userId}
         workflow={workflow}
         duplicates={duplicates}
+        merges={merges}
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
       />

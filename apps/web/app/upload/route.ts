@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {
+  CaseMergedAwayError,
   CaseNotFoundError,
   DuplicateCaseError,
   RejectedUploadError,
@@ -209,6 +210,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // return to — and never told which of those it was.
       back.pathname = '/';
       return say('upload_case_gone');
+    }
+    if (cause instanceof CaseMergedAwayError) {
+      // Evidence for a case that was merged into another (ADR 0042). Refused
+      // before the bytes were stored, so nothing was read or spent; the
+      // reviewer stays on the case page, whose banner links to the survivor.
+      return say('upload_case_merged');
     }
     if (cause instanceof DuplicateCaseError) {
       // The same claim, already a case. Not an error the reviewer can act on and

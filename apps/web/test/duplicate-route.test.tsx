@@ -7,6 +7,7 @@ import {
   WrongRoleError,
   type DuplicateVerdict,
   type DuplicateVerdictRecord,
+  type MergeOutcome,
 } from '@recouple/pipeline';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
@@ -35,6 +36,7 @@ interface VerdictCall {
   otherDeductionId: string;
   verdict: DuplicateVerdict;
   recordedBy: string;
+  merge?: boolean;
 }
 
 class RouteTestStore {
@@ -46,6 +48,18 @@ class RouteTestStore {
   readonly asked: unknown[] = [];
   /** What the next `recordDuplicateVerdict` should do instead of succeeding. */
   throws: unknown;
+  /** What a "same" verdict's merge came to. */
+  merge: MergeOutcome = {
+    kind: 'merged',
+    merge: {
+      mergeId: '55555555-5555-5555-5555-555555555555',
+      mergedDeductionId: CASE_ID,
+      survivingDeductionId: OTHER_ID,
+      stateBefore: 'classified',
+      recordedBy: USER_ID,
+      recordedAt: '2026-09-22T09:00:00.000Z',
+    },
+  };
 
   async memberMayWrite(actor: { orgId: string; userId: string }): Promise<boolean> {
     this.asked.push(actor);
@@ -63,6 +77,7 @@ class RouteTestStore {
       basis: ['invoice_number', 'amount_cents', 'deduction_date'],
       recordedBy: input.recordedBy,
       recordedAt: '2026-09-22T09:00:00.000Z',
+      ...(input.verdict === 'same' && input.merge === true ? { merge: this.merge } : {}),
     };
   }
 
@@ -136,7 +151,7 @@ describe('answering a possible duplicate', () => {
     harness.store = new RouteTestStore();
   });
 
-  it('records "same deduction" as the session’s own user, and says nothing was merged', async () => {
+  it('records "same deduction" as the session’s own user, and merges in the same click', async () => {
     const store = harness.store as RouteTestStore;
 
     const response = await POST(post(), params());
@@ -148,22 +163,34 @@ describe('answering a possible duplicate', () => {
         otherDeductionId: OTHER_ID,
         verdict: 'same',
         recordedBy: USER_ID,
+        merge: true,
       },
     ]);
     expect(location(response).pathname).toBe(`/cases/${CASE_ID}`);
-    expect(said(response)).toMatch(/one deduction/);
-    // The sentence a reviewer reads must not claim the cases were joined: this
-    // records a conclusion and moves nothing (ADR 0032 §5).
-    expect(said(response)).toMatch(/nothing was merged/i);
+    expect(said(response)).toMatch(/one deduction, and they were merged/);
+    expect(said(response)).toMatch(/can be put back/);
     expect(store.closed).toBe(1);
   });
 
-  it('records "different deductions" too, and leaves both cases open', async () => {
+  it('keeps the verdict and says the two were not merged when the database refused', async () => {
+    // A refusal is not a failure of the answer: the verdict stands, and the
+    // sentence must not claim a merge that did not happen (ADR 0042 §7).
+    const store = harness.store as RouteTestStore;
+    store.merge = { kind: 'not_merged', reason: 'both_filed' };
+
+    const response = await POST(post(), params());
+
+    expect(said(response)).toMatch(/could not be merged/);
+    expect(said(response)).not.toMatch(/they were merged/);
+  });
+
+  it('records "different deductions" too, never asks for a merge, and leaves both cases open', async () => {
     const store = harness.store as RouteTestStore;
 
     const response = await POST(post({ other: OTHER_ID, verdict: 'different' }), params());
 
     expect(store.calls[0]?.verdict).toBe('different');
+    expect(store.calls[0]?.merge).toBe(false);
     expect(said(response)).toMatch(/two different deductions/);
   });
 

@@ -1375,9 +1375,11 @@ export class DuplicateSubmissionError extends CaseWorkflowError {
 // disputable deduction to a wrong merge is the worse error. Everything below is
 // what was missing: the pair is shown to a person, and the person answers it.
 //
-// A verdict is a record of what somebody concluded and nothing more. It does not
-// merge the two cases, move either one's state, or re-point an identifier — ADR
-// 0032 §5 says why the last of those is not possible today.
+// A verdict is a record of what somebody concluded. "Same deduction" also merges
+// the two when the database allows it (ADR 0042): one append-only
+// `deduction_merges` row, from which the database moves the merged-away case to
+// `merged` and writes the events. Nothing is deleted and no identifier is
+// re-pointed — ADR 0032 §5 says why the last of those is not possible at all.
 
 /** What a person concluded about a pair. */
 export type DuplicateVerdict = 'same' | 'different';
@@ -1430,6 +1432,100 @@ export interface PossibleDuplicatePair {
   readonly newer: DuplicateCandidateCase;
 }
 
+/**
+ * Why two cases cannot be merged right now, as `app.merge_refusal()` and the
+ * merge check name it (ADR 0042). One list, in the database, so the page never
+ * offers a merge the database would refuse.
+ *
+ *  - `not_visible` — one of the two is not this tenant's to see.
+ *  - `not_confirmed` — nobody has said they are the same deduction, or the
+ *    verdict was withdrawn when a merge of them was undone.
+ *  - `already_merged` — one of the two is merged into something already.
+ *  - `merged_before` — this pair was merged once and undone; a pair is merged at
+ *    most once, so a merge cannot flip back and forth.
+ *  - `absorbs_another` — the case that would be merged away has itself absorbed
+ *    another; that merge has to be undone first.
+ *  - `both_filed` — both were filed with the retailer, and withdrawing one is a
+ *    person's job there.
+ *  - `amounts_disagree` — the amounts differ, so they may be two deductions.
+ *  - `not_mergeable_state` — the case that would be merged away is past filing.
+ *  - `not_merged` — an undo of a merge that is not current.
+ *  - `stale` — the pair changed between the check and the write; ask again.
+ */
+export const MERGE_REFUSALS = [
+  'not_visible',
+  'not_confirmed',
+  'already_merged',
+  'merged_before',
+  'absorbs_another',
+  'both_filed',
+  'amounts_disagree',
+  'not_mergeable_state',
+  'not_merged',
+  'stale',
+] as const;
+export type MergeRefusal = (typeof MERGE_REFUSALS)[number];
+
+export function isMergeRefusal(value: unknown): value is MergeRefusal {
+  return typeof value === 'string' && (MERGE_REFUSALS as readonly string[]).includes(value);
+}
+
+/** A merge, as the `deduction_merges` row recorded it. Ids and a state only. */
+export interface MergeRecord {
+  readonly mergeId: string;
+  /** The case that stopped being the deduction. */
+  readonly mergedDeductionId: string;
+  readonly survivingDeductionId: string;
+  /** Where the merged-away case was, and where an undo puts it back. */
+  readonly stateBefore: CaseState;
+  readonly recordedBy: string;
+  readonly recordedAt: string;
+}
+
+/** An undo, and the state it put the case back in. */
+export interface UnmergeRecord {
+  readonly unmergeId: string;
+  readonly mergedDeductionId: string;
+  readonly survivingDeductionId: string;
+  readonly restoredState: CaseState;
+  readonly recordedBy: string;
+  readonly recordedAt: string;
+}
+
+/** What "Same deduction" did beyond the verdict. */
+export type MergeOutcome =
+  | { readonly kind: 'merged'; readonly merge: MergeRecord }
+  | { readonly kind: 'not_merged'; readonly reason: MergeRefusal };
+
+/** The other case of a merge, as much of it as a banner needs. */
+export interface MergedCaseSummary {
+  readonly deductionId: string;
+  readonly claimId?: string;
+  readonly deductionAmountCents: number;
+  readonly state: CaseState;
+}
+
+/**
+ * Everything a case page says about merges: what this case was merged into, what
+ * it absorbed, and the pairs a person confirmed that are not merged — each with
+ * the reason, or none when a Merge button would work.
+ */
+export interface CaseMerges {
+  readonly mergedInto?: MergedCaseSummary & {
+    readonly mergeId: string;
+    readonly mergedAt: string;
+    readonly mergedBy: string;
+  };
+  readonly absorbed: readonly (MergedCaseSummary & {
+    readonly mergeId: string;
+    readonly mergedAt: string;
+  })[];
+  readonly confirmedNotMerged: readonly (MergedCaseSummary & {
+    /** Absent when the pair may be merged now. */
+    readonly refusal?: MergeRefusal;
+  })[];
+}
+
 /** What was recorded, and on which pair. */
 export interface DuplicateVerdictRecord {
   readonly verdict: DuplicateVerdict;
@@ -1444,6 +1540,8 @@ export interface DuplicateVerdictRecord {
   readonly basis: readonly string[];
   readonly recordedBy: string;
   readonly recordedAt: string;
+  /** Present when the verdict was "same" and a merge was asked for. */
+  readonly merge?: MergeOutcome;
 }
 
 /**
@@ -1494,7 +1592,85 @@ export interface DuplicateReviewStore {
     readonly otherDeductionId: string;
     readonly verdict: DuplicateVerdict;
     readonly recordedBy: string;
+    /**
+     * On a "same" verdict, merge the two in the same transaction when the
+     * database allows it (ADR 0042 §7). A refusal leaves the verdict standing
+     * and comes back as `merge.kind === 'not_merged'` with the reason.
+     */
+    readonly merge?: boolean;
   }): Promise<DuplicateVerdictRecord>;
+
+  /**
+   * Merges a pair a person already confirmed. The database picks the survivor
+   * (ADR 0042 §2), moves the other to `merged` and writes both events; this
+   * inserts the row and reads back what it did.
+   *
+   * @throws {ActorIsNotTheSessionError} `mergedBy` is not this session
+   * @throws {CaseNotVisibleError} either case is not one this tenant may see
+   * @throws {WrongRoleError} this member may read the cases but not write
+   * @throws {MergeRefusedError} the database refused it, with the reason
+   */
+  mergeConfirmedDuplicate(input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly mergedBy: string;
+  }): Promise<MergeRecord>;
+
+  /**
+   * Undoes the current merge of this merged-away case: it goes back to the
+   * state it was in, and the "same deduction" verdict is withdrawn so the pair
+   * can be answered again (ADR 0042 §5). Once per pair.
+   *
+   * @throws {ActorIsNotTheSessionError} `undoneBy` is not this session
+   * @throws {CaseNotVisibleError} the case is not one this tenant may see
+   * @throws {WrongRoleError} this member may read the case but not write
+   * @throws {MergeRefusedError} `not_merged`: the case is not merged into anything
+   */
+  undoMerge(input: {
+    readonly deductionId: string;
+    readonly undoneBy: string;
+  }): Promise<UnmergeRecord>;
+
+  /** What this case's page says about merges. */
+  mergesFor(deductionId: string): Promise<CaseMerges>;
+}
+
+/**
+ * The database refused a merge or an undo, and said why (`RCM02`, ADR 0042 §9).
+ * Not a fault: a person asked for something the rules do not allow, and the
+ * reason is what the page tells them.
+ */
+export class MergeRefusedError extends CaseWorkflowError {
+  constructor(
+    readonly reason: MergeRefusal,
+    readonly deductionId: string,
+    readonly otherDeductionId?: string,
+  ) {
+    super(
+      `merge refused (${reason}): case ${deductionId}` +
+        (otherDeductionId === undefined ? '' : ` and case ${otherDeductionId}`),
+    );
+    this.name = 'MergeRefusedError';
+  }
+}
+
+/**
+ * Work was hung on a case that is merged into another (`RCM01`, ADR 0042 §9) —
+ * a decision, a packet, a filing, a decline, a document or an identifier. The
+ * database refused it; the answer will be the same next time, so a job does not
+ * retry it. The table is one of eight constants, never text off a page.
+ */
+export class CaseMergedAwayError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly table?: string,
+  ) {
+    super(
+      `case ${deductionId} was merged into another case` +
+        (table === undefined ? '' : ` (a ${table} row was refused)`),
+    );
+    this.name = 'CaseMergedAwayError';
+  }
 }
 
 /**
@@ -1519,13 +1695,14 @@ export class NoSuchDuplicatePairError extends CaseWorkflowError {
 }
 
 /**
- * This pair already has a verdict, and the first one stands.
+ * This pair already has a verdict standing on it, and it stands.
  *
  * Refused rather than appended. The pair list is "named and not yet answered",
  * so a second verdict would make the answer depend on which event is read
  * first, and `deduction_events` is append-only — there is no correcting the
- * first one afterwards. Reversing a verdict is a later decision with its own
- * ADR (0032 §3), not something a double-clicked button decides.
+ * first one afterwards. The one sanctioned reversal is an undone merge, which
+ * withdraws the verdict and opens the pair again (ADR 0042 §5); a double-clicked
+ * button decides nothing.
  */
 export class DuplicateVerdictAlreadyRecordedError extends CaseWorkflowError {
   constructor(

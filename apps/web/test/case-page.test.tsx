@@ -122,6 +122,9 @@ const store = {
   async possibleDuplicates() {
     return [];
   },
+  async mergesFor() {
+    return { absorbed: [], confirmedNotMerged: [] };
+  },
   async documentsForCase() {
     return [document];
   },

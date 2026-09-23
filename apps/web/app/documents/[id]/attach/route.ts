@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   attachReadDocument,
+  CaseMergedAwayError,
   CaseNotFoundError,
   DocumentNotFoundError,
   DocumentNotReadError,
@@ -74,6 +75,8 @@ export async function POST(
     return NextResponse.redirect(onCase, { status: 303 });
   } catch (cause) {
     if (cause instanceof CaseNotFoundError) return say('attach_case_gone');
+    // Merged into another case since the list was drawn (ADR 0042).
+    if (cause instanceof CaseMergedAwayError) return say('attach_case_merged');
     if (cause instanceof DocumentNotReadError) return say('attach_not_read');
     if (cause instanceof DocumentNotFoundError) {
       // A stale button, a mistyped id and another tenant's document are one

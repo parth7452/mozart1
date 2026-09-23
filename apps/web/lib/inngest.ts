@@ -2,6 +2,7 @@ import { Inngest, NonRetriableError } from 'inngest';
 import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
 import {
+  CaseMergedAwayError,
   CaseNotFoundError,
   ClassificationRefusedError,
   DuplicateCaseError,
@@ -460,6 +461,9 @@ export function asJobFailure(
   const settled =
     error instanceof InvalidJobPayloadError ||
     error instanceof CaseNotFoundError ||
+    // A case merged into another refuses every link, now and in thirty seconds
+    // (ADR 0042), and a retry would pay for the page again to hear it.
+    error instanceof CaseMergedAwayError ||
     error instanceof DuplicateCaseError ||
     error instanceof UnscannedDocumentError ||
     error instanceof ClassificationRefusedError ||
@@ -469,7 +473,7 @@ export function asJobFailure(
   const caseId =
     error instanceof DuplicateCaseError
       ? error.existingDeductionId
-      : error instanceof CaseNotFoundError
+      : error instanceof CaseNotFoundError || error instanceof CaseMergedAwayError
         ? error.deductionId
         : undefined;
 

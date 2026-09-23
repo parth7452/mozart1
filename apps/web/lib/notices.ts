@@ -285,12 +285,11 @@ export const NOTICES = {
     text: 'this case predates provenance recording, so nothing on it says which channel found the deduction and a decline is counted against that channel. It can be recorded by an operator (ADR 0024) and the case declined afterwards. Nothing was written — the case was not declined and is untouched, and this is in the logs.',
   },
 
-  // --- answering a possible duplicate ---------------------------------------
+  // --- answering a possible duplicate, and merging --------------------------
   //
-  // Nothing here merges two cases, and every sentence says so. A verdict is a
-  // record of what a person concluded about a pair the matcher refused to merge
-  // (ADR 0032); a notice that implied the cases had been joined would be this
-  // app claiming something it did not do on a money path.
+  // Every sentence says exactly what happened to the two cases, because a
+  // notice that implied they had been joined when they were not — or the
+  // reverse — would be this app misreporting a money path (ADR 0032, ADR 0042).
   duplicate_role: {
     tone: 'bad',
     text: 'your role can review cases but not say whether two of them are one deduction',
@@ -299,9 +298,41 @@ export const NOTICES = {
     tone: 'bad',
     text: 'say whether these are the same deduction or two different ones',
   },
-  duplicate_confirmed: {
+  duplicate_merged: {
     tone: 'good',
-    text: 'recorded: these two are one deduction. Both cases stay exactly as they are — nothing was merged, and nothing was sent anywhere.',
+    text: 'recorded: these two are one deduction, and they were merged. The copy is marked as merged into the case that carries on, keeps its whole timeline, and can be put back from its own page. Nothing was sent anywhere.',
+  },
+  duplicate_confirmed_not_merged: {
+    tone: 'bad',
+    text: 'recorded: these two are one deduction — but they could not be merged, and each case page says why. Both stay open, and nothing was sent anywhere.',
+  },
+  merge_role: {
+    tone: 'bad',
+    text: 'your role can review cases but not merge them or undo a merge',
+  },
+  merge_unknown_pair: {
+    tone: 'bad',
+    text: 'that is not a pair this page can merge — reload it. Nothing was changed.',
+  },
+  merge_refused: {
+    tone: 'bad',
+    text: 'those two cannot be merged; the reason is shown on this page. Nothing was changed.',
+  },
+  merge_done: {
+    tone: 'good',
+    text: 'merged: the copy is marked as merged into the case that carries on, keeps its whole timeline, and can be put back from its own page',
+  },
+  merge_undone: {
+    tone: 'good',
+    text: 'undone: this case is back exactly where it was, and the two are an open question again — answer it below',
+  },
+  merge_not_merged: {
+    tone: 'bad',
+    text: 'this case is not merged into another, so there is nothing to undo. Nothing was changed.',
+  },
+  case_merged_away: {
+    tone: 'bad',
+    text: 'this case was merged into another, so nothing more is recorded on it — use the case it was merged into. Nothing was written.',
   },
   duplicate_dismissed: {
     tone: 'good',
@@ -318,6 +349,10 @@ export const NOTICES = {
 
   // --- uploading ------------------------------------------------------------
   upload_role: { tone: 'bad', text: 'your role can review documents but not add them' },
+  upload_case_merged: {
+    tone: 'bad',
+    text: 'this case was merged into another, so evidence belongs on the case it was merged into. Nothing was stored.',
+  },
   upload_too_large: { tone: 'bad', text: `that file is larger than ${UPLOAD_MAX_MB} MB` },
   upload_no_file: { tone: 'bad', text: 'choose a file first' },
   upload_queued_case: {
@@ -455,6 +490,10 @@ export const NOTICES = {
   attach_case_gone: {
     tone: 'bad',
     text: 'that case is no longer available; nothing was attached',
+  },
+  attach_case_merged: {
+    tone: 'bad',
+    text: 'that case was merged into another, so nothing was attached — choose the case it was merged into',
   },
   attach_failed: {
     tone: 'bad',
