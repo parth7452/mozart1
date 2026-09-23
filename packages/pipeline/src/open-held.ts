@@ -14,6 +14,15 @@
  * no extractor anywhere in reach (`CaseOpeningDeps` is the store and nothing
  * else). The case it opens says it was opened on a doubted reading and who
  * decided to (`case.discovered` → `held`, `confirmed_by`).
+ *
+ * **It opens from whatever survived**, the way the automatic path always has.
+ * A reading that did not fit its type — a notice with no deduction date, a line
+ * with no reason code — or a required field that lost its provenance in storage
+ * opens a case with those fields empty, and the case names them
+ * (`held.fields`, `fields_missing_on_open`). "Better a case with no deadline
+ * than no case" was the rule before any of this, and a person's confirmation
+ * does not make it stricter. The one reading that is refused is the one with
+ * nothing to open: a remittance with no lines.
  */
 
 import type { DocType } from '@recouple/extraction';
@@ -21,7 +30,13 @@ import type { CaseRecord, HeldDocumentStore } from './ports';
 import { WrongRoleError } from './ports';
 import { DocumentNotFoundError } from './jobs';
 import { DocumentNotReadError } from './attach';
-import { opensCaseOnItsOwn, typeFits, type DocumentHold, type HoldConfirmation } from './hold';
+import {
+  hasLines,
+  opensCaseOnItsOwn,
+  typeFits,
+  type DocumentHold,
+  type HoldConfirmation,
+} from './hold';
 import {
   openCaseFromNotice,
   openCasesFromRemittance,
@@ -49,13 +64,17 @@ export class DocumentAlreadyOnCaseError extends Error {
 }
 
 /**
- * The recorded reading will not open a case: it does not fit the type it was
- * read as, or a required field did not survive being stored (`flattenExtraction`
- * writes no row for a value with no page or no quote). A case
- * opened from it would be missing what makes it a case. It can still go on a
- * case as evidence, which is what the refusal says to do.
+ * There is nothing in the recorded reading to open a case from: a remittance
+ * whose reading has no lines (`fields` is `['lines']`) — it opens one case per
+ * line, and there are none — or a reading that is no longer the type the hold
+ * named (`fields` empty), which is not the reading the person confirmed.
  *
- * `fields` are schema paths from `typeFits`, never values.
+ * Not refused for a missing field. A notice with no deduction date, or a field
+ * stored without provenance, opens its case with the gap named on it, as the
+ * automatic path does. This is only for the reading that cannot open anything.
+ * It can still go on a case as evidence, which is what the refusal says to do.
+ *
+ * `fields` are schema paths, never values.
  */
 export class HeldReadingUnusableError extends Error {
   constructor(
@@ -64,8 +83,9 @@ export class HeldReadingUnusableError extends Error {
     readonly fields: readonly string[],
   ) {
     super(
-      `the recorded reading of document ${documentId} does not fit a ${docType}` +
-        (fields.length > 0 ? ` (${fields.join(', ')})` : '') +
+      `the recorded reading of document ${documentId} has nothing a ${docType} case can be ` +
+        'opened from' +
+        (fields.length > 0 ? ` (${fields.join(', ')})` : ' (it is not the type it was held as)') +
         '; attach it to a case as evidence instead',
     );
     this.name = 'HeldReadingUnusableError';
@@ -108,7 +128,12 @@ export interface OpenedFromHold {
  * - `DocumentAlreadyOnCaseError` — a case holds it already;
  * - `DocumentNotHeldError` — nothing holds it;
  * - `DocumentNotReadError` — the hold names a document with no reading;
- * - `HeldReadingUnusableError` — the recorded reading does not fit its type.
+ * - `HeldReadingUnusableError` — a remittance whose recorded reading has no
+ *   lines, or a reading that is no longer the type the hold named.
+ *
+ * A reading that merely does not fit its type is *not* refused: it opens with
+ * what was read, and `fields_missing_on_open` on `case.discovered` names what
+ * was not.
  *
  * What opening can itself raise is let through: `DuplicateCaseError` (the claim
  * is already a case — the hold then stands, and the document can go on that
@@ -163,11 +188,17 @@ export async function openHeldDocument(
       throw new HeldReadingUnusableError(input.documentId, docType, []);
     }
 
-    // Asked of the reading as it comes back out of the store, not of the hold:
-    // a required field stored without provenance comes back absent, and a case
+    // Nothing to open: a remittance opens one case per line, and this one's
+    // reading, as it comes back out of the store, has none.
+    if (docType === 'remittance_advice' && !hasLines(recorded.document)) {
+      throw new HeldReadingUnusableError(input.documentId, docType, ['lines']);
+    }
+
+    // Anything else opens, with whatever is missing named on the case. Asked of
+    // the reading as it comes back out of the store rather than of the hold: a
+    // required field stored without provenance comes back absent, and the case
     // is opened from what comes back.
     const fit = typeFits(docType, recorded);
-    if (!fit.fits) throw new HeldReadingUnusableError(input.documentId, docType, fit.fields);
 
     const document = { documentId: input.documentId, orgId: hold.orgId };
     const reading: CaseOpeningReading = {
@@ -177,7 +208,13 @@ export async function openHeldDocument(
     };
     const confirmation: HoldConfirmation = {
       confirmedBy: input.confirmedBy,
-      held: { confidence: hold.confidence, floor: hold.floor, reason: hold.reason },
+      held: {
+        confidence: hold.confidence,
+        floor: hold.floor,
+        reason: hold.reason,
+        ...(hold.fields !== undefined ? { fields: hold.fields } : {}),
+      },
+      ...(fit.fits ? {} : { missingOnOpen: fit.fields }),
     };
 
     let opened: readonly CaseRecord[];

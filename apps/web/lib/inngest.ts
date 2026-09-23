@@ -4,6 +4,7 @@ import { UnscannedDocumentError } from '@recouple/ingest';
 import {
   CaseMergedAwayError,
   CaseNotFoundError,
+  ClassificationFloorError,
   ClassificationRefusedError,
   DuplicateCaseError,
   InvalidJobPayloadError,
@@ -471,6 +472,10 @@ export function asJobFailure(
     error instanceof DuplicateCaseError ||
     error instanceof UnscannedDocumentError ||
     error instanceof ClassificationRefusedError ||
+    // A tenant with no readable classification floor (ADR 0044) has none in
+    // thirty seconds either. It is raised before anything is spent, so a retry
+    // would cost nothing — but it would say nothing new, three more times.
+    error instanceof ClassificationFloorError ||
     isCheckConstraintViolation(error);
 
   const name = error instanceof Error ? error.name : typeof error;

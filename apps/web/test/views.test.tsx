@@ -578,12 +578,14 @@ describe('documents that were read and that no case holds', () => {
       expect(html).toContain('/attach"');
     });
 
-    it('names the fields a reading that does not fit is missing, and offers no open', () => {
+    it('names the fields a misfit notice is missing, and still offers to open it with them empty', () => {
+      // A notice one field short opens with that field empty, the way it always
+      // did on its own (ADR 0044); the line says so, and attaching stays offered.
       const h = hold({
         docType: 'deduction_notice',
         confidence: 0.99,
         reason: 'type_did_not_fit',
-        fields: ['claim_id', 'lines[0].deduction_amount'],
+        fields: ['deduction_date', 'lines[0].reason_code'],
       });
       const html = renderToStaticMarkup(
         <UnattachedDocuments documents={[heldRow(h)]} cases={[summary()]} />,
@@ -591,26 +593,55 @@ describe('documents that were read and that no case holds', () => {
 
       expect(html).toContain(
         'Held: read as a deduction notice, but the reading does not fit that type (missing: ' +
-          'claim id, lines 1 · deduction amount). Attach it to a case as evidence instead.',
+          'deduction date, lines 1 · reason code). Opening a case from it opens one with what was ' +
+          'read, and the missing fields stay empty; or attach it to a case as evidence.',
       );
-      expect(html).not.toContain('/open-case');
+      expect(html).toContain('action="/documents/eeeeeeee-1111-2222-3333-444444444444/open-case"');
+      expect(html).toContain('/attach"');
     });
 
-    it('says both when a doubted reading also does not fit, and offers no open', () => {
-      const h = hold({ fields: ['lines'] });
-      expect(mayOpenFrom(h)).toBe(false);
-      expect(holdLine(h)).toBe(
+    it('offers no open for a remittance with no lines, and says why', () => {
+      const noLines = hold({ reason: 'type_did_not_fit', confidence: 0.99, fields: ['lines'] });
+      expect(mayOpenFrom(noLines)).toBe(false);
+      expect(holdLine(noLines)).toBe(
+        'Held: read as a remittance advice, but the reading does not fit that type (missing: ' +
+          'lines). With no lines there is nothing to open a case from — attach it to a case as ' +
+          'evidence instead.',
+      );
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(noLines)]} cases={[summary()]} />,
+      );
+      expect(html).not.toContain('/open-case');
+      expect(html).toContain('/attach"');
+
+      // Doubted *and* no lines: the same answer, after the doubt.
+      expect(holdLine(hold({ fields: ['lines'] }))).toBe(
         'Held: read as a remittance advice at 75% confidence; this workspace opens a case on its ' +
-          'own at 95% or above. The reading does not fit that type (missing: lines), so attach it ' +
-          'to a case as evidence instead.',
+          'own at 95% or above. Also, the reading does not fit that type (missing: lines). With no ' +
+          'lines there is nothing to open a case from — attach it to a case as evidence instead.',
       );
-      // A misfit the schema could name no field of is still a misfit.
-      expect(holdLine(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(
-        'Held: read as a remittance advice, but the reading does not fit that type. Attach it to ' +
-          'a case as evidence instead.',
-      );
-      expect(mayOpenFrom(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(false);
+      expect(mayOpenFrom(hold({ fields: ['lines'] }))).toBe(false);
+    });
+
+    it('offers open for every other hold, doubted, misfit or both', () => {
       expect(mayOpenFrom(hold())).toBe(true);
+      expect(mayOpenFrom(hold({ fields: ['lines[0].invoice_number'] }))).toBe(true);
+      expect(mayOpenFrom(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(true);
+      expect(
+        mayOpenFrom(hold({ docType: 'deduction_notice', reason: 'type_did_not_fit', fields: ['lines'] })),
+      ).toBe(true);
+      expect(holdLine(hold({ docType: 'deduction_notice', fields: ['deduction_date'] }))).toBe(
+        'Held: read as a deduction notice at 75% confidence; this workspace opens a case on its ' +
+          'own at 95% or above. Also, the reading does not fit that type (missing: deduction date). ' +
+          'Opening a case from it opens one with what was read, and the missing fields stay ' +
+          'empty; or attach it to a case as evidence.',
+      );
+      // A misfit the schema could name no field of is still a misfit, and says so.
+      expect(holdLine(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(
+        'Held: read as a remittance advice, but the reading does not fit that type. Opening a ' +
+          'case from it opens one with what was read, and the missing fields stay empty; or ' +
+          'attach it to a case as evidence.',
+      );
     });
 
     it('never rounds a doubted reading up to the floor it missed', () => {

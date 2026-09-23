@@ -93,17 +93,29 @@ export function typeFits(
   docType: DocType,
   reading: Pick<ExtractionResult, 'document' | 'validated'>,
 ): TypeFit {
-  if (reading.validated !== true) {
-    return { fits: false, fields: misfitFields(docType, reading.document) };
-  }
-  if (docType === 'remittance_advice') {
-    const lines =
-      reading.document !== null && typeof reading.document === 'object'
-        ? (reading.document as { readonly lines?: unknown }).lines
-        : undefined;
-    if (!Array.isArray(lines) || lines.length === 0) return { fits: false, fields: ['lines'] };
-  }
-  return { fits: true };
+  // `lines` is named whenever a remittance has none, validated or not: it is
+  // the one misfit that leaves nothing to open a case from (`openHeldDocument`
+  // refuses it, and the list offers no button), so it must never be hidden
+  // behind a schema complaint about some other field.
+  const noLines = docType === 'remittance_advice' && !hasLines(reading.document);
+  if (reading.validated === true && !noLines) return { fits: true };
+  const fields = reading.validated === true ? [] : misfitFields(docType, reading.document);
+  return {
+    fits: false,
+    fields: noLines && !fields.includes('lines') ? [...fields, 'lines'].sort() : fields,
+  };
+}
+
+/**
+ * Whether a remittance reading has at least one line — the thing it opens a
+ * case per. Without one there is nothing a case could be opened from.
+ */
+export function hasLines(document: unknown): boolean {
+  const lines =
+    document !== null && typeof document === 'object'
+      ? (document as { readonly lines?: unknown }).lines
+      : undefined;
+  return Array.isArray(lines) && lines.length > 0;
 }
 
 /** What a read decided to hold, and why. Absent means the case opens. */
@@ -178,7 +190,20 @@ export interface HoldConfirmation {
     readonly confidence: number;
     readonly floor: number;
     readonly reason: HoldReason;
+    /** The hold's own `fields`: what the read could not fit, when it could not. Paths only. */
+    readonly fields?: readonly string[];
   };
+  /**
+   * The fields the reading lacked when the person opened the case from it, as
+   * `typeFits` names them on the *restored* reading — the hold's own `fields`
+   * plus any required field whose value was stored without provenance and so
+   * did not come back. Absent when the restored reading fits. Paths only.
+   *
+   * The case opens anyway, with those fields empty, the way the automatic path
+   * has always opened one ("better a case with no deadline than no case"); this
+   * is what says which ones.
+   */
+  readonly missingOnOpen?: readonly string[];
 }
 
 /**

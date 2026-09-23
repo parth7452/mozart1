@@ -14,6 +14,7 @@ import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { classificationIsActionable } from '@recouple/core-domain';
+import { opensCaseOnItsOwn } from '@recouple/pipeline';
 import {
   CassetteClassifier,
   CassetteExtractor,
@@ -157,7 +158,11 @@ for (const fixture of documents) {
   const correct = classification.docType === fixture.docType;
   if (correct) classifiedCorrectly += 1;
   // A wrong answer the confidence gate would have let through is the expensive
-  // kind; a wrong answer below the floor gets routed to a human.
+  // kind. Below the floor, what happens depends on what it was read as: only a
+  // notice or a remittance opens a case on its own, so only those are held for
+  // a person (ADR 0044). Evidence opens nothing at any confidence, and the line
+  // says so rather than claiming a review that does not happen. Printed text
+  // only — `unsafe`, which is what is scored, is unchanged.
   const unsafe = !correct && classificationIsActionable(classification.confidence);
   if (unsafe) {
     unsafeDetail.push(
@@ -165,7 +170,10 @@ for (const fixture of documents) {
     );
   } else if (!correct) {
     unsafeDetail.push(
-      `${fixture.key}: classified ${classification.docType} (expected ${fixture.docType}) at ${classification.confidence.toFixed(2)} — below the review floor, routed to a human`,
+      `${fixture.key}: classified ${classification.docType} (expected ${fixture.docType}) at ${classification.confidence.toFixed(2)} — below the review floor, ` +
+        (opensCaseOnItsOwn(classification.docType)
+          ? 'held for a person rather than opening a case'
+          : 'which gates nothing here: only a notice or a remittance is held, and this opens no case either way'),
     );
   }
   const tally = classifiedBySuite.get(fixture.suite) ?? { correct: 0, total: 0, unsafe: 0 };

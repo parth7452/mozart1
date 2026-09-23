@@ -1045,7 +1045,11 @@ export interface CaseOpeningOptions {
   readonly confirmation?: HoldConfirmation;
 }
 
-/** The `case.discovered` fields a person's confirmation adds. Ids and numbers only. */
+/**
+ * The fields a person's confirmation adds to `case.discovered` (and to a
+ * remittance line's merge event): ids, two numbers, a reason from a closed set
+ * and schema field paths — never a value off the page.
+ */
 function confirmationFields(confirmation: HoldConfirmation | undefined): Record<string, unknown> {
   if (confirmation === undefined) return {};
   return {
@@ -1053,8 +1057,14 @@ function confirmationFields(confirmation: HoldConfirmation | undefined): Record<
       confidence: confirmation.held.confidence,
       floor: confirmation.held.floor,
       reason: confirmation.held.reason,
+      // Which fields the read could not fit, as the hold recorded them — so the
+      // case says what was missing when a person chose to open it anyway.
+      ...(confirmation.held.fields !== undefined ? { fields: [...confirmation.held.fields] } : {}),
     },
     confirmed_by: confirmation.confirmedBy,
+    ...(confirmation.missingOnOpen !== undefined
+      ? { fields_missing_on_open: [...confirmation.missingOnOpen] }
+      : {}),
   };
 }
 

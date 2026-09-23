@@ -197,12 +197,31 @@ function notice(confidence: number, extra: Partial<Reading> = {}): Record<string
   };
 }
 
-/** The notice's reading with its claim id read as nothing — a notice that does not fit its type. */
-function noticeWithoutClaim(): unknown {
+/** The notice's reading with one field read as nothing — a notice that does not fit its type. */
+function noticeWithout(field: string): unknown {
   const reading = NOTICE_READING as Record<string, unknown>;
   return {
     ...reading,
-    claim_id: { value: null, confidence: 0, source_page: 1, source_quote: '' },
+    [field]: { value: null, confidence: 0, source_page: 1, source_quote: '' },
+  };
+}
+
+function noticeWithoutClaim(): unknown {
+  return noticeWithout('claim_id');
+}
+
+/**
+ * The notice's reading with its deduction date read, but with no quote to
+ * point at. It validates as read — the value is there — and `flattenExtraction`
+ * writes no row for it, so the reading that comes back out of the store has
+ * lost a required field: the provenance gap `document.stored_without_provenance`
+ * exists to name.
+ */
+function noticeWithUnquotedDate(): unknown {
+  const reading = NOTICE_READING as Record<string, Record<string, unknown>>;
+  return {
+    ...reading,
+    deduction_date: { ...reading.deduction_date, source_quote: '' },
   };
 }
 
@@ -508,21 +527,106 @@ describe('a person opens a case from a held document', () => {
     expect(store.cases.size).toBe(0);
   });
 
-  it('refuses a reading that does not fit its type, and opens nothing', async () => {
+  it('opens a notice whose reading does not fit its type, with the missing field empty and named', async () => {
+    // Held because the reading lacks its deduction date — a real notice, one
+    // field short. Before ADR 0044 it would have opened a case on its own with
+    // that date null; a person's confirmation must not make that impossible.
+    const { store, deps } = harness(
+      notice(0.99, { document: noticeWithout('deduction_date'), validated: false }),
+    );
+    const read = await processUpload(upload(NOTICE), deps);
+    expect(read.held).toMatchObject({ reason: 'type_did_not_fit', fields: ['deduction_date'] });
+    const documentId = read.ingest.document.documentId;
+
+    const result = await openHeldDocument(store, { orgId: ORG, documentId, confirmedBy: USER });
+
+    expect(result.opened).toHaveLength(1);
+    const deductionId = result.opened[0]?.deductionId as string;
+    const opened = store.cases.get(deductionId);
+    expect(opened?.state).toBe('classified');
+    expect(opened?.claimId).toBe('APDP-99812');
+    expect(opened?.deductionDate).toBeUndefined();
+    const discovered = store.events.find(
+      (e) => e.deductionId === deductionId && e.eventType === 'case.discovered',
+    );
+    expect(discovered?.payload).toMatchObject({
+      deduction_date: null,
+      held: { reason: 'type_did_not_fit', fields: ['deduction_date'] },
+      fields_missing_on_open: ['deduction_date'],
+      confirmed_by: USER,
+    });
+    // Paths only: nothing off the page rode along with the field names.
+    expect(JSON.stringify((discovered?.payload as { held: unknown }).held)).not.toContain('APDP');
+    expect(await store.documentHold(documentId)).toBeUndefined();
+  });
+
+  it('opens even a notice with no claim id, the gap named rather than refused', async () => {
     const { store, deps } = harness(
       notice(0.99, { document: noticeWithoutClaim(), validated: false }),
     );
     const read = await processUpload(upload(NOTICE), deps);
 
-    const refused = openHeldDocument(store, {
+    const result = await openHeldDocument(store, {
       orgId: ORG,
       documentId: read.ingest.document.documentId,
       confirmedBy: USER,
     });
+
+    const opened = store.cases.get(result.opened[0]?.deductionId as string);
+    expect(opened).toBeDefined();
+    expect(opened?.claimId).toBeUndefined();
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload).toMatchObject({
+      claim_id: null,
+      held: { fields: ['claim_id'] },
+      fields_missing_on_open: ['claim_id'],
+    });
+  });
+
+  it('opens a below-floor notice whose stored rows lost a required field', async () => {
+    // Fits as read — the date has a value — so held for its confidence alone,
+    // with no `fields`. But the date had no quote, so no row was stored for it,
+    // and the reading restored from the store no longer validates. That is not
+    // a reason to refuse: the case opens without the date, and says so.
+    const { store, deps } = harness(notice(0.9, { document: noticeWithUnquotedDate() }));
+    const read = await processUpload(upload(NOTICE), deps);
+    expect(read.held).toMatchObject({ reason: 'below_floor' });
+    expect(read.held?.fields).toBeUndefined();
+    const documentId = read.ingest.document.documentId;
+    expect((await store.latestExtraction(documentId))?.validated).toBe(false);
+
+    const result = await openHeldDocument(store, { orgId: ORG, documentId, confirmedBy: USER });
+
+    const deductionId = result.opened[0]?.deductionId as string;
+    expect(store.cases.get(deductionId)?.deductionDate).toBeUndefined();
+    expect(store.cases.get(deductionId)?.claimId).toBe('APDP-99812');
+    const discovered = store.events.find(
+      (e) => e.deductionId === deductionId && e.eventType === 'case.discovered',
+    );
+    expect(discovered?.payload).toMatchObject({
+      held: { reason: 'below_floor', confidence: 0.9 },
+      fields_missing_on_open: ['deduction_date'],
+    });
+    expect((discovered?.payload as { held: Record<string, unknown> }).held).not.toHaveProperty(
+      'fields',
+    );
+  });
+
+  it('refuses a remittance with no lines — there is nothing to open — and the hold stands', async () => {
+    const empty = { ...(REMITTANCE_READING as Record<string, unknown>), lines: [] };
+    const { store, deps } = harness({
+      [REMITTANCE.filename]: { docType: 'remittance_advice', confidence: 0.99, document: empty },
+    });
+    const read = await processUpload(upload(REMITTANCE), deps);
+    expect(read.held).toMatchObject({ reason: 'type_did_not_fit', fields: ['lines'] });
+    const documentId = read.ingest.document.documentId;
+
+    const refused = openHeldDocument(store, { orgId: ORG, documentId, confirmedBy: USER });
     await expect(refused).rejects.toBeInstanceOf(HeldReadingUnusableError);
-    await expect(refused).rejects.toMatchObject({ fields: ['claim_id'] });
+    await expect(refused).rejects.toMatchObject({ fields: ['lines'] });
     expect(store.cases.size).toBe(0);
     expect(store.auditLog.filter((row) => row.action === DOCUMENT_HOLD_RELEASED)).toEqual([]);
+    expect(await store.documentHold(documentId)).toBeDefined();
   });
 
   it('refuses a member the database says may not write', async () => {
@@ -603,6 +707,20 @@ describe('typeFits and holdFor', () => {
     expect(
       typeFits('remittance_advice', { document: REMITTANCE_READING, validated: true }),
     ).toEqual({ fits: true });
+  });
+
+  it('names lines for a remittance that has none, whether or not it validated', () => {
+    const empty = { ...(REMITTANCE_READING as Record<string, unknown>), lines: [] };
+    expect(typeFits('remittance_advice', { document: empty, validated: true })).toEqual({
+      fits: false,
+      fields: ['lines'],
+    });
+    // And alongside a schema complaint about another field, not hidden by it.
+    const unvalidated = typeFits('remittance_advice', {
+      document: { ...empty, payer_name: { value: null, confidence: 0, source_page: 1, source_quote: '' } },
+      validated: false,
+    });
+    expect(unvalidated).toEqual({ fits: false, fields: ['lines', 'payer_name'] });
   });
 
   it('names only fields the type declares, never a path a model invented', () => {

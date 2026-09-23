@@ -89,7 +89,13 @@ A reading that does not fit names the fields that failed. They are schema paths
 such as `claim_id` or `lines[0].invoice_number`. They are re-derived from the
 schema's own complaint and kept only when they are fields the document type
 declares, so a path a model invented never reaches an audit row or a page, and
-no value ever does.
+no value ever does. A remittance with no lines always names `lines`, validated
+or not, because that one misfit — and only that one — leaves nothing to open a
+case from (§5).
+
+Fitting is what the *automatic* gate asks. It is not what a person's
+confirmation asks: a notice that does not fit its type still opens a case when
+a person says so, with the missing fields empty (§5).
 
 ### 3. Held means recorded, and said once
 
@@ -136,11 +142,13 @@ stale hold row cannot say otherwise (§5 says how one can be left behind).
 
 "Read, not on a case" shows each document's latest classification confidence
 and its hold. Below the floor, it says the confidence and this workspace's
-floor. For a misfit, it names the fields it could not read. For a hold whose
-reading fits (`below_floor` with no `fields`) it offers **Open a case from it**.
-It does not offer the button for a reading that does not fit. The route would
-refuse it (below), and the page does not offer what would be refused; the Attach
-control beside it files the document as evidence instead.
+floor. For a misfit, it names the fields it could not read and says that a case
+opened from it opens with what was read and those fields empty. It offers
+**Open a case from it** on every held notice, and on every held remittance
+except one whose hold names `lines` — a remittance with no lines has nothing to
+open, the route would refuse it (below), and the page does not offer what would
+be refused. The Attach control beside it files any held document as evidence
+instead.
 
 `POST /documents/[id]/open-case` has the same shape as the attach and reread
 routes. It refuses cross-site requests, resolves the session, checks the id and
@@ -149,17 +157,31 @@ cannot see. It then calls `openHeldDocument`, which:
 
 - runs under the document's read claim (`withDocumentRead`), so two presses, or
   a press and a read, cannot both open cases;
-- refuses by name a document that is not held, one already on a case, and one
-  whose recorded reading no longer fits. The last one is re-checked on the
-  restored reading: a required field stored without provenance comes back
-  absent, and a case opened from such a reading would lack it. The notice says
-  to attach it as evidence instead;
+- refuses by name a document that is not held, one already on a case, one whose
+  latest reading is no longer the type the hold named, and a remittance whose
+  restored reading has no lines (`HeldReadingUnusableError`, `fields:
+  ['lines']`). Those are the only readings it refuses: the last two have
+  nothing the person confirmed to open. The notice says to attach it as
+  evidence instead;
+- **opens from whatever survived.** A notice that did not fit its type, or whose
+  stored rows lost a required field to missing provenance (so the restored
+  reading no longer validates), opens its case anyway, with those fields
+  empty. That is what `openCaseFromNotice` has always done on the automatic path
+  ("better a case with no deadline than no case"; a scan with one unquoted date
+  still has to open a case), and a person's confirmation must not make it
+  stricter. Refusing here would be a regression on a money path: a notice one
+  field short opened a case on its own before this ADR, and would then have had
+  no way to open one at all;
 - restores the recorded reading (`latestExtraction`, which goes through
   `restoreDocument`) and runs the same `openCaseFromNotice` or
   `openCasesFromRemittance` the read would have run. There is no classifier, no
   extractor and no model call, and so no `model_calls` row;
-- adds `held: {confidence, floor, reason}` and `confirmed_by: <member>` to each
-  `case.discovered` event it writes;
+- adds `held: {confidence, floor, reason, fields?}` and `confirmed_by: <member>`
+  to each `case.discovered` event it writes (and to a remittance line's merge
+  event). `held.fields` is the hold's own list. When the restored reading does
+  not fit, `fields_missing_on_open` names what it lacked at that moment — the
+  hold's fields plus any lost in storage — so the case records which fields
+  were empty when the person opened it. Paths only;
 - writes `document.hold_released`, naming the member, with the case ids.
 
 The release is not in the same transaction as the case. `openCaseFromNotice` is
@@ -203,6 +225,9 @@ threshold, and this one had gone unasked.
 - Cassette replay reports every reading as validated (`buildExtractionResult`'s
   default), so the misfit half is exercised by live reads and by the tests that
   build one, not by the eval corpus.
+- A misfit notice no longer opens a case with nobody looking, as it did before
+  this ADR; it waits for one click and then opens exactly as it would have. The
+  gate became stricter, and what a person can do did not.
 - A hold is one sample of an unpinned classifier. Reading the document again
   would draw another sample and pay for it, so it is not offered. The person
   decides from the recorded reading.

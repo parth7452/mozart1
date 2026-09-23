@@ -11,6 +11,7 @@ import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@
 import {
   CaseMergedAwayError,
   CaseNotFoundError,
+  ClassificationFloorError,
   ClassificationRefusedError,
   DocumentNotFoundError,
   DuplicateCaseError,
@@ -455,6 +456,10 @@ describe('what a failed read says to Inngest', () => {
       new CaseMergedAwayError(ORG_ID, 'deduction_documents'),
       new UnscannedDocumentError('no clean verdict for this document'),
       new InvalidJobPayloadError('a read job needs documentId; this one has none'),
+      // A tenant with no readable classification floor has none next time
+      // either (ADR 0044); both reasons it can give are settled.
+      new ClassificationFloorError(ORG_ID, 'missing'),
+      new ClassificationFloorError(ORG_ID, 'unreadable'),
     ];
     for (const error of settled) {
       expect(asJobFailure(error, ids)).toBeInstanceOf(NonRetriableError);

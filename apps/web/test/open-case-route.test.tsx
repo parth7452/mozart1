@@ -291,20 +291,75 @@ describe('opening a case from a held document', () => {
     expect(store.cases.size).toBe(1);
   });
 
-  it('refuses a reading that does not fit its type, and says to attach it instead', async () => {
+  it('opens a case from a notice whose reading does not fit, with the missing field empty', async () => {
+    // A real notice one field short: held as a misfit, and a person may still
+    // open its case — the way it would have opened on its own before ADR 0044.
     const store = harness.store as RouteTestStore;
     const reading = {
       ...(expectedExtraction(notice) as Record<string, unknown>),
-      claim_id: { value: null, confidence: 0, source_page: 1, source_quote: '' },
+      deduction_date: { value: null, confidence: 0, source_page: 1, source_quote: '' },
     };
     const { documentId, held } = await heldNotice(store, 0.99, { document: reading, validated: false });
-    expect(held).toMatchObject({ reason: 'type_did_not_fit', fields: ['claim_id'] });
+    expect(held).toMatchObject({ reason: 'type_did_not_fit', fields: ['deduction_date'] });
 
     const response = await press(documentId);
 
-    expect(said(response)).toMatch(/does not fit what it was read as/);
-    expect(said(response)).toMatch(/attach it to a case as evidence instead/);
+    const [caseId] = [...store.cases.keys()];
+    expect(location(response).pathname).toBe(`/cases/${caseId}`);
+    expect(said(response)).toMatch(/opened from the held reading/);
+    expect(store.cases.get(caseId as string)?.deductionDate).toBeUndefined();
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload).toMatchObject({
+      held: { reason: 'type_did_not_fit', fields: ['deduction_date'] },
+      fields_missing_on_open: ['deduction_date'],
+      confirmed_by: USER_ID,
+    });
+  });
+
+  it('refuses a remittance with no lines, and says to attach it instead', async () => {
+    const store = harness.store as RouteTestStore;
+    const deps = readerDeps(store, 0.99, {
+      document: {
+        payer_name: { value: 'Acme Foods', confidence: 0.9, source_page: 1, source_quote: 'Acme Foods' },
+        payment_reference: { value: 'PAY-1', confidence: 0.9, source_page: 1, source_quote: 'PAY-1' },
+        payment_date: { value: '2026-09-01', confidence: 0.9, source_page: 1, source_quote: '2026-09-01' },
+        payment_total: { value: '$99.00', confidence: 0.9, source_page: 1, source_quote: '$99.00' },
+        lines: [],
+      },
+    });
+    deps.classifier.classify = async (document: DocumentPayload) => ({
+      docType: 'remittance_advice',
+      confidence: 0.99,
+      call: {
+        purpose: 'classify',
+        provider: 'anthropic',
+        modelVersion: 'stub',
+        documentId: document.documentId,
+        costMicros: 1,
+        latencyMs: 1,
+        outcome: 'ok',
+      },
+    });
+    const read = await processUpload(
+      {
+        orgId: ORG_ID,
+        filename: notice.filename,
+        bytes: notice.bytes,
+        source: 'web_upload',
+        uploadedBy: USER_ID,
+        pageText: notice.pageText,
+      },
+      deps,
+    );
+    expect(read.held).toMatchObject({ reason: 'type_did_not_fit', fields: ['lines'] });
+
+    const response = await press(read.ingest.document.documentId);
+
+    expect(location(response).pathname).toBe('/');
+    expect(said(response)).toMatch(/a remittance with no lines/);
+    expect(said(response)).toMatch(/Attach it to a case as evidence instead/);
     expect(store.cases.size).toBe(0);
+    expect(await store.documentHold(read.ingest.document.documentId)).toBeDefined();
   });
 
   it('says so while another request is reading or opening the same document', async () => {

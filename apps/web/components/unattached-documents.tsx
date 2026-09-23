@@ -18,10 +18,11 @@ import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/forma
  *
  * A notice or a remittance a read *held* (ADR 0044) is here too, with a line
  * saying why: the classifier was less sure than this workspace's floor, or the
- * reading does not fit what it was read as. Where the reading fits, a person
- * can open the case from it — nothing is read again. Where it does not, the
- * page offers no such button, because the route would refuse it; the document
- * can still be attached to a case as evidence.
+ * reading does not fit what it was read as. A person can open the case from it
+ * — nothing is read again, and a field the reading lacked stays empty on the
+ * case, the way the automatic path has always opened one. The one exception is
+ * a remittance whose reading has no lines: there is nothing to open, so the
+ * page offers no button, and the document can still be attached as evidence.
  *
  * A pure function of what the store returned. The filename is the one piece of
  * somebody else's text here, and React escapes it. A hold's numbers are the
@@ -120,13 +121,19 @@ export function UnattachedDocuments({
 /**
  * Whether the page offers "Open a case from it" for a hold.
  *
- * Only for a reading that fits its type and was held for its confidence alone:
- * `fields` is present exactly when the reading did not fit (ADR 0044), and the
- * route refuses to open a case from such a reading, so the page does not offer
- * a button whose only answer is no.
+ * Every held notice, and every held remittance except one whose reading has no
+ * lines — a remittance opens a case per line, so with none there is nothing to
+ * open, and the route refuses it (`HeldReadingUnusableError`). The page does not
+ * offer a button whose only answer is no. A reading that merely lacks a field
+ * opens with that field empty (ADR 0044).
  */
 export function mayOpenFrom(hold: DocumentHold): boolean {
-  return hold.reason === 'below_floor' && hold.fields === undefined;
+  return !hasNoLines(hold);
+}
+
+/** A held remittance whose reading has no lines: the hold names `lines` among what did not fit. */
+function hasNoLines(hold: DocumentHold): boolean {
+  return hold.docType === 'remittance_advice' && (hold.fields ?? []).includes('lines');
 }
 
 /**
@@ -138,22 +145,30 @@ export function mayOpenFrom(hold: DocumentHold): boolean {
  */
 export function holdLine(hold: DocumentHold): string {
   const readAs = `read as a ${docTypeLabel(hold.docType)}`;
-  const missing =
+  const misfit =
     hold.fields === undefined
-      ? ''
+      ? undefined
       : hold.fields.length === 0
         ? 'the reading does not fit that type'
         : `the reading does not fit that type (missing: ${hold.fields.map(fieldLabel).join(', ')})`;
 
-  if (hold.reason === 'type_did_not_fit') {
-    return `Held: ${readAs}, but ${missing === '' ? 'the reading does not fit that type' : missing}. Attach it to a case as evidence instead.`;
+  const why =
+    hold.reason === 'type_did_not_fit'
+      ? `Held: ${readAs}, but ${misfit ?? 'the reading does not fit that type'}.`
+      : `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace ` +
+        `opens a case on its own at ${confidencePercent(hold.floor)} or above.` +
+        (misfit === undefined ? '' : ` Also, ${misfit}.`);
+
+  if (hasNoLines(hold)) {
+    return `${why} With no lines there is nothing to open a case from — attach it to a case as evidence instead.`;
   }
-  const doubt =
-    `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace opens ` +
-    `a case on its own at ${confidencePercent(hold.floor)} or above.`;
-  return missing === ''
-    ? doubt
-    : `${doubt} ${missing.charAt(0).toUpperCase()}${missing.slice(1)}, so attach it to a case as evidence instead.`;
+  if (misfit !== undefined) {
+    return (
+      `${why} Opening a case from it opens one with what was read, and the missing fields ` +
+      'stay empty; or attach it to a case as evidence.'
+    );
+  }
+  return why;
 }
 
 /**

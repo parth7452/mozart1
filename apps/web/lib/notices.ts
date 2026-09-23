@@ -554,7 +554,10 @@ export const NOTICES = {
   },
   open_held_unusable: {
     tone: 'bad',
-    text: 'the recorded reading of that document does not fit what it was read as, so no case was opened from it — attach it to a case as evidence instead',
+    // Only for a reading with nothing to open (ADR 0044): a remittance whose
+    // reading has no lines, or one that is no longer the type it was held as. A
+    // reading that merely lacks a field opens with that field empty.
+    text: 'there is nothing in the recorded reading of that document to open a case from — a remittance with no lines, or a reading that is no longer what it was held as — so no case was opened. Attach it to a case as evidence instead.',
   },
   open_held_busy: {
     tone: 'bad',

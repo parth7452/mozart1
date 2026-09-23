@@ -1054,13 +1054,19 @@ redelivery, a "Read again" and the same file uploaded again are answered from
 the record with no model call; the upload and reread routes say
 `upload_held`/`reread_held`, and the job carries `held` and logs its reason.
 "Read, not on a case" shows each document's confidence and its hold line, and
-for a doubted reading that fits, **Open a case from it**:
-`POST /documents/[id]/open-case` → `openHeldDocument`, under the document's
-read claim, which restores the recorded reading, re-checks `typeFits` on it (a
-required field lost on storage refuses — attach it as evidence instead), runs
-the same `openCaseFromNotice`/`openCasesFromRemittance` with only the store in
-reach, stamps `held` and `confirmed_by` on `case.discovered`, and then writes
-`document.hold_released`. Not one transaction, by the store's shape; the
+**Open a case from it** on every held notice and every held remittance but one
+with no lines: `POST /documents/[id]/open-case` → `openHeldDocument`, under the
+document's read claim, which restores the recorded reading and **opens from
+whatever survived** — a notice that did not fit its type, or whose stored rows
+lost a required field to missing provenance, opens with those fields empty,
+exactly as the automatic path always has ("better a case with no deadline than
+no case"); the gate got stricter, what a person may open did not. It refuses
+only what has nothing to open (a remittance with no lines, or a reading no
+longer the type the hold named), runs the same
+`openCaseFromNotice`/`openCasesFromRemittance` with only the store in reach,
+stamps `held` (with the hold's `fields`), `confirmed_by` and, when the restored
+reading does not fit, `fields_missing_on_open` on `case.discovered`, and then
+writes `document.hold_released`. Not one transaction, by the store's shape; the
 release comes after the case, so a crash between leaves a case under a stale
 hold (which `caseForDocument` answers first) rather than an unheld notice a
 redelivery would pay to read again. `audit_log.subject_id` has no index, which
