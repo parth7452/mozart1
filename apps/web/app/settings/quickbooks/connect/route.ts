@@ -74,6 +74,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }),
     { status: 303 },
   );
-  response.cookies.set(QBO_STATE_COOKIE, cookieValue, oauthStateCookie(QBO_STATE_MAX_AGE_SECONDS));
+  // The cookie outlives the state by a minute, so a consent that took too long
+  // comes back with its cookie and is refused as expired — not as a request
+  // that never carried one, which the callback treats as a possible repeat.
+  response.cookies.set(QBO_STATE_COOKIE, cookieValue, oauthStateCookie(QBO_STATE_MAX_AGE_SECONDS + 60));
   return response;
 }

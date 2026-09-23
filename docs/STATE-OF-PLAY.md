@@ -156,13 +156,15 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 1. **Click through QuickBooks connect** against the sandbox: Connect, first
    sync, Disconnect (and confirm Intuit's revoke), Connect again. Only then the
    production QBO keys.
-2. **Coverage and ledger anomalies on a page.** The views and the table exist;
-   nothing renders them.
+2. ~~**Coverage and ledger anomalies on a page.**~~ **done** — `/coverage`: a
+   rate per channel over the last 12 months, the month-by-channel table, and
+   the ledger sync's runs and anomalies per connection.
 3. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
    92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
    review floor unexamined, and the STF-201 camera pages ground at 64–83%.
 4. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
-   confirmed duplicate still counts twice in coverage.
+   confirmed duplicate still counts twice in coverage — the coverage page now
+   says by how much.
 5. **Triage**, the rest of Phase 1.5.
 
 ## Follow-ups this change created

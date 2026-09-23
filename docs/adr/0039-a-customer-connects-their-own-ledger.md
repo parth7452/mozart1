@@ -101,6 +101,29 @@ why there is no table for OAuth state, which would be a mutable table and a
 cleanup job for a ten-minute value. It is also why there is no HMAC, which
 would need a new secret for claims that are all re-checked anyway.
 
+*Amended 2026-09-23, after the first production click-through.* The callback
+was requested twice, a second apart. The first request connected and spent the
+cookie, so the second was refused, correctly, and its "could not be matched"
+notice replaced the success on the owner's screen. A refusal is still a refusal:
+it exchanges nothing. What changes is the notice in the two cases that explain
+themselves, and only when **this member's own** connection to the company in the
+URL stored a sign-in in the last two minutes:
+
+- the arrival has **no cookie at all** — the first arrival spent it;
+- the arrival still carried the cookie, but Intuit refused its code as already
+  spent — the first arrival was still running. The callback asks once a second
+  for up to five seconds, since the first may still be finishing.
+
+Either way the page says the company is connected. That is a read through RLS
+of what the settings page shows anyway, so a forged link learns nothing and
+changes nothing by it. A mismatched, malformed or other member's cookie is
+refused exactly as before, and the cookie now outlives the state by a minute so
+that an expired consent arrives with its cookie and is refused as expired
+rather than looking like a repeat. Every refusal and every connect is logged
+with the request's `Sec-Fetch-*` and `Sec-Purpose` headers and the notice
+given (never a value from the URL), so the next double request will show where
+it came from.
+
 **The callback is the one GET in this app that writes.** It is reached by a
 cross-site top-level redirect from Intuit, so `Sec-Fetch-Site` is `cross-site`
 and `isCrossSite` would refuse it. It does not call `isCrossSite`, and says

@@ -232,3 +232,16 @@ same page.
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect
 > both stops the sync and revokes our access at Intuit.
+
+Then open **Coverage**. It answers the question the ledger exists for: of what
+we found, how much did we file — per channel.
+
+- **One rate per channel, and no combined one.** A combined rate would rise the
+  day a ledger is connected, which is the mix changing, not the product getting
+  better. The page says so.
+- **Nothing is hidden.** Dollars that arrived with no record of how are shown but
+  credited to no channel; confirmed duplicates still counted twice are counted
+  and linked; a month that filed more than it found is shown as it is.
+- **What needs a look in QuickBooks.** Each connection's latest completed run
+  lists the invoices it could not make add up, by QuickBooks' own IDs, with what
+  to check. No case is opened for those until the ledger adds up.

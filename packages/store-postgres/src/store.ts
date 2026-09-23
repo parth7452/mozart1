@@ -68,6 +68,8 @@ import {
 } from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
+import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
+import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -3533,6 +3535,28 @@ export class PostgresStore
     readonly limit?: number;
   }): Promise<readonly PossibleDuplicatePair[]> {
     return this.withTenant((client) => workflow.possibleDuplicates(client, options));
+  }
+
+  /**
+   * The coverage page's figures for the last `months` months (ADR 0030, ADR
+   * 0038): per channel per month, per channel over the window, dollars-only
+   * monthly totals, and the confirmed duplicates still counted twice. One
+   * tenant transaction as `app_rw`; the tenant is this store's, never a
+   * parameter. Reads only.
+   */
+  async coverageReport(options: { readonly months?: number } = {}): Promise<CoverageReport> {
+    const months = options.months ?? COVERAGE_MONTHS_DEFAULT;
+    return this.withTenant((client) => readCoverageReport(client, months));
+  }
+
+  /**
+   * The ledger sync's recent runs and, per connection, what its latest
+   * completed run found (ADR 0031, ADR 0035). One tenant transaction as
+   * `app_rw`. Reads only.
+   */
+  async ledgerSyncHealth(options: { readonly runLimit?: number } = {}): Promise<LedgerSyncHealth> {
+    const runLimit = options.runLimit ?? LEDGER_RUNS_DEFAULT;
+    return this.withTenant((client) => readLedgerSyncHealth(client, runLimit));
   }
 
   async recordDuplicateVerdict(input: {
