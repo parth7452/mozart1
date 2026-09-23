@@ -294,6 +294,17 @@ describeDb('the coverage page reads', () => {
       const again = await store.coverageReport();
       expect(again.countedTwice.cases).toBe(1);
       expect(again.countedTwice.cents).toBe(42_150);
+
+      // Merged, the view counts the pair once itself (ADR 0042 §8), and the
+      // newer half is merged away, so nothing is left counted twice.
+      const merge = await store.mergeConfirmedDuplicate({
+        deductionId: newer.deductionId,
+        otherDeductionId: older,
+        mergedBy: analystId,
+      });
+      expect(merge.mergedDeductionId).toBe(newer.deductionId);
+      const merged = await store.coverageReport();
+      expect(merged.countedTwice).toEqual({ cases: 0, cents: 0, byChannel: [], listed: [] });
     });
 
     it('is this tenant’s, readable by a read-only member, and refuses a nonsense window', async () => {

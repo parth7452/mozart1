@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   CASE_STATES,
+  CLOSED_STATES,
   INITIAL_STATE,
+  MERGEABLE_STATES,
   TERMINAL_STATES,
   TRANSITIONS,
   TransitionError,
   applyTransition,
   canTransition,
   findTransition,
+  isClosed,
+  isMergeable,
   isReachable,
   isTerminal,
   transitionsBetween,
@@ -61,12 +65,20 @@ describe('the case state machine', () => {
     }
   });
 
+  // Every edge out of awaiting_approval needs an approval, bar one: merging the
+  // case away as a confirmed duplicate (ADR 0042), which files nothing and whose
+  // only way on is back to awaiting_approval itself. That one is pinned to
+  // exactly that shape, so it cannot become a way round the gate.
   it('requires an approval row on every edge out of awaiting_approval', () => {
     const edges = transitionsFrom('awaiting_approval');
-    expect(edges.length).toBeGreaterThan(0);
-    for (const edge of edges) {
+    const filing = edges.filter((edge) => edge.trigger !== 'case.merged_into');
+    expect(filing.length).toBeGreaterThan(0);
+    for (const edge of filing) {
       expect(edge.guards).toContain('approval_row_exists');
     }
+    expect(edges.filter((edge) => edge.trigger === 'case.merged_into')).toEqual([
+      expect.objectContaining({ to: 'merged', guards: ['duplicate_confirmed_by_person'] }),
+    ]);
   });
 
   it('refuses a transition whose guard is unmet, and names the guard', () => {
@@ -89,11 +101,18 @@ describe('the case state machine', () => {
   });
 
   it('routes a decided case only to the three routing states', () => {
-    expect(transitionsFrom('decided').map((t) => t.to).sort()).toEqual([
+    const routed = transitionsFrom('decided').filter((t) => t.trigger === 'decision.routed');
+    expect(routed.map((t) => t.to).sort()).toEqual([
       'analyst_review',
       'auto_dispute_queued',
       'auto_writeoff_queued',
     ]);
+    // Besides routing, a decided case can only be merged away (ADR 0042).
+    expect(
+      transitionsFrom('decided')
+        .filter((t) => t.trigger !== 'decision.routed')
+        .map((t) => `${t.to} on ${t.trigger}`),
+    ).toEqual(['merged on case.merged_into']);
   });
 
   // An edge is keyed by (from, to, trigger): the same pair of states can be
@@ -228,6 +247,62 @@ describe('the case state machine', () => {
         'submitted→partial',
         'submitted→won',
       ]);
+    });
+  });
+
+  describe('merging a confirmed duplicate (ADR 0042)', () => {
+    it('is closed but not terminal: an undo is its way out', () => {
+      expect(isClosed('merged')).toBe(true);
+      expect(isTerminal('merged')).toBe(false);
+      expect(CLOSED_STATES).toEqual([...TERMINAL_STATES, 'merged']);
+      for (const state of TERMINAL_STATES) expect(isClosed(state)).toBe(true);
+    });
+
+    it('merges away only a case that has not been filed', () => {
+      for (const state of CASE_STATES) {
+        const filedOrAfter = (['submitted', 'written_off', 'won', 'lost', 'partial'] as const)
+          .some((filed) => filed === state || isReachable(filed, state, { avoid: ['merged'] }));
+        if (state === 'merged') continue;
+        expect(isMergeable(state), state).toBe(!filedOrAfter);
+      }
+      expect(MERGEABLE_STATES).toHaveLength(9);
+    });
+
+    it('enters merged from every mergeable state, and leaves only back to one', () => {
+      for (const state of MERGEABLE_STATES) {
+        expect(
+          applyTransition(state, 'merged', 'case.merged_into', {
+            duplicate_confirmed_by_person: true,
+          }).workflow,
+        ).toBe('merge.duplicate');
+        expect(
+          applyTransition('merged', state, 'case.merge_undone', { merge_undone_by_person: true })
+            .workflow,
+        ).toBe('unmerge.duplicate');
+      }
+      expect(transitionsFrom('merged').map((t) => t.to).sort()).toEqual(
+        [...MERGEABLE_STATES].sort(),
+      );
+      expect(() =>
+        applyTransition('submitted', 'merged', 'case.merged_into', {
+          duplicate_confirmed_by_person: true,
+        }),
+      ).toThrow(TransitionError);
+    });
+
+    it('needs a person on both edges', () => {
+      expect(() => applyTransition('classified', 'merged', 'case.merged_into')).toThrow(
+        /duplicate_confirmed_by_person/,
+      );
+      expect(() => applyTransition('merged', 'classified', 'case.merge_undone')).toThrow(
+        /merge_undone_by_person/,
+      );
+    });
+
+    it('opens no way to a filing that skips awaiting_approval', () => {
+      for (const outcome of ['submitted', 'written_off'] as const) {
+        expect(isReachable('merged', outcome, { avoid: ['awaiting_approval'] })).toBe(false);
+      }
     });
   });
 });

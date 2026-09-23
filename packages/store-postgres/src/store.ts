@@ -19,7 +19,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import { cents, identifierMatchKey, resolveDebtorId, resolveIdentity, tryParsePrintedDate } from '@recouple/core-domain';
+import {
+  cents,
+  CLOSED_STATES,
+  identifierMatchKey,
+  resolveDebtorId,
+  resolveIdentity,
+  tryParsePrintedDate,
+} from '@recouple/core-domain';
 import type {
   ArrivalIdentity,
   CanonicalReasonCode,
@@ -32,8 +39,14 @@ import type {
 import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
-import { AmbiguousIdentityError, ClassificationRefusedError, DuplicateCaseError } from '@recouple/pipeline';
+import {
+  AmbiguousIdentityError,
+  CaseMergedAwayError,
+  ClassificationRefusedError,
+  DuplicateCaseError,
+} from '@recouple/pipeline';
 import type {
+  CaseMerges,
   CaseOutcome,
   CaseRecord,
   CaseWorkflow,
@@ -46,12 +59,14 @@ import type {
   DuplicateVerdictRecord,
   IngestSource,
   JobStore,
+  MergeRecord,
   PipelineStore,
   PossibleDuplicatePair,
   RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
   UnattachedDocument,
+  UnmergeRecord,
   UnreadDocument,
   UnreadDocumentsStore,
   EvidenceAttachStore,
@@ -797,7 +812,7 @@ export class PostgresStore
       return result;
     } catch (error) {
       await client.query('rollback').catch(() => undefined);
-      throw error;
+      throw caseMergedAway(error) ?? error;
     } finally {
       client.release();
     }
@@ -1414,9 +1429,13 @@ export class PostgresStore
       identifier_kind: IdentifierKind;
       identifier: string;
     }>(
-      `select deduction_id, source, identifier_kind, identifier
-         from deduction_identifiers
-        where org_id = $1`,
+      // A merged-away case's names are its survivor's (ADR 0042 §10), so an
+      // arrival matching both halves of a merged pair is one exact match.
+      `select coalesce(m.surviving_deduction_id, i.deduction_id) as deduction_id,
+              i.source, i.identifier_kind, i.identifier
+         from deduction_identifiers i
+         left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+        where i.org_id = $1`,
       [this.tenant.orgId],
     );
     return rows.map((row) => ({
@@ -1466,8 +1485,9 @@ export class PostgresStore
                 limit 1) as invoice_number
          from deductions d
         where d.org_id = $1
-          and d.state not in ('won', 'lost', 'partial', 'written_off')`,
-      [this.tenant.orgId],
+          and d.state <> all ($2::text[])`,
+      // Closed: finished, or merged into another case (ADR 0042).
+      [this.tenant.orgId, [...CLOSED_STATES]],
     );
     return rows.map((row) => ({
       deductionId: row.id,
@@ -1855,11 +1875,13 @@ export class PostgresStore
           identifier_kind: IdentifierKind;
           identifier: string;
         }>(
-          `select i.deduction_id, i.source, i.identifier_kind, i.identifier
+          `select coalesce(m.surviving_deduction_id, i.deduction_id) as deduction_id,
+                  i.source, i.identifier_kind, i.identifier
              from deduction_identifiers i
              join unnest($2::text[], $3::text[]) as k(kind, folded)
                on k.kind = i.identifier_kind
               and k.folded = ${FOLDED_IDENTIFIER}
+             left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
             where i.org_id = $1`,
           [
             input.orgId,
@@ -1895,7 +1917,9 @@ export class PostgresStore
                   d.id, d.deduction_amount_cents::text as amount,
                   d.deduction_date, d.debtor_id, i.identifier
              from deduction_identifiers i
-             join deductions d on d.id = i.deduction_id
+             left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+             -- The survivor stands in for a merged-away case (ADR 0042 §10).
+             join deductions d on d.id = coalesce(m.surviving_deduction_id, i.deduction_id)
             where i.org_id = $1
               and i.identifier_kind = 'invoice_number'
               and ${FOLDED_IDENTIFIER} = $2
@@ -2096,7 +2120,11 @@ export class PostgresStore
     const code = (error as { code?: unknown } | null)?.code;
     if (code !== '23505' || claimId === undefined || debtorId === undefined) return error;
     const { rows } = await client.query<{ id: string }>(
-      `select id from deductions where debtor_id = $1 and claim_id = $2 limit 1`,
+      `select coalesce(m.surviving_deduction_id, d.id) as id
+         from deductions d
+         left join deduction_merges_current m on m.merged_deduction_id = d.id
+        where d.debtor_id = $1 and d.claim_id = $2
+        limit 1`,
       [debtorId, claimId],
     );
     const existing = rows[0]?.id;
@@ -2122,8 +2150,11 @@ export class PostgresStore
     const code = (error as { code?: unknown } | null)?.code;
     if (code !== '23505') return error;
     const { rows } = await client.query<{ deduction_id: string }>(
-      `select deduction_id from deduction_identifiers
-        where org_id = $1 and source = $2 and identifier_kind = 'claim_id' and identifier = $3
+      `select coalesce(m.surviving_deduction_id, i.deduction_id) as deduction_id
+         from deduction_identifiers i
+         left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+        where i.org_id = $1 and i.source = $2 and i.identifier_kind = 'claim_id'
+          and i.identifier = $3
         limit 1`,
       [this.tenant.orgId, source, claimId],
     );
@@ -2281,10 +2312,14 @@ export class PostgresStore
    */
   async caseForDocument(documentId: string): Promise<string | undefined> {
     return this.withTenant(async (client) => {
+      // A document on a case that was merged away is on the deduction its
+      // survivor is (ADR 0042 §10): a re-read or a ledger re-sync lands there.
       const { rows } = await client.query<{ deduction_id: string }>(
-        `select deduction_id from deduction_documents
-          where document_id = $1
-          order by (role = 'notice') desc, observed_at asc, id asc
+        `select coalesce(m.surviving_deduction_id, dd.deduction_id) as deduction_id
+           from deduction_documents dd
+           left join deduction_merges_current m on m.merged_deduction_id = dd.deduction_id
+          where dd.document_id = $1
+          order by (dd.role = 'notice') desc, dd.observed_at asc, dd.id asc
           limit 1`,
         [documentId],
       );
@@ -3560,11 +3595,54 @@ export class PostgresStore
     readonly otherDeductionId: string;
     readonly verdict: DuplicateVerdict;
     readonly recordedBy: string;
+    readonly merge?: boolean;
   }): Promise<DuplicateVerdictRecord> {
     return this.withTenant((client) =>
       workflow.recordDuplicateVerdict(client, this.tenant, input),
     );
   }
+
+  // Merging a confirmed pair, and undoing it (ADR 0042). One row each; the
+  // database checks it, moves the state and writes the events.
+
+  async mergeConfirmedDuplicate(input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly mergedBy: string;
+  }): Promise<MergeRecord> {
+    return this.withTenant((client) =>
+      workflow.mergeConfirmedDuplicate(client, this.tenant, input),
+    );
+  }
+
+  async undoMerge(input: {
+    readonly deductionId: string;
+    readonly undoneBy: string;
+  }): Promise<UnmergeRecord> {
+    return this.withTenant((client) => workflow.undoMerge(client, this.tenant, input));
+  }
+
+  async mergesFor(deductionId: string): Promise<CaseMerges> {
+    return this.withTenant((client) => workflow.mergesFor(client, deductionId));
+  }
+}
+
+/**
+ * The database's refusal to hang work on a case merged into another (`RCM01`,
+ * ADR 0042 §9), as the named error a route and a job can tell apart. DETAIL is
+ * the case id and HINT the table, both set by the trigger and neither text off
+ * a page. Anything else is not this and is left alone.
+ */
+function caseMergedAway(error: unknown): CaseMergedAwayError | undefined {
+  if (sqlState(error) !== 'RCM01') return undefined;
+  const detail = (error as { detail?: unknown } | null)?.detail;
+  const hint = (error as { hint?: unknown } | null)?.hint;
+  const refused = new CaseMergedAwayError(
+    typeof detail === 'string' ? detail : 'unknown',
+    typeof hint === 'string' ? hint : undefined,
+  );
+  (refused as { cause?: unknown }).cause = error;
+  return refused;
 }
 
 /** The SQLSTATE of a driver error, when it carries one. */
