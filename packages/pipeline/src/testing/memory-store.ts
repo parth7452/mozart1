@@ -68,6 +68,7 @@ import {
 } from '../ports';
 import type {
   ApprovalRecord,
+  EvidenceAttachStore,
   CaseOutcome,
   CaseRecord,
   CaseWorkflow,
@@ -85,6 +86,7 @@ import type {
   RestoredExtraction,
   StoredDocument,
   SubmissionRecord,
+  UnattachedDocument,
   UnreadDocument,
   UnreadDocumentsStore,
   UploadRecord,
@@ -92,6 +94,7 @@ import type {
   WorkflowSubmissionChannel,
 } from '../ports';
 import {
+  assertUnattachedDocumentsQuery,
   assertUnreadDocumentsQuery,
   ClassificationRefusedError,
   LineProvenanceUnknownError,
@@ -144,7 +147,12 @@ export interface StoredEvent {
 }
 
 export class InMemoryStore
-  implements PipelineStore, CaseWorkflowStore, UnreadDocumentsStore, DocumentReadLock
+  implements
+    PipelineStore,
+    CaseWorkflowStore,
+    UnreadDocumentsStore,
+    DocumentReadLock,
+    EvidenceAttachStore
 {
   readonly documents = new Map<string, StoredDocument>();
   /** One row per arrival, keyed by id — the `uploads` table (migration 0003). */
@@ -710,6 +718,60 @@ export class InMemoryStore
         ageMinutes: Math.max(0, Math.floor((now - createdAt.getTime()) / 60_000)),
         onCase: this.links.some((l) => l.documentId === document.documentId),
       }));
+  }
+
+  /**
+   * The documents that were read and that no case holds, newest first.
+   *
+   * The Postgres store's conditions, modelled the same way: a read is an
+   * extraction on record, "no case" is no link in any role, and the type is the
+   * one the read recorded.
+   */
+  async unattachedDocuments(limit = 50): Promise<readonly UnattachedDocument[]> {
+    assertUnattachedDocumentsQuery(limit);
+    return [...this.documents.values()]
+      .map((document) => ({
+        document,
+        createdAt: this.documentCreatedAt.get(document.documentId) ?? new Date(0),
+        read: this.extractions.filter((e) => e.documentId === document.documentId).at(-1),
+      }))
+      .filter(
+        ({ document, read }) =>
+          read !== undefined && !this.links.some((l) => l.documentId === document.documentId),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit)
+      .map(({ document, createdAt, read }) => ({
+        documentId: document.documentId,
+        filename: document.filename,
+        createdAt: createdAt.toISOString(),
+        docType: (read as { docType: DocType }).docType,
+      }));
+  }
+
+  /**
+   * The link and its event, both or neither — and neither when the case already
+   * holds the document in any role, which is what the Postgres store's single
+   * statement answers too.
+   */
+  async attachEvidence(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly docType: DocType;
+  }): Promise<boolean> {
+    const held = this.links.some(
+      (l) => l.deductionId === input.deductionId && l.documentId === input.documentId,
+    );
+    if (held) return false;
+    this.links.push({ deductionId: input.deductionId, documentId: input.documentId, role: 'evidence' });
+    this.events.push({
+      orgId: input.orgId,
+      deductionId: input.deductionId,
+      eventType: 'evidence.attached',
+      payload: { document_id: input.documentId, doc_type: input.docType, read_again: false },
+    });
+    return true;
   }
 
   async documentsForCase(deductionId: string): Promise<readonly StoredDocument[]> {

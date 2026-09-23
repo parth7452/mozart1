@@ -40,6 +40,10 @@ export default async function CaseListPage({
         // RLS-scoped like every other read here, so what comes back is this
         // tenant's documents because the policies say so.
         unread={mayUpload ? await store.unreadDocuments(UNREAD_AFTER_MINUTES) : undefined}
+        // Read and on no case: evidence uploaded here opens nothing of its own,
+        // and until this list it appeared nowhere. Asked only for a member who
+        // could attach one, for the reason the unread documents are.
+        unattached={mayUpload ? await store.unattachedDocuments() : undefined}
         // The pairs identity resolution refused to merge and nobody has
         // answered (ADR 0032). Asked only for a member who could answer one,
         // for the reason the unread documents are: a list of things you may not

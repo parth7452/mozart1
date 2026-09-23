@@ -1,4 +1,8 @@
-import type { PossibleDuplicatePair, UnreadDocument } from '@recouple/pipeline';
+import type {
+  PossibleDuplicatePair,
+  UnattachedDocument,
+  UnreadDocument,
+} from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import { caseMetrics } from '../lib/case-presentation';
@@ -6,6 +10,7 @@ import { WorkspaceShell } from './workspace-shell';
 import { CaseTable } from './case-table';
 import { resolveNotice } from '../lib/notices';
 import { UnreadDocuments } from './unread-documents';
+import { UnattachedDocuments } from './unattached-documents';
 import { PossibleDuplicates } from './possible-duplicates';
 
 export interface Viewer {
@@ -28,6 +33,7 @@ export function CaseList({
   today,
   mayUpload,
   unread,
+  unattached,
   duplicates,
   notice,
   noticeAbout,
@@ -45,6 +51,15 @@ export function CaseList({
    * at a list of things they are not allowed to fix.
    */
   unread?: readonly UnreadDocument[] | undefined;
+  /**
+   * Documents that were read and that no case holds — evidence uploaded from
+   * this list, which opens nothing of its own.
+   *
+   * Shown only to a member who may write, for `unread`'s reason: the only thing
+   * to do about one is attach it, and a reader who cannot would be looking at a
+   * list of things they are not allowed to file.
+   */
+  unattached?: readonly UnattachedDocument[] | undefined;
   /**
    * The pairs the matcher called possible duplicates and nobody has answered
    * (ADR 0032).
@@ -180,6 +195,7 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
+        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={cases} /> : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>

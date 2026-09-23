@@ -51,13 +51,16 @@ import type {
   RemittanceSettings,
   RestoredExtraction,
   StoredDocument,
+  UnattachedDocument,
   UnreadDocument,
   UnreadDocumentsStore,
+  EvidenceAttachStore,
   UploadRecord,
   UploadSource,
   WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
 import {
+  assertUnattachedDocumentsQuery,
   assertUnreadDocumentsQuery,
   LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
@@ -613,6 +616,13 @@ interface UnreadDocumentRow {
   on_case: boolean;
 }
 
+interface UnattachedDocumentRow {
+  id: string;
+  filename: string;
+  created_at: Date;
+  doc_type: DocType;
+}
+
 /**
  * Documents carry their bytes in object storage, not in Postgres. The store
  * keeps them in memory for the length of a pipeline run so the reader models can
@@ -718,7 +728,8 @@ export class PostgresStore
     CaseWorkflowStore,
     DuplicateReviewStore,
     JobStore,
-    UnreadDocumentsStore
+    UnreadDocumentsStore,
+    EvidenceAttachStore
 {
   private readonly pool: Pool;
   /** Held for the length of a read, so deliberately not the working pool. */
@@ -2436,6 +2447,99 @@ export class PostgresStore
         ageMinutes: Math.max(0, row.age_minutes),
         onCase: row.on_case,
       }));
+    });
+  }
+
+  /**
+   * The documents this tenant read and no case holds, newest first.
+   *
+   * Two conditions, each the mirror of one `unreadDocuments` applies: an
+   * `extraction_results` row is the record of a read — the same record the read
+   * job's guard consults — and no `deduction_documents` row in any role means no
+   * case holds it. What it was read as is the latest classification, the same
+   * row `latestExtraction` takes the type from, so this list and an attach
+   * agree about what the document is.
+   *
+   * Through `withTenant` as `app_rw`, so "this tenant's documents" is the
+   * policies' answer. No new table, no new column.
+   */
+  async unattachedDocuments(limit = 50): Promise<readonly UnattachedDocument[]> {
+    assertUnattachedDocumentsQuery(limit);
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<UnattachedDocumentRow>(
+        `select d.id,
+                coalesce(d.filename, '') as filename,
+                d.created_at,
+                c.doc_type
+           from documents d
+           join lateral (
+             select doc_type from document_classifications dc
+              where dc.document_id = d.id order by dc.id desc limit 1
+           ) c on true
+          where exists (select 1 from extraction_results e where e.document_id = d.id)
+            and not exists (select 1 from deduction_documents dd where dd.document_id = d.id)
+          order by d.created_at desc, d.id desc
+          limit $1`,
+        [limit],
+      );
+      return rows.map((row) => ({
+        documentId: row.id,
+        filename: row.filename,
+        createdAt: new Date(row.created_at).toISOString(),
+        docType: row.doc_type,
+      }));
+    });
+  }
+
+  /**
+   * Files a read document against a case as evidence, and records that it was:
+   * one transaction, both or neither.
+   *
+   * The link is conditional on the case holding the document in **no** role,
+   * not merely not as evidence — `deduction_documents`' unique key is
+   * `(deduction_id, document_id, role)`, so a plain `on conflict do nothing`
+   * would happily file a case's own notice against it a second time as
+   * evidence. The `on conflict` is still there for the race: two presses that
+   * both pass the `not exists` in two transactions meet at the unique key, one
+   * inserts and the other inserts nothing, and only the one that inserted
+   * writes the event.
+   *
+   * `evidence.attached` rather than `evidence.uploaded`: nothing was uploaded to
+   * this case and nothing was read for it, and the case's history should say
+   * which of the two happened.
+   */
+  async attachEvidence(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly docType: DocType;
+  }): Promise<boolean> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into deduction_documents (org_id, deduction_id, document_id, role)
+         select $1, $2, $3, 'evidence'
+          where not exists (
+            select 1 from deduction_documents dd
+             where dd.deduction_id = $2 and dd.document_id = $3)
+         on conflict (deduction_id, document_id, role) do nothing
+         returning id`,
+        [input.orgId, input.deductionId, input.documentId],
+      );
+      if (rows.length === 0) return false;
+      await client.query(
+        `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+         values ($1, $2, 'evidence.attached', $3::jsonb, now())`,
+        [
+          input.orgId,
+          input.deductionId,
+          JSON.stringify({
+            document_id: input.documentId,
+            doc_type: input.docType,
+            read_again: false,
+          }),
+        ],
+      );
+      return true;
     });
   }
 

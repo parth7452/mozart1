@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { PossibleDuplicatePair, UnreadDocument } from '@recouple/pipeline';
+import type {
+  PossibleDuplicatePair,
+  UnattachedDocument,
+  UnreadDocument,
+} from '@recouple/pipeline';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
 
@@ -26,6 +30,9 @@ const harness = vi.hoisted(() => ({
   /** Every `possibleDuplicates` call, for the same question about cost. */
   duplicateCalls: [] as unknown[],
   duplicates: [] as PossibleDuplicatePair[],
+  /** Every `unattachedDocuments` call, for the same question about cost. */
+  unattachedCalls: [] as unknown[],
+  unattached: [] as UnattachedDocument[],
 }));
 
 vi.mock('../lib/session', () => ({
@@ -47,6 +54,10 @@ vi.mock('../lib/session', () => ({
       async possibleDuplicates(options?: unknown) {
         harness.duplicateCalls.push(options);
         return harness.duplicates;
+      },
+      async unattachedDocuments(limit?: number) {
+        harness.unattachedCalls.push(limit);
+        return harness.unattached;
       },
       async close() {
         return undefined;
@@ -100,6 +111,26 @@ describe('the case list page', () => {
     harness.unread = [unreadDocument()];
     harness.duplicateCalls = [];
     harness.duplicates = [pair()];
+    harness.unattachedCalls = [];
+    harness.unattached = [
+      {
+        documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+        filename: '08_log-202.jpg',
+        createdAt: '2026-09-23T15:56:16.000Z',
+        docType: 'pod',
+      },
+    ];
+  });
+
+  it('lists what was read and is on no case, with what it was read as', async () => {
+    // The production gap: a delivery receipt uploaded here was read, opened
+    // nothing because it is evidence, and appeared nowhere.
+    const html = await render();
+
+    expect(harness.unattachedCalls).toEqual([undefined]);
+    expect(html).toContain('Read, not on a case');
+    expect(html).toContain('08_log-202.jpg');
+    expect(html).toContain('proof of delivery');
   });
 
   it('asks for the stuck documents once, at the threshold the notice explains', async () => {
@@ -142,8 +173,10 @@ describe('the case list page', () => {
 
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
+    expect(harness.unattachedCalls).toEqual([]);
     expect(html).not.toContain('Documents waiting to be read');
     expect(html).not.toContain('Possible duplicates');
+    expect(html).not.toContain('Read, not on a case');
   });
 
   it('asks nothing for an accountant guest either', async () => {
@@ -151,5 +184,6 @@ describe('the case list page', () => {
     await render();
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
+    expect(harness.unattachedCalls).toEqual([]);
   });
 });
