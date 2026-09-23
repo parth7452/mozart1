@@ -340,12 +340,23 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0027 as
-of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22 and
-the new tables, views, functions and grants read back and verified — for 0027,
-`ledger_sync_anomalies` has RLS on, `no_update_delete` and `no_truncate`,
-`app_rw` and `app_ro` hold SELECT only, and `app.record_ledger_sync_anomalies`
-is security definer with EXECUTE held by the owner and `app_rw` alone).
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0029 as
+of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
+0028–0029 applied 2026-09-23, after being staged on the preview project that
+morning). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+`no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
+and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
+the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
+equal the files'; `anon`, `authenticated` and `service_role` hold no privilege
+on any relation or routine in `public` or `app`; `authenticated` is no longer a
+member of `app_rw`; `recouple_app` still has SET on both app roles; every `app`
+function has a pinned `search_path`, the guard included; the only
+default-privilege rows still naming a request role are `supabase_admin`'s,
+which 0028 skips by design; `coverage_by_period_by_source` is
+`security_invoker` and computes `discovered_cents` from `uncased_cents`; and the
+security advisor's `function_search_path_mutable` finding is gone. `postgres` —
+the SQL editor and the MCP connector — can no longer `set role app_rw`, as ADR
+0037 accepted; read-only checks as `postgres` are unaffected.
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
