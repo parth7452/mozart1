@@ -37,9 +37,10 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0029, applied
-2026-09-23 after 0028 and 0029 were staged on the preview project
-(`jvbnqofmoamyhntjwjdn`) the same morning. Read back: Supabase's request roles
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0030. 0028 and
+0029 were applied 2026-09-23 after being staged on the preview project
+(`jvbnqofmoamyhntjwjdn`) the same morning, and 0030 (ADR 0039) that afternoon,
+preview first. Read back: Supabase's request roles
 hold nothing in `public` or `app`, `authenticated` no longer reaches `app_rw`,
 `recouple_app` still does, every `app` function's `search_path` is pinned again
 (invariant 7's guard included), and the coverage denominator counts each
@@ -54,7 +55,7 @@ The gap between *it worked once* and *it works*:
 
 | | What would prove it |
 | --- | --- |
-| **QuickBooks connect** (ADR 0039, migration 0030) | Built and tested against a real Postgres, not yet applied. After 0030 is applied: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
+| **QuickBooks connect** (ADR 0039, migration 0030) | Deployed, and 0030 applied and read back on 2026-09-23. What would prove it: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
@@ -94,7 +95,7 @@ Against the build order in `CLAUDE.md`:
   sealed token store (ADR 0033), a window anchored on payments (ADR 0035), credit
   memos read as not cash (ADR 0036), short-pays opening cases, and a customer's
   owner connecting their own company from Settings → QuickBooks with every token
-  refresh serialized per company (ADR 0039, not yet applied). Triage — an
+  refresh serialized per company (ADR 0039, deployed 2026-09-23). Triage — an
   ordered work queue over what the sync and the uploads open — is not started.
 - **Phase 2 — evidence + decision.** Not started. Phase 2's model decision lands
   in the slot Phase 3 has already used, with a corpus of human decisions in the
@@ -152,8 +153,9 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## Next
 
-1. **Apply migration 0030**, preview first, and click through QuickBooks
-   connect against the sandbox: Connect, first sync, Disconnect, Connect.
+1. **Click through QuickBooks connect** against the sandbox: Connect, first
+   sync, Disconnect (and confirm Intuit's revoke), Connect again. Only then the
+   production QBO keys.
 2. **Coverage and ledger anomalies on a page.** The views and the table exist;
    nothing renders them.
 3. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding

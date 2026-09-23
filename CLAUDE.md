@@ -360,10 +360,11 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0029 as
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0030 as
 of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
-morning). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
+project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -866,8 +867,13 @@ would otherwise hold its company from every other workspace; releasing
 automatically on `invalid_grant` is a follow-up, not built. The first sync is
 queued on connect. No code, token or anything Intuit said reaches a log line, a
 redirect, an event or an audit payload, and the route and store tests spy on all
-four. **Production does not carry 0030 yet**, and nothing here has met a live
-Intuit consent or revoke.
+four. Production carries 0030 since 2026-09-23, applied to `mozart-preview`
+first and read back on both: the stored statements' md5 equals the file's, the
+per-org unique is gone and the partial index is there, `app.member_is_owner()`
+is pinned, not definer, and executable by `app_rw` and `app_ro` alone, the
+policies read as written, the request roles still hold nothing, and the one
+existing connection — made by the owner — is enabled with its six credential
+rows. Nothing here has met a live Intuit consent or revoke yet.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
