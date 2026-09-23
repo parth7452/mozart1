@@ -35,7 +35,7 @@
  */
 
 import type { Pool, PoolClient } from 'pg';
-import { cents, CLOSED_STATES } from '@recouple/core-domain';
+import { applyTransition, cents, CLOSED_STATES } from '@recouple/core-domain';
 import type { Cents, IdentifierKind, LedgerExtract } from '@recouple/core-domain';
 import { sessionPool, type PostgresStore, type PostgresStoreConfig, type TenantContext } from './store';
 
@@ -384,6 +384,17 @@ export class PostgresDiscoveryStore {
         ],
       );
 
+      // A ledger extract's type is known by construction, so the case it opens
+      // crosses `discovered → classified` here, in the same transaction as its
+      // notice link — the edge a notice crosses once the classifier has read
+      // it. Without this a ledger case could be neither decided nor declined
+      // (ADR 0043 §2).
+      if (!(await this.classifyLedgerCase(client, input.orgId, opened.deductionId))) {
+        throw new DiscoveryStoreError(
+          `case ${opened.deductionId} was opened a moment ago and is not discovered`,
+        );
+      }
+
       if (input.possibleDuplicateOf !== undefined) {
         // The held-pair record, until a merge operation exists (STRATEGY §5.2).
         // `basis` names the facts that agreed and never their values, because
@@ -404,6 +415,70 @@ export class PostgresDiscoveryStore {
     });
 
     return { deductionId: opened.deductionId, documentId, reused: existing !== undefined };
+  }
+
+  /**
+   * Every one of this tenant's ledger cases still in `discovered`, moved to
+   * `classified` with one `case.classified` event each (ADR 0043 §2).
+   *
+   * A ledger case opens `classified` now. The ones opened before that stayed
+   * `discovered`, and the case page offers neither decide nor decline there.
+   * Only cases whose notice arrived through `erp_sync` are touched, so a notice
+   * half-way through its own read is left to its own path — and so is a case
+   * `openCase` committed before a sync died short of linking it (ADR 0029's
+   * crash window), which has no notice to say where it came from. Locked, so
+   * two overlapping syncs cannot both move one case. The sync runs this first
+   * on every run; after the first it finds nothing.
+   */
+  async classifyLedgerCases(orgId: string): Promise<readonly string[]> {
+    this.assertOwnTenant(orgId);
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `select d.id::text as id
+           from deductions d
+          where d.org_id = $1
+            and d.state = 'discovered'
+            and exists (
+              select 1 from deduction_documents dd
+                join documents doc on doc.id = dd.document_id
+                join uploads u on u.id = doc.upload_id
+               where dd.deduction_id = d.id and dd.role = 'notice' and u.source = $2)
+          order by d.created_at asc, d.id asc
+          for update of d`,
+        [orgId, DISCOVERED_FROM_ERP],
+      );
+      const moved: string[] = [];
+      for (const row of rows) {
+        if (await this.classifyLedgerCase(client, orgId, row.id)) moved.push(row.id);
+      }
+      return moved;
+    });
+  }
+
+  /**
+   * `discovered → classified` on `document.classified`, whose one guard is that
+   * the document's type is known — which a ledger extract's is. Checked against
+   * the state machine, then written only if the case is still `discovered`, with
+   * its event in the same transaction. False when it was not.
+   */
+  private async classifyLedgerCase(
+    client: PoolClient,
+    orgId: string,
+    deductionId: string,
+  ): Promise<boolean> {
+    applyTransition('discovered', 'classified', 'document.classified', { doc_type_known: true });
+    const { rowCount } = await client.query(
+      `update deductions set state = 'classified', updated_at = now()
+        where id = $1 and state = 'discovered'`,
+      [deductionId],
+    );
+    if (rowCount !== 1) return false;
+    await client.query(
+      `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+       values ($1, $2, 'case.classified', $3::jsonb, now())`,
+      [orgId, deductionId, JSON.stringify({ classified_by: 'ledger_sync', source: DISCOVERED_FROM_ERP })],
+    );
+    return true;
   }
 
   /**

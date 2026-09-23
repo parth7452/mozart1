@@ -985,6 +985,41 @@ confirmed pairs that could not be merged, each with its reason on the case page.
 Nothing is deleted, no identifier moves, no approval or filing row is written,
 and no UPDATE or DELETE grant is added. Production does not carry 0032 yet.
 
+**What to work on next is a queue, and a ledger case can be decided** (ADR
+0043, no migration). The case list led with the newest 100 cases whatever their
+state, so an old, urgent case fell off the page once a hundred newer ones
+existed, and nothing said what to do next. It now opens with a review queue:
+every case a person can act on now — not closed (`merged` included), not
+`submitted`, not declined — in the founder's four buckets: due within
+`DUE_SOON_DAYS` (14, in `core-domain`, which the deadline label imports too),
+past the deadline, no deadline printed (every ledger case and most remittance
+lines, oldest short-pay first, and the page says age is standing in for a
+window nobody printed), then due later; ties go to the larger amount, then the
+id. `rankForReview` is the order — pure, no clock of its own, property-tested —
+and `PostgresStore.reviewQueue` reads as `app_rw` in the same order with the
+same constant and the same `today`, so its limit of 500 keeps the most urgent
+rows; `review-queue.test.ts` holds the two to one answer at every cut, and the
+page says how many it is not showing. Each row says its bucket and its next step
+in words, from the state and whether an approval exists — decide, assemble,
+approve, record the filing — and an approval the viewer prepared, or whose role
+cannot give one, reads "Waiting for another approver", because the database
+would refuse them. Every member sees it, `read_only` included; it has no action
+of its own.
+
+Planning it found that a ledger case never left `discovered` — only the notice
+and remittance paths crossed to `classified` — so the case page offered it
+neither decide nor decline, and ADR 0029's "declinable the day it is opened" was
+true of the store and false of the product. `recordLedgerCase` now crosses the
+existing `discovered → classified` edge (`doc_type_known`, which a ledger
+extract is by construction) in the transaction that links the extract, with a
+`case.classified` event naming the sync, and every sync first sweeps the
+tenant's `discovered` cases whose notice arrived through `erp_sync`, so
+production's two move at the next 07:00 run with no operator step. The sweep
+does not reach ADR 0029's crash window: a case `openCase` committed before the
+sync died short of linking it has no notice to say where it came from. Step B, a
+shadow-only model tier, is designed in the ADR and not built — it waits on Jev
+access, both cassettes and a triage eval.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

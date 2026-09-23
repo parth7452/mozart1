@@ -1,3 +1,4 @@
+import { DUE_SOON_DAYS } from '@recouple/core-domain';
 import type { DocType } from '@recouple/extraction';
 
 /** Money is integer cents everywhere; it becomes a string only to be read. */
@@ -25,7 +26,9 @@ export function deadline(iso: string | undefined, today: Date): Deadline | undef
   const days = Math.round((due.getTime() - midnight.getTime()) / 86_400_000);
   if (days < 0) return { label: `${-days}d overdue`, tone: 'overdue' };
   if (days === 0) return { label: 'due today', tone: 'overdue' };
-  if (days <= 14) return { label: `${days}d left`, tone: 'due-soon' };
+  // The review queue's own threshold (ADR 0043), so the label and the queue
+  // cannot disagree about what "due soon" means.
+  if (days <= DUE_SOON_DAYS) return { label: `${days}d left`, tone: 'due-soon' };
   return { label: `${days}d left`, tone: 'ok' };
 }
 

@@ -235,6 +235,11 @@ same page.
 - **Only an owner sees the button**, and the database refuses anybody else. The
   connection syncs as the owner who made it, and re-checks every night that
   they still may.
+- **They can be worked the day they open.** Back on the case list, **What to
+  work on next** puts them under *No deadline printed*, oldest short-pay first —
+  a ledger prints no dispute window, and the page says age is standing in for
+  one. Each reads **Decide: dispute or decline**, and its case page has both
+  cards.
 
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect
@@ -249,6 +254,9 @@ we found, how much did we file — per channel.
 - **Nothing is hidden.** Dollars that arrived with no record of how are shown but
   credited to no channel; confirmed duplicates that could not be merged are
   counted and linked; a month that filed more than it found is shown as it is.
+- **What needs a look in QuickBooks.** Each connection's latest completed run
+  lists the invoices it could not make add up, by QuickBooks' own IDs, with what
+  to check. No case is opened for those until the ledger adds up.
 
 ## Extra · The same deduction twice (2 min, optional)
 
@@ -268,6 +276,3 @@ open and the pair appears under **Possible duplicates** on the case list.
 
 > **Say this:** a merge deletes nothing. It is one recorded row with a name on
 > it, the database moves the state from it, and the undo is one more row.
-- **What needs a look in QuickBooks.** Each connection's latest completed run
-  lists the invoices it could not make add up, by QuickBooks' own IDs, with what
-  to check. No case is opened for those until the ledger adds up.

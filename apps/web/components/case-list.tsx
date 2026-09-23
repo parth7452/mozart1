@@ -3,7 +3,8 @@ import type {
   UnattachedDocument,
   UnreadDocument,
 } from '@recouple/pipeline';
-import type { CaseSummary } from '@recouple/store-postgres';
+import { DUE_SOON_DAYS } from '@recouple/core-domain';
+import type { CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import { caseMetrics } from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
@@ -12,6 +13,7 @@ import { resolveNotice } from '../lib/notices';
 import { UnreadDocuments } from './unread-documents';
 import { UnattachedDocuments } from './unattached-documents';
 import { PossibleDuplicates } from './possible-duplicates';
+import { WorkQueue, type QueueViewer } from './work-queue';
 
 export interface Viewer {
   readonly email: string;
@@ -30,6 +32,7 @@ export interface Viewer {
 export function CaseList({
   viewer,
   cases,
+  queue,
   today,
   mayUpload,
   unread,
@@ -40,6 +43,13 @@ export function CaseList({
 }: {
   viewer: Viewer;
   cases: readonly CaseSummary[];
+  /**
+   * What to work on next (ADR 0043): every case a person can act on now, most
+   * urgent first, with who is asking so an approval the viewer may not give
+   * says so. Shown to every member, `read_only` included — it is a reading of
+   * the cases they can already see, and it offers no action of its own.
+   */
+  queue: { readonly read: ReviewQueueRead; readonly viewer: QueueViewer };
   today: Date;
   /** Whether this member's role may add a document; the database decides too. */
   mayUpload: boolean;
@@ -137,12 +147,13 @@ export function CaseList({
               {metrics.deadlineCount.toLocaleString('en-US')}
               <span className="metric-dot" aria-hidden="true" />
             </strong>
-            <span className="metric-note">Due within 14 days or overdue · unfiled</span>
+            <span className="metric-note">Due within {DUE_SOON_DAYS} days or overdue · unfiled</span>
           </div>
         </section>
         {said === undefined ? null : (
           <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
         )}
+        <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
         <section className="card ledger" aria-label="Deduction ledger">
           <div className="ledger-heading">
             <div>

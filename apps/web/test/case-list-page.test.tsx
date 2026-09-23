@@ -5,7 +5,7 @@ import type {
   UnattachedDocument,
   UnreadDocument,
 } from '@recouple/pipeline';
-import type { PostgresStore } from '@recouple/store-postgres';
+import type { PostgresStore, ReviewQueueRead, ReviewQueueRow } from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
 
 /**
@@ -33,6 +33,9 @@ const harness = vi.hoisted(() => ({
   /** Every `unattachedDocuments` call, for the same question about cost. */
   unattachedCalls: [] as unknown[],
   unattached: [] as UnattachedDocument[],
+  /** Every `reviewQueue` call: asked for every member, with one `today`. */
+  queueCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
+  queue: { rows: [], total: 0, waitingOnRetailer: 0, limit: 500 } as ReviewQueueRead,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -58,6 +61,10 @@ vi.mock('../lib/session', () => ({
       async unattachedDocuments(limit?: number) {
         harness.unattachedCalls.push(limit);
         return harness.unattached;
+      },
+      async reviewQueue(options?: { today?: Date; limit?: number }) {
+        harness.queueCalls.push(options);
+        return harness.queue;
       },
       async close() {
         return undefined;
@@ -100,6 +107,21 @@ function unreadDocument(): UnreadDocument {
   };
 }
 
+/** A case waiting on an approval, prepared by `preparedBy`. */
+function awaitingApproval(preparedBy: string): ReviewQueueRow {
+  return {
+    deductionId: 'ffffffff-1111-2222-3333-444444444444',
+    state: 'awaiting_approval',
+    claimId: 'KS-40112',
+    deductionAmountCents: 88_450,
+    disputeDeadline: '2099-01-01',
+    createdAt: '2026-09-20',
+    discoveredVia: 'notice',
+    hasApproval: false,
+    preparedBy,
+  };
+}
+
 async function render(): Promise<string> {
   return renderToStaticMarkup(await CaseListPage({ searchParams: Promise.resolve({}) }));
 }
@@ -111,6 +133,13 @@ describe('the case list page', () => {
     harness.unread = [unreadDocument()];
     harness.duplicateCalls = [];
     harness.duplicates = [pair()];
+    harness.queueCalls = [];
+    harness.queue = {
+      rows: [awaitingApproval(USER_ID)],
+      total: 1,
+      waitingOnRetailer: 2,
+      limit: 500,
+    };
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -177,6 +206,37 @@ describe('the case list page', () => {
     expect(html).not.toContain('Documents waiting to be read');
     expect(html).not.toContain('Possible duplicates');
     expect(html).not.toContain('Read, not on a case');
+  });
+
+  it('shows every member what to work on next, read with one today', async () => {
+    // Every role, `read_only` included: the queue is a reading of cases the
+    // member can already see and offers no action of its own, so unlike the
+    // lists above it costs nothing that nobody may use.
+    for (const role of ['analyst', 'read_only', 'accountant_guest']) {
+      harness.role = role;
+      harness.queueCalls = [];
+      const html = await render();
+
+      expect(harness.queueCalls).toHaveLength(1);
+      const today = harness.queueCalls[0]?.today;
+      expect(today).toBeInstanceOf(Date);
+      expect(Number.isNaN(today?.getTime())).toBe(false);
+      expect(html).toContain('What to work on next');
+      expect(html).toContain('KS-40112');
+      expect(html).toContain('1 case needs a person · 2 filed, waiting on the retailer');
+    }
+  });
+
+  it('does not ask the member who prepared a decision to approve it', async () => {
+    harness.role = 'approver';
+    const own = await render();
+    expect(own).toContain('Waiting for another approver');
+    expect(own).not.toContain('Approve for submission');
+
+    harness.queue = { ...harness.queue, rows: [awaitingApproval('somebody-else')] };
+    const theirs = await render();
+    expect(theirs).toContain('Approve for submission');
+    expect(theirs).not.toContain('Waiting for another approver');
   });
 
   it('asks nothing for an accountant guest either', async () => {

@@ -79,7 +79,10 @@ describe('syncing a customer’s ledger', () => {
     const opened = store.cases[0];
     expect(opened?.customerName).toBe('Sysco Baltimore, LLC');
     expect(opened?.deductionDate).toBe('2026-07-20');
-    expect(opened?.events.map((e) => e.type)).toEqual(['case.discovered']);
+    // Opened ready to be decided: a ledger extract's type is known, so the case
+    // crosses discovered → classified at once (ADR 0043 §2).
+    expect(opened?.state).toBe('classified');
+    expect(opened?.events.map((e) => e.type)).toEqual(['case.discovered', 'case.classified']);
     expect(opened?.events[0]?.payload.source).toBe('erp_sync');
 
     // And the names the ledger knows it by, so the next sync matches exactly.
@@ -205,6 +208,7 @@ describe('syncing a customer’s ledger', () => {
     ]);
     expect(store.cases[0]?.events.map((e) => e.type)).toEqual([
       'case.discovered',
+      'case.classified',
       'case.possible_duplicate',
     ]);
     // Facts that agreed, never their values (invariant 4).
@@ -334,6 +338,7 @@ describe('syncing a customer’s ledger', () => {
         store.ensureIdentifiers(...args),
       declineCandidate: (...args: Parameters<typeof store.declineCandidate>) =>
         store.declineCandidate(...args),
+      classifyLedgerCases: () => store.classifyLedgerCases(),
       recordLedgerCase: async () => {
         throw new Error('write refused');
       },
@@ -347,6 +352,65 @@ describe('syncing a customer’s ledger', () => {
         orgId: ORG,
       }),
     ).rejects.toThrow('write refused');
+  });
+
+  it('moves a ledger case left discovered on, once, before it reads the ledger (ADR 0043 §2)', async () => {
+    const store = new InMemoryDiscoveryStore();
+    store.cases.push({
+      deductionId: 'stuck-ledger-case',
+      documentId: 'its-extract',
+      state: 'discovered',
+      gapCents: 45_000,
+      customerName: 'Sysco Baltimore, LLC',
+      events: [{ type: 'case.discovered', payload: { source: 'erp_sync' } }],
+    });
+
+    const first = await syncLedger({
+      source: ledger({ invoices: [invoice()], payments: [payment()] }),
+      window: WINDOW,
+      store,
+      orgId: ORG,
+    });
+    expect(first.classified).toEqual(['stuck-ledger-case']);
+    const stuck = store.cases.find((c) => c.deductionId === 'stuck-ledger-case');
+    expect(stuck?.state).toBe('classified');
+    expect(stuck?.events.map((e) => e.type)).toEqual(['case.discovered', 'case.classified']);
+
+    const second = await syncLedger({
+      source: ledger({ invoices: [invoice()], payments: [payment()] }),
+      window: WINDOW,
+      store,
+      orgId: ORG,
+    });
+    expect(second.classified).toEqual([]);
+
+    // First, before the ledger is read: a ledger that cannot be read today does
+    // not keep the case stuck another day.
+    store.cases.push({
+      deductionId: 'another-stuck-case',
+      documentId: 'another-extract',
+      state: 'discovered',
+      gapCents: 23_900,
+      customerName: 'PFG',
+      events: [],
+    });
+    await expect(
+      syncLedger({
+        source: {
+          listPayments: async () => {
+            throw new Error('ledger unreachable');
+          },
+          listCredits: async () => [],
+          getInvoiceHistories: async () => ({ invoices: [], payments: [], credits: [] }),
+        },
+        window: WINDOW,
+        store,
+        orgId: ORG,
+      }),
+    ).rejects.toThrow('ledger unreachable');
+    expect(store.cases.find((c) => c.deductionId === 'another-stuck-case')?.state).toBe(
+      'classified',
+    );
   });
 
   it('refuses a triage provider, because v1 calls none', async () => {

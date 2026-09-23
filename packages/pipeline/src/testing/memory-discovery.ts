@@ -37,6 +37,12 @@ interface LedgerIdentifiers {
 export interface MemoryCase {
   readonly deductionId: string;
   readonly documentId: string;
+  /**
+   * `classified` from the moment a ledger case opens (ADR 0043 §2). A test that
+   * needs one stuck in `discovered`, the way cases opened before that were,
+   * pushes it here itself.
+   */
+  readonly state: 'discovered' | 'classified';
   readonly gapCents: number;
   readonly customerName: string;
   readonly deductionDate?: string;
@@ -121,6 +127,9 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
         },
       },
     ];
+    // In the order the Postgres store writes them: the case is classified in
+    // the transaction that links its extract, before the pair is named.
+    events.push({ type: 'case.classified', payload: { classified_by: 'ledger_sync', source: 'erp_sync' } });
     if (input.possibleDuplicateOf !== undefined) {
       events.push({
         type: 'case.possible_duplicate',
@@ -134,6 +143,7 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
     this.cases.push({
       deductionId,
       documentId,
+      state: 'classified',
       gapCents: input.gapCents,
       customerName: input.customerName,
       ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
@@ -151,6 +161,24 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
     this.addIdentifiers(deductionId, input.identifiers);
 
     return { deductionId, documentId, reused: known !== undefined };
+  }
+
+  /** Moves every ledger case still in `discovered` on, as the Postgres store does. */
+  async classifyLedgerCases(): Promise<readonly string[]> {
+    const moved: string[] = [];
+    for (const [index, memoryCase] of this.cases.entries()) {
+      if (memoryCase.state !== 'discovered') continue;
+      this.cases[index] = {
+        ...memoryCase,
+        state: 'classified',
+        events: [
+          ...memoryCase.events,
+          { type: 'case.classified', payload: { classified_by: 'ledger_sync', source: 'erp_sync' } },
+        ],
+      };
+      moved.push(memoryCase.deductionId);
+    }
+    return moved;
   }
 
   async declineCandidate(input: {

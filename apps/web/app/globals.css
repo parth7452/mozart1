@@ -551,3 +551,36 @@ td .hint { display: block; margin: 6px 0 0; }
 table.cases tr.has-note td { padding-bottom: 6px; border-bottom: 0; }
 table.cases tr.run-note td { padding-top: 0; font-size: 11px; color: var(--muted); white-space: normal; }
 table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { background: #f7f9f5; }
+
+/* The review queue (ADR 0043): an ordered list per bucket, most urgent first.
+   One grid for the column names and every row, so the columns line up across
+   buckets; on a phone a row stacks rather than scrolling its next step away. */
+.queue-columns, .queue-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.5fr) minmax(90px, .8fr) minmax(150px, 1.2fr) minmax(170px, 1.3fr); gap: 16px; align-items: center; padding-inline: 24px; }
+.queue-columns { padding-block: 12px; font-size: 8px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); background: #f7f9f8; border-top: 1px solid var(--line); }
+.queue-columns .money, .queue-amount { text-align: right; }
+.queue-bucket { border-top: 1px solid var(--line); }
+.queue-bucket h3 { margin: 0; padding: 14px 24px 0; font-size: 12px; font-weight: 500; }
+.queue-bucket-count { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: #edf0f4; color: var(--muted); font-size: 10px; font-weight: 500; }
+.queue-bucket-hint { margin: 3px 0 0; padding: 0 24px 12px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.bucket-past_deadline .queue-bucket-title { color: var(--bad); }
+.bucket-due_soon .queue-bucket-title { color: var(--warn); }
+.queue-list { list-style: none; margin: 0; padding: 0; }
+.queue-row { padding-block: 16px; border-top: 1px solid var(--line); font-size: 12px; transition: background .15s; }
+.queue-row:hover { background: #f7f9f5; }
+.queue-row > span { min-width: 0; overflow-wrap: anywhere; }
+.queue-amount { font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.queue-when { font-size: 11px; color: var(--muted); }
+.queue-waiting { font-size: 11px; color: var(--muted); font-style: italic; }
+.pill.step-decide, .pill.step-assemble, .pill.step-review { background: #edf1f6; color: #4c6480; }
+.pill.step-approve, .pill.step-file { background: #f8efd9; color: #855e16; }
+.queue-more { margin: 0; padding: 14px 24px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+@media(max-width:760px) {
+  .queue-columns { display: none; }
+  .queue-row { grid-template-columns: minmax(0,1fr) auto; gap: 8px 12px; padding: 14px 16px; }
+  .queue-claim { grid-row: 1; grid-column: 1; }
+  .queue-amount { grid-row: 1; grid-column: 2; }
+  .queue-who { grid-row: 2; grid-column: 1 / -1; }
+  .queue-due { grid-row: 3; grid-column: 1; }
+  .queue-step { grid-row: 3; grid-column: 2; justify-self: end; }
+  .queue-bucket h3 { padding-inline: 16px; }.queue-bucket-hint, .queue-more { padding-inline: 16px; }
+}

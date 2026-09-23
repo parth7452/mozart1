@@ -85,6 +85,7 @@ import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
 import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
+import { readReviewQueue, REVIEW_QUEUE_LIMIT, type ReviewQueueRead } from './review-queue';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -3582,6 +3583,19 @@ export class PostgresStore
   async coverageReport(options: { readonly months?: number } = {}): Promise<CoverageReport> {
     const months = options.months ?? COVERAGE_MONTHS_DEFAULT;
     return this.withTenant((client) => readCoverageReport(client, months));
+  }
+
+  /**
+   * The cases a person can act on now, most urgent first as the SQL sees it —
+   * `rankForReview` gives the final order (ADR 0043). One tenant transaction as
+   * `app_rw`; reads only.
+   */
+  async reviewQueue(
+    options: { readonly today?: Date; readonly limit?: number } = {},
+  ): Promise<ReviewQueueRead> {
+    return this.withTenant((client) =>
+      readReviewQueue(client, options.today ?? new Date(), options.limit ?? REVIEW_QUEUE_LIMIT),
+    );
   }
 
   /**

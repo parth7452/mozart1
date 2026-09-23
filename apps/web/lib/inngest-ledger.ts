@@ -294,7 +294,9 @@ export function ledgerSyncSteps(
           `window ${synced.window.from}..${synced.window.to}, run ${synced.runId}, ` +
           `examined ${synced.invoicesExamined}, opened ${synced.openedCount}, ` +
           `skipped ${synced.skippedCount}, declined ${synced.declinedCount}, ` +
-          `anomalies ${synced.anomalyCount}`,
+          `anomalies ${synced.anomalyCount}` +
+          // Stuck ledger cases the sweep moved to `classified` (ADR 0043 §2).
+          (synced.classifiedCount === undefined ? '' : `, classified ${synced.classifiedCount}`),
       );
       if (synced.reason !== undefined) {
         // The reason, in this deployment's own logs and nowhere else: it names
