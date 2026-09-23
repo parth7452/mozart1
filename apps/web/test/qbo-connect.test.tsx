@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { LedgerConnectionOverview } from '@recouple/store-postgres';
 import {
+  checkOAuthState,
+  headerForLog,
   issueOAuthState,
   mayConnectLedger,
   oauthStateCookie,
@@ -132,6 +134,29 @@ describe('the state that ties Intuit’s redirect back to one consent', () => {
     for (const [cookie, param] of wrong) {
       expect(readOAuthState(cookie, param, now)).toBeUndefined();
     }
+  });
+
+  it('names which check refused it, for the log', () => {
+    const { state, cookieValue } = issueOAuthState({ orgId: ORG_ID, userId: USER_ID, now });
+    const later = new Date(now.getTime() + QBO_STATE_MAX_AGE_SECONDS * 1000 + 1);
+    expect(checkOAuthState(undefined, state, now)).toEqual({ ok: false, reason: 'no_cookie' });
+    expect(checkOAuthState(cookieValue, null, now)).toEqual({ ok: false, reason: 'no_state' });
+    expect(checkOAuthState('a.b.c', state, now)).toEqual({ ok: false, reason: 'malformed' });
+    expect(checkOAuthState(cookieValue, `${state}x`, now)).toEqual({ ok: false, reason: 'mismatch' });
+    expect(checkOAuthState(cookieValue, state, later)).toEqual({ ok: false, reason: 'expired' });
+    expect(checkOAuthState(cookieValue, state, now)).toEqual({
+      ok: true,
+      claim: { orgId: ORG_ID, userId: USER_ID },
+    });
+  });
+
+  it('keeps only an enumeration’s characters from a request header', () => {
+    expect(headerForLog('cross-site')).toBe('cross-site');
+    expect(headerForLog('prefetch;prerender')).toBe('prefetch;prerender');
+    expect(headerForLog(null)).toBe('-');
+    expect(headerForLog('<script>alert(1)</script>')).toBe('scriptalert1script');
+    expect(headerForLog('x'.repeat(80))).toHaveLength(40);
+    expect(headerForLog('\n\t ')).toBe('?');
   });
 
   it('is carried in a cookie a page script cannot read and Intuit’s redirect still sends', () => {

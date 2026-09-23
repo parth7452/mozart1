@@ -119,37 +119,65 @@ export function issueOAuthState(input: {
   };
 }
 
+/** Why a state was refused — for the log, never for the page. */
+export type OAuthStateRefusal = 'no_cookie' | 'no_state' | 'malformed' | 'mismatch' | 'expired';
+
 /**
  * The cookie's claim, if the `state` Intuit sent back is its nonce and it is
- * less than ten minutes old; otherwise nothing.
+ * less than ten minutes old; otherwise which of those it was not.
  *
  * Constant-time over equal lengths: the nonce is a secret for its ten minutes,
  * and a comparison that returns at the first differing byte is a comparison
- * that can be timed. A malformed cookie, a missing parameter, a mismatch and an
- * expired cookie are all the same answer, because they all mean the same thing
- * to the callback — do not exchange this code.
+ * that can be timed. Every refusal means the same thing to the callback — do
+ * not exchange this code — and the reason exists only so an operator can tell
+ * a spent cookie from a forged one after the fact.
  */
+export function checkOAuthState(
+  cookieValue: string | undefined,
+  stateParam: string | null,
+  now: Date,
+): { readonly ok: true; readonly claim: OAuthStateClaim } | { readonly ok: false; readonly reason: OAuthStateRefusal } {
+  if (cookieValue === undefined || cookieValue === '') return { ok: false, reason: 'no_cookie' };
+  if (stateParam === null || stateParam === '') return { ok: false, reason: 'no_state' };
+  const parts = cookieValue.split('.');
+  if (parts.length !== 4) return { ok: false, reason: 'malformed' };
+  const [nonce, orgId, userId, issuedAt] = parts as [string, string, string, string];
+
+  const expected = Buffer.from(nonce, 'utf8');
+  const given = Buffer.from(stateParam, 'utf8');
+  if (expected.length === 0) return { ok: false, reason: 'malformed' };
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
+    return { ok: false, reason: 'mismatch' };
+  }
+
+  const issued = Number(issuedAt);
+  if (!Number.isFinite(issued)) return { ok: false, reason: 'malformed' };
+  const age = now.getTime() - issued;
+  if (age < 0 || age > QBO_STATE_MAX_AGE_SECONDS * 1000) return { ok: false, reason: 'expired' };
+
+  return { ok: true, claim: { orgId, userId } };
+}
+
+/** `checkOAuthState`'s claim, or nothing. */
 export function readOAuthState(
   cookieValue: string | undefined,
   stateParam: string | null,
   now: Date,
 ): OAuthStateClaim | undefined {
-  if (cookieValue === undefined || stateParam === null || stateParam === '') return undefined;
-  const parts = cookieValue.split('.');
-  if (parts.length !== 4) return undefined;
-  const [nonce, orgId, userId, issuedAt] = parts as [string, string, string, string];
+  const checked = checkOAuthState(cookieValue, stateParam, now);
+  return checked.ok ? checked.claim : undefined;
+}
 
-  const expected = Buffer.from(nonce, 'utf8');
-  const given = Buffer.from(stateParam, 'utf8');
-  if (expected.length === 0 || expected.length !== given.length) return undefined;
-  if (!timingSafeEqual(expected, given)) return undefined;
-
-  const issued = Number(issuedAt);
-  if (!Number.isFinite(issued)) return undefined;
-  const age = now.getTime() - issued;
-  if (age < 0 || age > QBO_STATE_MAX_AGE_SECONDS * 1000) return undefined;
-
-  return { orgId, userId };
+/**
+ * A browser-set request header, fit for a log line: lower-case letters, digits
+ * and `;=?-` only, at most 40 characters. The `Sec-Fetch-*` and `Sec-Purpose`
+ * headers are an enumeration when a browser sends them, and anything at all
+ * when a forged request does, so nothing else about them is kept.
+ */
+export function headerForLog(value: string | null): string {
+  if (value === null) return '-';
+  const kept = value.toLowerCase().replace(/[^a-z0-9;=?-]/g, '').slice(0, 40);
+  return kept === '' ? '?' : kept;
 }
 
 /**
