@@ -255,7 +255,13 @@ holds, and that one is designed to be public
 The review route shows every stored field with the document, page and quote it
 came from, and says which of three checks each field got: the quote was found in
 the page text, it was looked for and was not there, or there was no text to look
-in. There is still no approve button, for the same reason as in the prototype.
+in. Below the fields it carries Phase 3's five actions — decide, assemble the
+packet, approve, record the filing, record the outcome — each shown only where
+the state machine and the member's role allow it, and the approve button never
+to whoever prepared the decision
+([ADR 0020](./docs/adr/0020-a-human-decides-and-the-gate-is-exercised.md)). The
+app files nothing: a person files on the retailer's portal and records it here,
+and the database refuses that record without an approval for the exact decision.
 
 A member whose role may write can add a document from the case list, which runs
 the real pipeline: ingest, scan, classify, extract, and open a case when the file
