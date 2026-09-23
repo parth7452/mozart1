@@ -14,7 +14,12 @@ import { CaseList, type Viewer } from '../components/case-list';
 import { UnreadDocuments, waiting } from '../components/unread-documents';
 import { caseLabel, UnattachedDocuments } from '../components/unattached-documents';
 import { CaseReview } from '../components/case-review';
-import { basisSentence, PossibleDuplicates } from '../components/possible-duplicates';
+import {
+  basisSentence,
+  CaseMergeNotes,
+  MERGE_REFUSAL_SENTENCES,
+  PossibleDuplicates,
+} from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { deadline, fieldLabel, money } from '../lib/format';
 
@@ -1258,13 +1263,14 @@ describe('the pairs identity resolution would not merge', () => {
     expect(html).toContain('value="different"');
   });
 
-  it('never says the cases were merged, because they were not', () => {
-    // The whole asymmetry rests on this: nothing here joins two cases, and a
-    // button that read as if it did would be claiming something the store does
-    // not do (ADR 0032 §5).
+  it('says the pair is not merged yet, and that "same" is what merges it', () => {
+    // A pair on this list was opened twice and joined by nothing; the button
+    // that answers "same" is the one that merges (ADR 0042 §7), and it says so
+    // rather than looking like a note that changes nothing.
     const html = renderToStaticMarkup(<PossibleDuplicates pairs={[duplicatePair()]} />);
     expect(html).toMatch(/neither was merged/);
-    expect(html).not.toMatch(/merge them/i);
+    expect(html).toContain('Same deduction — merge them');
+    expect(html).toMatch(/can be put back/);
   });
 
   it('renders nothing at all when there is nothing to answer', () => {
@@ -1313,8 +1319,9 @@ describe('a case that may already be a case', () => {
     expect(html).toContain('action="/cases/aaaaaaaa-1111-2222-3333-444444444444/duplicate"');
     expect(html).toContain('Same deduction');
     expect(html).toContain('Different deductions');
-    // And it does not claim anything was merged or moved.
-    expect(html).toMatch(/Nothing was merged/);
+    // And it says what "same" does before anybody presses it.
+    expect(html).toMatch(/Saying they are the same merges them/);
+    expect(html).toMatch(/can be put back/);
   });
 
   it('tells a reader who may not act as well, without offering the buttons', () => {
@@ -1331,5 +1338,169 @@ describe('a case that may already be a case', () => {
   it('says nothing when the case is in no unanswered pair', () => {
     const html = renderToStaticMarkup(<CaseReview {...base} mayAct={true} duplicates={[]} />);
     expect(html).not.toContain('This may already be a case');
+  });
+});
+
+describe('a merged pair, on either case (ADR 0042)', () => {
+  const loser = 'bbbbbbbb-1111-2222-3333-444444444444';
+  const survivor = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const base = {
+    viewer,
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+  };
+  const mergedInto = {
+    deductionId: survivor,
+    claimId: 'APDP-99812',
+    deductionAmountCents: 42_150,
+    state: 'classified' as const,
+    mergeId: 'cccccccc-1111-2222-3333-444444444444',
+    mergedAt: '2026-09-23T10:00:00.000Z',
+    mergedBy: 'dddddddd-1111-2222-3333-444444444444',
+  };
+
+  it('tells a merged case where it went, and offers a writer the undo', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ deductionId: loser, state: 'merged' })}
+        mayAct={true}
+        merges={{ mergedInto, absorbed: [], confirmedNotMerged: [] }}
+      />,
+    );
+    expect(html).toContain('Merged into another case');
+    expect(html).toContain(`href="/cases/${survivor}"`);
+    expect(html).toContain('APDP-99812');
+    expect(html).toContain(`action="/cases/${loser}/unmerge"`);
+    // Evidence goes on the survivor: the database refuses a link to this one
+    // after the read would have been paid for.
+    expect(html).not.toContain('Add evidence');
+    expect(html).not.toContain('name="attachToCase"');
+  });
+
+  it('shows a reader the banner and no undo', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ deductionId: loser, state: 'merged' })}
+        mayAct={false}
+        merges={{ mergedInto, absorbed: [], confirmedNotMerged: [] }}
+      />,
+    );
+    expect(html).toContain('Merged into another case');
+    expect(html).not.toContain('/unmerge"');
+  });
+
+  it('lists what was merged into the survivor, which still takes evidence', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...base}
+        summary={summary({ deductionId: survivor, state: 'classified' })}
+        mayAct={true}
+        merges={{
+          absorbed: [
+            {
+              deductionId: loser,
+              claimId: 'CM-40021',
+              deductionAmountCents: 42_150,
+              state: 'merged',
+              mergeId: mergedInto.mergeId,
+              mergedAt: mergedInto.mergedAt,
+            },
+          ],
+          confirmedNotMerged: [],
+        }}
+      />,
+    );
+    expect(html).toContain('Merged into this case');
+    expect(html).toContain(`href="/cases/${loser}"`);
+    expect(html).toContain('CM-40021');
+    expect(html).toContain('Add evidence');
+  });
+
+  it('says why a confirmed pair is not merged, and offers Merge only when it would work', () => {
+    const refused = renderToStaticMarkup(
+      <CaseMergeNotes
+        deductionId={survivor}
+        mayAct={true}
+        merges={{
+          absorbed: [],
+          confirmedNotMerged: [
+            {
+              deductionId: loser,
+              claimId: 'CM-40021',
+              deductionAmountCents: 42_149,
+              state: 'classified',
+              refusal: 'amounts_disagree',
+            },
+          ],
+        }}
+      />,
+    );
+    expect(refused).toContain('The same deduction, not merged');
+    expect(refused).toContain(MERGE_REFUSAL_SENTENCES.amounts_disagree);
+    expect(refused).not.toContain('/merge"');
+    expect(refused).toMatch(/coverage counts this deduction twice/);
+
+    const allowed = renderToStaticMarkup(
+      <CaseMergeNotes
+        deductionId={survivor}
+        mayAct={true}
+        merges={{
+          absorbed: [],
+          confirmedNotMerged: [
+            { deductionId: loser, deductionAmountCents: 42_150, state: 'classified' },
+          ],
+        }}
+      />,
+    );
+    expect(allowed).toContain(`action="/cases/${survivor}/merge"`);
+    expect(allowed).toContain(`value="${loser}"`);
+
+    const reader = renderToStaticMarkup(
+      <CaseMergeNotes
+        deductionId={survivor}
+        mayAct={false}
+        merges={{
+          absorbed: [],
+          confirmedNotMerged: [
+            { deductionId: loser, deductionAmountCents: 42_150, state: 'classified' },
+          ],
+        }}
+      />,
+    );
+    expect(reader).not.toContain('/merge"');
+  });
+
+  it('says nothing when there is nothing to say, and escapes a claim id', () => {
+    expect(
+      renderToStaticMarkup(
+        <CaseMergeNotes
+          deductionId={survivor}
+          mayAct={true}
+          merges={{ absorbed: [], confirmedNotMerged: [] }}
+        />,
+      ),
+    ).toBe('');
+    const html = renderToStaticMarkup(
+      <CaseMergeNotes
+        deductionId={loser}
+        mayAct={true}
+        merges={{
+          mergedInto: { ...mergedInto, claimId: '<img src=x onerror="alert(1)">' },
+          absorbed: [],
+          confirmedNotMerged: [],
+        }}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+  });
+
+  it('has a sentence for every reason the database can give', () => {
+    for (const sentence of Object.values(MERGE_REFUSAL_SENTENCES)) {
+      expect(sentence.trim()).not.toBe('');
+    }
   });
 });

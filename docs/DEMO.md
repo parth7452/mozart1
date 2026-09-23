@@ -207,8 +207,27 @@ we found, how much did we file — per channel.
   day a ledger is connected, which is the mix changing, not the product getting
   better. The page says so.
 - **Nothing is hidden.** Dollars that arrived with no record of how are shown but
-  credited to no channel; confirmed duplicates still counted twice are counted
-  and linked; a month that filed more than it found is shown as it is.
+  credited to no channel; confirmed duplicates that could not be merged are
+  counted and linked; a month that filed more than it found is shown as it is.
+
+## Extra · The same deduction twice (2 min, optional)
+
+A ledger sync or a second upload can find a deduction you already have. When
+the invoice, the amount and the date agree but no identifier does, both cases
+open and the pair appears under **Possible duplicates** on the case list.
+
+- **Press "Same deduction — merge them".** The case somebody worked on — else
+  the older one — carries on. The other is marked **merged**, keeps its
+  documents and timeline, drops out of the totals and of coverage, and a later
+  arrival that matches it lands on the survivor.
+- **Open the merged case.** It says where it went, takes no more evidence, and
+  offers **Undo the merge**: the case goes back exactly where it was and the
+  pair is a question again. A pair is merged once.
+- **When it will not merge, it says why** — two filings are out at the
+  retailer, or the amounts differ by a cent — and the "same" answer stands.
+
+> **Say this:** a merge deletes nothing. It is one recorded row with a name on
+> it, the database moves the state from it, and the undo is one more row.
 - **What needs a look in QuickBooks.** Each connection's latest completed run
   lists the invoices it could not make add up, by QuickBooks' own IDs, with what
   to check. No case is opened for those until the ledger adds up.

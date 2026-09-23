@@ -140,7 +140,7 @@ append-only tables.
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
-| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033). `connectQboCompany` is the only way a connection row is made — the button and `link:qbo` both call it — and it seals before it touches the database (ADR 0039) |
+| `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033). `connectQboCompany` is the only way a connection row is made — the button and `link:qbo` both call it — and it seals before it touches the database (ADR 0039). Every read of `deduction_identifiers` maps a merged-away case to its survivor through `deduction_merges_current`; a reader that forgets hits `RCM01` on its first write (ADR 0042) |
 | `crypto` | The `TokenCipher` port and `KmsTokenCipher`. It reads no environment variable and holds no key material: AWS credentials are the SDK's provider chain's business and the key id is a constructor argument. `LocalTokenCipher` is under `@recouple/crypto/testing` and the index must never re-export it |
 | `decision` | Map questions to Choice ≤255 / Score / Noul; Jev primary, Claude structured fallback; state is extracted fields, never document text |
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
@@ -681,7 +681,8 @@ and an arrival that exact-matches both halves of a confirmed pair is still
 also still counts in `coverage_by_period*`, which is an over-count that is
 written down rather than discovered later; excluding it belongs with the merge
 decision, since which row's dollars survive is the same question as which row
-survives. A `merged` case state is that decision's too.
+survives. A `merged` case state is that decision's too — and ADR 0042 is that
+decision (*A confirmed duplicate is merged*, below).
 
 **A token is sealed before it is stored** (ADR 0033, migration 0025).
 `qboTokenStoreFromEnv` returned `undefined` — the named KMS port with no
@@ -903,6 +904,50 @@ before migration 0027 kept no anomaly ids and says so. Every member sees the
 page, `read_only` included; it has no action on it. The QuickBooks and crypto
 error classes now carry literal names, since a run's `error_class` is what the
 page's guidance keys on and a minified class name would read as nothing.
+
+**A confirmed duplicate is merged** (ADR 0042, migration 0032). "Same
+deduction" now merges the pair in the same click: one append-only
+`deduction_merges` row, and **the database does the rest**. `app.merge_refusal()`
+names why a pair cannot be merged (`not_confirmed`, `already_merged`,
+`merged_before`, `absorbs_another`, `both_filed`, `amounts_disagree`,
+`not_mergeable_state`) or answers null; `app.merge_survivor()` keeps the case
+somebody worked on (filed over decided or declined over untouched), else the
+older one. The check trigger refuses a row that disagrees with either, then an
+`AFTER INSERT` trigger moves the merged-away case to the new `merged` state and
+writes `case.merged_into` and `case.absorbed`; a trigger on `deductions`
+refuses any move into or out of `merged` the table does not back, so the state
+and the ledger cannot disagree either way. `merged` is closed but not terminal
+(`CLOSED_STATES`, `MERGEABLE_STATES` in `core-domain`): a case may be merged
+away from any state before a filing — its decision, packet or approval stay on
+the record — and the survivor may be at any stage; two filings refuse. The
+amounts must agree to the cent. **An undo** is an `unmerge` row: the case goes
+back to exactly the state it left, and the database also appends
+`case.duplicate_verdict_withdrawn` on both, so the pair is an open question
+again rather than stuck; a pair is merged once and undone once, either way
+round (a unique index), so a mistaken undo can be re-confirmed but not
+re-merged. Which verdict stands on a pair is `duplicate_pair_verdicts`' answer,
+and the list, the verdict write, the merge check, the coverage page and the
+case page all read it. Any writer may merge or undo; every row names who.
+
+Nothing more is hung on a merged-away case: a trigger on `decisions`,
+`packets`, `submissions`, `writeoffs`, `writebacks`, `declined_candidates`,
+`deduction_documents` and `deduction_identifiers` refuses one with SQLSTATE
+`RCM01`, after taking `for key share` on the case so a link racing a merge
+waits and is refused; it sorts after `enforce_approval`, which is untouched. The
+store turns `RCM01` into `CaseMergedAwayError` (non-retriable in a job) and
+`RCM02` into `MergeRefusedError` with its reason; the upload route and
+`attachReadDocument` refuse a merged case before anything is stored or read.
+**Every reader of `deduction_identifiers` maps a merged-away case onto its
+survivor** through `deduction_merges_current` — `knownIdentifiers`,
+`identityCandidates`, the ledger sync's, `explainDuplicateCase`,
+`explainDuplicateIdentifier` and `caseForDocument` — so an arrival matching
+both halves is `exact` on the survivor rather than `ambiguous`, and a ledger
+re-sync lands there. `coverage_by_period_by_source` drops a merged-away case
+and counts its survivor in the month and under the channel of the earliest
+notice across the two; the coverage page's "counted twice" is now only the
+confirmed pairs that could not be merged, each with its reason on the case page.
+Nothing is deleted, no identifier moves, no approval or filing row is written,
+and no UPDATE or DELETE grant is added. Production does not carry 0032 yet.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

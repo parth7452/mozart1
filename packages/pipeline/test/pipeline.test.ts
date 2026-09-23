@@ -19,6 +19,7 @@ import {
   expectedExtraction,
   type FixtureDocument,
 } from '@recouple/fixtures';
+import { CaseMergedAwayError } from '../src/ports';
 import {
   CaseNotFoundError,
   DuplicateCaseError,
@@ -417,6 +418,25 @@ describe('a notice becomes a case', () => {
     expect(store.documents.size).toBe(0);
     expect(store.cases.size).toBe(0);
     expect(store.extractions).toHaveLength(0);
+  });
+
+  it('refuses evidence for a case merged into another, before it reads or stores anything', async () => {
+    // The database would refuse the link (ADR 0042 §9) — after the read had
+    // been paid for, and on every retry. So it is refused here, at the same
+    // point an unknown case is.
+    const { store, classifier, deps } = harness();
+    const opened = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const deductionId = opened.case?.deductionId as string;
+    await store.transitionCase(deductionId, 'merged');
+    const documentsBefore = store.documents.size;
+    const classifyCalls = classifier.calls;
+
+    await expect(
+      processUpload(upload(fixtureFor('walmart-po.pdf')), deps, { attachToCase: deductionId }),
+    ).rejects.toBeInstanceOf(CaseMergedAwayError);
+
+    expect(classifier.calls).toBe(classifyCalls);
+    expect(store.documents.size).toBe(documentsBefore);
   });
 
   it('does not open a second case when the notice names a case it cannot see', async () => {

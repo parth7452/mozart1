@@ -523,6 +523,24 @@ describe('uploading where the read runs as a job', () => {
     expect(said(response)).toMatch(/already been read/);
   });
 
+  it('refuses evidence for a case merged into another before storing or queueing anything', async () => {
+    // The database refuses a link to a merged-away case (ADR 0042), and on the
+    // queued path it would do so inside the job, after the read was paid for.
+    const store = harness.store as RouteTestStore;
+    const merged = await store.openCase({ orgId: ORG_ID });
+    await store.transitionCase(merged.deductionId, 'merged');
+    const documentsBefore = store.documents.size;
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, merged.deductionId));
+
+    expect(sent).toEqual([]);
+    expect(store.documents.size).toBe(documentsBefore);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(
+      `/cases/${merged.deductionId}`,
+    );
+    expect(said(response)).toMatch(/merged into another.*Nothing was stored/);
+  });
+
   it('keeps a reviewer attaching evidence on the case they were on', async () => {
     const store = harness.store as RouteTestStore;
     const existing = await store.openCase({ orgId: ORG_ID });

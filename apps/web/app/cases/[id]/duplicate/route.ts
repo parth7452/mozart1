@@ -14,19 +14,19 @@ import { backToCase, caseNotFound, NOTICE_PARAM, workflowStoreFor } from '../../
 
 /**
  * Records what a person concluded about a pair identity resolution refused to
- * merge (ADR 0032).
+ * merge (ADR 0032), and on "same deduction" merges them (ADR 0042).
  *
  * The matcher merges on an exact identifier match and nothing else; a probable
  * one opens the second case and names the first, because a second case is
- * visible and a wrong merge is not (ADR 0025 §6). Nobody could answer that
- * until now.
+ * visible and a wrong merge is not (ADR 0025 §6). This is the person's answer.
  *
- * **This does not merge anything.** It writes one append-only event on each
- * case saying what was concluded. Neither case changes state, neither is
- * hidden, and no identifier moves — which append-only plus the per-source
- * unique constraint make impossible anyway. So there is no way for this handler
- * to make an exact match happen: the next arrival resolves against exactly the
- * identifiers it would have resolved against before.
+ * The verdict is one append-only event on each case. "Same" also asks the store
+ * to merge in the same transaction: one `deduction_merges` row, from which the
+ * database moves the copy to `merged` and writes its events. When the database
+ * refuses the merge — two filings, amounts a cent apart — the verdict still
+ * stands and the reviewer is told the two were not merged; each case page says
+ * why. Nothing is deleted, no identifier moves, and a merge can be undone from
+ * the merged case's page.
  *
  * The role check here is a better error message, not the enforcement. Three
  * things enforce underneath it: `app.member_may_write()` asked of the database
@@ -94,15 +94,20 @@ export async function POST(
       return back('duplicate_role');
     }
 
-    await store.recordDuplicateVerdict({
+    const recorded = await store.recordDuplicateVerdict({
       deductionId: id,
       otherDeductionId: other,
       verdict,
       // Who said so, by the identity the session resolved — never a form field.
       // The store refuses anyone else outright.
       recordedBy: session.userId,
+      // One click (ADR 0042 §7): "same" merges when the database allows it.
+      merge: verdict === 'same',
     });
-    return back(verdict === 'same' ? 'duplicate_confirmed' : 'duplicate_dismissed');
+    if (verdict === 'different') return back('duplicate_dismissed');
+    return back(
+      recorded.merge?.kind === 'merged' ? 'duplicate_merged' : 'duplicate_confirmed_not_merged',
+    );
   } catch (cause) {
     // RLS working, not a fault: a case of another tenant's is absent, and so is
     // the far half of a pair that reaches across tenants. A 404 says nothing

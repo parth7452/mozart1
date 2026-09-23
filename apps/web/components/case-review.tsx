@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
-import type { CaseWorkflow, PossibleDuplicatePair } from '@recouple/pipeline';
+import type { CaseMerges, CaseWorkflow, PossibleDuplicatePair } from '@recouple/pipeline';
 import {
   DECLINE_REASONS,
   MISSING_EVIDENCE_TYPES,
@@ -12,7 +12,7 @@ import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format
 import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
-import { DuplicateNotice } from './possible-duplicates';
+import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
 import type { Viewer } from './case-list';
 import { WorkspaceShell } from './workspace-shell';
 
@@ -68,6 +68,11 @@ export interface CaseReviewProps {
    * offered the two answers.
    */
   readonly duplicates?: readonly PossibleDuplicatePair[] | undefined;
+  /**
+   * What this case was merged into, what was merged into it, and the confirmed
+   * pairs that are not merged (ADR 0042), from one `mergesFor` read.
+   */
+  readonly merges?: CaseMerges | undefined;
   /**
    * The outcome of the action just taken, carried back on the redirect as a
    * notice *key* out of `lib/notices.ts` — never as the sentence, which arrives
@@ -137,6 +142,7 @@ export function CaseReview({
   viewerUserId = '',
   workflow,
   duplicates,
+  merges,
   notice,
   noticeAbout,
 }: CaseReviewProps) {
@@ -286,7 +292,13 @@ export function CaseReview({
               <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
             )}
 
-            {mayAct ? (
+            <CaseMergeNotes deductionId={summary.deductionId} merges={merges} mayAct={mayAct} />
+
+            {/* Not on a case merged into another (ADR 0042): the database
+                refuses the link, and it would refuse it after the read had
+                been paid for. Evidence belongs on the case it was merged
+                into, which the banner above links to. */}
+            {mayAct && summary.state !== 'merged' ? (
               <div className="card" style={{ marginTop: 18 }}>
                 <h2 className="section" style={{ marginTop: 0 }}>
                   Add evidence

@@ -52,7 +52,7 @@ import type {
   RestoredExtraction,
   StoredDocument,
 } from './ports';
-import { LineProvenanceUnknownError } from './ports';
+import { CaseMergedAwayError, LineProvenanceUnknownError } from './ports';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -821,7 +821,9 @@ export async function readDocument(
  *
  * `undefined` only when no case was named. A named case that does not resolve
  * throws, because `getCase` cannot tell "no such case" from "another tenant's
- * case" and neither of those is a reason to open a new one.
+ * case" and neither of those is a reason to open a new one. A case merged into
+ * another throws too (ADR 0042): the database would refuse the link after the
+ * read had been paid for, so it is refused here, before the bytes are stored.
  *
  * Exported because the check has to happen before the bytes are stored on every
  * path, including the one where the read happens later in a job and this is the
@@ -834,6 +836,7 @@ export async function resolveAttachTarget(
   if (attachToCase === undefined) return undefined;
   const found = await deps.store.getCase(attachToCase);
   if (found === undefined) throw new CaseNotFoundError(attachToCase);
+  if (found.state === 'merged') throw new CaseMergedAwayError(attachToCase);
   return found;
 }
 

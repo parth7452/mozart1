@@ -22,6 +22,7 @@
 
 import type { DocType } from '@recouple/extraction';
 import type { EvidenceAttachStore } from './ports';
+import { CaseMergedAwayError } from './ports';
 import { CaseNotFoundError } from './steps';
 import { DocumentNotFoundError } from './jobs';
 
@@ -55,6 +56,8 @@ export interface AttachedEvidence {
  * - a case this tenant cannot resolve is `CaseNotFoundError` — `getCase`
  *   cannot tell "no such case" from "another tenant's", and neither is a case
  *   to attach to;
+ * - a case merged into another is `CaseMergedAwayError` (ADR 0042) — the
+ *   database refuses the link as well, and this names it first;
  * - a document it cannot see is `DocumentNotFoundError`, asked with a
  *   `select 1` rather than by fetching the bytes;
  * - a document with no recorded read is `DocumentNotReadError`.
@@ -69,6 +72,7 @@ export async function attachReadDocument(
 ): Promise<AttachedEvidence> {
   const target = await store.getCase(input.deductionId);
   if (target === undefined) throw new CaseNotFoundError(input.deductionId);
+  if (target.state === 'merged') throw new CaseMergedAwayError(input.deductionId);
 
   if (!(await store.documentIsVisible(input.documentId))) {
     throw new DocumentNotFoundError(input.documentId);

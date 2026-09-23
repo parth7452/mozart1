@@ -1,4 +1,4 @@
-import { isTerminal } from '@recouple/core-domain';
+import { isClosed } from '@recouple/core-domain';
 import type { UnattachedDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { docTypeLabel, money } from '../lib/format';
@@ -24,11 +24,11 @@ export function UnattachedDocuments({
   cases,
 }: {
   documents: readonly UnattachedDocument[];
-  /** The tenant's cases, to choose from. A closed case is not offered. */
+  /** The tenant's cases, to choose from. A closed or merged-away case is not offered. */
   cases: readonly CaseSummary[];
 }) {
   if (documents.length === 0) return null;
-  const open = cases.filter((summary) => !isTerminal(summary.state));
+  const open = cases.filter((summary) => !isClosed(summary.state));
 
   return (
     <div className="card unattached">
