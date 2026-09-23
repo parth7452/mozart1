@@ -162,9 +162,11 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 3. **The customer pack's misses.** Recorded 2026-09-22: 97.6% / 97.6%, grounding
    92.9%, 13/15 classified. A service order read as a `po` at 0.95 passes the
    review floor unexamined, and the STF-201 camera pages ground at 64–83%.
-4. **Decide how a confirmed duplicate merges** (ADR 0032 left it open), since a
-   confirmed duplicate still counts twice in coverage — the coverage page now
-   says by how much.
+4. ~~**Decide how a confirmed duplicate merges.**~~ **built** — ADR 0042,
+   migration 0032: "Same deduction" merges in one click, the database moves the
+   copy to `merged`, coverage counts the pair once, and an undo puts it back.
+   0032 is not applied to production yet: `mozart-preview` first, on the
+   founder's go.
 5. **Triage**, the rest of Phase 1.5.
 
 ## Follow-ups this change created

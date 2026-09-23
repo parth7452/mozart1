@@ -24,6 +24,7 @@ import {
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import { attachReadDocument, DocumentNotReadError } from '../src/attach';
 import { CaseNotFoundError, processUpload, type IngestInput } from '../src/steps';
+import { CaseMergedAwayError } from '../src/ports';
 import { DocumentNotFoundError, ingestForJob } from '../src/jobs';
 import {
   UnreadDocumentsQueryError,
@@ -183,6 +184,17 @@ describe('attaching a document that was already read', () => {
     await expect(
       attachReadDocument(store, { deductionId: 'no-such-case', documentId: bolId }),
     ).rejects.toBeInstanceOf(CaseNotFoundError);
+    expect(store.links).toHaveLength(linksBefore);
+  });
+
+  it('refuses a case merged into another, and writes nothing (ADR 0042)', async () => {
+    const { store, bolId, deductionId } = await caseAndLooseEvidence();
+    await store.transitionCase(deductionId, 'merged');
+    const linksBefore = store.links.length;
+
+    await expect(
+      attachReadDocument(store, { deductionId, documentId: bolId }),
+    ).rejects.toBeInstanceOf(CaseMergedAwayError);
     expect(store.links).toHaveLength(linksBefore);
   });
 

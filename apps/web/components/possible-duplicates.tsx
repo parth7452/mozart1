@@ -1,9 +1,14 @@
-import type { DuplicateCandidateCase, PossibleDuplicatePair } from '@recouple/pipeline';
+import type {
+  CaseMerges,
+  DuplicateCandidateCase,
+  MergeRefusal,
+  PossibleDuplicatePair,
+} from '@recouple/pipeline';
 import { money } from '../lib/format';
 
 /**
- * The pairs identity resolution refused to merge, and the two things a person
- * can say about one.
+ * The pairs identity resolution refused to merge, the two things a person can
+ * say about one, and what a merge looks like afterwards.
  *
  * `resolveIdentity` merges on an exact identifier match and nothing else. When
  * the invoice, the amount and the date all agree but no identifier does, it
@@ -11,11 +16,13 @@ import { money } from '../lib/format';
  * visible and a wrong merge is not (ADR 0025 §6). This is where that pair is
  * finally visible.
  *
- * Nothing here merges anything. A verdict is a record of what a person
- * concluded: "Same deduction" writes it down and takes the pair off this list,
- * and neither case moves, changes state or disappears (ADR 0032 §5). The
- * sentences say so, because a button labelled as if it merged would be a button
- * that lied about what it did on a money path.
+ * "Same deduction" records the verdict and merges the two when the database
+ * allows it (ADR 0042): the copy is marked as merged into the case that carries
+ * on, keeps its whole timeline, and can be put back from its own page. Nothing
+ * is deleted. When the database refuses — two filings, amounts a cent apart —
+ * the verdict stands and the page says why. Every sentence says which of those
+ * happened, because a button that claimed a merge it did not do, or hid one it
+ * did, would be lying on a money path.
  *
  * A pure function of what the store returned, like every other view here. Every
  * claim id, invoice number and retailer name on this page is text off somebody
@@ -82,7 +89,7 @@ function Answer({
       <input type="hidden" name="other" value={otherDeductionId} />
       <input type="hidden" name="from" value={from} />
       <button type="submit" name="verdict" value="same">
-        Same deduction
+        Same deduction — merge them
       </button>{' '}
       <button type="submit" name="verdict" value="different">
         Different deductions
@@ -124,8 +131,9 @@ export function PossibleDuplicates({ pairs }: { pairs: readonly PossibleDuplicat
       </h2>
       <p className="empty">
         Two cases agreed on enough to be one deduction, and on no identifier at all — so both
-        were opened and neither was merged. Nothing here merges them either: saying they are the
-        same records that, and both cases stay exactly as they are.
+        were opened and neither was merged. Saying they are the same merges them: the one somebody
+        worked on, else the older one, carries on, and the other is marked as merged into it,
+        keeps its timeline and can be put back.
       </p>
       <table className="cases">
         <thead>
@@ -186,9 +194,9 @@ export function DuplicateNotice({
         This may already be a case
       </h2>
       <p className="hint">
-        Nothing was merged: the identifiers did not match, so both cases were opened. Answering
-        it records what you concluded — neither case changes state, and nothing is sent anywhere
-        either way.
+        The identifiers did not match, so both cases were opened. Saying they are the same merges
+        them — the copy is marked as merged, keeps its timeline and can be put back. Nothing is
+        sent anywhere either way.
       </p>
       {pairs.map((pair) => {
         // The other one, whichever side of the pair this case is.
@@ -206,5 +214,138 @@ export function DuplicateNotice({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Why a confirmed pair was not merged, in a reviewer's words (ADR 0042). One
+ * sentence per reason the database can give, typed so a new reason is a
+ * compile error here rather than a blank on a case page.
+ */
+export const MERGE_REFUSAL_SENTENCES: Readonly<Record<MergeRefusal, string>> = {
+  not_visible: 'the other case is not one this workspace can see.',
+  not_confirmed: 'nobody has said these two are the same deduction.',
+  already_merged: 'one of the two is already merged into another case.',
+  merged_before:
+    'these two were merged once and the merge was undone. A pair is merged at most once, so both stay open.',
+  absorbs_another:
+    'the case that would be merged away has itself absorbed another case — undo that merge first.',
+  both_filed:
+    'both were filed with the retailer, so two disputes are open there. Withdraw one with the retailer; nothing here can.',
+  amounts_disagree:
+    'the amounts differ, so they may be two deductions against the same invoice. Merging would lose one.',
+  not_mergeable_state: 'the case that would be merged away has already been filed.',
+  not_merged: 'this case is not merged into another.',
+  stale: 'one of the two changed while this was being decided — reload and try again.',
+};
+
+/**
+ * What a case page says about merges: that this case was merged into another,
+ * the cases merged into it, and the confirmed pairs that are not merged.
+ *
+ * A pure function of `mergesFor`. Claim ids are text off somebody else's
+ * document and are rendered as text; ids go into links and form fields only as
+ * the store returned them.
+ */
+export function CaseMergeNotes({
+  deductionId,
+  merges,
+  mayAct,
+}: {
+  deductionId: string;
+  merges: CaseMerges | undefined;
+  mayAct: boolean;
+}) {
+  if (merges === undefined) return null;
+  const { mergedInto, absorbed, confirmedNotMerged } = merges;
+  if (mergedInto === undefined && absorbed.length === 0 && confirmedNotMerged.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {mergedInto === undefined ? null : (
+        <div className="card duplicates merged" style={{ marginTop: 18 }}>
+          <h2 className="section" style={{ marginTop: 0 }}>
+            Merged into another case
+          </h2>
+          <p>
+            This is the same deduction as{' '}
+            <a href={`/cases/${mergedInto.deductionId}`}>
+              {mergedInto.claimId ?? mergedInto.deductionId.slice(0, 8)}
+            </a>{' '}
+            ({money(mergedInto.deductionAmountCents)}), which carries on. Merged{' '}
+            {mergedInto.mergedAt.slice(0, 10)}.
+          </p>
+          <p className="hint">
+            Its documents and timeline stay here, and it is not counted in coverage or matched
+            against new arrivals. Nothing more can be recorded on it — work the case it was merged
+            into.
+          </p>
+          {mayAct ? (
+            <form action={`/cases/${deductionId}/unmerge`} method="post">
+              <button type="submit">Undo the merge</button>{' '}
+              <span className="hint">
+                Puts this case back where it was and reopens the question. A pair can be merged
+                only once.
+              </span>
+            </form>
+          ) : null}
+        </div>
+      )}
+
+      {absorbed.length === 0 ? null : (
+        <div className="card duplicates" style={{ marginTop: 18 }}>
+          <h2 className="section" style={{ marginTop: 0 }}>
+            Merged into this case
+          </h2>
+          <p className="hint">
+            Each of these is the same deduction as this one. Their documents stay on their own
+            pages — attach one here as evidence if this case&apos;s packet should carry it.
+          </p>
+          <ul>
+            {absorbed.map((copy) => (
+              <li key={copy.mergeId}>
+                <a href={`/cases/${copy.deductionId}`}>
+                  {copy.claimId ?? copy.deductionId.slice(0, 8)}
+                </a>{' '}
+                · {money(copy.deductionAmountCents)} · merged {copy.mergedAt.slice(0, 10)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {confirmedNotMerged.length === 0 ? null : (
+        <div className="card duplicates" style={{ marginTop: 18 }}>
+          <h2 className="section" style={{ marginTop: 0 }}>
+            The same deduction, not merged
+          </h2>
+          {confirmedNotMerged.map((other) => (
+            <div key={other.deductionId} style={{ marginTop: 12 }}>
+              <p style={{ margin: 0 }}>
+                Somebody said this is the same deduction as{' '}
+                <a href={`/cases/${other.deductionId}`}>
+                  {other.claimId ?? other.deductionId.slice(0, 8)}
+                </a>{' '}
+                ({money(other.deductionAmountCents)}).{' '}
+                {other.refusal === undefined
+                  ? 'They can be merged now.'
+                  : `They were not merged: ${MERGE_REFUSAL_SENTENCES[other.refusal]}`}
+              </p>
+              {mayAct && other.refusal === undefined ? (
+                <form action={`/cases/${deductionId}/merge`} method="post">
+                  <input type="hidden" name="other" value={other.deductionId} />
+                  <button type="submit">Merge them</button>
+                </form>
+              ) : null}
+            </div>
+          ))}
+          <p className="hint">
+            Until they are merged, coverage counts this deduction twice.
+          </p>
+        </div>
+      )}
+    </>
   );
 }

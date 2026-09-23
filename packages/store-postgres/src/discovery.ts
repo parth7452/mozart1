@@ -35,7 +35,7 @@
  */
 
 import type { Pool, PoolClient } from 'pg';
-import { cents, TERMINAL_STATES } from '@recouple/core-domain';
+import { cents, CLOSED_STATES } from '@recouple/core-domain';
 import type { Cents, IdentifierKind, LedgerExtract } from '@recouple/core-domain';
 import { sessionPool, type PostgresStore, type PostgresStoreConfig, type TenantContext } from './store';
 
@@ -237,10 +237,14 @@ export class PostgresDiscoveryStore {
         identifier_kind: IdentifierKind;
         identifier: string;
       }>(
-        `select deduction_id, source, identifier_kind, identifier
-           from deduction_identifiers
-          where org_id = $1
-          order by first_seen_at asc, id asc`,
+        // A merged-away case's names are its survivor's (ADR 0042 §10): a
+        // ledger line matching either half of a merged pair is the survivor.
+        `select coalesce(m.surviving_deduction_id, i.deduction_id) as deduction_id,
+                i.source, i.identifier_kind, i.identifier
+           from deduction_identifiers i
+           left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+          where i.org_id = $1
+          order by i.first_seen_at asc, i.id asc`,
         [orgId],
       );
       return rows.map((row) => ({
@@ -253,13 +257,13 @@ export class PostgresDiscoveryStore {
   }
 
   /**
-   * The deductions a probable match could be about: everything not yet
-   * terminal.
+   * The deductions a probable match could be about: everything not closed.
    *
-   * "Open" means not terminal — `won`, `lost`, `partial` and `written_off` are
-   * where a deduction ends (`TERMINAL_STATES` in `core-domain`), and a ledger
-   * line that resembles a finished case is a probable match worth nothing: the
-   * money question it asks was already answered.
+   * "Open" means not closed — `won`, `lost`, `partial` and `written_off` are
+   * where a deduction ends, and a ledger line that resembles a finished case is
+   * a probable match worth nothing: the money question it asks was already
+   * answered. A case merged into another is closed too (`CLOSED_STATES` in
+   * `core-domain`, ADR 0042): it is not the deduction any more, its survivor is.
    *
    * Money is read as text and converted once, checked: a bigint through a JS
    * number is lossy above 2^53 and this value is compared against a candidate's
@@ -288,7 +292,7 @@ export class PostgresDiscoveryStore {
           where d.org_id = $1
             and d.state <> all ($2::text[])
           order by d.created_at asc, d.id asc`,
-        [orgId, [...TERMINAL_STATES]],
+        [orgId, [...CLOSED_STATES]],
       );
       return rows.map((row) => ({
         deductionId: row.id,

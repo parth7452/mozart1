@@ -9,6 +9,7 @@ import {
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
 import {
+  CaseMergedAwayError,
   CaseNotFoundError,
   ClassificationRefusedError,
   DocumentNotFoundError,
@@ -409,6 +410,8 @@ describe('what a failed read says to Inngest', () => {
     const settled = [
       new DuplicateCaseError('claim X is already case Y', ORG_ID, 'X'),
       new CaseNotFoundError(ORG_ID),
+      // A link to a case merged into another is refused every time (ADR 0042).
+      new CaseMergedAwayError(ORG_ID, 'deduction_documents'),
       new UnscannedDocumentError('no clean verdict for this document'),
       new InvalidJobPayloadError('a read job needs documentId; this one has none'),
     ];

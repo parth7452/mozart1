@@ -29,12 +29,45 @@ export const CASE_STATES = [
   'lost',
   'partial',
   'written_off',
+  // A confirmed duplicate, merged into the case that is the deduction (ADR
+  // 0042). Closed but not terminal: its way out is an undo, back to exactly the
+  // state it left, and the database is what holds it to that.
+  'merged',
 ] as const;
 
 export type CaseState = (typeof CASE_STATES)[number];
 
 export const TERMINAL_STATES = ['won', 'lost', 'partial', 'written_off'] as const;
 export type TerminalState = (typeof TERMINAL_STATES)[number];
+
+/**
+ * The states a case may be merged away from: every one before a filing (ADR
+ * 0042 §4). A decision, a packet or an approval may already exist and stays on
+ * the record; a filing is out at a retailer and is never merged away.
+ *
+ * Migration 0032 lists the same nine in `deduction_merges.state_before` and in
+ * `app.merge_refusal()`; `case-states.test.ts` holds the three together.
+ */
+export const MERGEABLE_STATES = [
+  'discovered',
+  'classified',
+  'evidence_pending',
+  'evidence_complete',
+  'decided',
+  'auto_dispute_queued',
+  'analyst_review',
+  'auto_writeoff_queued',
+  'awaiting_approval',
+] as const satisfies readonly CaseState[];
+export type MergeableState = (typeof MERGEABLE_STATES)[number];
+
+/**
+ * What "open" is the opposite of: finished, or merged into another case. A
+ * merged case is not the deduction any more, so no list of open work, no total
+ * and no matcher counts it — but it is not terminal, because an undo reopens it.
+ */
+export const CLOSED_STATES = [...TERMINAL_STATES, 'merged'] as const satisfies readonly CaseState[];
+export type ClosedState = (typeof CLOSED_STATES)[number];
 
 /** Conditions the orchestrator must evaluate before a transition is legal. */
 export type GuardName =
@@ -51,7 +84,11 @@ export type GuardName =
   /** An analyst decided, so there is no model confidence to route on (ADR 0020). */
   | 'human_decision_recorded'
   /** A person recorded what came back, rather than something detecting it. */
-  | 'outcome_recorded_by_human';
+  | 'outcome_recorded_by_human'
+  /** A person said the two are one deduction, and the pair may be merged (ADR 0042). */
+  | 'duplicate_confirmed_by_person'
+  /** A person undid the merge; the case returns to the state it left. */
+  | 'merge_undone_by_person';
 
 export interface Transition {
   readonly from: CaseState;
@@ -234,6 +271,30 @@ export const TRANSITIONS: readonly Transition[] = [
     workflow: 'record.outcome',
     idempotency: 'outcome events are append-only; the case state is the projection',
   },
+  // Merging a confirmed duplicate, and undoing it (ADR 0042). Generated rather
+  // than written out: the same two edges for each of the nine states a case may
+  // be merged away from. The table says an undo may return to any of them; the
+  // database says it returns to the one it left (`deduction_merges.state_before`,
+  // refused otherwise by `app.merged_state_is_a_projection()`), which a table
+  // keyed by (from, to, trigger) cannot say.
+  ...MERGEABLE_STATES.flatMap((state): Transition[] => [
+    {
+      from: state,
+      to: 'merged',
+      trigger: 'case.merged_into',
+      guards: ['duplicate_confirmed_by_person'],
+      workflow: 'merge.duplicate',
+      idempotency: 'one merge per pair: unique (org_id, least(a, b), greatest(a, b), action)',
+    },
+    {
+      from: 'merged',
+      to: state,
+      trigger: 'case.merge_undone',
+      guards: ['merge_undone_by_person'],
+      workflow: 'unmerge.duplicate',
+      idempotency: 'one undo per pair: unique (org_id, least(a, b), greatest(a, b), action)',
+    },
+  ]),
 ];
 
 export const INITIAL_STATE: CaseState = 'discovered';
@@ -242,6 +303,15 @@ export class TransitionError extends Error {}
 
 export function isTerminal(state: CaseState): state is TerminalState {
   return (TERMINAL_STATES as readonly string[]).includes(state);
+}
+
+/** Finished or merged away: not a case anybody should be working. */
+export function isClosed(state: CaseState): state is ClosedState {
+  return (CLOSED_STATES as readonly string[]).includes(state);
+}
+
+export function isMergeable(state: CaseState): state is MergeableState {
+  return (MERGEABLE_STATES as readonly string[]).includes(state);
 }
 
 export function transitionsFrom(state: CaseState): readonly Transition[] {

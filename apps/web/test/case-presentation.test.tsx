@@ -40,6 +40,13 @@ describe('ledger presentation', () => {
       deadlineCount: 0,
     });
   });
+  it('counts a case merged into another neither as open nor in the total (ADR 0042)', () => {
+    const today = new Date('2026-09-23T00:00:00Z');
+    const survivor = row({ deductionId: 'survivor', deductionAmountCents: 42_150 });
+    const copy = row({ deductionId: 'copy', deductionAmountCents: 42_150, state: 'merged' });
+    expect(caseMetrics([survivor, copy], today)).toMatchObject({ totalCents: 42_150, openCount: 1 });
+  });
+
   it('searches the displayed customer, including unmatched printed names, with the state filter', () => {
     const printed = row();
     const matched = row({ deductionId: 'second', debtorName: 'Acme Staffing', state: 'submitted' });

@@ -56,6 +56,8 @@ import {
   DuplicateVerdictAlreadyRecordedError,
   NoSuchDuplicatePairError,
   InvalidRecoveryAmountError,
+  isMergeRefusal,
+  MergeRefusedError,
   NoApprovalForSubmissionError,
   NotACanonicalReasonError,
   NothingToSendError,
@@ -69,16 +71,21 @@ import {
   WrongCaseStateError,
   WrongRoleError,
   type ApprovalRecord,
+  type CaseMerges,
   type CaseOutcome,
   type CaseWorkflow,
   type DuplicateCandidateCase,
   type DuplicateVerdict,
   type DuplicateVerdictRecord,
   type HumanDecisionRecord,
+  type MergeOutcome,
+  type MergeRecord,
+  type MergeRefusal,
   type OutcomeRecord,
   type PacketRecord,
   type PossibleDuplicatePair,
   type SubmissionRecord,
+  type UnmergeRecord,
   type WorkflowSubmissionChannel,
 } from '@recouple/pipeline';
 import type { TenantContext } from './store';
@@ -1339,10 +1346,16 @@ export async function getWorkflow(
 // deduction (ADR 0025 §6). Until now nothing read those events, so the pair
 // stopped nowhere. These two are the human half: the list, and the verdict.
 //
-// A verdict is two append-only events and nothing else. It does not merge, move
-// a state or re-point an identifier — ADR 0032 §5 says why the last of those
+// A verdict is two append-only events. "Same deduction" may also merge the pair
+// (ADR 0042), which is one `deduction_merges` row: the database checks it, moves
+// the merged-away case to `merged` and writes the events, and an undo is a
+// second row. No identifier is ever re-pointed — ADR 0032 §5 says why that
 // cannot be written at all while `deduction_identifiers` is append-only and
 // unique per source.
+//
+// Which verdict stands on a pair is `duplicate_pair_verdicts`' answer: the
+// latest confirmed, dismissed or withdrawn event, where a withdrawal — written
+// only by an undone merge — means the pair is open again.
 
 /** The event a probable match leaves behind. */
 const PAIR_NAMED = 'case.possible_duplicate';
@@ -1353,11 +1366,6 @@ const PAIR_DISMISSED = 'case.duplicate_dismissed';
 /** Which event a verdict is. One place, so the read and the write agree. */
 function eventTypeFor(verdict: DuplicateVerdict): string {
   return verdict === 'same' ? PAIR_CONFIRMED : PAIR_DISMISSED;
-}
-
-/** Which verdict an event was, for a refusal that has to name the first one. */
-function verdictFor(eventType: string): DuplicateVerdict {
-  return eventType === PAIR_CONFIRMED ? 'same' : 'different';
 }
 
 /**
@@ -1504,10 +1512,13 @@ export async function possibleDuplicates(
           and e.payload->>'of' is not null
      ),
      answered as (
-       select v.deduction_id::text as side_a, lower(v.payload->>'of') as side_b
-         from deduction_events v
-        where v.event_type in ($2, $3)
-          and v.payload->>'of' is not null
+       -- A verdict standing on the pair. A withdrawn one (ADR 0042 §5) is not.
+       select v.low_id, v.high_id
+         from duplicate_pair_verdicts v
+        where v.verdict is not null
+     ),
+     merged_away as (
+       select c.merged_deduction_id::text as id from deduction_merges_current c
      ),
      summary as (
        select d.id::text as id,
@@ -1540,19 +1551,15 @@ export async function possibleDuplicates(
        join summary z on z.id = n.side_b
       where not exists (
         select 1 from answered v
-         where (v.side_a = n.side_a and v.side_b = n.side_b)
-            or (v.side_a = n.side_b and v.side_b = n.side_a)
+         where v.low_id in (n.side_a, n.side_b) and v.high_id in (n.side_a, n.side_b)
       )
-        and ($4::text is null or n.side_a = $4 or n.side_b = $4)
+        -- A pair whose other half is merged into something is not a question
+        -- about the deduction any more; it comes back if that merge is undone.
+        and not exists (select 1 from merged_away m where m.id in (n.side_a, n.side_b))
+        and ($2::text is null or n.side_a = $2 or n.side_b = $2)
       order by least(n.side_a, n.side_b), greatest(n.side_a, n.side_b), n.event_id desc
-      limit $5`,
-    [
-      PAIR_NAMED,
-      PAIR_CONFIRMED,
-      PAIR_DISMISSED,
-      only,
-      Math.min(limit, POSSIBLE_DUPLICATES_MAX_LIMIT),
-    ],
+      limit $3`,
+    [PAIR_NAMED, only, Math.min(limit, POSSIBLE_DUPLICATES_MAX_LIMIT)],
   );
 
   return rows
@@ -1583,6 +1590,7 @@ export async function recordDuplicateVerdict(
     readonly otherDeductionId: string;
     readonly verdict: DuplicateVerdict;
     readonly recordedBy: string;
+    readonly merge?: boolean;
   },
 ): Promise<DuplicateVerdictRecord> {
   const action = 'answering a possible duplicate';
@@ -1626,25 +1634,25 @@ export async function recordDuplicateVerdict(
     throw new NoSuchDuplicatePairError(input.deductionId, input.otherDeductionId);
   }
 
+  // The verdict standing on the pair, if one does. A verdict withdrawn by an
+  // undone merge is not standing (ADR 0042 §5), and the pair may be answered
+  // again; anything else is answered already, and the first answer stands.
   const { rows: answered } = await client.query<{
-    event_type: string;
+    verdict: DuplicateVerdict;
     event_time: Date | string;
   }>(
-    `select e.event_type, e.event_time
-       from deduction_events e
-      where e.event_type in ($1, $2)
-        and ((e.deduction_id::text = $3 and lower(e.payload->>'of') = $4)
-          or (e.deduction_id::text = $4 and lower(e.payload->>'of') = $3))
-      order by e.id asc
-      limit 1`,
-    [PAIR_CONFIRMED, PAIR_DISMISSED, here, there],
+    `select v.verdict, v.event_time
+       from duplicate_pair_verdicts v
+      where v.low_id in ($1, $2) and v.high_id in ($1, $2)
+        and v.verdict is not null`,
+    [here, there],
   );
   const standing = answered[0];
   if (standing !== undefined) {
     throw new DuplicateVerdictAlreadyRecordedError(
       input.deductionId,
       input.otherDeductionId,
-      verdictFor(standing.event_type),
+      standing.verdict,
       new Date(standing.event_time).toISOString(),
     );
   }
@@ -1675,9 +1683,8 @@ export async function recordDuplicateVerdict(
     basis,
     older_deduction_id: older,
     newer_deduction_id: newer,
-    // Only on a confirmation, because only a confirmation says one of them is
-    // the deduction. It survives nothing today — no state moves and no row is
-    // hidden — and it is what a merge operation will be built on (ADR 0032 §5).
+    // Only on a confirmation. What ADR 0032 §4 said survives; a merge decides
+    // for itself (ADR 0042 §2) and its row, not this field, is authoritative.
     ...(input.verdict === 'same' ? { surviving_deduction_id: older } : {}),
     recorded_by: input.recordedBy,
   });
@@ -1688,6 +1695,20 @@ export async function recordDuplicateVerdict(
   await appendEvent(client, tenant, here, eventType, payload(there));
   await appendEvent(client, tenant, there, eventType, payload(here));
 
+  // One click (ADR 0042 §7): "same" merges in this transaction when the
+  // database allows it. A refusal is not a failure of the verdict, which stands
+  // either way; the merge's own statement ran under a savepoint, so a refusal
+  // leaves this transaction as the verdict left it.
+  let merge: MergeOutcome | undefined;
+  if (input.verdict === 'same' && input.merge === true) {
+    try {
+      merge = { kind: 'merged', merge: await mergeLockedPair(client, tenant, here, there, input.recordedBy) };
+    } catch (error) {
+      if (!(error instanceof MergeRefusedError)) throw error;
+      merge = { kind: 'not_merged', reason: error.reason };
+    }
+  }
+
   const { rows: recorded } = await client.query<{ now: string }>(
     `select now()::text as now`,
   );
@@ -1696,10 +1717,288 @@ export async function recordDuplicateVerdict(
     verdict: input.verdict,
     deductionId: here,
     otherDeductionId: there,
-    survivingDeductionId: older,
+    survivingDeductionId: merge?.kind === 'merged' ? merge.merge.survivingDeductionId : older,
     basis,
     recordedBy: input.recordedBy,
     recordedAt: new Date(recorded[0]?.now ?? Date.now()).toISOString(),
+    ...(merge !== undefined ? { merge } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 7. Merging a confirmed pair, and undoing it (ADR 0042)
+// ---------------------------------------------------------------------------
+//
+// The store inserts one `deduction_merges` row and reads back what happened.
+// Which case survives, whether the pair may be merged at all, the state move and
+// the events are the database's: `app.merge_survivor()`, `app.merge_refusal()`
+// and the two triggers on the table. The reads here ask those same functions
+// first, so a refusal arrives with its reason rather than as a failed statement,
+// and the trigger is what decides when two people race.
+
+/** The trigger's reason keys that mean "the pair changed under you". */
+const STALE_HINTS = new Set(['wrong_survivor', 'stale_state', 'stale_verdict']);
+
+/** A reason key from the database, as one of ours, or a loud refusal. */
+function knownRefusal(value: string): MergeRefusal {
+  if (isMergeRefusal(value)) return value;
+  throw new Error(`the database refused a merge for a reason this build does not know: ${value}`);
+}
+
+/**
+ * Turns the merge check's `RCM02` into a `MergeRefusedError`. Anything else —
+ * including a hint this build has no word for — goes out as it came: a refusal
+ * nobody can name is a bug, not a reason to show a reviewer.
+ */
+function translateMergeError(
+  error: unknown,
+  deductionId: string,
+  otherDeductionId: string,
+): Promise<unknown> {
+  if (sqlState(error) === 'RCM02') {
+    const hint = (error as { hint?: unknown } | null)?.hint;
+    if (typeof hint === 'string') {
+      if (STALE_HINTS.has(hint)) {
+        return Promise.resolve(new MergeRefusedError('stale', deductionId, otherDeductionId));
+      }
+      if (isMergeRefusal(hint)) {
+        return Promise.resolve(new MergeRefusedError(hint, deductionId, otherDeductionId));
+      }
+    }
+  }
+  // Two merges of one pair in flight at once: the second waits on the first's
+  // row locks and then sees it, so this is the net under a race the check
+  // already answers.
+  if (sqlState(error) === '23505' && constraintName(error) === 'deduction_merges_once_per_pair') {
+    return Promise.resolve(new MergeRefusedError('merged_before', deductionId, otherDeductionId));
+  }
+  return Promise.resolve(error);
+}
+
+/**
+ * The merge itself, on two cases this transaction already holds. Used by the
+ * one-click verdict and by the Merge button alike, so there is one way a merge
+ * row is written.
+ */
+async function mergeLockedPair(
+  client: PoolClient,
+  tenant: TenantContext,
+  a: string,
+  b: string,
+  mergedBy: string,
+): Promise<MergeRecord> {
+  const { rows: asked } = await client.query<{ refusal: string | null; survivor: string | null }>(
+    `select app.merge_refusal($1::uuid, $2::uuid) as refusal,
+            app.merge_survivor($1::uuid, $2::uuid)::text as survivor`,
+    [a, b],
+  );
+  const refusal = asked[0]?.refusal ?? null;
+  if (refusal !== null) throw new MergeRefusedError(knownRefusal(refusal), a, b);
+  const survivor = asked[0]?.survivor ?? null;
+  if (survivor === null) {
+    // `merge_refusal` answers `both_filed` or `not_visible` whenever this is null.
+    throw new Error(`cases ${a} and ${b} may be merged and yet have no survivor`);
+  }
+  const loser = survivor === a ? b : a;
+
+  // Everything the row must say is read in the statement that writes it, from
+  // the rows this transaction holds: the state and amount of the loser, and the
+  // verdict standing on the pair. The check trigger compares each of them again.
+  const { rows } = await translating(
+    client,
+    'merge_duplicate',
+    () =>
+      client.query<{ id: string; state_before: CaseState; created_at: Date | string }>(
+        `insert into deduction_merges
+           (org_id, merged_deduction_id, surviving_deduction_id, action,
+            state_before, amount_cents, verdict_event_id, recorded_by)
+         select $1, d.id, $3::text::uuid, 'merge', d.state, d.deduction_amount_cents,
+                (select v.event_id from duplicate_pair_verdicts v
+                  where v.low_id in ($2::text, $3::text) and v.high_id in ($2::text, $3::text)),
+                $4
+           from deductions d
+          where d.id = $2::text::uuid
+         returning id::text as id, state_before, created_at`,
+        [tenant.orgId, loser, survivor, mergedBy],
+      ),
+    (error) => translateMergeError(error, a, b),
+  );
+  const row = rows[0];
+  if (row === undefined) throw new CaseNotVisibleError(loser);
+  return {
+    mergeId: row.id,
+    mergedDeductionId: loser,
+    survivingDeductionId: survivor,
+    stateBefore: row.state_before,
+    recordedBy: mergedBy,
+    recordedAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+export async function mergeConfirmedDuplicate(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: {
+    readonly deductionId: string;
+    readonly otherDeductionId: string;
+    readonly mergedBy: string;
+  },
+): Promise<MergeRecord> {
+  const action = 'merging a confirmed duplicate';
+  requireCaller(input.mergedBy, tenant.userId, action);
+  const here = idKey(input.deductionId);
+  const there = idKey(input.otherDeductionId);
+  if (here === there) throw new MergeRefusedError('not_confirmed', here, there);
+  // In id order, as the check trigger takes them, so two merges over
+  // overlapping pairs cannot deadlock; and where the role and visibility
+  // refusals come from, by name.
+  for (const deductionId of [here, there].sort()) {
+    await lockCase(client, deductionId, action, input.mergedBy, WRITER_ROLES);
+  }
+  return mergeLockedPair(client, tenant, here, there, input.mergedBy);
+}
+
+export async function undoMerge(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: { readonly deductionId: string; readonly undoneBy: string },
+): Promise<UnmergeRecord> {
+  const action = 'undoing a merge';
+  requireCaller(input.undoneBy, tenant.userId, action);
+  const loser = idKey(input.deductionId);
+
+  const { rows: current } = await client.query<{ surviving: string }>(
+    `select c.surviving_deduction_id::text as surviving
+       from deduction_merges_current c
+      where c.merged_deduction_id::text = $1`,
+    [loser],
+  );
+  const surviving = current[0]?.surviving;
+  if (surviving === undefined) {
+    // Visible and a writer's to act on, and still nothing to undo — or else
+    // the named refusal that says which of those it is not.
+    await lockCase(client, loser, action, input.undoneBy, WRITER_ROLES);
+    throw new MergeRefusedError('not_merged', loser);
+  }
+  for (const deductionId of [loser, surviving].sort()) {
+    await lockCase(client, deductionId, action, input.undoneBy, WRITER_ROLES);
+  }
+
+  const { rows } = await translating(
+    client,
+    'undo_merge',
+    () =>
+      client.query<{ id: string; created_at: Date | string }>(
+        `insert into deduction_merges
+           (org_id, merged_deduction_id, surviving_deduction_id, action, recorded_by)
+         values ($1, $2::uuid, $3::uuid, 'unmerge', $4)
+         returning id::text as id, created_at`,
+        [tenant.orgId, loser, surviving, input.undoneBy],
+      ),
+    (error) => translateMergeError(error, loser, surviving),
+  );
+  const row = rows[0];
+  if (row === undefined) throw new Error(`insert into deduction_merges (unmerge) wrote no row`);
+
+  // The database put it back; this reads where.
+  const { rows: restored } = await client.query<{ state: CaseState }>(
+    `select state from deductions where id = $1::uuid`,
+    [loser],
+  );
+  const state = restored[0]?.state;
+  if (state === undefined) throw new CaseNotVisibleError(loser);
+  return {
+    unmergeId: row.id,
+    mergedDeductionId: loser,
+    survivingDeductionId: surviving,
+    restoredState: state,
+    recordedBy: input.undoneBy,
+    recordedAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+interface MergeSideRow {
+  id: string;
+  claim_id: string | null;
+  amount: string;
+  state: CaseState;
+}
+
+function mergeSide(row: MergeSideRow) {
+  return {
+    deductionId: row.id,
+    ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+    deductionAmountCents: exactCents(row.amount, 'deduction_amount_cents'),
+    state: row.state,
+  };
+}
+
+export async function mergesFor(client: PoolClient, deductionId: string): Promise<CaseMerges> {
+  const id = idKey(deductionId);
+
+  const { rows: into } = await client.query<
+    MergeSideRow & { merge_id: string; merged_at: Date | string; merged_by: string }
+  >(
+    `select s.id::text as id, s.claim_id, s.deduction_amount_cents::text as amount, s.state,
+            c.merge_id::text as merge_id, c.merged_at, c.recorded_by::text as merged_by
+       from deduction_merges_current c
+       join deductions s on s.id = c.surviving_deduction_id
+      where c.merged_deduction_id::text = $1`,
+    [id],
+  );
+
+  const { rows: absorbed } = await client.query<
+    MergeSideRow & { merge_id: string; merged_at: Date | string }
+  >(
+    `select l.id::text as id, l.claim_id, l.deduction_amount_cents::text as amount, l.state,
+            c.merge_id::text as merge_id, c.merged_at
+       from deduction_merges_current c
+       join deductions l on l.id = c.merged_deduction_id
+      where c.surviving_deduction_id::text = $1
+      order by c.merged_at asc, c.merge_id asc`,
+    [id],
+  );
+
+  // Confirmed and not merged: every pair with "same" standing on it that names
+  // this case, whose other half this tenant can see, and which is not merged
+  // right now — each with the database's reason, or none when Merge would work.
+  const { rows: confirmed } = await client.query<MergeSideRow & { refusal: string | null }>(
+    `select o.id::text as id, o.claim_id, o.deduction_amount_cents::text as amount, o.state,
+            app.merge_refusal($1::text::uuid, o.id) as refusal
+       from duplicate_pair_verdicts v
+       join deductions o
+         on o.id::text = case when v.low_id = $1::text then v.high_id else v.low_id end
+      where v.verdict = 'same'
+        and $1::text in (v.low_id, v.high_id)
+        and not exists (
+          select 1 from deduction_merges_current c
+           where (c.merged_deduction_id::text = $1::text and c.surviving_deduction_id = o.id)
+              or (c.merged_deduction_id = o.id and c.surviving_deduction_id::text = $1::text))
+      order by o.created_at asc, o.id asc`,
+    [id],
+  );
+
+  const mergedInto = into[0];
+  return {
+    ...(mergedInto !== undefined
+      ? {
+          mergedInto: {
+            ...mergeSide(mergedInto),
+            mergeId: mergedInto.merge_id,
+            mergedAt: new Date(mergedInto.merged_at).toISOString(),
+            mergedBy: mergedInto.merged_by,
+          },
+        }
+      : {}),
+    absorbed: absorbed.map((row) => ({
+      ...mergeSide(row),
+      mergeId: row.merge_id,
+      mergedAt: new Date(row.merged_at).toISOString(),
+    })),
+    confirmedNotMerged: confirmed.map((row) => ({
+      ...mergeSide(row),
+      ...(row.refusal !== null ? { refusal: knownRefusal(row.refusal) } : {}),
+    })),
   };
 }
 

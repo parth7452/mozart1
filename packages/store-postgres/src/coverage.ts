@@ -239,14 +239,18 @@ export async function readCoverageReport(
 }
 
 /**
- * The newer half of every confirmed pair, once each, opened inside the window.
+ * The newer half of every confirmed pair that is still counted twice, once
+ * each, opened inside the window.
  *
- * A verdict is two `case.duplicate_confirmed` events, one on each case, whose
- * payload names `newer_deduction_id` (ADR 0032). The newer half is the one
- * that does not survive a merge, so its dollars are the ones counted twice.
- * Its channel is derived exactly as the view derives it — the case's own
- * earliest notice, else `unknown` — so the banner can say which channel's rate
- * is affected. Counted and summed in SQL, uncapped; only the list of links is.
+ * Counted twice means "same deduction" stands on the pair (ADR 0032; a verdict
+ * withdrawn by an undone merge does not, ADR 0042 §5) and neither half is
+ * merged away — a merged pair is counted once by the view itself (ADR 0042 §8).
+ * What is left is the confirmed pairs that could not be merged, each of which
+ * says why on its case page. The newer half is the one whose dollars are shown
+ * as the excess. Its channel is derived exactly as the view derives it — the
+ * case's own earliest notice, else `unknown` — so the banner can say which
+ * channel's rate is affected. Counted and summed in SQL, uncapped; only the
+ * list of links is.
  */
 async function readCountedTwice(client: PoolClient, fromMonth: string): Promise<CountedTwice> {
   const { rows: listed } = await client.query<{
@@ -305,11 +309,19 @@ async function readCountedTwice(client: PoolClient, fromMonth: string): Promise<
  * month of the window.
  */
 const NEWER_HALVES = `
-  with newer as (
+  with standing as (
+    select v.event_id
+      from duplicate_pair_verdicts v
+     where v.verdict = 'same'
+       and not exists (
+         select 1 from deduction_merges_current c
+          where c.merged_deduction_id::text in (v.low_id, v.high_id))
+  ),
+  newer as (
     select distinct (e.payload->>'newer_deduction_id')::uuid as deduction_id
-      from deduction_events e
-     where e.event_type = 'case.duplicate_confirmed'
-       and e.payload ? 'newer_deduction_id'
+      from standing s
+      join deduction_events e on e.id = s.event_id
+     where e.payload ? 'newer_deduction_id'
   ),
   halves as (
     select d.id, d.claim_id, d.deduction_amount_cents, d.created_at,
