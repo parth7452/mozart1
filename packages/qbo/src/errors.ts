@@ -13,6 +13,10 @@
 export class QboError extends Error {
   constructor(message: string) {
     super(message);
+    // Each subclass also names itself with a literal. `new.target.name` is the
+    // class's name only until a bundler minifies it, and these names are
+    // recorded (a run's `error_class`, an audit row) and read back by the
+    // pages that tell a person what to do.
     this.name = new.target.name;
   }
 }
@@ -23,7 +27,9 @@ export class QboError extends Error {
  * stored tokens at all. Every one of them means the same thing operationally —
  * nobody is reading this ledger until a human reconnects it.
  */
-export class QboAuthError extends QboError {}
+export class QboAuthError extends QboError {
+  override name = 'QboAuthError';
+}
 
 /**
  * Intuit answered 429. `retryAfterMs` is `undefined` when the response carried
@@ -31,6 +37,7 @@ export class QboAuthError extends QboError {}
  * knows more about its own schedule than we do.
  */
 export class QboRateLimited extends QboError {
+  override name = 'QboRateLimited';
   constructor(
     message: string,
     readonly retryAfterMs: number | undefined,
@@ -47,6 +54,7 @@ export class QboRateLimited extends QboError {
  * *which* number it refused rather than "something was wrong".
  */
 export class QboMalformedResponse extends QboError {
+  override name = 'QboMalformedResponse';
   constructor(
     message: string,
     readonly fieldPath: string,
@@ -62,6 +70,7 @@ export class QboMalformedResponse extends QboError {
  * had one, because its `code` and `Detail` are what a support ticket needs.
  */
 export class QboRequestFailed extends QboError {
+  override name = 'QboRequestFailed';
   constructor(
     message: string,
     readonly status: number,
@@ -80,7 +89,9 @@ export class QboRequestFailed extends QboError {
  * query injection into a customer's ledger, so the dates are required to be
  * exactly `YYYY-MM-DD` and a real calendar day before a request is built.
  */
-export class QboInvalidWindow extends QboError {}
+export class QboInvalidWindow extends QboError {
+  override name = 'QboInvalidWindow';
+}
 
 /**
  * The caller handed us an id we will not put in a query (ADR 0035 §2).
@@ -90,4 +101,6 @@ export class QboInvalidWindow extends QboError {}
  * rows. QBO's entity ids are decimal digits, so anything else is refused before
  * a request is built.
  */
-export class QboInvalidId extends QboError {}
+export class QboInvalidId extends QboError {
+  override name = 'QboInvalidId';
+}

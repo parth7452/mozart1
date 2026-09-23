@@ -739,8 +739,8 @@ unchanged. `packages/qbo/test/settlement-window.test.ts` replays the recorded
 sandbox: 0 candidates and 8 anomalies before, the 3 short-pays and 1 anomaly
 after. A run's anomalies are now rows, `ledger_sync_anomalies` — kind and ledger
 ids, no detail text, written once and complete through
-`app.record_ledger_sync_anomalies()` in the run row's own transaction. Not yet
-shown in the app.
+`app.record_ledger_sync_anomalies()` in the run row's own transaction, and
+shown at `/coverage`.
 
 **A credit memo is not cash, in either shape QuickBooks writes it** (ADR 0036,
 no migration). ADR 0026 knew that applying a credit to an invoice is a write-off
@@ -865,7 +865,12 @@ revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release
 for a connection nobody will press Disconnect on, since one dead connection
 would otherwise hold its company from every other workspace; releasing
 automatically on `invalid_grant` is a follow-up, not built. The first sync is
-queued on connect. No code, token or anything Intuit said reaches a log line, a
+queued on connect. A redirect that arrives again after it connected — the first
+production click-through saw one, a second later — is refused like any request
+without a state, but says the company is connected when this member's own
+connection to it stored a sign-in in the last two minutes — as does an arrival
+whose code the first had already spent — and every refusal and connect logs its
+reason, the notice given and the request's fetch metadata. No code, token or anything Intuit said reaches a log line, a
 redirect, an event or an audit payload, and the route and store tests spy on all
 four. Production carries 0030 since 2026-09-23, applied to `mozart-preview`
 first and read back on both: the stored statements' md5 equals the file's, the
@@ -874,6 +879,30 @@ is pinned, not definer, and executable by `app_rw` and `app_ro` alone, the
 policies read as written, the request roles still hold nothing, and the one
 existing connection — made by the owner — is enabled with its six credential
 rows. Nothing here has met a live Intuit consent or revoke yet.
+
+**Coverage is on a page** (`/coverage`, no ADR, no migration). What we found and
+what we filed, per channel: a card per channel with its trailing-12-month rate,
+a month-by-channel table, and the ledger sync's recent runs with what each
+connection's latest completed run found that a person has to look at in
+QuickBooks. Two reads, `PostgresStore.coverageReport` and `ledgerSyncHealth`,
+each one tenant transaction as `app_rw`, reading the views and tables that
+already grant it SELECT. **Never blended** (ADR 0030 §2): the all-channels
+totals carry dollars and no rate — `coverage_by_period_totals`' two blended
+rate columns are never selected, so no view can render one — and the page says
+why there is no combined figure. **Every division is the database's**: the
+trailing rate is `round(sum(filed)/sum(discovered), 4)` over the window in SQL,
+the months are pinned to UTC for the read, and the page only formats. The
+dollars no channel can claim (`unknown`, ADR 0030 §3) are shown and explained
+but get no rate; a month that filed more than it found is shown unclamped with
+its likely reason; and the confirmed duplicates still counted twice (ADR 0032
+§6) are counted, summed and split by channel in SQL — a case in two confirmed
+pairs once — with links to them. Anomalies are per connection, from its own
+latest completed run, with the window that run read, because an anomaly
+missing from a later run may only have aged out of the 35 days. A run counted
+before migration 0027 kept no anomaly ids and says so. Every member sees the
+page, `read_only` included; it has no action on it. The QuickBooks and crypto
+error classes now carry literal names, since a run's `error_class` is what the
+page's guidance keys on and a minified class name would read as nothing.
 
 **An approval is written by the person it names** (ADR 0040, migration 0031).
 `app.enforce_separation_of_duties()` judged the name on an `approvals` row —

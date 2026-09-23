@@ -103,3 +103,25 @@ const DOC_TYPE_LABELS: Readonly<Record<DocType, string>> = {
 export function docTypeLabel(docType: DocType): string {
   return DOC_TYPE_LABELS[docType];
 }
+
+/**
+ * The database's ratio as a percentage to one place: `0.4521` → `45.2%`.
+ * Display only — never clamped (a month can file more than it found, ADR 0030
+ * §4, and `1.25` reads `125.0%`) and never computed from cents here.
+ */
+export function percent(ratio: number): string {
+  return `${(Math.round(ratio * 1000) / 10).toFixed(1)}%`;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * `2026-09-01` → `Sep 2026`, read from the string's own parts rather than
+ * through `Date`, so no time zone can move a month into its neighbour.
+ */
+export function monthLabel(isoDay: string): string {
+  const match = /^(\d{4})-(\d{2})/.exec(isoDay);
+  const month = match === null ? undefined : MONTHS[Number(match[2]) - 1];
+  if (match === null || month === undefined) return isoDay;
+  return `${month} ${match[1]}`;
+}

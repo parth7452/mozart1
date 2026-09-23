@@ -61,12 +61,18 @@ export interface TokenCipher {
 export class TokenCipherError extends Error {
   constructor(message: string) {
     super(message);
+    // Each subclass also names itself with a literal. `new.target.name` is the
+    // class's name only until a bundler minifies it, and these names are
+    // recorded (a run's `error_class`, an audit row) and read back by the
+    // pages that tell a person what to do.
     this.name = new.target.name;
   }
 }
 
 /** The context is missing a half, or one of them is blank. */
-export class TokenContextError extends TokenCipherError {}
+export class TokenContextError extends TokenCipherError {
+  override name = 'TokenContextError';
+}
 
 /**
  * The row was sealed by a cipher this one is not.
@@ -76,6 +82,7 @@ export class TokenContextError extends TokenCipherError {}
  * key or the row is wrong".
  */
 export class TokenCipherMismatchError extends TokenCipherError {
+  override name = 'TokenCipherMismatchError';
   constructor(
     readonly expected: string,
     readonly found: string,
@@ -99,6 +106,7 @@ export class TokenCipherMismatchError extends TokenCipherError {
  * put the message we just replaced.
  */
 export class TokenDecryptionError extends TokenCipherError {
+  override name = 'TokenDecryptionError';
   constructor(
     readonly cipher: string,
     readonly keyId: string,

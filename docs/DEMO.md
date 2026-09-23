@@ -1,8 +1,9 @@
 # Demo: one freight dispute, end to end
 
-Twelve minutes. It takes a $600 deduction from a PDF nobody has read to an
-argument a human can check line by line — and stops exactly where a human has to
-take over, which is the point rather than a limitation.
+Thirteen minutes. It takes a $600 deduction from a PDF nobody has read to an
+argument a human can check line by line, and on to a dispute packet — and stops
+exactly where a second person has to take over, which is the point rather than a
+limitation.
 
 The case is **LOG-001**, in `packages/fixtures/logistics/`. Five documents:
 
@@ -91,32 +92,75 @@ Three things worth pointing at while it is on screen:
    and the appointment said Eastern, the system says it could not check rather
    than reporting a confident four-hour-late arrival.
 
-## 4 · Where it stops (2 min)
+## 4 · Where it stops (3 min)
 
-Scroll to the bottom. There is no approve button, and that is deliberate:
+Scroll down past **Add evidence**. From here the page is one card per step, as
+the case gets there, and you only ever get a button your role lets you press.
 
-> Nothing has been sent anywhere. Approving a case is a separate, recorded act
-> by a second person, and the database refuses a submission that has no approval
-> row.
+**Point at the two cards, one above the other, first** — deciding takes both
+away:
 
-Two actions a reviewer *does* have: attach more evidence, or **record a
-decline** — which writes what the case was worth and what was missing, rather
-than deleting it. Coverage is a ratio of dollars, and discarding the ones you
-gave up on flatters it every time.
+- **Dispute this deduction** — a reason from the taxonomy, and one line for
+  whoever approves it.
+- **Not worth fighting?** — record a decline, which writes what the case was
+  worth and what was missing rather than deleting it. Coverage is a ratio of
+  dollars, and discarding the ones you gave up on flatters it every time.
 
-> **Say this:** the approval gate is a database trigger, not a code path. It
-> cannot be worked around by an app bug or by an agent having a bad day.
+Once you decide, the page stops offering a decline, and a case already declined
+cannot be decided.
+
+**Decide.** Pick *A late-delivery fine we can disprove* and write one line:
+"Checked in 18 min before the revised appointment; the customer waived the
+charge in writing." It is recorded with your name on it. Nothing is sent.
+
+**Assemble the packet.** One click. The notice, the four documents, and a cover
+sheet our code writes from the fields already read — no model writes it, so the
+same case always assembles to the same contents. The card shows the packet's
+hash, and every file links to the stored bytes. The cover sheet carries what the
+case holds, not everything the page printed: a case opened from a remittance
+line does not keep the printed dispute deadline yet, so it reads *not recorded*
+here while the remittance itself, enclosed, still shows it.
+
+**Stop at Approve for submission.** The card is there; the button is not:
+
+> You prepared this decision, so approving it is not yours to do.
+
+That is the page being polite. The database says the same thing harder: it
+refuses an approval in the preparer's name, or in the name of anyone who is not
+an owner or an approver, and the hash an approval names is a foreign key to the
+packet that was assembled — so nobody can approve a packet nobody built.
+
+> **Say this:** the approval gate is a database trigger, not a code path. No app
+> bug and no agent can record a filing without an approval on record, and the
+> database will not take one in the preparer's name.
+
+If they ask what comes next, it is two more cards, both a person's: **record
+the filing** — someone files on the retailer's portal and pastes the
+confirmation number back, because the app files nothing — and **record the
+outcome**, won, partial or lost, with the amount stored as whole cents. That is
+the number the contingency fee will be read from.
 
 ## 5 · The honest part (1 min)
 
 Worth saying before you are asked:
 
 - **These documents are synthetic.** So is every fixture. The numbers in
-  `packages/evals/baseline.json` measure documents we generated, and they will
-  move when real customer scans arrive.
-- **The packet is not built.** Today a reviewer gets an argument on screen; the
-  assembled, sendable dispute packet is the next piece.
-- **Submission is manual and stays that way** until a human has approved it.
+  `packages/evals/baseline.json` measure synthetic documents — some we wrote,
+  some handed to us as labelled test packs — and they will move when real
+  customer scans arrive.
+- **Nothing has been recovered yet.** One production case has been through all
+  five steps on 2026-09-21 — decided, assembled, approved by a second member,
+  with a filing and a `partial` outcome recorded. It was our own run on a
+  synthetic document: nothing went to a payer and nothing came back. That
+  proves the path, not a recovery rate, and no fee has been invoiced; billing is
+  Phase 4.
+- **The decision is a person's, for now.** The model reads the documents; a
+  reviewer decides whether to fight. A model's call lands later, in the same
+  slot, behind the same gate.
+- **Submission is manual.** The app files nothing, and it will not record a
+  filing until a second person has approved it. Which portal, and what that
+  retailer wants attached, is not in the app yet — the filing card tells the
+  reviewer to follow the routing guide they already use.
 
 ---
 
@@ -155,3 +199,16 @@ same page.
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect
 > both stops the sync and revokes our access at Intuit.
+
+Then open **Coverage**. It answers the question the ledger exists for: of what
+we found, how much did we file — per channel.
+
+- **One rate per channel, and no combined one.** A combined rate would rise the
+  day a ledger is connected, which is the mix changing, not the product getting
+  better. The page says so.
+- **Nothing is hidden.** Dollars that arrived with no record of how are shown but
+  credited to no channel; confirmed duplicates still counted twice are counted
+  and linked; a month that filed more than it found is shown as it is.
+- **What needs a look in QuickBooks.** Each connection's latest completed run
+  lists the invoices it could not make add up, by QuickBooks' own IDs, with what
+  to check. No case is opened for those until the ledger adds up.
