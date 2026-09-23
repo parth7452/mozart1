@@ -37,10 +37,11 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0030. 0028 and
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0032. 0028 and
 0029 were applied 2026-09-23 after being staged on the preview project
-(`jvbnqofmoamyhntjwjdn`) the same morning, and 0030 (ADR 0039) that afternoon,
-preview first. Read back: Supabase's request roles
+(`jvbnqofmoamyhntjwjdn`) the same morning, 0030 (ADR 0039) that afternoon and
+0032 (ADR 0042) that evening, preview first each time. 0031 belongs to an open
+PR and is in neither project. Read back: Supabase's request roles
 hold nothing in `public` or `app`, `authenticated` no longer reaches `app_rw`,
 `recouple_app` still does, every `app` function's `search_path` is pinned again
 (invariant 7's guard included), and the coverage denominator counts each
@@ -165,8 +166,8 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 4. ~~**Decide how a confirmed duplicate merges.**~~ **built** — ADR 0042,
    migration 0032: "Same deduction" merges in one click, the database moves the
    copy to `merged`, coverage counts the pair once, and an undo puts it back.
-   0032 is not applied to production yet: `mozart-preview` first, on the
-   founder's go.
+   0032 applied to `mozart-preview` and then production on 2026-09-23 and read
+   back on both. Not yet exercised on real data: no pair has been confirmed.
 5. **Triage**, the rest of Phase 1.5.
 
 ## Follow-ups this change created

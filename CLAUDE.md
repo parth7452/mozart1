@@ -360,11 +360,13 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0030 as
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0032 as
 of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
 morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
-project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+project; 0032 at 20:26, two minutes after it). 0031 is taken by an open PR and
+is not in either project; the two are independent, and 0031 will apply after
+0032 when it merges. Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -962,7 +964,15 @@ and counts its survivor in the month and under the channel of the earliest
 notice across the two; the coverage page's "counted twice" is now only the
 confirmed pairs that could not be merged, each with its reason on the case page.
 Nothing is deleted, no identifier moves, no approval or filing row is written,
-and no UPDATE or DELETE grant is added. Production does not carry 0032 yet.
+and no UPDATE or DELETE grant is added. Production carries 0032 since
+2026-09-23, applied to `mozart-preview` first and read back on both: the stored
+statement's md5 equals the file's, `deductions_state_check` is the only state
+check and admits `merged`, `deduction_merges` has RLS with `app_rw` holding
+SELECT and INSERT and `app_ro` SELECT, its four triggers are in place, the work
+refusal is on all eight tables, the seven functions are pinned and none is
+definer, the three views are `security_invoker`, the coverage view kept its
+columns, the request roles still hold nothing, and the coverage figures did not
+move — no case is merged yet.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
