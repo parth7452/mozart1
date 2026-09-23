@@ -854,7 +854,10 @@ reconnect. `QboTokenStore.withRefreshLock` is a transaction-scoped advisory lock
 on the lock pool, seed 2 on `provider:realm`, and the client re-reads the tokens
 under it, so the second of two concurrent refreshes finds the first one's
 tokens and does not refresh at all. Connect, disconnect and both scripts take
-the same lock, and nothing nests it. Disconnect turns the connection off and
+the same lock, and nothing nests it. A wait is capped at 15 seconds
+(`LedgerAccountBusyError`, nothing changed) and every OAuth call at 10, body
+included; a lock connection that fails is destroyed rather than pooled, because
+its aborted transaction would fail the next document read to borrow it. Disconnect turns the connection off and
 commits that first, then revokes at Intuit and audits the result —
 `confirmed`, `failed` with a class name, or `not_attempted` — and a failed
 revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release

@@ -159,8 +159,18 @@ waiting form, on the store's lock pool. The pieces:
 - **Transaction-scoped.** The pooler is transactional (`withDocumentRead`'s
   reason). The lock connection holds nothing but the lock. The work runs on
   the ordinary pool and commits there before the lock is released.
-- **The waiting form, not `try`.** The work inside is short, and a caller that
-  gave up would fail a connect or a sync for no reason.
+- **The waiting form, not `try`, with a bound.** The work inside is short, and
+  a caller that gave up at once would fail a connect or a sync for no reason.
+  But a holder's work includes a call to Intuit, so the wait is capped:
+  `lock_timeout` of 15 seconds, and a wait that runs out is
+  `LedgerAccountBusyError` with nothing changed. Every OAuth call is bounded
+  at 10 seconds, body included, so a callback — two calls, a seal and at most
+  one wait — ends inside its 60-second budget with a notice rather than being
+  killed after the code was spent.
+- **A failed lock connection is destroyed, not pooled.** Its transaction may
+  still be open or aborted, and the next borrower of the lock pool — a
+  document read, an invoice claim — would fail on it. The same now holds for
+  `withDocumentRead` and `withInvoiceClaim`, which share that pool.
 
 It is taken by:
 
@@ -338,6 +348,13 @@ It says **needs reconnecting** when:
 - the last run failed with `QboAuthError` or `CredentialUnreadableError`;
 - the last run was refused with `LedgerSyncRefusedError`, which means
   reconnect as a current owner, and §6 now makes that work.
+
+A run counts only if it finished at or after the latest credential was
+stored, so a reconnect clears the warning at once rather than at the next run.
+And `QboAuthError` has to mean a refusal: from Intuit's token endpoint only a
+400 or 401 (`invalid_grant`, `invalid_client`) is one. A 429 is
+`QboRateLimited` and anything else `QboRequestFailed`, so an Intuit outage
+during the nightly refresh is a failed run, not an instruction to reconnect.
 
 A deployment that cannot connect shows why, naming the missing variables.
 

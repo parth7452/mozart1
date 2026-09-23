@@ -149,6 +149,12 @@ async function main(): Promise<void> {
       throw new Error(`connection ${target.connectionId} is no longer visible. Nothing was changed.`);
     }
 
+    if (result.revokeAuditErrorClass !== undefined) {
+      console.error(
+        `the revoke's audit row was not written (${result.revokeAuditErrorClass}); ` +
+          'the connection is off and that is audited',
+      );
+    }
     console.log(
       result.disabled
         ? `connection ${result.connection.connectionId} turned off`

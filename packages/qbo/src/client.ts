@@ -5,7 +5,7 @@
  * It knows nothing about deductions. It hands `map.ts` validated JSON objects
  * and lets that file decide what a `LedgerInvoice` is.
  *
- * Everything outbound goes through `send`, so there is one place that sets the
+ * Everything outbound goes through `request`, so there is one place that sets the
  * `Request-Id` header, one place with a timeout, and one place that turns a
  * transport failure into a typed error rather than an empty list.
  */
@@ -20,7 +20,7 @@ import {
   QboRateLimited,
   QboRequestFailed,
 } from './errors';
-import { defaultFetch, readBody, send, summarise, type FetchLike } from './http';
+import { defaultFetch, request, retryAfterMs, summarise, type FetchLike } from './http';
 import { assertQboId } from './ids';
 import { exchangeIntuitToken } from './oauth';
 import { describe, isJsonObject, readArray, readObject, type JsonObject } from './reader';
@@ -212,7 +212,7 @@ export class QboClient {
       url.searchParams.set('minorversion', this.config.minorVersion);
     }
 
-    const response = await send(
+    const { response, text } = await request(
       this.fetchImpl,
       url.toString(),
       {
@@ -229,8 +229,6 @@ export class QboClient {
       },
       this.timeoutMs,
     );
-
-    const text = await readBody(response, url.toString());
 
     if (response.status === 401) {
       throw new QboAuthError(
@@ -326,7 +324,9 @@ export class QboClient {
       { clientId: this.config.clientId, clientSecret: this.config.clientSecret },
       { grantType: 'refresh_token', refreshToken: stored.refreshToken },
       `realm ${this.config.realmId}`,
-      { fetchImpl: this.fetchImpl, now: this.now, timeoutMs: this.timeoutMs },
+      // The OAuth call's own, shorter timeout rather than a ledger read's: this
+      // runs while the company's lock is held, and everybody else waits on it.
+      { fetchImpl: this.fetchImpl, now: this.now },
     );
 
     // Save first. Use second. Never the other way round.
@@ -358,22 +358,6 @@ export function assertWindowDate(value: string, which: 'from' | 'to'): string {
     }
     throw error;
   }
-}
-
-/** `Retry-After` in milliseconds: seconds, or an HTTP date, or nothing. */
-function retryAfterMs(response: Response): number | undefined {
-  const header = response.headers.get('retry-after');
-  if (header === null || header.trim() === '') return undefined;
-
-  const seconds = Number(header);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
-
-  const at = Date.parse(header);
-  if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
-
-  // Unreadable. `undefined` says "we do not know", which beats inventing a
-  // backoff the caller would then trust.
-  return undefined;
 }
 
 /** Intuit's `Fault` object, if the body carried one. */

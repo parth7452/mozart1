@@ -58,6 +58,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (result === undefined) return say('qbo_disconnect_unknown');
     if (!result.disabled) return say('qbo_already_disconnected');
+    if (result.revokeAuditErrorClass !== undefined) {
+      // The connection is off and that is audited; the revoke's own row is
+      // what is missing. Loud for an operator, and not the owner's problem.
+      console.error(
+        `[recouple] QuickBooks disconnect: connection ${connectionId} for org ${identity.orgId} ` +
+          `is off and revoke ${result.revoke}, but the revoke's audit row was not written ` +
+          `(${result.revokeAuditErrorClass})`,
+      );
+    }
     if (result.revoke !== 'confirmed') {
       console.warn(
         `[recouple] QuickBooks disconnect: connection ${connectionId} for org ${identity.orgId} ` +

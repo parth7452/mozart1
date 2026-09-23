@@ -11,6 +11,35 @@ import { sessionLockPool, type PostgresStoreConfig, type TenantContext } from '.
  */
 export const LEDGER_ACCOUNT_LOCK_SEED = 2;
 
+/**
+ * How long a caller waits for the company's lock before giving up.
+ *
+ * Longer than any holder should take — a refresh or a revoke is one Intuit call
+ * bounded at ten seconds, a connect is one transaction — and short enough that
+ * a callback waiting behind a stuck holder still ends inside its own request
+ * budget with a notice rather than being killed by the platform after the
+ * authorization code was spent (ADR 0039 §5).
+ */
+export const LEDGER_ACCOUNT_LOCK_TIMEOUT_MS = 15_000;
+
+/**
+ * Somebody else held this company's lock for longer than
+ * `LEDGER_ACCOUNT_LOCK_TIMEOUT_MS`. Nothing was changed: the caller's work never
+ * ran. Ids only.
+ */
+export class LedgerAccountBusyError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly providerAccountId: string,
+  ) {
+    super(
+      `${provider} company ${providerAccountId} is being changed by another request; ` +
+        'nothing was changed here — try again in a minute',
+    );
+    this.name = 'LedgerAccountBusyError';
+  }
+}
+
 /** Which books: a provider and the provider's key for the company (QBO's realm). */
 export interface LedgerAccountKey {
   readonly provider: string;
@@ -47,17 +76,27 @@ export interface LedgerAccountKey {
  * locally, so this connection cannot carry them anywhere either. Never
  * nested: `work` must not ask for the same company's lock again, because the
  * second request would wait on a lock its own caller holds.
+ *
+ * @throws {LedgerAccountBusyError} the lock was not granted within
+ *   `LEDGER_ACCOUNT_LOCK_TIMEOUT_MS`; `work` did not run.
  */
 export async function withLedgerAccountLock<T>(
   config: PostgresStoreConfig,
   tenant: TenantContext,
   account: LedgerAccountKey,
   work: () => Promise<T>,
+  /** How long to wait for the lock. Tests shorten it; nothing else should. */
+  options: { readonly waitMs?: number } = {},
 ): Promise<T> {
   if (account.provider.trim() === '' || account.providerAccountId.trim() === '') {
     throw new Error('a ledger account lock needs a provider and an account id');
   }
   const client = await sessionLockPool(config).connect();
+  // Set when anything below fails. A connection is then destroyed rather than
+  // pooled, because its transaction may still be open or aborted, and the
+  // next borrower of this pool — a document read, an invoice claim — would
+  // inherit it and fail on its first statement.
+  let failed: Error | undefined;
   try {
     await client.query('begin');
     await client.query(`set local role ${config.role ?? 'app_rw'}`);
@@ -65,21 +104,34 @@ export async function withLedgerAccountLock<T>(
       'request.jwt.claims',
       JSON.stringify({ org_id: tenant.orgId, sub: tenant.userId }),
     ]);
-    await client.query('select pg_advisory_xact_lock(hashtextextended($1, $2))', [
-      `${account.provider}:${account.providerAccountId}`,
-      LEDGER_ACCOUNT_LOCK_SEED,
-    ]);
+    const waitMs = options.waitMs ?? LEDGER_ACCOUNT_LOCK_TIMEOUT_MS;
+    if (!Number.isInteger(waitMs) || waitMs <= 0) {
+      throw new Error(`a ledger account lock wait must be a positive whole number of ms, not ${waitMs}`);
+    }
+    await client.query(`set local lock_timeout = ${waitMs}`);
     try {
-      const result = await work();
-      // Nothing is written on this connection; the commit is what releases the
-      // lock, once the work's own transactions have committed.
-      await client.query('commit');
-      return result;
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, $2))', [
+        `${account.provider}:${account.providerAccountId}`,
+        LEDGER_ACCOUNT_LOCK_SEED,
+      ]);
     } catch (error) {
-      await client.query('rollback').catch(() => undefined);
+      // 55P03 lock_not_available: the wait above ran out.
+      if ((error as { code?: unknown }).code === '55P03') {
+        throw new LedgerAccountBusyError(account.provider, account.providerAccountId);
+      }
       throw error;
     }
+    const result = await work();
+    // Nothing is written on this connection; the commit is what releases the
+    // lock, once the work's own transactions have committed.
+    await client.query('commit');
+    return result;
+  } catch (error) {
+    failed = error instanceof Error ? error : new Error(String(error));
+    // Released now rather than whenever the pooler notices the connection go.
+    await client.query('rollback').catch(() => undefined);
+    throw error;
   } finally {
-    client.release();
+    client.release(failed);
   }
 }

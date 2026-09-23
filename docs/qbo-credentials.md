@@ -227,6 +227,11 @@ pnpm unlink:qbo --org <holding slug> --as <an owner of it> --realm <company id> 
 pnpm unlink:qbo --org <holding slug> --as <an owner of it> --realm <company id>
 ```
 
+`--as` must be an owner of the workspace that holds the connection. If that
+workspace has no owner left, one has to be added first — who is an owner is an
+owner's decision (ADR 0039 §8), so with none left that is a database
+operator's change, made as the table owner and written down.
+
 It runs the button's own function and the audit rows say `operator_command`.
 It revokes at Intuit when `.env` has `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET` and the
 AWS four; without them it still turns the connection off and records the revoke

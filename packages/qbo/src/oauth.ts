@@ -22,7 +22,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { QboAuthError, QboRateLimited, QboRequestFailed } from './errors';
-import { defaultFetch, readBody, send, type FetchLike } from './http';
+import { defaultFetch, request, retryAfterMs, type FetchLike } from './http';
 import { assertQboId } from './ids';
 import { isJsonObject, type JsonObject } from './reader';
 import type { QboTokens } from './tokens';
@@ -53,7 +53,13 @@ export interface IntuitCallOptions {
   readonly timeoutMs?: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * Ten seconds per call, body included. Intuit's OAuth endpoints answer in well
+ * under one; the bound is for the day they do not. A refresh and a revoke run
+ * while the company's lock is held, and the callback makes two of these calls
+ * inside one request's time budget (ADR 0039 §5).
+ */
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
  * Where to send the owner to consent: exactly five parameters and nothing else.
@@ -120,7 +126,7 @@ export async function exchangeIntuitToken(
       : { grant_type: 'authorization_code', code: grant.code, redirect_uri: grant.redirectUri };
   const call = grant.grantType === 'refresh_token' ? 'the token refresh' : 'the code exchange';
 
-  const response = await send(
+  const { response, text } = await request(
     fetchImpl,
     INTUIT_TOKEN_URL,
     {
@@ -136,10 +142,26 @@ export async function exchangeIntuitToken(
     timeoutMs,
   );
 
-  const text = await readBody(response, INTUIT_TOKEN_URL);
   if (!response.ok) {
-    throw new QboAuthError(
-      `Intuit refused ${call} for ${subject} (${response.status}): ${oauthErrorOf(text)}`,
+    const said = `(${response.status}): ${oauthErrorOf(text)}`;
+    // Only a refusal of the grant or of our app is a reason to reconnect:
+    // `invalid_grant` (400) or `invalid_client` (401). Rate limiting or an
+    // Intuit outage mid-refresh is not, and reported as one it would tell an
+    // owner to reconnect a connection that works (the settings page reads the
+    // run log's class name).
+    if (response.status === 400 || response.status === 401) {
+      throw new QboAuthError(`Intuit refused ${call} for ${subject} ${said}`);
+    }
+    if (response.status === 429) {
+      throw new QboRateLimited(
+        `Intuit rate-limited ${call} for ${subject} ${said}`,
+        retryAfterMs(response),
+      );
+    }
+    throw new QboRequestFailed(
+      `Intuit could not answer ${call} for ${subject} ${said}`,
+      response.status,
+      undefined,
     );
   }
 
@@ -186,7 +208,7 @@ export async function verifyRealmAccess(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const url = `${input.baseUrl.replace(/\/+$/, '')}/v3/company/${realmId}/companyinfo/${realmId}`;
 
-  const response = await send(
+  const { response, text } = await request(
     fetchImpl,
     url,
     {
@@ -199,9 +221,8 @@ export async function verifyRealmAccess(
     },
     timeoutMs,
   );
-  // Read and drop: a successful answer is the company's own details, and the
+  // A successful answer is the company's own details, read and dropped: the
   // status is the whole of what this call is asked.
-  const text = await readBody(response, url);
 
   if (response.ok) return;
   if (response.status === 401 || response.status === 403) {
@@ -237,7 +258,7 @@ export async function revokeIntuitToken(
   const fetchImpl = options.fetchImpl ?? defaultFetch();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const response = await send(
+  const { response, text } = await request(
     fetchImpl,
     INTUIT_REVOKE_URL,
     {
@@ -252,7 +273,6 @@ export async function revokeIntuitToken(
     },
     timeoutMs,
   );
-  const text = await readBody(response, INTUIT_REVOKE_URL);
   if (!response.ok) {
     throw new QboRequestFailed(
       `Intuit refused the revoke (${response.status}): ${oauthErrorOf(text)}`,

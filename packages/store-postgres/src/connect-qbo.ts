@@ -251,6 +251,14 @@ export interface DisconnectedLedger {
   readonly revoke: LedgerRevokeResult;
   /** The class name of a failed revoke, never its message. */
   readonly revokeErrorClass?: string;
+  /**
+   * Set when the revoke's own audit row could not be written — the class name
+   * only. The disable is committed and audited by then, and the revoke has
+   * happened or not at Intuit, so this is reported to the caller to log loudly
+   * rather than thrown: a throw would tell the owner nothing changed when the
+   * connection is off.
+   */
+  readonly revokeAuditErrorClass?: string;
 }
 
 /**
@@ -346,21 +354,36 @@ export async function disconnectLedger(
         }
       }
 
-      await inTenant(config, tenant, async (client) => {
-        await audit(client, tenant, 'accounting_connection.revoke', turnedOff.connectionId, {
-          provider: turnedOff.provider,
-          provider_account_id: turnedOff.providerAccountId,
-          via: input.via,
-          result: revoke,
-          ...(revokeErrorClass !== undefined ? { error_class: revokeErrorClass } : {}),
+      // The disable is committed and Intuit has answered, so a failure here
+      // cannot change either; it is returned for the caller to log, not thrown
+      // (see `revokeAuditErrorClass`).
+      let revokeAuditErrorClass: string | undefined;
+      try {
+        await inTenant(config, tenant, async (client) => {
+          await audit(client, tenant, 'accounting_connection.revoke', turnedOff.connectionId, {
+            provider: turnedOff.provider,
+            provider_account_id: turnedOff.providerAccountId,
+            via: input.via,
+            result: revoke,
+            ...(revokeErrorClass !== undefined ? { error_class: revokeErrorClass } : {}),
+          });
         });
-      });
+      } catch (error) {
+        // node-postgres names every database error `error`, so the SQLSTATE
+        // goes with it: `42501` (the member lost write in the meantime) and a
+        // dropped connection send an operator to different places.
+        const code = (error as { code?: unknown }).code;
+        revokeAuditErrorClass =
+          (error instanceof Error ? error.name : typeof error) +
+          (typeof code === 'string' ? ` ${code}` : '');
+      }
 
       return {
         connection: turnedOff,
         disabled: true,
         revoke,
         ...(revokeErrorClass !== undefined ? { revokeErrorClass } : {}),
+        ...(revokeAuditErrorClass !== undefined ? { revokeAuditErrorClass } : {}),
       };
     },
   );

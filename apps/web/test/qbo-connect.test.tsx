@@ -284,6 +284,36 @@ describe('whether a connection needs reconnecting', () => {
       needsReconnect(connection({ lastRun: { ...run, outcome: 'failed', errorClass: 'QboRequestFailed' } }), today),
     ).toBeUndefined();
   });
+
+  it('does not, straight after a reconnect, over a failure from before it', () => {
+    // The run refused the old sign-in at 07:00; the owner reconnected at 09:00.
+    const reconnected = connection({
+      lastRun: {
+        ...connection().lastRun!,
+        outcome: 'failed',
+        errorClass: 'QboAuthError',
+        startedAt: '2026-09-23T07:00:00.000Z',
+        finishedAt: '2026-09-23T07:00:04.000Z',
+      },
+      latestCredential: { ...connection().latestCredential!, storedAt: '2026-09-23T09:00:00.000Z' },
+    });
+    expect(needsReconnect(reconnected, today)).toBeUndefined();
+    expect(page({ connections: [reconnected] })).not.toContain('needs reconnecting');
+
+    // A run that rotated the sign-in and then was refused still counts: it
+    // finished after the rotation it stored.
+    const refusedAfterRotating = connection({
+      lastRun: {
+        ...connection().lastRun!,
+        outcome: 'failed',
+        errorClass: 'QboAuthError',
+        startedAt: '2026-09-23T07:00:00.000Z',
+        finishedAt: '2026-09-23T07:00:09.000Z',
+      },
+      latestCredential: { ...connection().latestCredential!, storedAt: '2026-09-23T07:00:05.000Z' },
+    });
+    expect(needsReconnect(refusedAfterRotating, today)).toMatch(/refused its sign-in/);
+  });
 });
 
 describe('the last sync, in a sentence', () => {

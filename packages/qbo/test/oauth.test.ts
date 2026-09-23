@@ -120,9 +120,76 @@ describe('trading an authorization code for tokens', () => {
       .then(() => undefined)
       .catch((thrown: unknown) => thrown);
 
-    expect(error).toBeInstanceOf(QboAuthError);
+    // A 502 is Intuit failing, not Intuit refusing us: not a reason to reconnect.
+    expect(error).toBeInstanceOf(QboRequestFailed);
     expect((error as Error).message).not.toContain(CODE);
     expect((error as Error).message).not.toContain('<html>');
+  });
+
+  it('calls only a refusal of the grant or of our app a reason to reconnect', async () => {
+    const answer = async (status: number, headers: Record<string, string> = {}) => {
+      const { fetchImpl } = recordingFetch(
+        () =>
+          new Response(JSON.stringify({ error: 'some_error' }), {
+            status,
+            headers: { 'content-type': 'application/json', ...headers },
+          }),
+      );
+      return exchangeIntuitToken(
+        APP,
+        { grantType: 'refresh_token', refreshToken: 'refresh-token-DO-NOT-LOG' },
+        'realm 4620816365213417000',
+        { fetchImpl },
+      )
+        .then(() => undefined)
+        .catch((thrown: unknown) => thrown);
+    };
+
+    // invalid_grant and invalid_client: the settings page says to reconnect.
+    expect(await answer(400)).toBeInstanceOf(QboAuthError);
+    expect(await answer(401)).toBeInstanceOf(QboAuthError);
+
+    // Rate limited, with the wait Intuit asked for.
+    const limited = await answer(429, { 'retry-after': '7' });
+    expect(limited).toBeInstanceOf(QboRateLimited);
+    expect((limited as QboRateLimited).retryAfterMs).toBe(7000);
+
+    // An outage mid-refresh is a failed run, not a dead connection.
+    for (const status of [500, 502, 503, 403]) {
+      const failed = await answer(status);
+      expect(failed, String(status)).toBeInstanceOf(QboRequestFailed);
+      expect(failed, String(status)).not.toBeInstanceOf(QboAuthError);
+      expect((failed as QboRequestFailed).status).toBe(status);
+      expect((failed as Error).message).not.toContain('refresh-token-DO-NOT-LOG');
+    }
+  });
+
+  it('gives up on a body that stalls, not only on headers that never come', async () => {
+    // Headers at once, then a body that never finishes until the call is abandoned.
+    const stalling = async (_url: string, init?: RequestInit) =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"access_token":'));
+            init?.signal?.addEventListener('abort', () =>
+              controller.error(new DOMException('The operation was aborted.', 'AbortError')),
+            );
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+
+    const started = Date.now();
+    const error = await exchangeIntuitToken(APP, grant, 'authorization code', {
+      fetchImpl: stalling,
+      timeoutMs: 50,
+    })
+      .then(() => undefined)
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(QboRequestFailed);
+    expect((error as Error).message).toMatch(/did not answer within 50ms/);
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it('never quotes a successful body it could not use — that body is the credential', async () => {

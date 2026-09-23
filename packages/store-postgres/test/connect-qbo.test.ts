@@ -11,6 +11,7 @@ import {
   PostgresLedgerSyncStore,
 } from '../src/connections';
 import { connectQboCompany, disconnectLedger, planLedgerClaim } from '../src/connect-qbo';
+import { LedgerAccountBusyError, withLedgerAccountLock } from '../src/ledger-lock';
 import { PostgresQboTokenStore } from '../src/credentials';
 import { closeAllPools, PostgresStore } from '../src/store';
 
@@ -476,6 +477,42 @@ describeDb('connecting a QuickBooks company on Postgres', () => {
       expect(JSON.stringify(audit)).not.toContain('DO-NOT-LOG');
     });
 
+    it('still says it is off when the revoke’s audit row cannot be written', async () => {
+      // The owner is demoted while Intuit is being asked: the disable was
+      // committed and audited as an owner, and the revoke's row is refused.
+      const realmId = realm();
+      const made = await connectQboCompany(config, as(orgA, ownerA2), {
+        realmId, tokens: tokens('demoted'), cipher, via: 'web_consent',
+      });
+      try {
+        const result = await disconnectLedger(config, as(orgA, ownerA2), {
+          connectionId: made.connection.connectionId,
+          via: 'web_consent',
+          revoke: {
+            cipher,
+            revokeToken: async () => {
+              await admin.query(
+                `update memberships set role = 'read_only' where org_id = $1 and user_id = $2`,
+                [orgA, ownerA2],
+              );
+            },
+          },
+        });
+
+        expect(result).toMatchObject({ disabled: true, revoke: 'confirmed' });
+        expect(result?.revokeAuditErrorClass).toMatch(/42501/);
+        expect((await rowsFor(realmId))[0]?.enabled).toBe(false);
+        expect(
+          (await auditFor(made.connection.connectionId)).map((row) => row.action),
+        ).toEqual(['accounting_connection.connected', 'accounting_connection.disconnected']);
+      } finally {
+        await admin.query(
+          `update memberships set role = 'owner' where org_id = $1 and user_id = $2`,
+          [orgA, ownerA2],
+        );
+      }
+    });
+
     it('records the revoke as not attempted where this deployment cannot reach Intuit', async () => {
       const realmId = realm();
       const made = await connectQboCompany(config, as(orgA, ownerA), {
@@ -561,6 +598,41 @@ describeDb('connecting a QuickBooks company on Postgres', () => {
       ['first:in', 'first:out', 'second:in', 'second:out'],
       ['second:in', 'second:out', 'first:in', 'first:out'],
     ]).toContainEqual(order);
+  });
+
+  it('gives up on a company whose lock is held too long, runs nothing, and leaves the pool usable', async () => {
+    const realmId = realm();
+    const key = { provider: 'qbo', providerAccountId: realmId };
+    const tenant = as(orgA, ownerA);
+    // A lock pool of one connection, so the call after the failure borrows the
+    // very connection the failure happened on.
+    const single = { ...config, max: 1 };
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const holder = withLedgerAccountLock(config, tenant, key, async () => {
+      entered();
+      await held;
+    });
+    await inside;
+
+    let ran = false;
+    await expect(
+      withLedgerAccountLock(single, tenant, key, async () => {
+        ran = true;
+      }, { waitMs: 200 }),
+    ).rejects.toBeInstanceOf(LedgerAccountBusyError);
+    expect(ran).toBe(false);
+
+    release();
+    await holder;
+    await expect(withLedgerAccountLock(single, tenant, key, async () => 'next')).resolves.toBe('next');
   });
 
   it('shows the settings page who connected it, when its tokens expire, and no credential', async () => {

@@ -207,7 +207,8 @@ function OwnersOnly() {
  *
  * From what was recorded — the credential chain and the run log's error class
  * — never a guess: an access token that has expired is not a reason, because
- * the next sync refreshes it (ADR 0026).
+ * the next sync refreshes it (ADR 0026). A run counts only if it finished after
+ * the latest sign-in was stored.
  */
 export function needsReconnect(
   connection: LedgerConnectionOverview,
@@ -219,7 +220,15 @@ export function needsReconnect(
   if (Date.parse(connection.latestCredential.refreshExpiresAt) <= today.getTime()) {
     return `Its QuickBooks sign-in expired on ${connection.latestCredential.refreshExpiresAt.slice(0, 10)}.`;
   }
-  const run = connection.lastRun;
+  // A run that finished before the latest sign-in was stored is about the
+  // sign-in that sign-in replaced: a reconnect, or a later run's own rotation.
+  // Without this, an owner who has just reconnected is told to reconnect.
+  const last = connection.lastRun;
+  const run =
+    last !== undefined &&
+    Date.parse(last.finishedAt) >= Date.parse(connection.latestCredential.storedAt)
+      ? last
+      : undefined;
   if (run?.outcome === 'failed' && run.errorClass === 'QboAuthError') {
     return 'QuickBooks refused its sign-in on the last sync — it may have been disconnected inside QuickBooks.';
   }

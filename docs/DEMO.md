@@ -118,7 +118,23 @@ Worth saying before you are asked:
   assembled, sendable dispute packet is the next piece.
 - **Submission is manual and stays that way** until a human has approved it.
 
-## 6 · The deductions nobody sent (3 min, optional)
+---
+
+## If something does not work
+
+| What you see | What it means |
+| --- | --- |
+| `not scanned clean: error (none)` | No scanner configured — `CLAMAV_SCAN_URL` and `CLAMAV_SCAN_TOKEN` are not both set |
+| `not scanned clean: error (clamav-http) — …401` | The token on Vercel and the one on the scan service disagree |
+| `carries active content (/AA)` | The upload gate refusing a PDF with embedded JavaScript. Working as intended — use the fixture documents |
+| An error naming Anthropic | Scan passed, reader failed: `ANTHROPIC_API_KEY` missing |
+| Case opens, no findings | Only the notice is attached. The argument needs `04` and `05` |
+| Settings → QuickBooks says it is not set up | The Intuit app or the KMS key is missing on this deployment — previews never have them. See [`docs/qbo-credentials.md`](qbo-credentials.md) |
+| "…could not be matched to this session" after Intuit | Connect was pressed more than ten minutes earlier, in another browser, or on an address other than `app.mozart.financial` |
+
+---
+
+## Extra · The deductions nobody sent (3 min, optional)
 
 Everything above started with somebody uploading a notice. Most short-pays never
 arrive that way — they are only in the ledger. Signed in as the workspace's
@@ -139,17 +155,3 @@ same page.
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect
 > both stops the sync and revokes our access at Intuit.
-
----
-
-## If something does not work
-
-| What you see | What it means |
-| --- | --- |
-| `not scanned clean: error (none)` | No scanner configured — `CLAMAV_SCAN_URL` and `CLAMAV_SCAN_TOKEN` are not both set |
-| `not scanned clean: error (clamav-http) — …401` | The token on Vercel and the one on the scan service disagree |
-| `carries active content (/AA)` | The upload gate refusing a PDF with embedded JavaScript. Working as intended — use the fixture documents |
-| An error naming Anthropic | Scan passed, reader failed: `ANTHROPIC_API_KEY` missing |
-| Case opens, no findings | Only the notice is attached. The argument needs `04` and `05` |
-| Settings → QuickBooks says it is not set up | The Intuit app or the KMS key is missing on this deployment — previews never have them. See [`docs/qbo-credentials.md`](qbo-credentials.md) |
-| "…could not be matched to this session" after Intuit | Connect was pressed more than ten minutes earlier, in another browser, or on an address other than `app.mozart.financial` |

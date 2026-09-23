@@ -1953,6 +1953,9 @@ export class PostgresStore
     work: () => Promise<T>,
   ): Promise<T> {
     const client = await this.lockPool.connect();
+    // Destroyed rather than pooled after any failure: its transaction may be
+    // open or aborted, and the next borrower would fail on it (ADR 0039 review).
+    let failed: Error | undefined;
     try {
       await client.query('begin');
       await client.query(`set local role ${this.role}`);
@@ -1963,18 +1966,18 @@ export class PostgresStore
       await client.query('select pg_advisory_xact_lock(hashtextextended($1, 1))', [
         `${orgId}:${invoiceNumber}`,
       ]);
-      try {
-        const result = await work();
-        // Nothing is written on this connection; the commit is what releases the
-        // claim, and it happens once the work is finished either way.
-        await client.query('commit');
-        return result;
-      } catch (error) {
-        await client.query('rollback').catch(() => undefined);
-        throw error;
-      }
+      const result = await work();
+      // Nothing is written on this connection; the commit is what releases the
+      // claim, and it happens once the work is finished either way.
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      failed = error instanceof Error ? error : new Error(String(error));
+      // Released now rather than whenever the pooler notices the connection go.
+      await client.query('rollback').catch(() => undefined);
+      throw error;
     } finally {
-      client.release();
+      client.release(failed);
     }
   }
 
@@ -2373,6 +2376,8 @@ export class PostgresStore
     work: () => Promise<T>,
   ): Promise<DocumentReadLease<T>> {
     const client = await this.lockPool.connect();
+    // Destroyed rather than pooled after any failure, as in `withInvoiceClaim`.
+    let failed: Error | undefined;
     try {
       await client.query('begin');
       await client.query(`set local role ${this.role}`);
@@ -2390,18 +2395,18 @@ export class PostgresStore
         return { held: false };
       }
 
-      try {
-        const result = await work();
-        // Nothing was written in this transaction; the commit is what releases
-        // the lock, and it happens once the work is finished either way.
-        await client.query('commit');
-        return { held: true, result };
-      } catch (error) {
-        await client.query('rollback').catch(() => undefined);
-        throw error;
-      }
+      const result = await work();
+      // Nothing was written in this transaction; the commit is what releases
+      // the lock, and it happens once the work is finished either way.
+      await client.query('commit');
+      return { held: true, result };
+    } catch (error) {
+      failed = error instanceof Error ? error : new Error(String(error));
+      // Released now rather than whenever the pooler notices the connection go.
+      await client.query('rollback').catch(() => undefined);
+      throw error;
     } finally {
-      client.release();
+      client.release(failed);
     }
   }
 

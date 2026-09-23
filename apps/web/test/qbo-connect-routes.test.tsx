@@ -507,6 +507,18 @@ describe('disconnecting', () => {
     expect(harness.disconnected).toHaveLength(1);
   });
 
+  it('still says it is off when only the revoke’s audit row failed, and logs that loudly', async () => {
+    harness.disconnectResult = {
+      disabled: true,
+      revoke: 'confirmed',
+      revokeAuditErrorClass: 'error 42501',
+      connection: {},
+    };
+    const response = await disconnect(post('/settings/quickbooks/disconnect', form(CONNECTION_ID)));
+    expect(said(response)).toMatch(/Intuit confirmed our access is revoked/);
+    expect(logged.join('\n')).toMatch(/revoke's audit row was not written \(error 42501\)/);
+  });
+
   it('says a second press changed nothing', async () => {
     harness.disconnectResult = { disabled: false, revoke: 'not_attempted', connection: {} };
     expect(said(await disconnect(post('/settings/quickbooks/disconnect', form(CONNECTION_ID))))).toMatch(
