@@ -101,6 +101,20 @@ why there is no table for OAuth state, which would be a mutable table and a
 cleanup job for a ten-minute value. It is also why there is no HMAC, which
 would need a new secret for claims that are all re-checked anyway.
 
+*Amended 2026-09-23, after the first production click-through.* The callback
+was requested twice, a second apart. The first request connected and spent the
+cookie, so the second was refused, correctly, and its "could not be matched"
+notice replaced the success on the owner's screen. A refusal is still a refusal:
+it exchanges nothing. What changes is the notice for the one case that explains
+itself. If there is **no cookie at all**, and this workspace's connection to the
+company in the URL was stored within the state's ten minutes, the page says the
+company is connected. That is a read through RLS of what the settings page shows
+anyway, so a forged link learns nothing and changes nothing by it. A mismatched,
+expired or malformed cookie is refused exactly as before. Every refusal is now
+logged with its reason and the request's `Sec-Fetch-*` and `Sec-Purpose`
+headers (never a value from the URL), so the next double request will show
+where it came from.
+
 **The callback is the one GET in this app that writes.** It is reached by a
 cross-site top-level redirect from Intuit, so `Sec-Fetch-Site` is `cross-site`
 and `isCrossSite` would refuse it. It does not call `isCrossSite`, and says

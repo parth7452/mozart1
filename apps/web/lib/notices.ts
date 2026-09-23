@@ -495,6 +495,12 @@ export const NOTICES = {
       'QuickBooks is connected, and a first sync is on its way — short-paid invoices it finds ' +
       'will appear on the case list',
   },
+  qbo_already_connected: {
+    tone: 'good',
+    text:
+      'QuickBooks is connected. The sign-in came back here a second time after it had ' +
+      'finished, and the second time changed nothing.',
+  },
   qbo_connected_no_scheduler: {
     tone: 'good',
     text:

@@ -5,20 +5,24 @@ import {
   AccountConnectedElsewhereError,
   connectQboCompany,
   OwnerRequiredError,
+  PostgresLedgerSyncStore,
 } from '@recouple/store-postgres';
-import { requireSession } from '../../../../lib/session';
+import { requireSession, storeFor, type Session } from '../../../../lib/session';
 import { tenantStore } from '../../../../lib/store';
 import { env } from '../../../../lib/env';
 import { inngestClient, inngestKeysFromEnv } from '../../../../lib/inngest';
 import { ledgerSyncRequestedEvent } from '../../../../lib/inngest-ledger';
 import { type NoticeKey } from '../../../../lib/notices';
 import {
+  checkOAuthState,
+  headerForLog,
   mayConnectLedger,
   oauthStateCookie,
   qboConnectFromEnv,
   QBO_SETTINGS_PATH,
   QBO_STATE_COOKIE,
-  readOAuthState,
+  QBO_STATE_MAX_AGE_SECONDS,
+  type OAuthStateRefusal,
 } from '../../../../lib/qbo-connect';
 
 /** Exchange, verify, seal and three transactions: seconds, not minutes (ADR 0039). */
@@ -56,6 +60,17 @@ export const dynamic = 'force-dynamic';
  *
  * What is logged is a class name and ids. Never the code, a token or anything
  * Intuit said.
+ *
+ * **A second arrival of the same redirect** — production saw one on the first
+ * sandbox click-through, a second later, after the first had connected and
+ * spent the cookie — is refused like any other request without a state; it
+ * exchanges nothing. What it *says* is the difference: when there is no cookie
+ * at all and this workspace's connection to the company in the URL was stored
+ * within the state's own ten minutes, the page says the company is connected
+ * rather than that the sign-in failed. That is a read through RLS of something
+ * the page shows anyway, so a forged link can learn nothing from it and can
+ * change nothing. Every refusal is logged with its reason and the request's
+ * fetch metadata, so the next one says where it came from.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
@@ -72,8 +87,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   };
 
   // 1. The state, first: nothing below runs for a redirect this app did not start.
-  const claim = readOAuthState(cookieValue, url.searchParams.get('state'), new Date());
-  if (claim === undefined || claim.userId !== session.userId) return say('qbo_state_invalid');
+  const checked = checkOAuthState(cookieValue, url.searchParams.get('state'), new Date());
+  if (!checked.ok || checked.claim.userId !== session.userId) {
+    const reason: OAuthStateRefusal | 'other_member' = checked.ok ? 'other_member' : checked.reason;
+    logRefusal(reason, request, session);
+    if (reason === 'no_cookie' && (await justConnected(session, url.searchParams.get('realmId')))) {
+      return say('qbo_already_connected');
+    }
+    return say('qbo_state_invalid');
+  }
+  const claim = checked.claim;
 
   // 2. The owner said no at Intuit, or Intuit could not ask them.
   if (url.searchParams.get('error') !== null) return say('qbo_denied');
@@ -140,11 +163,70 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return say('qbo_connect_failed');
     }
 
+    console.log(
+      `[recouple] QuickBooks connect: ${connected.outcome} company ${realmId} as connection ` +
+        `${connected.connection.connectionId} for org ${identity.orgId}, member ${identity.userId}`,
+    );
+
     // 8. The first sync, on the existing event.
     return say(await queueFirstSync(connected.connection.connectionId, identity));
   } finally {
     await store.close();
   }
+}
+
+/**
+ * Whether this workspace's connection to `realmId` was stored within the last
+ * ten minutes — the answer to a redirect that arrives again after the first
+ * one connected. Read through RLS as the signed-in member, in the org the
+ * session has selected; any doubt (no such company, an older sign-in, another
+ * org selected, the read failing) is `false`, and the caller says what it said
+ * before. It writes nothing.
+ */
+async function justConnected(session: Session, realmId: string | null): Promise<boolean> {
+  if (realmId === null || !/^\d{1,20}$/.test(realmId)) return false;
+  const identity = { orgId: session.org.orgId, userId: session.userId };
+  const store = storeFor(session);
+  try {
+    const connections = await new PostgresLedgerSyncStore(
+      { connectionString: env.databaseUrl },
+      identity,
+      store,
+    ).ledgerConnectionOverview();
+    const stored = connections.find(
+      (connection) => connection.enabled && connection.providerAccountId === realmId,
+    )?.latestCredential?.storedAt;
+    if (stored === undefined) return false;
+    const age = Date.now() - Date.parse(stored);
+    return age >= 0 && age <= QBO_STATE_MAX_AGE_SECONDS * 1000;
+  } catch (cause) {
+    log('reading the connection for a repeated redirect failed', identity, realmId, cause);
+    return false;
+  } finally {
+    await store.close();
+  }
+}
+
+/**
+ * Why a callback was refused, and what kind of request it was — the browser's
+ * fetch metadata and whether it carried a code — so a refusal says whether it
+ * was a spent cookie, a second navigation, a prefetch or a forgery. Never a
+ * value from the URL.
+ */
+function logRefusal(
+  reason: OAuthStateRefusal | 'other_member',
+  request: NextRequest,
+  session: Session,
+): void {
+  const url = new URL(request.url);
+  const header = (name: string) => headerForLog(request.headers.get(name));
+  console.warn(
+    `[recouple] QuickBooks connect: state refused (${reason}) for member ${session.userId}; ` +
+      `sec-fetch-site=${header('sec-fetch-site')} sec-fetch-mode=${header('sec-fetch-mode')} ` +
+      `sec-fetch-dest=${header('sec-fetch-dest')} sec-fetch-user=${header('sec-fetch-user')} ` +
+      `sec-purpose=${header('sec-purpose')} code=${url.searchParams.has('code') ? 'yes' : 'no'} ` +
+      `state=${url.searchParams.has('state') ? 'yes' : 'no'}`,
+  );
 }
 
 /**

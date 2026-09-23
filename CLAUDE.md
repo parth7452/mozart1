@@ -865,7 +865,11 @@ revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release
 for a connection nobody will press Disconnect on, since one dead connection
 would otherwise hold its company from every other workspace; releasing
 automatically on `invalid_grant` is a follow-up, not built. The first sync is
-queued on connect. No code, token or anything Intuit said reaches a log line, a
+queued on connect. A redirect that arrives again after it connected — the first
+production click-through saw one, a second later — is refused like any request
+without a state, but says the company is connected when this workspace's
+connection to it was stored within the last ten minutes, and every refusal logs
+its reason and the request's fetch metadata. No code, token or anything Intuit said reaches a log line, a
 redirect, an event or an audit payload, and the route and store tests spy on all
 four. Production carries 0030 since 2026-09-23, applied to `mozart-preview`
 first and read back on both: the stored statements' md5 equals the file's, the

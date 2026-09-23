@@ -115,6 +115,7 @@ const EVERY_KEY: readonly string[] = [
   'reread_done',
   'reread_duplicate_case',
   'reread_failed',
+  'qbo_already_connected',
   'qbo_already_disconnected',
   'qbo_connect_failed',
   'qbo_connected',
