@@ -347,6 +347,15 @@ the new tables, views, functions and grants read back and verified — for 0027,
 `app_rw` and `app_ro` hold SELECT only, and `app.record_ledger_sync_anomalies`
 is security definer with EXECUTE held by the owner and `app_rw` alone).
 
+**A preview is not production** (2026-09-23). Vercel previews run against their
+own Supabase project, `mozart-preview` (`jvbnqofmoamyhntjwjdn`), with their own
+Auth and `DATABASE_URL`, and hold no Inngest, Anthropic, Reducto, QBO or KMS
+keys. Inngest re-registers the app on every deployment, so a preview holding
+Inngest keys takes production's jobs — which is how the 2026-09-23 daily ledger
+sync ran on an unmerged PR's preview and wrote into production. Never give
+Preview those keys or production's database; migrations go to `mozart-preview`
+first. `docs/supabase.md` has the variable-by-variable split.
+
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
 `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` gives a job, neither reads inside
