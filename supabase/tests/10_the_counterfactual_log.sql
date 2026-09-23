@@ -70,11 +70,11 @@ begin
   perform test.ok(coverage = 0,
     'coverage reads zero when everything seen was declined');
 
-  -- File one, and coverage moves.
-  reset role;
+  -- File one, and coverage moves. The approval is the approver's, written in
+  -- their own session (ADR 0041).
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');
-  set role app_rw;
   perform test.as_member(org, analyst);
   -- Complete when written (ADR 0023, migration 0018): a manual filing names the
   -- packet that went out, the reference that came back and the date it was

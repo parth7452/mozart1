@@ -207,12 +207,21 @@ begin
 
   -- Nor can a colleague who prepared nothing. Separation of duties is two
   -- rules, and this is the one prepared_by does not cover: only owner and
-  -- approver may approve at all.
+  -- approver may approve at all. The colleague tries in their own name, because
+  -- an approval naming anybody but its caller is refused before SoD sees it
+  -- (ADR 0041, suite 27).
+  perform test.as_member(org, second_analyst);
   perform test.expect_error(format(
     'insert into approvals (org_id, decision_id, approver_id, action_type, packet_hash)
        values (%L, %L, %L, ''submit'', %L)', org, human_dec, second_analyst, hash),
     'is not an approver in org',
     'and an analyst who prepared nothing is still not an approver');
+
+  -- Everything below is the approver, in their own session: the packet-hash
+  -- refusals are a foreign key and a check constraint, which run after every
+  -- before-insert trigger, so the row has to pass the caller check to reach
+  -- them.
+  perform test.as_member(org, approver);
 
   -- A packet_hash that names no packet is refused. Without the foreign key,
   -- 32 arbitrary bytes would read as an approval authorising a packet that was
@@ -255,6 +264,7 @@ begin
     'approvals_packet_hash_is_sha256',
     'and a packet hash that is not a sha256 is refused');
 
+  perform test.as_member(org, analyst);
   insert into submissions (org_id, deduction_id, decision_id, channel,
                            packet_hash, confirmation_number, submitted_at)
     values (org, ded, human_dec, 'manual_portal', hash, 'APDP-41007', now());
