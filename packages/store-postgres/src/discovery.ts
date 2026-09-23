@@ -148,9 +148,18 @@ export interface CoveragePeriodRow {
   readonly openedCents: number;
   readonly filedCount: number;
   readonly filedCents: number;
+  /**
+   * Every decline decided in the period, whether or not it named a case — so a
+   * case opened and later declined is here *and* in `openedCents` (ADR 0038 §2).
+   */
   readonly declinedCount: number;
   readonly declinedCents: number;
-  /** `openedCents + declinedCents`, as the view computed it. */
+  /**
+   * Each deduction once, as the view computed it: every case opened in the
+   * period plus every candidate declined without becoming a case. **Not**
+   * `openedCents + declinedCents`, which counts a declined case twice
+   * (migration 0029, ADR 0038).
+   */
   readonly discoveredCents: number;
   /** Null where nothing was discovered in that period from that source. */
   readonly coverageOfDiscovered: number | undefined;

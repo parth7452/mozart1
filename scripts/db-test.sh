@@ -22,6 +22,15 @@ fi
 
 psql_run() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q --no-psqlrc -f "$1"; }
 
+# Supabase's request roles and the default privileges it grants them, before
+# any migration runs. Production has both and `postgres:16` has neither, so
+# without this the grant-bearing half of migration 0006 has never run here and
+# migration 0028's revokes would pass by having nothing to revoke (ADR 0037).
+# Once, not per pass: it is the platform the migrations are applied to, not a
+# migration, and it is idempotent anyway.
+echo "== supabase shape (request roles and their default privileges)"
+psql_run "$ROOT/supabase/tests/_supabase_shape.sql"
+
 # Every migration is applied twice, in order, and the second pass has to be a
 # no-op. Re-running is not a hypothetical: the suites are gated on a database
 # that already carries the schema, Supabase re-applies against a branch, and

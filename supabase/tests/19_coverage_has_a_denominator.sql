@@ -91,6 +91,8 @@ begin
 
   -- The ERP slice. Opened plus declined is the denominator; filed is the
   -- numerator; and the ratio is the view''s, not arithmetic done afterwards.
+  -- (Here the only decline never became a case. A case opened and then
+  -- declined is counted once, in opened — migration 0029, ADR 0038, suite 25.)
   select opened_cents::text into cents_text from coverage_by_period_by_source
    where org_id = org and discovered_from = 'erp_sync';
   perform test.ok(cents_text = '500000', 'the ledger case''s dollars are attributed to erp_sync');

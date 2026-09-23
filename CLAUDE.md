@@ -707,6 +707,47 @@ fourth — an expectation moved because it was wrong, not because it was in the
 way. Under ADR 0035's production window it stays three, since payments 72 and 74
 are dated before it.
 
+**Only the app roles hold grants, and invariant 7's guard is pinned again**
+(ADR 0037, migration 0028). Migration 0022 replaced
+`app.guard_threshold_direction()` with `create or replace` and no `set` clause,
+which drops the search-path pin 0008 put on it; 0028 pins it again with
+`alter function`, and suite 24 now asks the catalogue that *every* `app.*`
+function is pinned and that the guard still refuses a loosening when the caller
+shadows `array_length`. Separately, Supabase's default privileges grant its
+request roles (`anon`, `authenticated`, `service_role`) ALL on every new object
+in `public` — 0006 revoked `anon`'s once, for the tables that existed then —
+and 0006 itself made `authenticated` a member of `app_rw`, so a token minted
+with the JWT secret could `set role app_rw` with any `org_id`. Nothing uses the
+Data API (the evidence from production is in the ADR: supabase-js is Auth only,
+every database path is `recouple_app` with direct memberships, 24 hours of edge
+logs show no `/rest/v1` reads), so 0028 revokes every privilege the three hold
+in `public` and `app`, their default privileges, and the membership, then
+re-reads the catalogue and aborts rather than warns if anything survived or if
+`recouple_app` would lose `set role app_rw`. `service_role` is included (the
+founder's call): the service-role key reaches nothing in `public`. CI finally
+sees the platform — `supabase/tests/_supabase_shape.sql` creates the four
+Supabase roles and their default privileges before `db:test` applies the
+migrations — and suite 24 derives invariant 2's grant half for every role from
+each `block_mutations` trigger's own events. Turning off the Data API in the
+dashboard is the founder's switch, after 0028 is applied, the ledger sync has
+run and both members have signed in; docs/supabase.md has the pre- and
+post-apply queries. **Production does not carry 0028 yet.**
+
+**Coverage counts each deduction once** (ADR 0038, migration 0029).
+`coverage_by_period_by_source` added `opened + declined`, and `declineCase`
+writes a declined row naming the case with its full amount while the case stays
+in `deductions` — so the first case a reviewer declined would have been in its
+channel's denominator twice. Production has no declines, so nothing published
+moved. `discovered_cents` is now every case opened, in the month it was found,
+plus the declines that never became a case (`deduction_id is null`); a later
+decline moves no month's denominator. `declined_count` and `declined_cents`
+still report every decline, because `coverage_by_period_totals.coverage_of_seen`
+is 0014's `filed ÷ (filed + declined)` and narrowing them would make it rise
+whenever a case is declined — so `opened + declined` is no longer `discovered`,
+and the view's column comments say so. Same columns, same order, still
+`security_invoker`; suite 25 and `coverage-declined-case.test.ts` decline a real
+case and find its dollars once. **Production does not carry 0029 yet.**
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

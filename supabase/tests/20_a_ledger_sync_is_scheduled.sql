@@ -131,10 +131,12 @@ begin
   -- orgs to fan out to before it can adopt any org's claims (ADR 0031 §5). It
   -- returns four id-shaped columns — never provider_account_id.
   --
-  -- And it is refused to a caller that *has* a tenant. `authenticated` is a
-  -- member of `app_rw`, so anything granted to app_rw is reachable from a
-  -- signed-in request, and this is the one function here whose answer is not
-  -- bounded by the caller's claims. A tenant reads the table through RLS.
+  -- And it is refused to a caller that *has* a tenant. Migration 0006 made
+  -- `authenticated` a member of `app_rw`, which put this within reach of a
+  -- signed-in request; 0028 revoked that (ADR 0037, suite 24), and the refusal
+  -- stays as defence in depth, because this is the one function here whose
+  -- answer is not bounded by the caller's claims. A tenant reads the table
+  -- through RLS.
   perform test.expect_error(
     'select count(*) from app.ledger_connections_to_sync()',
     'untenanted', 'the fan-out query is refused to a caller acting for a tenant');
