@@ -1,8 +1,9 @@
 # Demo: one freight dispute, end to end
 
-Twelve minutes. It takes a $600 deduction from a PDF nobody has read to an
-argument a human can check line by line — and stops exactly where a human has to
-take over, which is the point rather than a limitation.
+Thirteen minutes. It takes a $600 deduction from a PDF nobody has read to an
+argument a human can check line by line, and on to a dispute packet — and stops
+exactly where a second person has to take over, which is the point rather than a
+limitation.
 
 The case is **LOG-001**, in `packages/fixtures/logistics/`. Five documents:
 
@@ -91,21 +92,49 @@ Three things worth pointing at while it is on screen:
    and the appointment said Eastern, the system says it could not check rather
    than reporting a confident four-hour-late arrival.
 
-## 4 · Where it stops (2 min)
+## 4 · Where it stops (3 min)
 
-Scroll to the bottom. There is no approve button, and that is deliberate:
+Scroll down past the findings. From here the page is one card per step, and a
+card appears only where the case's state and your role allow it.
 
-> Nothing has been sent anywhere. Approving a case is a separate, recorded act
-> by a second person, and the database refuses a submission that has no approval
-> row.
+**Point at the two cards side by side first** — one of them is about to go:
 
-Two actions a reviewer *does* have: attach more evidence, or **record a
-decline** — which writes what the case was worth and what was missing, rather
-than deleting it. Coverage is a ratio of dollars, and discarding the ones you
-gave up on flatters it every time.
+- **Dispute this deduction** — a reason from the taxonomy, and one line for
+  whoever approves it.
+- **Not worth fighting?** — record a decline, which writes what the case was
+  worth and what was missing rather than deleting it. Coverage is a ratio of
+  dollars, and discarding the ones you gave up on flatters it every time.
+
+A case is fought or declined, never both, so the decline card leaves as soon as
+you decide.
+
+**Decide.** Pick *A late-delivery fine we can disprove* and write one line:
+"Checked in 18 min before the revised appointment; the customer waived the
+charge in writing." It is recorded with your name on it. Nothing is sent.
+
+**Assemble the packet.** One click. The notice, the four documents, and a cover
+sheet our code writes from the fields already read — no model writes it, so the
+same case always assembles to the same contents. The card shows the packet's
+hash, and every file links to the stored bytes.
+
+**Stop at Approve for submission.** The card is there; the button is not:
+
+> You prepared this decision, so approving it is not yours to do.
+
+That is the page being polite. The database says the same thing harder: an
+approval from whoever prepared the decision is refused, only an owner or an
+approver may approve at all, and the hash an approval names is a foreign key to
+the packet that was assembled — so nobody can approve a packet nobody built.
 
 > **Say this:** the approval gate is a database trigger, not a code path. It
-> cannot be worked around by an app bug or by an agent having a bad day.
+> cannot be worked around by an app bug or by an agent having a bad day. A
+> second person approves this, or nothing is filed.
+
+If they ask what comes next, it is two more cards, both a person's: **record
+the filing** — someone files on the retailer's portal and pastes the
+confirmation number back, because the app files nothing — and **record the
+outcome**, won, partial or lost, with the amount stored as whole cents. That is
+the number the contingency fee will be read from.
 
 ## 5 · The honest part (1 min)
 
@@ -114,9 +143,17 @@ Worth saying before you are asked:
 - **These documents are synthetic.** So is every fixture. The numbers in
   `packages/evals/baseline.json` measure documents we generated, and they will
   move when real customer scans arrive.
-- **The packet is not built.** Today a reviewer gets an argument on screen; the
-  assembled, sendable dispute packet is the next piece.
+- **One case is not a recovery rate.** One production case has been through all
+  five steps — decided, assembled, approved by a second member, filed, and
+  closed `partial` on 2026-09-21. That proves the path, not the number, and no
+  fee has been invoiced; billing is Phase 4.
+- **The decision is a person's, for now.** The model reads the documents; a
+  reviewer decides whether to fight. A model's call lands later, in the same
+  slot, behind the same gate.
 - **Submission is manual and stays that way** until a human has approved it.
+  Which portal, and what that retailer wants attached, is not in the app yet —
+  the filing card tells the reviewer to follow the routing guide they already
+  use.
 
 ---
 
