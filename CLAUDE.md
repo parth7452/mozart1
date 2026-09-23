@@ -360,11 +360,13 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0030 as
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0032 as
 of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
 morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
-project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+project; 0032 at 20:26 and then 0031 at 20:31, each after the preview
+project — 0031 merged after 0032, and 0032 does not touch `approvals`, so the
+order does not matter). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -931,8 +933,13 @@ other column SoD reads: `approver_id` must be `app.current_user_id()`, with no
 exception for the table owner or a session with no claims. It fires ahead of
 SoD by name, so a forged approval is refused as forged. The gate and SoD are
 untouched. Nine suites had written approvals as the analyst or as the owner;
-each now acts as the approver it names, and suite 27 is the hole. Not applied
-to either Supabase project yet.
+each now acts as the approver it names, and suite 27 is the hole. Applied to
+`mozart-preview` and then production on 2026-09-23, and read back on each: the
+stored statement's md5 equals the file's, the trigger sits ahead of
+`enforce_separation_of_duties` with its `search_path` pinned, `approvals`
+grants are unchanged (`app_rw` SELECT and INSERT, `app_ro` SELECT), and an
+approval naming someone other than the caller is refused with SQLSTATE 23001
+even for the table owner with no session.
 
 **A confirmed duplicate is merged** (ADR 0042, migration 0032). "Same
 deduction" now merges the pair in the same click: one append-only
