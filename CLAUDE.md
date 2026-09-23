@@ -904,6 +904,21 @@ page, `read_only` included; it has no action on it. The QuickBooks and crypto
 error classes now carry literal names, since a run's `error_class` is what the
 page's guidance keys on and a minified class name would read as nothing.
 
+**A remittance-opened case reconciles against its line** (ADR 0040, no
+migration). Every case ADR 0028 opened showed no findings, because
+`reconcileCase` looked for a `deduction_notice` and returned nothing without
+one. A case whose `discovered_via` is `remittance_line` now reconciles against
+the line whose rebuilt claim id is its own (`reconcileRemittanceLine`): the
+line's `gross − net` against its printed deduction, the invoice it short-paid,
+and then the same delivery, appointment and waiver checks a notice gets.
+`charge_waived_in_writing` is its own pass rather than a branch of the
+supersession loop, because both recorded readings of LOG-001's `04` report the
+waiver as a commitment that moves nothing, and the sentence that wins the case
+was being skipped. The upload route sends the reviewer to the case a remittance
+opened when it opened exactly one, and to the list with a count when it opened
+several. `packages/pipeline/test/log-001.test.ts` walks the demo from the
+recorded cassettes and reaches all three findings.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

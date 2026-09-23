@@ -45,6 +45,7 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
   outcome_amount_refused: ['a partial recovery is more than nothing and less than the deduction'],
   outcome_wrong_state: ['classified'],
   upload_read_as: ['remittance advice'],
+  upload_remittance_cases: ['3'],
   upload_duplicate_case: ['APDP-99812'],
 };
 
@@ -171,6 +172,7 @@ const EVERY_KEY: readonly string[] = [
   'upload_rejected_malformed_pdf',
   'upload_rejected_too_large',
   'upload_rejected_type_not_allowed',
+  'upload_remittance_cases',
   'upload_role',
   'upload_too_large',
 ];

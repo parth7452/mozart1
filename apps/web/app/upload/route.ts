@@ -157,6 +157,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // A remittance names no one case — it opens one per short-paid line (ADR
+    // 0028), so `result.case` is always absent for it. Exactly one case, opened
+    // or merged into, is somewhere to send the reviewer; several is the list,
+    // told how many; none falls through to "read as" like any other document
+    // (ADR 0040).
+    if (result.remittance !== undefined) {
+      const cases = [
+        ...new Set([
+          ...result.remittance.opened.map((c) => c.deductionId),
+          ...result.remittance.mergedInto,
+        ]),
+      ];
+      if (cases.length === 1) {
+        return NextResponse.redirect(new URL(`/cases/${cases[0]}`, request.url), {
+          status: 303,
+        });
+      }
+      if (cases.length > 1) {
+        back.pathname = '/';
+        return say('upload_remittance_cases', String(cases.length));
+      }
+    }
+
     // No case: the gate stopped it, this document had already been read, or it
     // is evidence with nowhere to go yet. All three are answers rather than
     // errors, and all three are said out loud. Which one it was is read off the
