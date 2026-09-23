@@ -280,14 +280,17 @@ governs.
 `apps/web` is the product's shell: Next.js 16 App Router, Supabase Auth by magic
 link, a case list and a review route, reading through the same RLS policies as
 everything else (ADR 0015). Signing in resolves a tenant rather than creating
-one — `app.link_auth_user()` and `app.my_orgs()`, both security definer and both
-taking the identity from the claims rather than an argument (migration 0012, ADR
-0012). Document bytes are durable and served through a route under the same
-policies, not a signed URL (migration 0013, ADR 0014). The case page carries
-Phase 3's five actions — decide, assemble, approve, record the filing, record
-the outcome — each shown only where the state machine and the member's role
-allow it, and the approve card never to the preparer (ADR 0020). One production
-case has been taken through all five (2026-09-21, ending `partial`).
+one — `app.link_auth_user()` and `app.my_orgs()`, both security definer
+(migration 0012, ADR 0012). `my_orgs()` takes the subject from the claims rather
+than an argument; `link_auth_user()` takes the subject and email as arguments,
+which `resolveSession` passes from the session the server verified — 0012's own
+header says both read the claims, and it is wrong about that one. Document bytes
+are durable and served through a route under the same policies, not a signed URL
+(migration 0013, ADR 0014). The case page carries Phase 3's five actions —
+decide, assemble, approve, record the filing, record the outcome — each shown
+only where the state machine and the member's role allow it, and the approve
+card never to the preparer (ADR 0020). One production case has been taken
+through all five (2026-09-21, ending `partial`).
 
 Uploading from the app runs the real pipeline. `pipelineDepsFor` fails closed,
 and delegates the whole choice to `scannerFromEnv` so there is one answer to
@@ -768,7 +771,7 @@ migrations — and suite 24 derives invariant 2's grant half for every role from
 each `block_mutations` trigger's own events. Turning off the Data API in the
 dashboard is the founder's switch, after 0028 is applied, the ledger sync has
 run and both members have signed in; docs/supabase.md has the pre- and
-post-apply queries. **Production does not carry 0028 yet.**
+post-apply queries. Production carries 0028 since 2026-09-23.
 
 **Coverage counts each deduction once** (ADR 0038, migration 0029).
 `coverage_by_period_by_source` added `opened + declined`, and `declineCase`
@@ -783,7 +786,7 @@ is 0014's `filed ÷ (filed + declined)` and narrowing them would make it rise
 whenever a case is declined — so `opened + declined` is no longer `discovered`,
 and the view's column comments say so. Same columns, same order, still
 `security_invoker`; suite 25 and `coverage-declined-case.test.ts` decline a real
-case and find its dollars once. **Production does not carry 0029 yet.**
+case and find its dollars once. Production carries 0029 since 2026-09-23.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
