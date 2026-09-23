@@ -2,7 +2,7 @@
   "key": "crosswind-dense-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.99,
+  "classifierConfidence": 0.98,
   "document": {
     "payer_name": {
       "value": "Crosswind Grocery Distribution",
@@ -1383,5 +1383,10 @@
     "outputTokens": 10871,
     "costMicros": 123724,
     "latencyMs": 64899
+  },
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
+    "classifiedAt": "2026-09-23T15:26:35.837Z"
   }
 }

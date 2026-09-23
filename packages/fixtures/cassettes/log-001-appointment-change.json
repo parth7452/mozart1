@@ -261,5 +261,10 @@
     "outputTokens": 2725,
     "costMicros": 37420,
     "latencyMs": 18392
+  },
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
+    "classifiedAt": "2026-09-23T15:26:46.221Z"
   }
 }
