@@ -555,3 +555,75 @@ describe('uploading where the read runs as a job', () => {
     expect(said(response)).toMatch(/being read/);
   });
 });
+
+/**
+ * Where a remittance sends the reviewer (ADR 0040).
+ *
+ * A remittance never sets `result.case` — one advice opens a case per
+ * short-paid line (ADR 0028) — so before this the route told a reviewer whose
+ * upload had just opened LOG-001's case "read as a remittance advice; attach it
+ * to a case", and the case they wanted was one click away on a list they had
+ * not been sent to. The pipeline half is `packages/pipeline/test/log-001.test.ts`;
+ * this is only where the route goes with what the read returned.
+ */
+describe('uploading a remittance', () => {
+  const caseA = '44444444-4444-4444-4444-444444444444';
+  const caseB = '55555555-5555-5555-5555-555555555555';
+
+  function readingAs(remittance: { opened: string[]; mergedInto: string[] }): UploadRunner {
+    return {
+      name: 'inline',
+      async run() {
+        return {
+          kind: 'read',
+          result: {
+            ingest: { verdict: { status: 'clean', scanner: 'stub' } },
+            classification: { docType: 'remittance_advice', confidence: 0.99 },
+            remittance: {
+              opened: remittance.opened.map((deductionId) => ({ deductionId })),
+              mergedInto: remittance.mergedInto,
+              lines: [],
+            },
+          },
+        } as never;
+      },
+      async reread() {
+        throw new Error('not used');
+      },
+    };
+  }
+
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+  });
+
+  it('goes to the case when the remittance opened exactly one', async () => {
+    harness.runner = readingAs({ opened: [caseA], mergedInto: [] });
+    const response = await POST(uploadRequest(notice.bytes, 'remittance.pdf'));
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(`/cases/${caseA}`);
+  });
+
+  it('goes to the case a line merged into, counted once however many lines named it', async () => {
+    harness.runner = readingAs({ opened: [], mergedInto: [caseA, caseA] });
+    const response = await POST(uploadRequest(notice.bytes, 'remittance.pdf'));
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(`/cases/${caseA}`);
+  });
+
+  it('goes to the list, told how many, when it opened several', async () => {
+    harness.runner = readingAs({ opened: [caseA], mergedInto: [caseB] });
+    const response = await POST(uploadRequest(notice.bytes, 'remittance.pdf'));
+    const location = new URL(response.headers.get('location') as string);
+    expect(location.pathname).toBe('/');
+    expect(said(response)).toMatch(/2 short-paid lines opened or joined cases/);
+  });
+
+  it('says what it was read as when no line opened anything', async () => {
+    harness.runner = readingAs({ opened: [], mergedInto: [] });
+    const response = await POST(uploadRequest(notice.bytes, 'remittance.pdf'));
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/read as a remittance advice/);
+  });
+});

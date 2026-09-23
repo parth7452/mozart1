@@ -21,6 +21,7 @@ import {
   locateQuote,
   OcrError,
   PurchaseOrderSchema,
+  RemittanceAdviceSchema,
   restoreDocument,
   ShipmentDocumentSchema,
   type DeductionNotice,
@@ -30,8 +31,10 @@ import {
   type ModelCallRecord,
   type OcrBlock,
   reconcileNotice,
+  reconcileRemittanceLine,
   type Finding,
   type Reconciliation,
+  type RemittanceAdvice,
 } from '@recouple/extraction';
 import {
   acceptEmailBody,
@@ -1741,8 +1744,10 @@ async function reportLinesProcessed(
 export { RejectedUploadError };
 
 /**
- * Reconciles a case from whatever typed documents it already has. Returns
- * undefined when there is no notice yet — there is nothing to reconcile against.
+ * Reconciles a case from whatever typed documents it already has, against the
+ * claim that opened it: a notice, or — for a case a remittance line opened —
+ * that line (ADR 0040). Returns undefined when there is neither — there is
+ * nothing to reconcile against.
  *
  * Every document is parsed against its own schema before it is used, rather
  * than cast. The store rebuilds and validates what it returns
@@ -1758,46 +1763,76 @@ export async function reconcileCase(
 ): Promise<Reconciliation | undefined> {
   const documents = await deps.store.documentsForCase(deductionId);
   const byType = new Map<DocType, RestoredExtraction>();
+  // Every remittance, not only the first. The line that opened this case is on
+  // one of them, and the same advice arriving again — a scan of the PDF — is
+  // filed here as evidence by `mergeIntoCase`, after the one that opened it.
+  const remittances: RestoredExtraction[] = [];
 
   for (const document of documents) {
     const extraction = await deps.store.latestExtraction(document.documentId);
     if (extraction === undefined) continue;
+    if (extraction.docType === 'remittance_advice') remittances.push(extraction);
     if (!byType.has(extraction.docType)) byType.set(extraction.docType, extraction);
   }
 
-  const stored = byType.get('deduction_notice');
-  if (stored === undefined) return undefined;
-
   const unusable: Finding[] = [];
-  const notice = DeductionNoticeSchema.safeParse(stored.document);
-  let noticeData: DeductionNotice;
+  let claim:
+    | { readonly notice: DeductionNotice }
+    | { readonly line: { readonly advice: RemittanceAdvice; readonly index: number } | undefined };
 
-  if (notice.success) {
-    noticeData = notice.data;
-  } else {
-    const unreadable = unreadableFields(notice.error, stored.document);
-    if (unreadable === undefined) {
-      // A notice whose shape is wrong in some way that is not a missing value —
-      // a number where a string belongs, a group that is not an array. Nothing
-      // is reconciled against that, and nothing pretends it was. The fields are
-      // still stored and still shown; it is the arithmetic that is refused.
-      return {
-        lines: [],
-        claimedTotalCents: null,
-        lineSumCents: null,
-        findings: [unusableDocument('deduction_notice', stored)],
-        internallyConsistent: false,
-      };
+  const stored = byType.get('deduction_notice');
+  if (stored !== undefined) {
+    const notice = DeductionNoticeSchema.safeParse(stored.document);
+    if (notice.success) {
+      claim = { notice: notice.data };
+    } else {
+      const unreadable = unreadableFields(notice.error, stored.document);
+      if (unreadable === undefined) {
+        // A notice whose shape is wrong in some way that is not a missing value —
+        // a number where a string belongs, a group that is not an array. Nothing
+        // is reconciled against that, and nothing pretends it was. The fields are
+        // still stored and still shown; it is the arithmetic that is refused.
+        return refusedClaim(unusableDocument('deduction_notice', stored, 'blocking'));
+      }
+      // Every failure is a required field that came back with no value, which is
+      // what a field stored without provenance looks like from here
+      // (`fieldsLostOnStorage` says the same thing at the write). The rest of the
+      // notice is intact and is worth more than the refusal: reconciliation runs,
+      // and the fields that could not be read are named. `reconcileNotice` reads
+      // no field object directly, so an absent one is a missing finding rather
+      // than a throw.
+      claim = { notice: stored.document as DeductionNotice };
+      unusable.push(unreadableClaim('deduction_notice', unreadable, unreadable.filter(isMoneyField)));
     }
-    // Every failure is a required field that came back with no value, which is
-    // what a field stored without provenance looks like from here
-    // (`fieldsLostOnStorage` says the same thing at the write). The rest of the
-    // notice is intact and is worth more than the refusal: reconciliation runs,
-    // and the fields that could not be read are named. `reconcileNotice` reads
-    // no field object directly, so an absent one is a missing finding rather
-    // than a throw.
-    noticeData = stored.document as DeductionNotice;
-    unusable.push(unreadableNotice(unreadable));
+  } else {
+    const opened = await remittanceLineOfCase(deductionId, remittances, deps);
+    if (opened === undefined) return undefined;
+    if (opened.found === undefined) {
+      claim = { line: undefined };
+    } else {
+      const { stored: advice, index } = opened.found;
+      const parsed = RemittanceAdviceSchema.safeParse(advice.document);
+      if (parsed.success) {
+        claim = { line: { advice: parsed.data, index } };
+      } else {
+        const unreadable = unreadableFields(parsed.error, advice.document);
+        if (unreadable === undefined) {
+          return refusedClaim(unusableDocument('remittance_advice', advice, 'blocking'));
+        }
+        // The notice's rule, narrowed to the line: the rest of an advice is
+        // other invoices, and a net amount nobody could quote on one of them is
+        // no reason to distrust the arithmetic on this one.
+        const onThisLine = `lines[${index}].`;
+        claim = { line: { advice: advice.document as RemittanceAdvice, index } };
+        unusable.push(
+          unreadableClaim(
+            'remittance_advice',
+            unreadable,
+            unreadable.filter((field) => field.startsWith(onThisLine) && isMoneyField(field)),
+          ),
+        );
+      }
+    }
   }
 
   const supporting = <T>(
@@ -1808,7 +1843,7 @@ export async function reconcileCase(
     if (found === undefined) return undefined;
     const parsed = schema.safeParse(found.document);
     if (parsed.success) return parsed.data;
-    unusable.push(unusableDocument(docType, found));
+    unusable.push(unusableDocument(docType, found, 'warning'));
     return undefined;
   };
 
@@ -1826,13 +1861,16 @@ export async function reconcileCase(
   // most of what a freight case turns on.
   const correspondence = supporting('correspondence', CorrespondenceSchema);
 
-  const reconciliation = reconcileNotice({
-    notice: noticeData,
+  const evidence = {
     ...(invoice !== undefined ? { invoice } : {}),
-    ...(po !== undefined ? { po } : {}),
     ...(shipment !== undefined ? { shipment } : {}),
     ...(correspondence !== undefined ? { correspondence: [correspondence] } : {}),
-  });
+  };
+  const reconciliation =
+    'notice' in claim
+      ? reconcileNotice({ notice: claim.notice, ...evidence, ...(po !== undefined ? { po } : {}) })
+      : // A remittance names no PO, so there is nothing to match one against.
+        reconcileRemittanceLine({ line: claim.line, ...evidence });
 
   if (unusable.length === 0) return reconciliation;
   const findings = [...unusable, ...reconciliation.findings];
@@ -1902,24 +1940,73 @@ function isMoneyField(fieldPath: string): boolean {
 }
 
 /**
- * The notice was reconciled, and these fields were not in it.
+ * The claim was reconciled, and these fields were not in it.
  *
- * Blocking when one of them carries money, a warning otherwise — never silence,
- * and never the empty reconciliation that a refusal used to produce.
+ * Blocking when one of the fields the claim's arithmetic runs over (`money`) is
+ * among them, a warning otherwise — never silence, and never the empty
+ * reconciliation that a refusal used to produce.
  */
-function unreadableNotice(fields: readonly string[]): Finding {
-  const money = fields.filter(isMoneyField);
+function unreadableClaim(
+  docType: 'deduction_notice' | 'remittance_advice',
+  fields: readonly string[],
+  money: readonly string[],
+): Finding {
   return {
     code: 'stored_document_not_typed',
     severity: money.length > 0 ? 'blocking' : 'warning',
     message:
-      `the stored deduction_notice came back without ${fields.join(', ')} — ` +
+      `the stored ${docType} came back without ${fields.join(', ')} — ` +
       'stored with no page or no quote, so there is no row to rebuild it from. ' +
       (money.length > 0
         ? `${money.join(', ')} carries money, so the reconciliation below cannot be trusted ` +
           'to add up'
-        : 'the rest of the notice reconciled normally'),
+        : `the rest of the ${docType === 'deduction_notice' ? 'notice' : 'line'} reconciled normally`),
   };
+}
+
+/** The claim document itself could not be used: nothing is reconciled against it. */
+function refusedClaim(finding: Finding): Reconciliation {
+  return {
+    lines: [],
+    claimedTotalCents: null,
+    lineSumCents: null,
+    findings: [finding],
+    internallyConsistent: false,
+  };
+}
+
+/**
+ * The remittance line a case was opened from (ADR 0040), found the way it was
+ * made: the line whose `lineClaimId` is the case's claim id.
+ *
+ * `undefined` when the case was not opened from a remittance line — a case with
+ * no notice and no such line has nothing to reconcile against, as before.
+ * `found: undefined` when it was, and no line on any of its remittances builds
+ * that claim id any more: said as a finding, never guessed at.
+ */
+async function remittanceLineOfCase(
+  deductionId: string,
+  remittances: readonly RestoredExtraction[],
+  deps: PipelineDeps,
+): Promise<
+  | { readonly found: { readonly stored: RestoredExtraction; readonly index: number } | undefined }
+  | undefined
+> {
+  if (remittances.length === 0) return undefined;
+  const record = await deps.store.getCase(deductionId);
+  if (record === undefined || record.discoveredVia !== 'remittance_line') return undefined;
+
+  for (const stored of remittances) {
+    const rows = fieldValue(stored.document, ['lines']);
+    if (!Array.isArray(rows)) continue;
+    const reference = printedIdentifier(stored.document, 'payment_reference');
+    const index = rows.findIndex((line) => {
+      const invoice = printedIdentifier(line, 'invoice_number');
+      return invoice !== undefined && lineClaimId(reference, invoice) === record.claimId;
+    });
+    if (index !== -1) return { found: { stored, index } };
+  }
+  return { found: undefined };
 }
 
 /**
@@ -1933,14 +2020,19 @@ function unreadableNotice(fields: readonly string[]): Finding {
  * the reviewer UI cannot find a field for, and naming the document is the
  * message's job — which it does.
  */
-function unusableDocument(docType: DocType, stored: RestoredExtraction): Finding {
+function unusableDocument(
+  docType: DocType,
+  stored: RestoredExtraction,
+  // Blocking for the document the claim is on, a warning for evidence.
+  severity: 'blocking' | 'warning',
+): Finding {
   const why = stored.issues
     .slice(0, 3)
     .map((issue) => `${issue.path}: ${issue.problem}`)
     .join('; ');
   return {
     code: 'stored_document_not_typed',
-    severity: docType === 'deduction_notice' ? 'blocking' : 'warning',
+    severity,
     message:
       `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
       `reconciliation${why === '' ? '' : ` (${why})`}`,

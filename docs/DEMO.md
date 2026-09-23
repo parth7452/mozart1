@@ -40,11 +40,24 @@ What happens, and why each step is worth naming out loud:
   file from a stranger.
 - **It is classified**, then **extracted** into typed fields, each carrying the
   page and the verbatim quote it came from.
-- **A case opens**, because it is a notice.
+- **A case opens**, though this is not a notice. It is a remittance: Brookfield
+  paid $4,200.00 against a $4,800.00 invoice. A short-paid remittance line is a
+  discovered deduction (ADR 0028), so the one line opens one case, for the
+  $600.00 printed beside `LATE-DEL`. Its claim id is built from the advice's own
+  identifiers — `ACH-91844:INV-AFS-260814` — because a remittance names no claim;
+  the `CB-BSC-441` in its narrative is prose, not a field.
 
-You land on the review page. Every field shows its value, a `quote found`
+You land on that case's review page. (A remittance that short-paid several
+lines would send you to the case list instead, told how many cases it opened —
+one advice names no single case.) Every field shows its value, a `quote found`
 badge, and the line it was read from. **Click one.** The point of this screen is
 that a reviewer checks the reading rather than trusting it.
+
+Two things the page does *not* have yet, and it is better to say so than be
+asked: the retailer is shown as printed (`Brookfield Supply Co.`) rather than
+matched to a debtor unless someone has added the alias, and there is no dispute
+deadline on the case — the remittance prints one, but a case opened from a
+remittance line does not keep it yet.
 
 > **Say this:** the model never does arithmetic. It reports `"$600.00"` as
 > printed, and our code turns that into cents. A misread shows up as an
@@ -63,19 +76,39 @@ establishes, and whether it waives a charge.
 
 ## 3 · The argument assembles itself (3 min)
 
-Reload the case. Under **What the documents say together**:
+Reload the case. Under **What the documents say together**, four findings, all
+marked *supports dispute*:
 
 ```
-arrived_before_appointment   gate check-in was 18 minutes before the confirmed
-                             appointment (1:42 PM against 2:00 PM Eastern)
+appointment_superseded       Brookfield Supply Co. confirmed in writing
+                             (MSG-BSC-0811-338) that August 13, 2026 at 2:00 PM
+                             Eastern delivery replaced August 12; the delivery
+                             record cites AP-BSC-771 revision 2: "Please deliver
+                             on August 13, 2026 at 2:00 PM Eastern instead."
 
 appointment_superseded       Brookfield Supply Co. confirmed in writing
                              (MSG-BSC-0811-338) that AP-BSC-771 revision 2
-                             replaced revision 1
+                             replaced revision 1; the delivery record cites
+                             AP-BSC-771 revision 2: "Appointment AP-BSC-771
+                             revision 2 replaces revision 1."
 
-charge_waived_in_writing     "No carrier late-delivery charge applies for moving
-                             delivery to this revised appointment."
+arrived_before_appointment   gate check-in was 18 minutes before the confirmed
+                             appointment (August 13, 2026, 1:42 PM Eastern
+                             against August 13, 2026, 2:00 PM Eastern)
+
+charge_waived_in_writing     Brookfield Supply Co. stated in writing that a
+                             charge would not apply: "No carrier late-delivery
+                             charge applies for moving delivery to this revised
+                             appointment."
 ```
+
+`appointment_superseded` appears twice because the recorded reading of `04`
+reports two commitments that each move the appointment — the request for the
+new slot and the revision it was given. That is the reading, not a bug; a scan
+of the same page reads it as one. Above the findings, the line itself: $4,800.00
+gross less $4,200.00 paid is the $600.00 the remittance says it withheld, and
+the arithmetic *matches*. The case is reconciled against the remittance line
+that opened it (ADR 0040), not against a notice it never had.
 
 > **Say this:** none of that came from a model. It is deterministic code over
 > extracted fields. The model read the page; the argument is arithmetic and
@@ -172,7 +205,7 @@ Worth saying before you are asked:
 | `not scanned clean: error (clamav-http) — …401` | The token on Vercel and the one on the scan service disagree |
 | `carries active content (/AA)` | The upload gate refusing a PDF with embedded JavaScript. Working as intended — use the fixture documents |
 | An error naming Anthropic | Scan passed, reader failed: `ANTHROPIC_API_KEY` missing |
-| Case opens, no findings | Only the notice is attached. The argument needs `04` and `05` |
+| Case opens, no findings | Only the remittance is attached. The argument needs `04` and `05` |
 | Settings → QuickBooks says it is not set up | The Intuit app or the KMS key is missing on this deployment — previews never have them. See [`docs/qbo-credentials.md`](qbo-credentials.md) |
 | "…could not be matched to this session" after Intuit | Connect was pressed more than ten minutes earlier, in another browser, or on an address other than `app.mozart.financial` |
 

@@ -15,6 +15,7 @@ import {
   formatCents,
   parseMoneyToCents,
   shortageCents,
+  subCents,
   sumCents,
   type Cents,
 } from '@recouple/core-domain';
@@ -24,6 +25,7 @@ import type {
   DeductionNotice,
   Invoice,
   PurchaseOrder,
+  RemittanceAdvice,
   ShipmentDocument,
 } from './schemas';
 import { minutesLate, parseTimestamp } from './timestamps';
@@ -100,6 +102,11 @@ function normaliseSku(sku: string): string {
   return sku.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** Two printed references to the same thing: a PO, an invoice number. */
+function sameReference(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export interface ReconcileInput {
   readonly notice: DeductionNotice;
   readonly invoice?: Invoice;
@@ -121,8 +128,9 @@ export interface ReconcileInput {
  * Deliberately conservative in three ways:
  *
  * - Timestamps in different zones are not compared at all (see `timestamps.ts`).
- * - A reschedule is not a waiver. The finding says the appointment moved; it
- *   claims a charge does not apply only where a message said so in writing.
+ * - A reschedule is not a waiver. The finding says the appointment moved; a
+ *   charge not applying is `reconcileWaivers`' finding, and only where a
+ *   message said so in writing.
  * - Nothing here decides anything. These are findings for a human and, later,
  *   for the decision layer.
  */
@@ -173,17 +181,6 @@ function reconcileAppointment(
           `: “${valueOf(commitment.commitment_text) ?? ''}”`,
         fieldPath: 'correspondence.commitments',
       });
-
-      if (valueOf(commitment.waives_charge) === true) {
-        findings.push({
-          code: 'charge_waived_in_writing',
-          severity: 'supports_dispute',
-          message:
-            `${valueOf(message.sender_organisation) ?? 'the customer'} stated in writing that ` +
-            `a charge would not apply: “${valueOf(commitment.commitment_text) ?? ''}”`,
-          fieldPath: 'correspondence.commitments',
-        });
-      }
     }
   }
 
@@ -223,6 +220,94 @@ function reconcileAppointment(
       'grace window and whether the delay was carrier-caused before disputing',
     fieldPath: 'shipment.gate_check_in_at',
   });
+}
+
+/**
+ * Every place a message on the case says in writing that a charge does not
+ * apply.
+ *
+ * Its own pass, not a branch of the supersession loop above, because a waiver
+ * is its own sentence. LOG-001's customer wrote "Appointment AP-BSC-771
+ * revision 2 replaces revision 1. No carrier late-delivery charge applies…",
+ * and both recorded readings of that page report the second sentence as a
+ * commitment of its own: `waives_charge` true, superseding nothing. Nested
+ * under "did this commitment move something", the one sentence that wins the
+ * case was skipped (ADR 0040).
+ *
+ * And not gated on a delivery record either, for the same reason: whether the
+ * carrier was late is a question about timestamps, and a customer who wrote
+ * that no charge applies has answered a different one.
+ */
+function reconcileWaivers(correspondence: readonly Correspondence[], findings: Finding[]): void {
+  for (const message of correspondence) {
+    for (const commitment of message.commitments) {
+      if (valueOf(commitment.waives_charge) !== true) continue;
+      findings.push({
+        code: 'charge_waived_in_writing',
+        severity: 'supports_dispute',
+        message:
+          `${valueOf(message.sender_organisation) ?? 'the customer'} stated in writing that ` +
+          `a charge would not apply: “${valueOf(commitment.commitment_text) ?? ''}”`,
+        fieldPath: 'correspondence.commitments',
+      });
+    }
+  }
+}
+
+/**
+ * What the delivery record says about the claim, whatever the claim arrived on.
+ *
+ * `claimedPo` is the purchase order the claim itself names, when it names one:
+ * a notice prints a PO, a remittance line does not, and a delivery record cannot
+ * be checked against a PO nobody wrote down.
+ */
+function reconcileShipment(
+  shipment: ShipmentDocument | undefined,
+  claimedPo: string | undefined,
+  findings: Finding[],
+): void {
+  if (shipment === undefined) return;
+  const shipped = valueOf(shipment.total_cartons_shipped);
+  const received = valueOf(shipment.total_cartons_received);
+  // Undefined is not "signed": a delivery document whose signature field we
+  // cannot read is not evidence that anybody signed for anything.
+  const signed = valueOf(shipment.signature_present) ?? false;
+
+  if (!signed) {
+    findings.push({
+      code: 'delivery_document_unsigned',
+      severity: 'blocking',
+      message:
+        'the delivery document shows no signature or stamp — most retailers reject an unsigned delivery report as evidence',
+      fieldPath: 'shipment.signature_present',
+    });
+  }
+  if (shipped !== undefined && received !== undefined && received < shipped) {
+    findings.push({
+      code: 'delivery_confirms_shortage',
+      severity: 'supports_dispute',
+      message: `the delivery document shows ${shipped} shipped and ${received} signed for: a ${shipped - received}-carton shortage at the dock`,
+      fieldPath: 'shipment.total_cartons_received',
+    });
+  }
+  if (shipped !== undefined && received !== undefined && received === shipped) {
+    findings.push({
+      code: 'delivery_shows_full_receipt',
+      severity: 'supports_dispute',
+      message: `the delivery document shows all ${shipped} cartons signed for, contradicting a shortage deduction`,
+      fieldPath: 'shipment.total_cartons_received',
+    });
+  }
+
+  const shipmentPo = valueOf(shipment.po_number);
+  if (claimedPo !== undefined && shipmentPo !== undefined && !sameReference(claimedPo, shipmentPo)) {
+    findings.push({
+      code: 'shipment_po_mismatch',
+      severity: 'warning',
+      message: `the notice cites PO ${claimedPo} but the delivery document cites ${shipmentPo}: check this evidence belongs to this claim`,
+      fieldPath: 'shipment.po_number',
+    });
+  }
 }
 
 export function reconcileNotice(input: ReconcileInput): Reconciliation {
@@ -405,61 +490,153 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
     });
   }
 
-  if (input.shipment !== undefined) {
-    const shipped = valueOf(input.shipment.total_cartons_shipped);
-    const received = valueOf(input.shipment.total_cartons_received);
-    // Undefined is not "signed": a delivery document whose signature field we
-    // cannot read is not evidence that anybody signed for anything.
-    const signed = valueOf(input.shipment.signature_present) ?? false;
-
-    if (!signed) {
-      findings.push({
-        code: 'delivery_document_unsigned',
-        severity: 'blocking',
-        message:
-          'the delivery document shows no signature or stamp — most retailers reject an unsigned delivery report as evidence',
-        fieldPath: 'shipment.signature_present',
-      });
-    }
-    if (shipped !== undefined && received !== undefined && received < shipped) {
-      findings.push({
-        code: 'delivery_confirms_shortage',
-        severity: 'supports_dispute',
-        message: `the delivery document shows ${shipped} shipped and ${received} signed for: a ${shipped - received}-carton shortage at the dock`,
-        fieldPath: 'shipment.total_cartons_received',
-      });
-    }
-    if (shipped !== undefined && received !== undefined && received === shipped) {
-      findings.push({
-        code: 'delivery_shows_full_receipt',
-        severity: 'supports_dispute',
-        message: `the delivery document shows all ${shipped} cartons signed for, contradicting a shortage deduction`,
-        fieldPath: 'shipment.total_cartons_received',
-      });
-    }
-
-    const noticePo = valueOf(input.notice.po_number);
-    const shipmentPo = valueOf(input.shipment.po_number);
-    if (
-      noticePo !== undefined &&
-      shipmentPo !== undefined &&
-      noticePo.trim().toLowerCase() !== shipmentPo.trim().toLowerCase()
-    ) {
-      findings.push({
-        code: 'shipment_po_mismatch',
-        severity: 'warning',
-        message: `the notice cites PO ${noticePo} but the delivery document cites ${shipmentPo}: check this evidence belongs to this claim`,
-        fieldPath: 'shipment.po_number',
-      });
-    }
-  }
-
+  reconcileShipment(input.shipment, valueOf(input.notice.po_number), findings);
   reconcileAppointment(input.shipment, input.correspondence ?? [], findings);
+  reconcileWaivers(input.correspondence ?? [], findings);
 
   return {
     lines,
     claimedTotalCents: claimedTotal,
     lineSumCents: lineSum,
+    findings,
+    internallyConsistent: !findings.some((f) => f.severity === 'blocking'),
+  };
+}
+
+export interface RemittanceLineInput {
+  /**
+   * The advice, and which of its lines is this case's: the one that opened it.
+   *
+   * The caller's answer, because what makes a line a case's is the claim id
+   * `openCasesFromRemittance` built from it, and that is the pipeline's rule
+   * rather than this file's. Undefined when no line on any remittance on the
+   * case is the case's — which is said, as a blocking finding, and not guessed
+   * at.
+   */
+  readonly line: { readonly advice: RemittanceAdvice; readonly index: number } | undefined;
+  readonly invoice?: Invoice;
+  readonly shipment?: ShipmentDocument;
+  readonly correspondence?: readonly Correspondence[];
+}
+
+/**
+ * Reconciles a case that a remittance line opened (ADR 0040).
+ *
+ * Since ADR 0028 the line *is* the notice for most staffing, freight and
+ * foodservice deductions: nobody filed a claim, they paid an invoice short and
+ * printed a code beside it. So the case's claim is that one line — its invoice,
+ * its short-pay and its reason code — and the rest of the advice is other
+ * invoices, some of them other cases.
+ *
+ * The line is checked against itself first. A remittance prints the same fact
+ * twice, as a deduction and as a gross and a net, and when it prints both they
+ * have to agree: a line where they do not is a reading that cannot be trusted,
+ * or a payer who took more than they wrote down. Then against the invoice it
+ * short-paid, and then against the evidence exactly as a notice is: the
+ * delivery record, the appointment in force, and anything the customer wrote.
+ *
+ * What a remittance does not have, this does not pretend to check. It names no
+ * item and no PO, so there is no three-way match and no PO on the delivery
+ * record to compare.
+ */
+export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliation {
+  const findings: Finding[] = [];
+  const lines: LineReconciliation[] = [];
+  let claimed: Cents | undefined;
+
+  const index = input.line?.index;
+  const line = index === undefined ? undefined : input.line?.advice.lines[index];
+  if (index === undefined || line === undefined) {
+    findings.push({
+      code: 'remittance_line_not_found',
+      severity: 'blocking',
+      message:
+        'no line on the remittance is the one this case was opened from, so there is no ' +
+        'short-pay to reconcile; the evidence below was still checked',
+    });
+  } else {
+    const path = `lines[${index}]`;
+    const invoiceNumber = valueOf(line.invoice_number);
+    const label = invoiceNumber ?? `line ${index + 1}`;
+    const printed = money(line.deduction_amount, `${path}.deduction_amount`, findings);
+    const gross = money(line.gross_amount, `${path}.gross_amount`, findings);
+    const net = money(line.net_amount, `${path}.net_amount`, findings);
+
+    let implied: Cents | undefined;
+    let verdict: LineVerdict = 'not_checkable';
+    if (gross !== undefined && net !== undefined) {
+      // What the columns say was withheld: owed less paid, in integer cents
+      // here and never in the model (invariant 3).
+      implied = subCents(gross, net);
+      // Two witnesses to one fact only when the page printed both.
+      if (printed !== undefined) {
+        verdict = printed === implied ? 'matches' : 'differs';
+        if (verdict === 'differs') {
+          findings.push({
+            code: 'remittance_line_does_not_add_up',
+            severity: 'blocking',
+            message:
+              `${label}: ${formatCents(gross)} gross less ${formatCents(net)} paid is ` +
+              `${formatCents(implied)} withheld, but the line says ${formatCents(printed)} was ` +
+              'deducted. The line and its own columns cannot both be right',
+            fieldPath: path,
+          });
+        }
+      }
+    }
+    // What the case claims is what opened it: the deduction as printed, else
+    // the subtraction (ADR 0028 §2).
+    claimed = printed ?? implied;
+
+    lines.push({
+      sku: label,
+      reasonCode: valueOf(line.reason_code) ?? '',
+      claimedCents: claimed ?? null,
+      expectedShortageCents: implied ?? null,
+      deltaCents:
+        printed !== undefined && implied !== undefined ? subCents(printed, implied) : null,
+      verdict,
+    });
+
+    if (input.invoice !== undefined) {
+      const billed = valueOf(input.invoice.invoice_number);
+      if (invoiceNumber !== undefined && billed !== undefined && !sameReference(invoiceNumber, billed)) {
+        findings.push({
+          code: 'invoice_number_mismatch',
+          severity: 'warning',
+          message: `the remittance line pays invoice ${invoiceNumber} but the invoice on this case is ${billed}: check this evidence belongs to this claim`,
+          fieldPath: `${path}.invoice_number`,
+        });
+      } else {
+        // Only once it is the same invoice: two totals of two invoices differing
+        // says nothing about either.
+        const total = money(input.invoice.invoice_total, 'invoice.invoice_total', findings);
+        if (gross !== undefined && total !== undefined && gross !== total) {
+          findings.push({
+            code: 'gross_differs_from_invoice',
+            severity: 'warning',
+            message:
+              `${label}: the remittance puts the invoice at ${formatCents(gross)} gross, but the ` +
+              `invoice totals ${formatCents(total)} — a difference the deduction on this line ` +
+              'does not account for',
+            fieldPath: `${path}.gross_amount`,
+          });
+        }
+      }
+    }
+  }
+
+  reconcileShipment(input.shipment, undefined, findings);
+  reconcileAppointment(input.shipment, input.correspondence ?? [], findings);
+  reconcileWaivers(input.correspondence ?? [], findings);
+
+  const total = claimed ?? null;
+  return {
+    lines,
+    // One line is the whole claim: what it says was withheld is both the total
+    // and the sum of its lines.
+    claimedTotalCents: total,
+    lineSumCents: total,
     findings,
     internallyConsistent: !findings.some((f) => f.severity === 'blocking'),
   };
