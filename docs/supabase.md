@@ -224,8 +224,9 @@ held `app_rw` only through `authenticated`, so after 0028 they can no longer
 `set role app_rw` — ADR 0037's accepted cost. Read-only checks as `postgres`
 are unaffected.
 
-**The Data API switch comes last.** Turning off the Data API (Project Settings →
-Data API) is a second lock that no migration can set. It is the founder's to
+**The Data API switch comes last.** Production's has been off since
+2026-09-23, after all three conditions below held. Turning off the Data API
+(Project Settings → Data API) is a second lock that no migration can set. It is the founder's to
 flip, and only after 0028 is applied, the scheduled ledger sync has run once
 since, and both members have signed in — so anything that did depend on a
 revoked grant has shown itself while 0028 is the only change. Auth keeps
