@@ -284,6 +284,59 @@ describe('a late-delivery fee against a superseded appointment', () => {
     expect(supporting).not.toContain('charge_waived_in_writing');
   });
 
+  it('reads a waiver that supersedes nothing as a waiver (ADR 0040)', () => {
+    // Both recorded readings of LOG-001's message split its two sentences into
+    // two commitments, and the second — "No carrier late-delivery charge
+    // applies" — waives and supersedes nothing. When the waiver was only looked
+    // for inside the supersession loop, that sentence was skipped.
+    const split = structuredClone(approvedReschedule) as unknown as {
+      commitments: {
+        commitment_text: { value: string };
+        supersedes: { value: string | null };
+        establishes: { value: string | null };
+        waives_charge: { value: boolean };
+      }[];
+    };
+    const [moved] = split.commitments;
+    const waiver = structuredClone(moved!);
+    moved!.waives_charge.value = false;
+    moved!.commitment_text.value = 'Appointment AP-BSC-771 revision 2 replaces revision 1.';
+    waiver.supersedes.value = null;
+    waiver.establishes.value = null;
+    waiver.commitment_text.value =
+      'No carrier late-delivery charge applies for moving delivery to this revised appointment.';
+    split.commitments.push(waiver);
+
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      shipment: pod,
+      correspondence: [split as unknown as Correspondence],
+    });
+    const supporting = codes(disputeSupport(result));
+    expect(supporting).toContain('appointment_superseded');
+    expect(supporting.filter((c) => c === 'charge_waived_in_writing')).toHaveLength(1);
+    expect(result.findings.find((x) => x.code === 'charge_waived_in_writing')?.message).toContain(
+      'No carrier late-delivery charge applies',
+    );
+  });
+
+  it('finds a waiver with no delivery record on the case at all', () => {
+    // Whether the carrier was late is a question about timestamps; a customer
+    // who wrote that no charge applies has answered a different one.
+    const waiverOnly = structuredClone(approvedReschedule) as unknown as {
+      commitments: { supersedes: { value: null }; establishes: { value: null } }[];
+    };
+    waiverOnly.commitments[0]!.supersedes.value = null;
+    waiverOnly.commitments[0]!.establishes.value = null;
+    const result = reconcileNotice({
+      notice: lateFeeNotice,
+      correspondence: [waiverOnly as unknown as Correspondence],
+    });
+    const supporting = codes(disputeSupport(result));
+    expect(supporting).toContain('charge_waived_in_writing');
+    expect(supporting).not.toContain('appointment_superseded');
+  });
+
   it('says it could not check rather than comparing across zones', () => {
     const mixed = structuredClone(pod) as unknown as {
       gate_check_in_at: { value: string };

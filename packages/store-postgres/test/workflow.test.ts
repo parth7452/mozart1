@@ -1173,7 +1173,7 @@ describeDb('the workflow on postgres', () => {
 
   it('lets the database refuse an approval written in somebody else\'s name', async () => {
     // `requireCaller` above is the store checking itself. This is what stands
-    // behind it when the store is wrong (ADR 0040): the analyst who prepared
+    // behind it when the store is wrong (ADR 0041): the analyst who prepared
     // the decision writes an approval naming the approver, as `app_rw` with
     // the analyst's own claims — the row separation of duties would pass on
     // its name alone — and `app.approval_names_its_approver()` refuses it.

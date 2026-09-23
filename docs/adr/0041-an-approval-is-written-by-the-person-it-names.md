@@ -1,4 +1,4 @@
-# 0040 — An approval is written by the person it names
+# 0041 — An approval is written by the person it names
 
 - Status: accepted
 - Date: 2026-09-23

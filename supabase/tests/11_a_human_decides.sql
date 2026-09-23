@@ -209,7 +209,7 @@ begin
   -- rules, and this is the one prepared_by does not cover: only owner and
   -- approver may approve at all. The colleague tries in their own name, because
   -- an approval naming anybody but its caller is refused before SoD sees it
-  -- (ADR 0040, suite 27).
+  -- (ADR 0041, suite 27).
   perform test.as_member(org, second_analyst);
   perform test.expect_error(format(
     'insert into approvals (org_id, decision_id, approver_id, action_type, packet_hash)

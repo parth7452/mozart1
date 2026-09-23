@@ -30,7 +30,7 @@ begin
   set role app_rw;
 
   -- -------------------------------------------------------------------------
-  -- The hole (ADR 0040): the analyst who prepared the decision writes an
+  -- The hole (ADR 0041): the analyst who prepared the decision writes an
   -- approval in an approver's name. SoD checks the name, the name is an
   -- approver's and not the preparer's, and tenant_insert admits an analyst.
   -- -------------------------------------------------------------------------

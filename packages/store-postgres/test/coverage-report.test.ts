@@ -107,7 +107,7 @@ describeDb('the coverage page reads', () => {
     if (decisionId === undefined) throw new Error('no decision');
     // The approval is the approver's own act, written in their session as
     // `app_rw`: one in anybody else's name, or in nobody's, is refused by
-    // `app.approval_names_its_approver()` (migration 0031, ADR 0040).
+    // `app.approval_names_its_approver()` (migration 0031, ADR 0041).
     const approving = await admin.connect();
     try {
       await approving.query('begin');

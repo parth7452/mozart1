@@ -24,7 +24,7 @@ begin
 
   -- The approvals that let the three gated tables be written at all, written
   -- by the approver they name in the approver's own session — an approval in
-  -- anybody else's name is refused (ADR 0040). What this suite is about is
+  -- anybody else's name is refused (ADR 0041). What this suite is about is
   -- what happens *after* a legitimately approved row exists.
   set role app_rw;
   perform test.as_member(org, approver);

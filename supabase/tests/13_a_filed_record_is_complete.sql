@@ -33,7 +33,7 @@ begin
     returning id into unapproved_dec;
 
   -- Written by the approver they name, in the approver's own session — an
-  -- approval in anybody else's name is refused (ADR 0040). What this suite is
+  -- approval in anybody else's name is refused (ADR 0041). What this suite is
   -- about is the shape of the row a legitimately approved filing may leave.
   set role app_rw;
   perform test.as_member(org, approver);

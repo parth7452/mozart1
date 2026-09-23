@@ -71,7 +71,7 @@ begin
     'coverage reads zero when everything seen was declined');
 
   -- File one, and coverage moves. The approval is the approver's, written in
-  -- their own session (ADR 0040).
+  -- their own session (ADR 0041).
   perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');

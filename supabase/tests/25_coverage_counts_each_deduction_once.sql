@@ -69,7 +69,7 @@ begin
             0.96, 180, analyst)
     returning id into erp_dec;
   -- The approver's own session: an approval in anybody else's name, or in
-  -- nobody's, is refused (ADR 0040).
+  -- nobody's, is refused (ADR 0041).
   perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, erp_dec, approver, 'submit');

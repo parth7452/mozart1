@@ -759,6 +759,35 @@ describe('the review page', () => {
     expect(html).toContain('The signed BOL confirms 25 of 30 cases delivered.');
     expect(html).toContain('supports dispute');
   });
+
+  it('shows two findings that share a code, both of them', () => {
+    // The text-PDF reading of LOG-001's approved reschedule reports two
+    // commitments that each move an appointment, so reconcile says
+    // `appointment_superseded` twice. The list was keyed by code; server
+    // markup does not check keys, so this pins that both are rendered and the
+    // key is the component's own business.
+    const html = renderToStaticMarkup(
+      <CaseReview mayAct={false}
+        viewer={viewer}
+        summary={summary()}
+        fields={[field()]}
+        reconciliation={{
+          claimedTotalCents: cents(60_000),
+          lineSumCents: cents(60_000),
+          internallyConsistent: true,
+          lines: [],
+          findings: [
+            { code: 'appointment_superseded', severity: 'supports_dispute', message: 'first move' },
+            { code: 'appointment_superseded', severity: 'supports_dispute', message: 'second move' },
+          ],
+        }}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('first move');
+    expect(html).toContain('second move');
+  });
 });
 
 describe('what a reviewer can do with a case', () => {

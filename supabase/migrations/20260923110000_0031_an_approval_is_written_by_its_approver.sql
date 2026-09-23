@@ -1,4 +1,4 @@
--- 0031 — An approval is written by the person it names (ADR 0040).
+-- 0031 — An approval is written by the person it names (ADR 0041).
 --
 -- app.enforce_separation_of_duties() (migration 0005) reads the name on the
 -- row: `approver_id` is not the decision's `prepared_by`, and `approver_id` is
@@ -52,7 +52,7 @@ $$;
 comment on function app.approval_names_its_approver() is
   'An approvals row is written by the person it names as approver_id, in their '
   'own session. approver_id is what app.enforce_separation_of_duties() judges, '
-  'so the database enforces it rather than trusting the store (ADR 0040).';
+  'so the database enforces it rather than trusting the store (ADR 0041).';
 
 -- Row-level BEFORE triggers fire in name order, so this runs ahead of
 -- enforce_separation_of_duties. Deliberately: every check SoD makes is about

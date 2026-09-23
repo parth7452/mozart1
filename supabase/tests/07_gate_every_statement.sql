@@ -25,7 +25,7 @@ begin
   perform test.as_member(org, analyst);
 
   -- A properly approved submission, filed the legitimate way: the approval by
-  -- the approver it names, in their own session (ADR 0040).
+  -- the approver it names, in their own session (ADR 0041).
   perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');

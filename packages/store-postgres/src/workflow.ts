@@ -135,7 +135,7 @@ export class HumanDecisionAuthorError extends CaseWorkflowError {
 /**
  * An approval that does not name its own author.
  *
- * `app.approval_names_its_approver()` (migration 0031, ADR 0040) compares
+ * `app.approval_names_its_approver()` (migration 0031, ADR 0041) compares
  * `approver_id` to `app.current_user_id()`, which is what makes separation of
  * duties judge the person approving rather than the name they wrote.
  * `requireCaller` should have caught this first; when it did not, the database
@@ -353,7 +353,7 @@ async function lockCase(
  * naming a different actor is either a bug or a forgery — and on a money path
  * the two look identical from here. The database enforces exactly this for a
  * human decision (`app.human_decision_names_its_author()`, ADR 0020 §1) and for
- * an approval (`app.approval_names_its_approver()`, ADR 0040); the other acts
+ * an approval (`app.approval_names_its_approver()`, ADR 0041); the other acts
  * have no trigger of their own, and letting them name anyone would put an
  * approver's id in an analyst's write.
  */
@@ -791,7 +791,7 @@ export async function approve(
       // the trigger, and a refusal this does not recognise reaches the caller
       // as itself rather than as the nearest rule.
       const refused = sqlState(error) === '23001';
-      // `app.approval_names_its_approver()` (migration 0031, ADR 0040): an
+      // `app.approval_names_its_approver()` (migration 0031, ADR 0041): an
       // approval is written by the person it names, in their own session.
       // `requireCaller` above should have caught this already; if it did not,
       // the database is the referee and its words are carried rather than

@@ -234,8 +234,12 @@ export function CaseReview({
                   What the documents say together
                 </h2>
                 <ul className="findings">
-                  {findings.map((finding) => (
-                    <li key={finding.code}>
+                  {/* Not keyed by code alone: one message can move two
+                      appointments, and a reading of LOG-001's does, so two
+                      findings share `appointment_superseded`. The order is
+                      reconcile's own and stable, so the position disambiguates. */}
+                  {findings.map((finding, index) => (
+                    <li key={`${finding.code}:${index}`}>
                       <span
                         className={`mark ${finding.severity === 'info' ? 'unchecked' : 'unverified'}`}
                       >

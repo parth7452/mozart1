@@ -22,7 +22,7 @@ begin
     'the analyst who prepared a decision cannot approve it');
 
   -- Each attempt is made by the person it names. An approval naming anyone
-  -- but its caller is refused before separation of duties sees it (ADR 0040,
+  -- but its caller is refused before separation of duties sees it (ADR 0041,
   -- suite 27), so this is the read_only member trying in their own name.
   perform test.as_member(org, reader);
   perform test.expect_error(format(

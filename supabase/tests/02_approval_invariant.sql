@@ -27,7 +27,7 @@ begin
 
   -- A submit approval unlocks submission only, and only for this decision.
   -- Written by the approver it names, in their own session: an approval in
-  -- anybody else's name is refused (ADR 0040, suite 27).
+  -- anybody else's name is refused (ADR 0041, suite 27).
   perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');
