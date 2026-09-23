@@ -8,7 +8,7 @@ verified there, not only against local Postgres.
 | Project ref | `hvheqbgkvwhlqutklwfh` |
 | Region | `us-east-1` |
 | Postgres | 17.6 (local tests run on 16 — see below) |
-| Applied | migrations 0001–0011, as named migrations matching the filenames in `supabase/migrations/` |
+| Applied | migrations 0001–0027, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply). 0028 and 0029 are not applied yet |
 
 ## What was verified on the live project
 
@@ -114,6 +114,129 @@ permission set. A plain `grant app_rw to recouple_app` would inherit `app_rw`'s
 privileges outright, and code that forgot to switch role would work locally and
 nowhere else.
 
+### The Data API reaches nothing (ADR 0037)
+
+Supabase puts three request roles behind its Data API — `anon` (the
+publishable key), `authenticated` (a signed-in user's token) and
+`service_role` (the service-role key) — and its default privileges grant them
+everything created in `public`. Nothing here reads through that API: the app
+signs people in with Supabase Auth and reads through `DATABASE_URL` as
+`recouple_app` → `app_rw` (ADR 0015). Migration 0028 therefore revokes every
+privilege the three hold on tables, views, sequences and routines in `public`
+and `app`, the default privileges that would give them the next table, and
+migration 0006's `grant app_rw to authenticated`. USAGE on schema `public` is
+left alone; with nothing in it granted, it grants nothing.
+
+The consequence to know about: `set role app_rw` works only for a role that
+holds `app_rw` directly, as `recouple_app` does. A role that reached it through
+`authenticated` — `authenticator`, which PostgREST logs in as, and possibly
+`postgres` in the SQL editor — no longer can. That is the point for
+`authenticator`. For `postgres` it is accepted (ADR 0037, Consequences); giving
+it a direct membership is a separate decision.
+
+Apply 0028 as **`postgres`**, the role that owns the schema's objects and
+whose default privileges it cleans (`select current_user` in the same
+channel). It aborts rather than warns if anything survives, and it aborts if
+`recouple_app` would lose `set role app_rw`.
+
+**Before applying 0028** — read-only, in the SQL editor:
+
+```sql
+-- 1. Every role that can reach an app role, and by what path. recouple_app's
+--    row must read `recouple_app → app_rw` with can_set_role true; a row that
+--    passes through authenticated is what 0028 removes.
+with recursive paths as (
+  select am.member, am.roleid, am.set_option, am.inherit_option,
+         array[pg_get_userbyid(am.member)::text, pg_get_userbyid(am.roleid)::text] as path
+    from pg_auth_members am
+   where am.roleid in ('app_rw'::regrole, 'app_ro'::regrole)
+  union all
+  select am.member, p.roleid, am.set_option and p.set_option,
+         am.inherit_option and p.inherit_option,
+         pg_get_userbyid(am.member)::text || p.path
+    from pg_auth_members am
+    join paths p on am.roleid = p.member
+   where not (pg_get_userbyid(am.member)::text = any (p.path))
+)
+select pg_get_userbyid(roleid) as app_role, array_to_string(path, ' → ') as path,
+       set_option as can_set_role, inherit_option as inherits
+  from paths
+ order by 1, 2;
+
+-- 2. What the request roles hold — the list 0028 revokes. Save the output with
+--    the PR: re-issuing these grants is the rollback, and the only record of
+--    them once they are gone.
+select 'relation' as kind, c.oid::regclass::text as object,
+       pg_get_userbyid(a.grantee) as grantee, a.privilege_type as privilege
+  from pg_class c cross join lateral aclexplode(c.relacl) a
+ where c.relnamespace in ('public'::regnamespace, 'app'::regnamespace)
+   and pg_get_userbyid(a.grantee) in ('anon', 'authenticated', 'service_role')
+union all
+select 'routine', p.oid::regprocedure::text, pg_get_userbyid(a.grantee), a.privilege_type
+  from pg_proc p cross join lateral aclexplode(p.proacl) a
+ where p.pronamespace in ('public'::regnamespace, 'app'::regnamespace)
+   and pg_get_userbyid(a.grantee) in ('anon', 'authenticated', 'service_role')
+union all
+select 'schema', n.nspname, pg_get_userbyid(a.grantee), a.privilege_type
+  from pg_namespace n cross join lateral aclexplode(n.nspacl) a
+ where pg_get_userbyid(a.grantee) in ('anon', 'authenticated', 'service_role')
+   and (n.nspname = 'app' or (n.nspname = 'public' and a.privilege_type = 'CREATE'))
+union all
+select 'default ' || d.defaclobjtype::text,
+       pg_get_userbyid(d.defaclrole) || ' in '
+         || coalesce(nullif(d.defaclnamespace, 0)::regnamespace::text, 'every schema'),
+       pg_get_userbyid(a.grantee), a.privilege_type
+  from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
+ where pg_get_userbyid(a.grantee) in ('anon', 'authenticated', 'service_role')
+   -- The schemas 0028 cleans: public, app and every-schema rows. Supabase's own
+   -- defaults in storage, graphql and graphql_public are not ours and stay.
+   and d.defaclnamespace in (0::oid, 'public'::regnamespace::oid, 'app'::regnamespace::oid)
+union all
+select 'membership', pg_get_userbyid(am.roleid), pg_get_userbyid(am.member),
+       format('inherit %s, set %s, granted by %s',
+              am.inherit_option, am.set_option, pg_get_userbyid(am.grantor))
+  from pg_auth_members am
+ where am.roleid in ('app_rw'::regrole, 'app_ro'::regrole)
+   and pg_get_userbyid(am.member) in ('anon', 'authenticated', 'service_role')
+ order by 1, 2, 3, 4;
+
+-- 3. Who owns what is in public. Anything not owned by postgres is something
+--    0028, applied as postgres, may be unable to revoke — and will say so.
+select c.oid::regclass as object, c.relkind, pg_get_userbyid(c.relowner) as owner
+  from pg_class c
+ where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
+   and pg_get_userbyid(c.relowner) <> 'postgres';
+```
+
+**After applying 0028:** query 2 returns no rows, except default-privilege rows
+for a role 0028 reported (in a NOTICE) that it could not act as —
+`supabase_admin` is the expected one, and nothing here is created as it. Rerun
+the Security Advisor. Then sign in with a magic link, open a case, and have the
+second member do the same.
+
+This is what the preview project (`jvbnqofmoamyhntjwjdn`) returned when 0028
+and 0029 were staged there first on 2026-09-23: only `supabase_admin in public`
+default-privilege rows (one per privilege, for tables, sequences and functions,
+for each request role) and nothing else; zero
+security lints; `recouple_app` still able to `set role` to both app roles. The
+Supabase MCP connector and the SQL editor connect as `postgres`, which there
+held `app_rw` only through `authenticated`, so after 0028 they can no longer
+`set role app_rw` — ADR 0037's accepted cost. Read-only checks as `postgres`
+are unaffected.
+
+**The Data API switch comes last.** Turning off the Data API (Project Settings →
+Data API) is a second lock that no migration can set. It is the founder's to
+flip, and only after 0028 is applied, the scheduled ledger sync has run once
+since, and both members have signed in — so anything that did depend on a
+revoked grant has shown itself while 0028 is the only change. Auth keeps
+working; Studio's table and SQL editors keep working (they connect as
+`postgres`); Studio's "impersonate role: authenticated" view shows permission
+denied, which is correct.
+
+`pnpm db:test` reproduces all of this locally: `supabase/tests/_supabase_shape.sql`
+creates the four Supabase roles and their default privileges before the
+migrations run, and suite 24 reads the end state back.
+
 ### How the operator commands connect
 
 `pnpm link:retailer`, `pnpm link:provenance` and `pnpm link:qbo` use the same
@@ -144,6 +267,47 @@ like `recouple_app` and runs each command as it.
 - A person can only sign in if they were invited: a `users` row with their
   address and a `memberships` row for their tenant. Seed those as the owner —
   `app.link_auth_user()` refuses an address with no invitation, on purpose.
+
+## Preview deployments have their own project
+
+A Vercel preview is code nobody has merged, so it gets a Supabase project of its
+own: **`mozart-preview`** (`jvbnqofmoamyhntjwjdn`, free tier, us-east-1), with
+its own Auth and its own database. Until 2026-09-23 previews shared production's
+`DATABASE_URL` and Inngest keys, and at 07:00 UTC that day the daily ledger sync
+ran on PR #42's preview and wrote its run row into production. Inngest's
+integration re-registers the app on every deployment, so whichever build was
+deployed last received production's jobs.
+
+What each environment gets on Vercel:
+
+| Variable | Production | Preview |
+| --- | --- | --- |
+| `DATABASE_URL` | production, as `recouple_app` | `mozart-preview`, as its own `recouple_app` (same `noinherit` shape), transaction pooler, `sslmode=no-verify` |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | production | `mozart-preview` |
+| `NEXT_PUBLIC_SITE_URL` | set | **unset**: a preview derives its branch URL (`apps/web/lib/env.ts`), so a magic link returns to that preview rather than to production |
+| `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | set | **none**: a preview's `/api/inngest` answers 503, so the sync Inngest attempts on each preview deploy is refused and production stays registered. Previews read inline |
+| `ANTHROPIC_API_KEY`, `REDUCTO_API_KEY` | set | none: an upload on a preview is stored and scanned but not read. Add them to Preview deliberately if a preview needs to read, knowing it spends money |
+| `QBO_*`, `QBO_TOKEN_KMS_KEY_ID`, `AWS_*` | set | never |
+| `CLAMAV_SCAN_URL`, `CLAMAV_SCAN_TOKEN` | shared | shared (the scanner keeps nothing) |
+
+`sslmode=no-verify` is there because this driver treats `require` as
+`verify-full`, and the pooler's certificate is not signed by a public CA: the
+connection is encrypted, the certificate is not checked. Acceptable for a
+database of synthetic data; production's connection is its own decision.
+
+The preview database carries every migration, applied through the Supabase
+connector (so its recorded versions are apply times, not the filenames'
+timestamps). A schema fingerprint compared it with production object by object
+on 2026-09-23 — tables, constraints, indexes, policies, triggers, grants, views
+and function logic identical; only comment text differs. **New migrations go
+here first, then to production**: 0028 and 0029 were staged here before
+production and read back as ADR 0037 and ADR 0038 claim.
+
+It is seeded with one org, `recouple-preview` ("Recouple (preview)"), and the
+same two members as production (owner and approver), so both can sign in to a
+preview by magic link; Auth's redirect allow list holds
+`https://*-parth7452s-projects.vercel.app/**`. A free project pauses after a
+week without activity; unpause it from the dashboard.
 
 ## Sharing a project with Mozart
 

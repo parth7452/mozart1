@@ -32,6 +32,7 @@ export const INVARIANTS: readonly Invariant[] = [
       'postgres: migration 0004 applies both to the tables its loop names',
       'supabase/tests/01_append_only.sql',
       'supabase/tests/14_an_arrival_is_a_fact.sql',
+      'supabase/tests/24_only_the_app_roles_hold_grants.sql (no role but the owner holds a privilege an append-only trigger refuses, read off each trigger)',
     ],
   },
   {
@@ -61,6 +62,8 @@ export const INVARIANTS: readonly Invariant[] = [
       'postgres: tenant_isolation policies',
       'supabase/tests/04_rls.sql',
       'supabase/tests/15_every_table_has_rls.sql (every public table, by enumeration)',
+      'postgres: migration 0028 — anon, authenticated and service_role hold no grant in public or app, and authenticated is not a member of app_rw (ADR 0037)',
+      'supabase/tests/24_only_the_app_roles_hold_grants.sql (the request roles hold nothing, by enumeration)',
     ],
   },
   {
@@ -69,6 +72,7 @@ export const INVARIANTS: readonly Invariant[] = [
     enforcedBy: [
       'postgres: app.guard_threshold_direction() trigger on org_settings',
       'supabase/tests/05_threshold_direction.sql',
+      'supabase/tests/24_only_the_app_roles_hold_grants.sql (every app function pins its search_path; the guard still refuses under a hostile one)',
     ],
   },
 ];

@@ -357,12 +357,32 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0027 as
-of 2026-09-22 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22 and
-the new tables, views, functions and grants read back and verified — for 0027,
-`ledger_sync_anomalies` has RLS on, `no_update_delete` and `no_truncate`,
-`app_rw` and `app_ro` hold SELECT only, and `app.record_ledger_sync_anomalies`
-is security definer with EXECUTE held by the owner and `app_rw` alone).
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0029 as
+of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
+0028–0029 applied 2026-09-23, after being staged on the preview project that
+morning). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+`no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
+and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
+the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
+equal the files'; `anon`, `authenticated` and `service_role` hold no privilege
+on any relation or routine in `public` or `app`; `authenticated` is no longer a
+member of `app_rw`; `recouple_app` still has SET on both app roles; every `app`
+function has a pinned `search_path`, the guard included; the only
+default-privilege rows still naming a request role are `supabase_admin`'s,
+which 0028 skips by design; `coverage_by_period_by_source` is
+`security_invoker` and computes `discovered_cents` from `uncased_cents`; and the
+security advisor's `function_search_path_mutable` finding is gone. `postgres` —
+the SQL editor and the MCP connector — can no longer `set role app_rw`, as ADR
+0037 accepted; read-only checks as `postgres` are unaffected.
+
+**A preview is not production** (2026-09-23). Vercel previews run against their
+own Supabase project, `mozart-preview` (`jvbnqofmoamyhntjwjdn`), with their own
+Auth and `DATABASE_URL`, and hold no Inngest, Anthropic, Reducto, QBO or KMS
+keys. Inngest re-registers the app on every deployment, so a preview holding
+Inngest keys takes production's jobs — which is how the 2026-09-23 daily ledger
+sync ran on an unmerged PR's preview and wrote into production. Never give
+Preview those keys or production's database; migrations go to `mozart-preview`
+first. `docs/supabase.md` has the variable-by-variable split.
 
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
@@ -723,6 +743,47 @@ recording now yields four short-pays rather than three, invoice 71 being the
 fourth — an expectation moved because it was wrong, not because it was in the
 way. Under ADR 0035's production window it stays three, since payments 72 and 74
 are dated before it.
+
+**Only the app roles hold grants, and invariant 7's guard is pinned again**
+(ADR 0037, migration 0028). Migration 0022 replaced
+`app.guard_threshold_direction()` with `create or replace` and no `set` clause,
+which drops the search-path pin 0008 put on it; 0028 pins it again with
+`alter function`, and suite 24 now asks the catalogue that *every* `app.*`
+function is pinned and that the guard still refuses a loosening when the caller
+shadows `array_length`. Separately, Supabase's default privileges grant its
+request roles (`anon`, `authenticated`, `service_role`) ALL on every new object
+in `public` — 0006 revoked `anon`'s once, for the tables that existed then —
+and 0006 itself made `authenticated` a member of `app_rw`, so a token minted
+with the JWT secret could `set role app_rw` with any `org_id`. Nothing uses the
+Data API (the evidence from production is in the ADR: supabase-js is Auth only,
+every database path is `recouple_app` with direct memberships, 24 hours of edge
+logs show no `/rest/v1` reads), so 0028 revokes every privilege the three hold
+in `public` and `app`, their default privileges, and the membership, then
+re-reads the catalogue and aborts rather than warns if anything survived or if
+`recouple_app` would lose `set role app_rw`. `service_role` is included (the
+founder's call): the service-role key reaches nothing in `public`. CI finally
+sees the platform — `supabase/tests/_supabase_shape.sql` creates the four
+Supabase roles and their default privileges before `db:test` applies the
+migrations — and suite 24 derives invariant 2's grant half for every role from
+each `block_mutations` trigger's own events. Turning off the Data API in the
+dashboard is the founder's switch, after 0028 is applied, the ledger sync has
+run and both members have signed in; docs/supabase.md has the pre- and
+post-apply queries. **Production does not carry 0028 yet.**
+
+**Coverage counts each deduction once** (ADR 0038, migration 0029).
+`coverage_by_period_by_source` added `opened + declined`, and `declineCase`
+writes a declined row naming the case with its full amount while the case stays
+in `deductions` — so the first case a reviewer declined would have been in its
+channel's denominator twice. Production has no declines, so nothing published
+moved. `discovered_cents` is now every case opened, in the month it was found,
+plus the declines that never became a case (`deduction_id is null`); a later
+decline moves no month's denominator. `declined_count` and `declined_cents`
+still report every decline, because `coverage_by_period_totals.coverage_of_seen`
+is 0014's `filed ÷ (filed + declined)` and narrowing them would make it rise
+whenever a case is declined — so `opened + declined` is no longer `discovered`,
+and the view's column comments say so. Same columns, same order, still
+`security_invoker`; suite 25 and `coverage-declined-case.test.ts` decline a real
+case and find its dollars once. **Production does not carry 0029 yet.**
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

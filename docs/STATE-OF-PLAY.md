@@ -37,11 +37,14 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0027, applied
-2026-09-22 and read back: `ledger_sync_anomalies` exists with RLS on, both
-append-only triggers, SELECT-only grants for `app_rw` and `app_ro`, and
-`app.record_ledger_sync_anomalies` definer with EXECUTE held by the owner and
-`app_rw` alone. The deployed app is `main` at `2977894` (ADR 0036).
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0029, applied
+2026-09-23 after 0028 and 0029 were staged on the preview project
+(`jvbnqofmoamyhntjwjdn`) the same morning. Read back: Supabase's request roles
+hold nothing in `public` or `app`, `authenticated` no longer reaches `app_rw`,
+`recouple_app` still does, every `app` function's `search_path` is pinned again
+(invariant 7's guard included), and the coverage denominator counts each
+deduction once. What is left before the Data API is switched off: both members
+sign in to production, and one ledger sync runs (ADR 0037).
 
 ## Built, not yet exercised
 

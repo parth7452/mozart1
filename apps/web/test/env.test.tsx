@@ -18,6 +18,8 @@ function clear() {
   delete process.env.NEXT_PUBLIC_SITE_URL;
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   delete process.env.VERCEL_URL;
+  delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL_BRANCH_URL;
 }
 
 /** `NODE_ENV` is typed read-only, and these tests are about what it changes. */
@@ -54,6 +56,42 @@ describe('the origin a magic link returns to', () => {
     process.env.VERCEL_URL = 'recouple-a1b2c3-team.vercel.app';
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'recouple.vercel.app';
     expect(env.siteUrl).toBe('https://recouple.vercel.app');
+  });
+
+  it('sends a preview\'s link back to that preview, not to production', () => {
+    clear();
+    // A preview signs in against its own Supabase project; production's
+    // callback cannot exchange that project's code.
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'recouple.vercel.app';
+    process.env.VERCEL_BRANCH_URL = 'recouple-git-some-branch-team.vercel.app';
+    process.env.VERCEL_URL = 'recouple-a1b2c3-team.vercel.app';
+    expect(env.siteUrl).toBe('https://recouple-git-some-branch-team.vercel.app');
+  });
+
+  it('falls back to the deployment URL on a preview with no branch URL', () => {
+    clear();
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'recouple.vercel.app';
+    process.env.VERCEL_URL = 'recouple-a1b2c3-team.vercel.app';
+    expect(env.siteUrl).toBe('https://recouple-a1b2c3-team.vercel.app');
+  });
+
+  it('keeps production on the production hostname', () => {
+    clear();
+    process.env.VERCEL_ENV = 'production';
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'recouple.vercel.app';
+    process.env.VERCEL_BRANCH_URL = 'recouple-git-main-team.vercel.app';
+    process.env.VERCEL_URL = 'recouple-a1b2c3-team.vercel.app';
+    expect(env.siteUrl).toBe('https://recouple.vercel.app');
+  });
+
+  it('still lets a configured value win on a preview', () => {
+    clear();
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_BRANCH_URL = 'recouple-git-some-branch-team.vercel.app';
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://recouple.example';
+    expect(env.siteUrl).toBe('https://recouple.example');
   });
 
   it('falls back to localhost only outside production', () => {

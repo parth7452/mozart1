@@ -55,8 +55,16 @@ export const env = {
     // Vercel sets these itself. The production hostname is preferred: VERCEL_URL
     // is the per-deployment URL, which changes on every push and would send a
     // reviewer's magic link to a deployment nobody is looking at.
+    //
+    // Except on a preview. A preview signs in against its own Supabase project
+    // and reads its own database, so a link that came back to production would
+    // hand one project's auth code to the other and sign nobody in. Vercel sets
+    // VERCEL_PROJECT_PRODUCTION_URL on previews too, which is exactly how that
+    // happened; the branch URL is the preview's stable name for itself.
     const vercelHost =
-      process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+      process.env.VERCEL_ENV === 'preview'
+        ? (process.env.VERCEL_BRANCH_URL ?? process.env.VERCEL_URL)
+        : (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL);
     if (vercelHost !== undefined && vercelHost !== '') {
       return `https://${vercelHost.replace(/\/+$/, '')}`;
     }
