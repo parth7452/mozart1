@@ -37,11 +37,12 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migration 0032. 0028 and
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migrations through 0032. 0028 and
 0029 were applied 2026-09-23 after being staged on the preview project
 (`jvbnqofmoamyhntjwjdn`) the same morning, 0030 (ADR 0039) that afternoon and
-0032 (ADR 0042) that evening, preview first each time. 0031 belongs to an open
-PR and is in neither project. Read back: Supabase's request roles
+0032 (ADR 0042) and then 0031 (ADR 0041) that evening, preview first each time.
+0031 landed after 0032 because it merged after it; the two touch different
+objects, so the order does not change the end state. Read back: Supabase's request roles
 hold nothing in `public` or `app`, `authenticated` no longer reaches `app_rw`,
 `recouple_app` still does, every `app` function's `search_path` is pinned again
 (invariant 7's guard included), and the coverage denominator counts each

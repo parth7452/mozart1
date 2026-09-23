@@ -170,11 +170,29 @@ describeDb('coverage has a denominator', () => {
     );
     const decisionId = decisionRows[0]?.id;
     if (decisionId === undefined) throw new Error('no decision');
-    await admin.query(
-      `insert into approvals (org_id, decision_id, approver_id, action_type)
-       values ($1, $2, $3, 'submit')`,
-      [orgId, decisionId, approverId],
-    );
+    // The approval is the approver's own act, written in their session as
+    // `app_rw`: one in anybody else's name, or in nobody's, is refused by
+    // `app.approval_names_its_approver()` (migration 0031, ADR 0041).
+    const approving = await admin.connect();
+    try {
+      await approving.query('begin');
+      await approving.query('set local role app_rw');
+      await approving.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: orgId, sub: approverId }),
+      ]);
+      await approving.query(
+        `insert into approvals (org_id, decision_id, approver_id, action_type)
+         values ($1, $2, $3, 'submit')`,
+        [orgId, decisionId, approverId],
+      );
+      await approving.query('commit');
+    } catch (error) {
+      await approving.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      approving.release();
+    }
     await admin.query(
       `insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
                                 confirmation_number, submitted_at)

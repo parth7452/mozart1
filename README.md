@@ -243,6 +243,43 @@ reading through the same RLS policies as everything else.
 pnpm --filter @recouple/web dev        # needs NEXT_PUBLIC_SUPABASE_* and DATABASE_URL
 ```
 
+### Running it locally
+
+There is no root `pnpm dev`: the app is one workspace package and is started by
+filter. Next reads its variables from **`apps/web/.env.local`**, not from the
+root `.env` the scripts use.
+
+1. `pnpm install`.
+2. Point it at **`mozart-preview`** (`jvbnqofmoamyhntjwjdn`), never production
+   — `docs/supabase.md` has the split. In `apps/web/.env.local`:
+
+   | Variable | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_SUPABASE_URL` | `https://jvbnqofmoamyhntjwjdn.supabase.co` |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | That project's publishable key |
+   | `DATABASE_URL` | That project's transaction pooler, as its `recouple_app` (a role that may `set role app_rw`, not `postgres`), `sslmode=no-verify` |
+   | `CLAMAV_HOST` | `127.0.0.1` — uploads only |
+   | `ANTHROPIC_API_KEY` | Uploads only |
+   | `REDUCTO_API_KEY` | Optional: scans extract without it, with every quote unverifiable |
+
+   Leave `NEXT_PUBLIC_SITE_URL` unset: outside Vercel a dev server's magic link
+   comes back to `http://localhost:3000`. Leave `INNGEST_*` unset too, so the
+   read runs inline in the request (`apps/web/DEPLOY.md` covers the Inngest dev
+   server if you want the job path).
+3. For uploads, `docker compose up -d clamd` and wait for it to report healthy
+   — the first start downloads signatures and takes a few minutes. Without a
+   scanner every upload is refused `not scanned clean: error (none)`; that is
+   the gate failing closed, not a bug.
+4. `pnpm --filter @recouple/web dev`, then open `http://localhost:3000`.
+
+Signing in needs two things on `mozart-preview`: `http://localhost:3000/auth/callback`
+in **Authentication → URL Configuration → Redirect URLs**, and a `users` plus a
+`memberships` row for your address (see *Who can sign in* in
+`apps/web/DEPLOY.md`). Without the first the magic link lands on the Site URL
+and signs nobody in; without the second `app.link_auth_user()` refuses you.
+Walking a case through approval needs a second member with the `owner` or
+`approver` role, because the preparer cannot approve their own packet.
+
 Sign-in is a magic link to an address a workspace already invited — signing in
 resolves a tenant, it does not create one. From there the request reaches
 Postgres as `app_rw` with the tenant's claims set transaction-locally, exactly
