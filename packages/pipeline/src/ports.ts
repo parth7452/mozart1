@@ -542,6 +542,73 @@ export interface UnreadDocumentsStore {
    * problem on top of it.
    */
   unreadDocuments(olderThanMinutes: number, limit?: number): Promise<readonly UnreadDocument[]>;
+
+  /**
+   * Every document of this tenant that was read and that no case holds, newest
+   * first.
+   *
+   * The other half of "documents nobody is coming for". A delivery receipt or a
+   * rate confirmation uploaded from the case list is read, opens nothing — it
+   * is evidence, not a notice — and until this existed it appeared nowhere in
+   * the product: not on a case, and not in `unreadDocuments`, because it was
+   * read. The reviewer was told a case would appear and none ever did.
+   *
+   * "Read" is the record `unreadDocuments` checks for the opposite answer: an
+   * extraction row. "No case holds it" is no `deduction_documents` row at all,
+   * notice or evidence. `limit` is refused the way `unreadDocuments` refuses
+   * one, for the same reason.
+   */
+  unattachedDocuments(limit?: number): Promise<readonly UnattachedDocument[]>;
+}
+
+/**
+ * A document that was read, and that no case holds.
+ *
+ * What it was read as travels with it, because that is what tells a reviewer
+ * where it goes: a proof of delivery belongs on the case it proves, and a
+ * deduction notice that opened nothing is worth a second look. Like
+ * `UnreadDocument` it carries no page text and no extracted field.
+ */
+export interface UnattachedDocument {
+  readonly documentId: string;
+  /** As uploaded, or empty when the row has none. Untrusted text. */
+  readonly filename: string;
+  /** When the bytes were stored, ISO-8601. */
+  readonly createdAt: string;
+  /** What the read classified it as: one of `DOC_TYPES`, never text off the page. */
+  readonly docType: DocType;
+}
+
+/**
+ * Files a document that was already read against a case, without reading it
+ * again.
+ *
+ * A separate port from `PipelineStore` because nothing in the pipeline calls
+ * it: a person does, from the case list. Everything it needs to know about the
+ * document is already recorded, so there is no page to fetch and no model to
+ * call — which is the difference between this and uploading the same file to
+ * the case, where the bytes go through the read again.
+ */
+export interface EvidenceAttachStore {
+  getCase(deductionId: string): Promise<CaseRecord | undefined>;
+  /** `select 1` under the tenant's policies: a stale id and another tenant's are one answer. */
+  documentIsVisible(documentId: string): Promise<boolean>;
+  latestExtraction(documentId: string): Promise<RestoredExtraction | undefined>;
+  /**
+   * Links the document to the case as evidence and records `evidence.attached`
+   * on the case — both, or neither.
+   *
+   * `false` when the case already holds the document in any role, in which case
+   * nothing is written: a second press of the same button is not a second
+   * attachment, and a document that is the case's own notice is not also its
+   * evidence.
+   */
+  attachEvidence(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly docType: DocType;
+  }): Promise<boolean>;
 }
 
 /**
@@ -611,9 +678,21 @@ export function assertUnreadDocumentsQuery(olderThanMinutes: number, limit: numb
       `unreadDocuments needs an age in whole minutes; this one is ${String(olderThanMinutes)}`,
     );
   }
+  assertDocumentListLimit('unreadDocuments', limit);
+}
+
+/**
+ * `unattachedDocuments`' refusal: the same limit rule as `unreadDocuments`, and
+ * the same class, so a caller catches one thing for both lists.
+ */
+export function assertUnattachedDocumentsQuery(limit: number): void {
+  assertDocumentListLimit('unattachedDocuments', limit);
+}
+
+function assertDocumentListLimit(list: string, limit: number): void {
   if (!Number.isInteger(limit) || limit < 1 || limit > UNREAD_DOCUMENTS_MAX_LIMIT) {
     throw new UnreadDocumentsQueryError(
-      `unreadDocuments needs a limit that is a whole number of rows between 1 and ` +
+      `${list} needs a limit that is a whole number of rows between 1 and ` +
         `${UNREAD_DOCUMENTS_MAX_LIMIT}; this one is ${String(limit)}`,
     );
   }

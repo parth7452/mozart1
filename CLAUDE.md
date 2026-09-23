@@ -454,6 +454,25 @@ document came from, which is a question the database can now answer. And
 in a production build, because dev mode turns off the signature check that is
 the endpoint's only authentication.
 
+**A document that is read and opens nothing is still somewhere** (2026-09-23).
+A delivery receipt and a rate confirmation uploaded from the case list in
+production were read — as `pod` and `price_agreement` — and, being evidence
+rather than notices, opened nothing. They then appeared nowhere: not on a case,
+and not under "Documents waiting to be read", because they had been read. The
+queued-upload notice had told the reviewer "the case will appear here when it
+is", whatever the document turned out to be. Now it says what each kind will do,
+and the case list shows **Read, not on a case**: every document with an
+extraction and no `deduction_documents` row (`unattachedDocuments`, newest
+first, with what it was read as). Each one has an Attach control that files the
+recorded reading against an open case — `attachReadDocument`, then
+`attachEvidence`, which writes the link and an `evidence.attached` event in one
+transaction, and only when the case holds the document in no role. Nothing is
+read and nothing is charged. A case reads a document's fields by document, so a
+link is all that was missing. Uploading the same file on the case page still
+reads it again, because `recordedRead` sends an attachment to a case the
+document is not on through the read. `jobs.test.ts` pins that, and making it
+reuse the reading is a follow-up.
+
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
 came through (`web_upload`, `email_in`, `email_body`), `created_by` the

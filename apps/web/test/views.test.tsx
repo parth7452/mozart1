@@ -4,9 +4,15 @@ import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
-import type { CaseWorkflow, PossibleDuplicatePair, UnreadDocument } from '@recouple/pipeline';
+import type {
+  CaseWorkflow,
+  PossibleDuplicatePair,
+  UnattachedDocument,
+  UnreadDocument,
+} from '@recouple/pipeline';
 import { CaseList, type Viewer } from '../components/case-list';
 import { UnreadDocuments, waiting } from '../components/unread-documents';
+import { caseLabel, UnattachedDocuments } from '../components/unattached-documents';
 import { CaseReview } from '../components/case-review';
 import { basisSentence, PossibleDuplicates } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
@@ -424,6 +430,104 @@ describe('documents waiting to be read', () => {
       <CaseList mayUpload viewer={viewer} cases={[]} today={today} />,
     );
     expect(html).not.toContain('Documents waiting to be read');
+  });
+});
+
+describe('documents that were read and that no case holds', () => {
+  function loose(overrides: Partial<UnattachedDocument> = {}): UnattachedDocument {
+    return {
+      documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+      filename: '08_log-202.jpg',
+      createdAt: '2026-09-23T15:56:16.000Z',
+      docType: 'pod',
+      ...overrides,
+    };
+  }
+
+  it('says what each one was read as, and offers the open cases to attach it to', () => {
+    const open = summary({ claimId: 'LOG-202', debtorName: undefined, retailerNameAsPrinted: 'Westhaven Paper Supply' });
+    const closed = summary({
+      deductionId: '99999999-2222-3333-4444-555555555555',
+      claimId: 'CLOSED-1',
+      state: 'won',
+    });
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} cases={[open, closed]} />,
+    );
+
+    expect(html).toContain('Read, not on a case');
+    expect(html).toContain('08_log-202.jpg');
+    expect(html).toContain('proof of delivery');
+    // A POST to the document's own route, carrying the case chosen.
+    expect(html).toContain('action="/documents/eeeeeeee-1111-2222-3333-444444444444/attach"');
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="caseId"');
+    expect(html).toContain(caseLabel(open));
+    // A closed case is not somewhere evidence goes.
+    expect(html).not.toContain('CLOSED-1');
+    // And it says the thing a reviewer would otherwise have to find out.
+    expect(html).toContain('not read again');
+  });
+
+  it('labels a case by its claim, who took the money and how much', () => {
+    expect(
+      caseLabel(summary({ claimId: 'LOG-202', debtorName: undefined, retailerNameAsPrinted: 'Westhaven Paper Supply' })),
+    ).toBe('LOG-202 · Westhaven Paper Supply · $3,120.00');
+    expect(caseLabel(summary({ claimId: undefined, debtorName: undefined }))).toBe(
+      'no claim id · retailer unknown · $3,120.00',
+    );
+  });
+
+  it('says there is nowhere to attach it yet when no case is open', () => {
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} cases={[summary({ state: 'lost' })]} />,
+    );
+    expect(html).toContain('No open case yet');
+    expect(html).not.toContain('<form');
+  });
+
+  it('renders a filename as text, never as markup', () => {
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments
+        documents={[loose({ filename: '<img src=x onerror=alert(1)>.jpg' })]}
+        cases={[summary()]}
+      />,
+    );
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('draws nothing when there is nothing loose', () => {
+    expect(renderToStaticMarkup(<UnattachedDocuments documents={[]} cases={[summary()]} />)).toBe('');
+  });
+
+  it('is on the case list for a writer, and not for a reader', () => {
+    const writer = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[summary()]} today={today} unattached={[loose()]} />,
+    );
+    expect(writer).toContain('Read, not on a case');
+
+    const reader = renderToStaticMarkup(
+      <CaseList
+        mayUpload={false}
+        viewer={{ ...viewer, role: 'read_only' }}
+        cases={[summary()]}
+        today={today}
+        unattached={[loose()]}
+      />,
+    );
+    expect(reader).not.toContain('Read, not on a case');
+  });
+
+  it('is where the queued-upload notice points, instead of promising a case', () => {
+    // The notice used to say "the case will appear here when it is" whatever
+    // the document turned out to be. A delivery receipt read that way opened
+    // nothing, and the reviewer waited for a case that was never coming.
+    const html = renderToStaticMarkup(
+      <CaseList mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
+    );
+    expect(html).toContain('Read, not on a case');
+    expect(html).not.toContain('the case will appear here when it is');
   });
 });
 

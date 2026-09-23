@@ -325,8 +325,18 @@ export const NOTICES = {
     text: 'that document is being read; it will appear on this case when it is',
   },
   upload_queued_list: {
+    // It used to say "the case will appear here when it is", whatever the
+    // document turned out to be. The read happens in a job, after this
+    // redirect, so nobody here knows yet whether it is a notice — and a
+    // delivery receipt read that way opened nothing and appeared nowhere, while
+    // the reviewer waited for a case that was never coming. So it says what
+    // each kind of document will do, and where to find the ones that open
+    // nothing.
     tone: 'good',
-    text: 'that document is being read; the case will appear here when it is',
+    text:
+      'that document is being read. A deduction notice, or a remittance with a short payment, ' +
+      'opens its case here within a couple of minutes; anything else — a delivery receipt, an ' +
+      'invoice, a rate confirmation — is listed under “Read, not on a case”, to attach to its case',
   },
   upload_not_queued: {
     // It used to say that uploading the same file again re-queues it. That was
@@ -419,6 +429,33 @@ export const NOTICES = {
 
   // One per `RejectionCode`, because the door's refusal is a closed set and its
   // message is a sentence built around a filename somebody else chose.
+  // --- attaching a document that was already read -------------------------
+  attach_role: {
+    tone: 'bad',
+    text: 'your role can review documents but not attach them to a case',
+  },
+  attach_choose_case: { tone: 'bad', text: 'choose the case to attach that document to' },
+  attach_done: {
+    tone: 'good',
+    text: 'attached to this case as evidence. It was not read again, and nothing was charged.',
+  },
+  attach_already: {
+    tone: 'good',
+    text: 'this case already holds that document; nothing changed',
+  },
+  attach_not_read: {
+    tone: 'bad',
+    text: 'that document has not been read yet, so there is nothing to attach — read it first',
+  },
+  attach_case_gone: {
+    tone: 'bad',
+    text: 'that case is no longer available; nothing was attached',
+  },
+  attach_failed: {
+    tone: 'bad',
+    text: 'attaching that document failed, and nothing was attached. Try again.',
+  },
+
   upload_rejected: { tone: 'bad', text: 'that file was not accepted, and nothing was stored' },
   upload_rejected_empty_file: { tone: 'bad', text: 'that file is empty' },
   upload_rejected_body_too_short: {

@@ -1,3 +1,5 @@
+import type { DocType } from '@recouple/extraction';
+
 /** Money is integer cents everywhere; it becomes a string only to be read. */
 export function money(cents: number): string {
   const sign = cents < 0 ? '-' : '';
@@ -74,4 +76,30 @@ export function retailer(
     return { name: summary.retailerNameAsPrinted, matched: false };
   }
   return { name: unread, matched: true };
+}
+
+/**
+ * What a document was read as, in words.
+ *
+ * Every one of `DOC_TYPES`, written out: a `Record` over the union, so a
+ * thirteenth type is a compile error here rather than a document the list shows
+ * as its code name.
+ */
+const DOC_TYPE_LABELS: Readonly<Record<DocType, string>> = {
+  deduction_notice: 'deduction notice',
+  remittance_advice: 'remittance advice',
+  invoice: 'invoice',
+  po: 'purchase order',
+  bol: 'bill of lading',
+  pod: 'proof of delivery',
+  asn: 'advance ship notice',
+  correspondence: 'correspondence',
+  promo_agreement: 'promotion agreement',
+  price_agreement: 'price or rate agreement',
+  routing_guide: 'routing guide',
+  other: 'other document',
+};
+
+export function docTypeLabel(docType: DocType): string {
+  return DOC_TYPE_LABELS[docType];
 }

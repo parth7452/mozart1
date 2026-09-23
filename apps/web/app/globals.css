@@ -179,6 +179,31 @@ form.upload button.primary { margin-top: 0; }
 }
 .card.unread button:hover { background: var(--bg); }
 
+/* Read, not on a case: evidence that was read and opened nothing. The same
+   quiet treatment as the unread documents — it is filing, not an alarm. */
+.card.unattached .empty { padding: 0 0 14px; font-size: 13px; line-height: 1.5; }
+.card.unattached form { display: flex; gap: 8px; align-items: center; }
+.card.unattached select {
+  max-width: 280px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+.card.unattached button {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.card.unattached button:hover { background: var(--bg); }
+
 /* Possible duplicates: two cases that may be one deduction (ADR 0032).
    The same quiet treatment the unread documents get, and for the same reason —
    this is a question to answer, not an alarm, and neither button merges
@@ -421,6 +446,7 @@ dl.fields .quote { border-left: 2px solid #d9e2ce; padding-left: 9px; margin-top
 .gate { background: #edf1e7; border: 1px solid #d5deca; font-size: 11px; line-height: 1.8; }
 .card.approve { border-color: #a3bb6d; background: #f9fbf3; }
 .card.unread { margin-bottom: 24px; overflow: auto; }
+.card.unattached { margin-bottom: 24px; overflow: auto; }
 .card.duplicates { margin-bottom: 24px; overflow: auto; }
 .notice { border: 1px solid transparent; padding: 13px 16px; font-size: 12px; }
 .notice.bad { border-color: #f0d7d3; }.notice.sent { border-color: #cfe3d4; }
