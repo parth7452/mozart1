@@ -867,9 +867,10 @@ would otherwise hold its company from every other workspace; releasing
 automatically on `invalid_grant` is a follow-up, not built. The first sync is
 queued on connect. A redirect that arrives again after it connected — the first
 production click-through saw one, a second later — is refused like any request
-without a state, but says the company is connected when this workspace's
-connection to it was stored within the last ten minutes, and every refusal logs
-its reason and the request's fetch metadata. No code, token or anything Intuit said reaches a log line, a
+without a state, but says the company is connected when this member's own
+connection to it stored a sign-in in the last two minutes — as does an arrival
+whose code the first had already spent — and every refusal and connect logs its
+reason, the notice given and the request's fetch metadata. No code, token or anything Intuit said reaches a log line, a
 redirect, an event or an audit payload, and the route and store tests spy on all
 four. Production carries 0030 since 2026-09-23, applied to `mozart-preview`
 first and read back on both: the stored statements' md5 equals the file's, the

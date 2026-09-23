@@ -52,6 +52,7 @@ const harness = vi.hoisted(() => ({
   overview: [] as unknown[],
   overviewFails: false,
   overviewReads: 0,
+  overviewTenants: [] as unknown[],
 }));
 
 function fakeStore() {
@@ -119,6 +120,9 @@ vi.mock('@recouple/store-postgres', async (importOriginal) => {
       };
     },
     PostgresLedgerSyncStore: class {
+      constructor(_config: unknown, tenant: unknown) {
+        harness.overviewTenants.push(tenant);
+      }
       async ledgerConnectionOverview() {
         harness.overviewReads += 1;
         if (harness.overviewFails) throw new Error('database unreachable');
@@ -182,6 +186,7 @@ beforeEach(() => {
     overview: [],
     overviewFails: false,
     overviewReads: 0,
+    overviewTenants: [],
   });
   logged.length = 0;
   for (const level of ['log', 'warn', 'error', 'info'] as const) {
@@ -247,7 +252,9 @@ describe('starting a consent', () => {
     expect(cookie).toMatch(/Secure/i);
     expect(cookie).toMatch(/SameSite=Lax/i);
     expect(cookie).toMatch(/Path=\//);
-    expect(cookie).toMatch(/Max-Age=600/);
+    // Ten minutes for the state, and a minute more so an expired one still
+    // arrives with its cookie and is refused as expired.
+    expect(cookie).toMatch(/Max-Age=660/);
     expect(cookie).not.toMatch(/Domain=/i);
     // The state Intuit will send back is the cookie's nonce.
     const value = decodeURIComponent(cookie.split(';')[0]?.split('=')[1] ?? '');
@@ -378,6 +385,7 @@ describe('coming back from Intuit', () => {
         connectionId: CONNECTION_ID,
         providerAccountId: '9341457960434078',
         enabled: true,
+        createdBy: USER_ID,
         latestCredential: { storedAt: new Date(Date.now() - 5_000).toISOString(), refreshExpiresAt: '2027-01-02T00:00:00.000Z' },
       },
     ];
@@ -390,8 +398,11 @@ describe('coming back from Intuit', () => {
     expect(harness.exchanged).toEqual([]);
     expect(harness.connected).toEqual([]);
     const line = logged.join('\n');
-    expect(line).toMatch(/state refused \(no_cookie\)/);
+    expect(line).toMatch(/state refused \(no_cookie\) for member [0-9a-f-]+, said qbo_already_connected;/);
     expect(line).toMatch(/sec-fetch-site=cross-site sec-fetch-mode=navigate/);
+    expect(harness.overviewReads).toBe(1);
+    // Read as the signed-in member, in the org the session selected.
+    expect(harness.overviewTenants).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
     expect(line).toMatch(/code=yes state=yes/);
     expect(line).not.toContain(CODE);
     expect(line).not.toContain(state);
@@ -400,46 +411,97 @@ describe('coming back from Intuit', () => {
   it('still refuses as before when the repeat is not explained by a fresh connection', async () => {
     const { state, cookieValue } = stateFor();
     const fresh = new Date(Date.now() - 5_000).toISOString();
-    const stale = new Date(Date.now() - 11 * 60_000).toISOString();
+    const stale = new Date(Date.now() - 3 * 60_000).toISOString();
     const row = (overrides: Record<string, unknown>) => ({
       connectionId: CONNECTION_ID,
       providerAccountId: '9341457960434078',
       enabled: true,
+      createdBy: USER_ID,
       latestCredential: { storedAt: fresh, refreshExpiresAt: '2027-01-02T00:00:00.000Z' },
       ...overrides,
     });
 
-    const cases: Array<[string, unknown[], string | undefined, string]> = [
-      ['no connection', [], undefined, '9341457960434078'],
-      ['another company', [row({ providerAccountId: '1234' })], undefined, '9341457960434078'],
-      ['turned off', [row({ enabled: false })], undefined, '9341457960434078'],
-      ['an older sign-in', [row({ latestCredential: { storedAt: stale, refreshExpiresAt: '2027-01-02T00:00:00.000Z' } })], undefined, '9341457960434078'],
-      ['a realm that is not digits', [row({})], undefined, '../admin'],
-      // A cookie that does not match is not a repeat: it is refused plainly.
-      ['a mismatched cookie', [row({})], cookieValue, '9341457960434078'],
+    // [name, overview, cookie, realm, reads expected]
+    const cases: Array<[string, unknown[], string | undefined, string, number]> = [
+      ['no connection', [], undefined, '9341457960434078', 1],
+      ['another company', [row({ providerAccountId: '1234' })], undefined, '9341457960434078', 1],
+      ['turned off', [row({ enabled: false })], undefined, '9341457960434078', 1],
+      ['another member’s connection', [row({ createdBy: '99999999-9999-9999-9999-999999999999' })], undefined, '9341457960434078', 1],
+      ['an older sign-in', [row({ latestCredential: { storedAt: stale, refreshExpiresAt: '2027-01-02T00:00:00.000Z' } })], undefined, '9341457960434078', 1],
+      // Never read at all for these: a realm that is not digits, and a cookie
+      // that is present but wrong — that is not a repeat, it is refused plainly.
+      ['a realm that is not digits', [row({})], undefined, '../admin', 0],
+      ['a mismatched cookie', [row({})], cookieValue, '9341457960434078', 0],
     ];
-    for (const [name, overview, cookie, realmId] of cases) {
+    for (const [name, overview, cookie, realmId, reads] of cases) {
       harness.overview = overview;
+      harness.overviewReads = 0;
       const wrongState = cookie === undefined ? state : `${state.slice(0, -1)}${state.endsWith('A') ? 'B' : 'A'}`;
       const response = await callback(back({ code: CODE, state: wrongState, realmId }, cookie));
       expect(said(response), name).toMatch(/could not be matched to this session/);
+      expect(harness.overviewReads, name).toBe(reads);
     }
     expect(harness.exchanged).toEqual([]);
+
+    // An expired cookie still arrives (it outlives the state by a minute) and
+    // is refused as expired, never read as a repeat.
+    harness.overview = [row({})];
+    harness.overviewReads = 0;
+    const old = stateFor(ORG_ID, USER_ID, new Date(Date.now() - 10.5 * 60_000));
+    expect(said(await callback(back({ code: CODE, state: old.state, realmId: '9341457960434078' }, old.cookieValue)))).toMatch(
+      /could not be matched to this session/,
+    );
+    expect(harness.overviewReads).toBe(0);
+    expect(logged.join('\n')).toMatch(/state refused \(expired\)/);
 
     // And a read that fails says the old thing, logged by class name.
     harness.overview = [row({})];
     harness.overviewFails = true;
+    harness.overviewReads = 0;
     const failed = await callback(back({ code: CODE, state, realmId: '9341457960434078' }));
     expect(said(failed)).toMatch(/could not be matched to this session/);
     expect(logged.join('\n')).toMatch(/reading the connection for a repeated redirect failed \(Error\)/);
   });
+
+  it('says connected when its code was spent by an earlier arrival still carrying the cookie', async () => {
+    // Both arrivals carried the cookie; the first exchanged the code, so
+    // Intuit refuses the second. The first has connected this member's company.
+    harness.exchangeFails = true;
+    harness.overview = [
+      {
+        connectionId: CONNECTION_ID,
+        providerAccountId: '9341457960434078',
+        enabled: true,
+        createdBy: USER_ID,
+        latestCredential: { storedAt: new Date().toISOString(), refreshExpiresAt: '2027-01-02T00:00:00.000Z' },
+      },
+    ];
+    const { state, cookieValue } = stateFor();
+    const response = await callback(back({ code: CODE, state, realmId: '9341457960434078' }, cookieValue));
+
+    expect(said(response)).toMatch(/QuickBooks is connected\. The sign-in came back here a second time/);
+    expect(harness.connected).toEqual([]);
+    expect(harness.overviewTenants).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
+    expect(logged.join('\n')).toMatch(/code already spent by an earlier arrival .* said qbo_already_connected/);
+    expect(logged.join('\n')).not.toContain(CODE);
+  });
+
+  it('still says the exchange failed when nothing connected the company, after asking for a few seconds', async () => {
+    harness.exchangeFails = true;
+    harness.overview = [];
+    const { state, cookieValue } = stateFor();
+    const response = await callback(back({ code: CODE, state, realmId: '9341457960434078' }, cookieValue));
+    expect(said(response)).toMatch(/did not complete the sign-in/);
+    // Asked once a second for five seconds, then once more.
+    expect(harness.overviewReads).toBe(6);
+  }, 15_000);
 
   it('logs a connect by ids and outcome, and nothing Intuit sent', async () => {
     const { state, cookieValue } = stateFor();
     await callback(back({ code: CODE, state, realmId: '9341457960434078' }, cookieValue));
     const line = logged.join('\n');
     expect(line).toContain(
-      `QuickBooks connect: connected company 9341457960434078 as connection ${CONNECTION_ID} for org ${ORG_ID}, member ${USER_ID}`,
+      `QuickBooks connect: connected company 9341457960434078 as connection ${CONNECTION_ID} for org ${ORG_ID}, member ${USER_ID}; sec-fetch-site=cross-site`,
     );
     for (const secret of [CODE, state, TOKENS.accessToken, TOKENS.refreshToken]) {
       expect(line).not.toContain(secret);
@@ -502,7 +564,7 @@ describe('coming back from Intuit', () => {
       /could not read the QuickBooks company/,
     );
     expect(harness.connected).toEqual([]);
-  });
+  }, 15_000);
 
   it('says so when another workspace holds the company', async () => {
     const { AccountConnectedElsewhereError } = await import('@recouple/store-postgres');
@@ -546,7 +608,7 @@ describe('coming back from Intuit', () => {
     for (const secret of [CODE, TOKENS.accessToken, TOKENS.refreshToken]) {
       expect(everything).not.toContain(secret);
     }
-  });
+  }, 15_000);
 });
 
 describe('disconnecting', () => {

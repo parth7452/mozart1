@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
-import { exchangeIntuitToken, verifyRealmAccess } from '@recouple/qbo';
+import { exchangeIntuitToken, QboAuthError, verifyRealmAccess } from '@recouple/qbo';
 import {
   AccountConnectedElsewhereError,
   connectQboCompany,
   OwnerRequiredError,
   PostgresLedgerSyncStore,
 } from '@recouple/store-postgres';
-import { requireSession, storeFor, type Session } from '../../../../lib/session';
+import { requireSession } from '../../../../lib/session';
 import { tenantStore } from '../../../../lib/store';
 import { env } from '../../../../lib/env';
 import { inngestClient, inngestKeysFromEnv } from '../../../../lib/inngest';
@@ -21,7 +21,6 @@ import {
   qboConnectFromEnv,
   QBO_SETTINGS_PATH,
   QBO_STATE_COOKIE,
-  QBO_STATE_MAX_AGE_SECONDS,
   type OAuthStateRefusal,
 } from '../../../../lib/qbo-connect';
 
@@ -65,12 +64,14 @@ export const dynamic = 'force-dynamic';
  * sandbox click-through, a second later, after the first had connected and
  * spent the cookie — is refused like any other request without a state; it
  * exchanges nothing. What it *says* is the difference: when there is no cookie
- * at all and this workspace's connection to the company in the URL was stored
- * within the state's own ten minutes, the page says the company is connected
- * rather than that the sign-in failed. That is a read through RLS of something
- * the page shows anyway, so a forged link can learn nothing from it and can
- * change nothing. Every refusal is logged with its reason and the request's
- * fetch metadata, so the next one says where it came from.
+ * at all and this member's own connection to the company in the URL stored a
+ * sign-in within the last two minutes, the page says the company is connected
+ * rather than that the sign-in failed — and so does an arrival that still
+ * carried the cookie but found its code already spent by the first. That is a
+ * read through RLS of something the page shows anyway, so a forged link can
+ * learn nothing from it and can change nothing. Every refusal and every connect
+ * is logged with the request's fetch metadata and the notice given, so the next
+ * one says where it came from.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
@@ -90,11 +91,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const checked = checkOAuthState(cookieValue, url.searchParams.get('state'), new Date());
   if (!checked.ok || checked.claim.userId !== session.userId) {
     const reason: OAuthStateRefusal | 'other_member' = checked.ok ? 'other_member' : checked.reason;
-    logRefusal(reason, request, session);
-    if (reason === 'no_cookie' && (await justConnected(session, url.searchParams.get('realmId')))) {
-      return say('qbo_already_connected');
-    }
-    return say('qbo_state_invalid');
+    const notice: NoticeKey =
+      reason === 'no_cookie' &&
+      (await justConnected(
+        { orgId: session.org.orgId, userId: session.userId },
+        url.searchParams.get('realmId'),
+      ))
+        ? 'qbo_already_connected'
+        : 'qbo_state_invalid';
+    console.warn(
+      `[recouple] QuickBooks connect: state refused (${reason}) for member ${session.userId}, ` +
+        `said ${notice}; ${fetchMetadata(request)}`,
+    );
+    return say(notice);
   }
   const claim = checked.claim;
 
@@ -131,6 +140,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     } catch (cause) {
       log('the code exchange failed', identity, realmId, cause);
+      // A second arrival that still carried the cookie spends the code the
+      // first one already spent, and Intuit refuses it. If the first is
+      // connecting this company for this member, say so rather than that
+      // nothing was connected: it may still be finishing, so ask for a few
+      // seconds.
+      if (cause instanceof QboAuthError && (await connectsWithin(identity, realmId, 5))) {
+        console.warn(
+          `[recouple] QuickBooks connect: code already spent by an earlier arrival for org ` +
+            `${identity.orgId}, member ${identity.userId}, ${realmId}; said qbo_already_connected; ` +
+            fetchMetadata(request),
+        );
+        return say('qbo_already_connected');
+      }
       return say('qbo_exchange_failed');
     }
 
@@ -165,7 +187,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     console.log(
       `[recouple] QuickBooks connect: ${connected.outcome} company ${realmId} as connection ` +
-        `${connected.connection.connectionId} for org ${identity.orgId}, member ${identity.userId}`,
+        `${connected.connection.connectionId} for org ${identity.orgId}, member ${identity.userId}; ` +
+        fetchMetadata(request),
     );
 
     // 8. The first sync, on the existing event.
@@ -175,18 +198,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/** How recently a sign-in must have been stored to explain a repeated arrival. */
+const REPEAT_WINDOW_MS = 120_000;
+
 /**
- * Whether this workspace's connection to `realmId` was stored within the last
- * ten minutes — the answer to a redirect that arrives again after the first
- * one connected. Read through RLS as the signed-in member, in the org the
- * session has selected; any doubt (no such company, an older sign-in, another
- * org selected, the read failing) is `false`, and the caller says what it said
- * before. It writes nothing.
+ * Whether this member's own connection to `realmId`, in `identity.orgId`, is
+ * enabled with a sign-in stored in the last two minutes — the answer to a
+ * redirect that arrives again after the first one connected. Read through RLS
+ * as the signed-in member; any doubt (no such company, somebody else's
+ * connection, an older sign-in, the read failing) is `false`, and the caller
+ * says what it would have said anyway. It writes nothing.
+ *
+ * A sync's own token rotation also stores a sign-in, as this member (the sync
+ * acts as the connection's creator), so within those two minutes the answer can
+ * be yes without a consent having just finished. The notice it leads to is
+ * true either way: the company is connected, and this request changed nothing.
  */
-async function justConnected(session: Session, realmId: string | null): Promise<boolean> {
+async function justConnected(
+  identity: { readonly orgId: string; readonly userId: string },
+  realmId: string | null,
+): Promise<boolean> {
   if (realmId === null || !/^\d{1,20}$/.test(realmId)) return false;
-  const identity = { orgId: session.org.orgId, userId: session.userId };
-  const store = storeFor(session);
+  const store = tenantStore(identity);
   try {
     const connections = await new PostgresLedgerSyncStore(
       { connectionString: env.databaseUrl },
@@ -194,11 +227,14 @@ async function justConnected(session: Session, realmId: string | null): Promise<
       store,
     ).ledgerConnectionOverview();
     const stored = connections.find(
-      (connection) => connection.enabled && connection.providerAccountId === realmId,
+      (connection) =>
+        connection.enabled &&
+        connection.providerAccountId === realmId &&
+        connection.createdBy === identity.userId,
     )?.latestCredential?.storedAt;
     if (stored === undefined) return false;
     const age = Date.now() - Date.parse(stored);
-    return age >= 0 && age <= QBO_STATE_MAX_AGE_SECONDS * 1000;
+    return age >= 0 && age <= REPEAT_WINDOW_MS;
   } catch (cause) {
     log('reading the connection for a repeated redirect failed', identity, realmId, cause);
     return false;
@@ -207,25 +243,33 @@ async function justConnected(session: Session, realmId: string | null): Promise<
   }
 }
 
+/** `justConnected`, asked once a second for up to `seconds` seconds. */
+async function connectsWithin(
+  identity: { readonly orgId: string; readonly userId: string },
+  realmId: string,
+  seconds: number,
+): Promise<boolean> {
+  for (let attempt = 0; attempt <= seconds; attempt += 1) {
+    if (await justConnected(identity, realmId)) return true;
+    if (attempt < seconds) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  return false;
+}
+
 /**
- * Why a callback was refused, and what kind of request it was — the browser's
- * fetch metadata and whether it carried a code — so a refusal says whether it
- * was a spent cookie, a second navigation, a prefetch or a forgery. Never a
- * value from the URL.
+ * What kind of request this was — the browser's fetch metadata, reduced to its
+ * enumeration characters, and whether it carried a code and a state — so a log
+ * line says whether an arrival was a navigation, a prefetch or something else.
+ * Never a value from the URL.
  */
-function logRefusal(
-  reason: OAuthStateRefusal | 'other_member',
-  request: NextRequest,
-  session: Session,
-): void {
+function fetchMetadata(request: NextRequest): string {
   const url = new URL(request.url);
   const header = (name: string) => headerForLog(request.headers.get(name));
-  console.warn(
-    `[recouple] QuickBooks connect: state refused (${reason}) for member ${session.userId}; ` +
-      `sec-fetch-site=${header('sec-fetch-site')} sec-fetch-mode=${header('sec-fetch-mode')} ` +
-      `sec-fetch-dest=${header('sec-fetch-dest')} sec-fetch-user=${header('sec-fetch-user')} ` +
-      `sec-purpose=${header('sec-purpose')} code=${url.searchParams.has('code') ? 'yes' : 'no'} ` +
-      `state=${url.searchParams.has('state') ? 'yes' : 'no'}`,
+  return (
+    `sec-fetch-site=${header('sec-fetch-site')} sec-fetch-mode=${header('sec-fetch-mode')} ` +
+    `sec-fetch-dest=${header('sec-fetch-dest')} sec-fetch-user=${header('sec-fetch-user')} ` +
+    `sec-purpose=${header('sec-purpose')} code=${url.searchParams.has('code') ? 'yes' : 'no'} ` +
+    `state=${url.searchParams.has('state') ? 'yes' : 'no'}`
   );
 }
 
