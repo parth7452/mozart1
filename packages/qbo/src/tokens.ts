@@ -17,6 +17,20 @@
 export interface QboTokenStore {
   load(realmId: string): Promise<{ accessToken: string; refreshToken: string; accessExpiresAt: string; refreshExpiresAt: string } | undefined>;
   save(realmId: string, tokens: { accessToken: string; refreshToken: string; accessExpiresAt: string; refreshExpiresAt: string }): Promise<void>;
+  /**
+   * Runs `work` while nobody else holds this company's token lock — across
+   * processes, not only this one (ADR 0039 §5).
+   *
+   * The adapter takes it around load → refresh → save, and reads the tokens
+   * again once it holds it: Intuit replaces the refresh token on every refresh,
+   * so two refreshes racing on one token leave one of them holding a token
+   * Intuit has already killed. A store that cannot serialize across processes
+   * is not a store this adapter can use in production, which is why this is not
+   * optional.
+   *
+   * Never nested: `work` must not ask for the same lock again.
+   */
+  withRefreshLock<T>(realmId: string, work: () => Promise<T>): Promise<T>;
 }
 
 /**

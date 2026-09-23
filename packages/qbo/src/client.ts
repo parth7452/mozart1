@@ -15,21 +15,27 @@ import type { LedgerWindow } from '@recouple/adapters';
 import { DateParseError, parsePrintedDate } from '@recouple/core-domain';
 import {
   QboAuthError,
-  QboInvalidId,
   QboInvalidWindow,
   QboMalformedResponse,
   QboRateLimited,
   QboRequestFailed,
 } from './errors';
+import { defaultFetch, readBody, send, summarise, type FetchLike } from './http';
+import { assertQboId } from './ids';
+import { exchangeIntuitToken } from './oauth';
 import { describe, isJsonObject, readArray, readObject, type JsonObject } from './reader';
 import { ACCESS_TOKEN_REFRESH_SKEW_MS, type QboTokenStore, type QboTokens } from './tokens';
+
+// Where these lived before the OAuth calls moved to `oauth.ts`, `http.ts` and
+// `ids.ts` (ADR 0039). Re-exported so every import of them from here still
+// resolves to the one definition.
+export { INTUIT_TOKEN_URL } from './oauth';
+export { assertQboId } from './ids';
+export type { FetchLike } from './http';
 
 /** Injected, never defaulted: production is not a fallback for a missing config. */
 export const QBO_SANDBOX_BASE_URL = 'https://sandbox-quickbooks.api.intuit.com';
 export const QBO_PRODUCTION_BASE_URL = 'https://quickbooks.api.intuit.com';
-
-/** One endpoint for both sandbox and production — Intuit does not split it. */
-export const INTUIT_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
 /** QBO's own ceiling on `MAXRESULTS`. */
 export const QBO_MAX_PAGE_SIZE = 1000;
@@ -44,8 +50,6 @@ export const QBO_IDS_PER_QUERY = 100;
 
 /** The entities this adapter reads. There is deliberately nothing else here. */
 export type QboEntity = 'Invoice' | 'Payment' | 'CreditMemo';
-
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface QboConnectionConfig {
   /** The customer's QuickBooks company id. */
@@ -88,7 +92,7 @@ export class QboClient {
       throw new QboRequestFailed('a QuickBooks realm id is required', 0, undefined);
     }
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
-    this.fetchImpl = config.fetchImpl ?? ((input, init) => fetch(input, init));
+    this.fetchImpl = config.fetchImpl ?? defaultFetch();
     this.now = config.now ?? (() => new Date());
     this.timeoutMs = config.timeoutMs ?? 60_000;
     this.maxPages = config.maxPages ?? 1_000;
@@ -208,20 +212,25 @@ export class QboClient {
       url.searchParams.set('minorversion', this.config.minorVersion);
     }
 
-    const response = await this.send(url.toString(), {
-      method: 'GET',
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: 'application/json',
-        // A fresh one per request. Intuit treats `Request-Id` as an idempotency
-        // key, so a reused id can be answered from another call's cached
-        // response — which on a read means silently stale ledger rows, and on
-        // Phase 4's write-back would mean a duplicated transaction.
-        'Request-Id': randomUUID(),
+    const response = await send(
+      this.fetchImpl,
+      url.toString(),
+      {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/json',
+          // A fresh one per request. Intuit treats `Request-Id` as an
+          // idempotency key, so a reused id can be answered from another call's
+          // cached response — which on a read means silently stale ledger rows,
+          // and on Phase 4's write-back would mean a duplicated transaction.
+          'Request-Id': randomUUID(),
+        },
       },
-    });
+      this.timeoutMs,
+    );
 
-    const text = await this.bodyText(response, url.toString());
+    const text = await readBody(response, url.toString());
 
     if (response.status === 401) {
       throw new QboAuthError(
@@ -260,15 +269,31 @@ export class QboClient {
    * worked a minute earlier into a customer-visible failure.
    */
   private async accessToken(): Promise<string> {
+    const stored = await this.loadTokens();
+    if (!this.needsRefresh(stored)) return stored.accessToken;
+
+    // A refresh is serialized per company (ADR 0039 §5). Intuit replaces the
+    // refresh token on every refresh, so two refreshes racing on one token leave
+    // one of them holding a token Intuit has already killed. Under the lock the
+    // tokens are read again: whoever held it before us may have rotated them
+    // already, and refreshing a second time with the token they replaced is the
+    // exact race the lock is for.
+    return this.config.tokenStore.withRefreshLock(this.config.realmId, async () => {
+      const current = await this.loadTokens();
+      if (!this.needsRefresh(current)) return current.accessToken;
+      const rotated = await this.refresh(current);
+      return rotated.accessToken;
+    });
+  }
+
+  private async loadTokens(): Promise<QboTokens> {
     const stored = await this.config.tokenStore.load(this.config.realmId);
     if (stored === undefined) {
       throw new QboAuthError(
         `no QuickBooks tokens are stored for realm ${this.config.realmId}: the connection has not been authorised`,
       );
     }
-    if (!this.needsRefresh(stored)) return stored.accessToken;
-    const rotated = await this.refresh(stored);
-    return rotated.accessToken;
+    return stored;
   }
 
   private needsRefresh(tokens: QboTokens): boolean {
@@ -297,98 +322,16 @@ export class QboClient {
       );
     }
 
-    const basic = Buffer.from(`${this.config.clientId}:${this.config.clientSecret}`, 'utf8').toString(
-      'base64',
+    const rotated = await exchangeIntuitToken(
+      { clientId: this.config.clientId, clientSecret: this.config.clientSecret },
+      { grantType: 'refresh_token', refreshToken: stored.refreshToken },
+      `realm ${this.config.realmId}`,
+      { fetchImpl: this.fetchImpl, now: this.now, timeoutMs: this.timeoutMs },
     );
-
-    const response = await this.send(INTUIT_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        authorization: `Basic ${basic}`,
-        accept: 'application/json',
-        'content-type': 'application/x-www-form-urlencoded',
-        'Request-Id': randomUUID(),
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: stored.refreshToken,
-      }).toString(),
-    });
-
-    const text = await this.bodyText(response, INTUIT_TOKEN_URL);
-    if (!response.ok) {
-      throw new QboAuthError(
-        `Intuit refused the token refresh for realm ${this.config.realmId} ` +
-          `(${response.status}): ${summarise(text)}`,
-      );
-    }
-
-    let payload: unknown;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      throw new QboAuthError(
-        `Intuit's token response was not JSON for realm ${this.config.realmId}: ${summarise(text)}`,
-      );
-    }
-    if (!isJsonObject(payload)) {
-      throw new QboAuthError(
-        `Intuit's token response was not an object for realm ${this.config.realmId}: ${describe(payload)}`,
-      );
-    }
-
-    const issuedAt = this.now().getTime();
-    const rotated: QboTokens = {
-      accessToken: tokenField(payload, 'access_token', this.config.realmId),
-      refreshToken: tokenField(payload, 'refresh_token', this.config.realmId),
-      accessExpiresAt: new Date(
-        issuedAt + lifetimeField(payload, 'expires_in', this.config.realmId) * 1000,
-      ).toISOString(),
-      refreshExpiresAt: new Date(
-        issuedAt + lifetimeField(payload, 'x_refresh_token_expires_in', this.config.realmId) * 1000,
-      ).toISOString(),
-    };
 
     // Save first. Use second. Never the other way round.
     await this.config.tokenStore.save(this.config.realmId, rotated);
     return rotated;
-  }
-
-  private async send(url: string, init: RequestInit): Promise<Response> {
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), this.timeoutMs);
-    try {
-      return await this.fetchImpl(url, { ...init, signal: abort.signal });
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new QboRequestFailed(
-          `QuickBooks did not answer within ${this.timeoutMs}ms (${redactUrl(url)})`,
-          0,
-          undefined,
-        );
-      }
-      throw new QboRequestFailed(
-        `the request to QuickBooks failed before any response (${redactUrl(url)}): ` +
-          `${error instanceof Error ? error.message : String(error)}`,
-        0,
-        undefined,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  private async bodyText(response: Response, url: string): Promise<string> {
-    try {
-      return await response.text();
-    } catch (error) {
-      throw new QboRequestFailed(
-        `could not read QuickBooks' response body (${redactUrl(url)}): ` +
-          `${error instanceof Error ? error.message : String(error)}`,
-        response.status,
-        undefined,
-      );
-    }
   }
 }
 
@@ -417,40 +360,6 @@ export function assertWindowDate(value: string, which: 'from' | 'to'): string {
   }
 }
 
-/**
- * A QBO entity id, proven to be decimal digits.
- *
- * Not politeness, for `assertWindowDate`'s reason: the id is interpolated into
- * QBO's query language between single quotes, and it arrives off a ledger row
- * (a `LinkedTxn.TxnId`) rather than from our own code.
- */
-export function assertQboId(value: string): string {
-  if (typeof value !== 'string' || !/^\d{1,20}$/.test(value)) {
-    throw new QboInvalidId(`a QuickBooks id must be decimal digits, got ${describe(value)}`);
-  }
-  return value;
-}
-
-function tokenField(payload: JsonObject, key: string, realmId: string): string {
-  const value = payload[key];
-  if (typeof value !== 'string' || value === '') {
-    throw new QboAuthError(
-      `Intuit's token response for realm ${realmId} has no usable ${key}: ${describe(value)}`,
-    );
-  }
-  return value;
-}
-
-function lifetimeField(payload: JsonObject, key: string, realmId: string): number {
-  const value = payload[key];
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new QboAuthError(
-      `Intuit's token response for realm ${realmId} has no usable ${key}: ${describe(value)}`,
-    );
-  }
-  return value;
-}
-
 /** `Retry-After` in milliseconds: seconds, or an HTTP date, or nothing. */
 function retryAfterMs(response: Response): number | undefined {
   const header = response.headers.get('retry-after');
@@ -476,16 +385,4 @@ function faultFrom(text: string): unknown {
     // Not JSON. The message already carries the raw body.
   }
   return undefined;
-}
-
-function summarise(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed === '') return '(empty body)';
-  return trimmed.length > 300 ? `${trimmed.slice(0, 297)}...` : trimmed;
-}
-
-/** A URL for an error message, without the query — it carries the ledger filter. */
-function redactUrl(url: string): string {
-  const cut = url.indexOf('?');
-  return cut === -1 ? url : url.slice(0, cut);
 }

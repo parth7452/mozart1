@@ -42,11 +42,13 @@ describeDb('operator commands on the prescribed login', () => {
 
   const orgId = randomUUID();
   const otherOrgId = randomUUID();
+  const ownerId = randomUUID();
   const analystId = randomUUID();
   const readerId = randomUUID();
   const outsiderId = randomUUID();
   const slug = `oplink-${suffix}`;
   const otherSlug = `oplink-other-${suffix}`;
+  const ownerEmail = `oplink-w-${suffix}@example.test`;
   const analystEmail = `oplink-a-${suffix}@example.test`;
   const readerEmail = `oplink-r-${suffix}@example.test`;
   const outsiderEmail = `oplink-o-${suffix}@example.test`;
@@ -73,15 +75,16 @@ describeDb('operator commands on the prescribed login', () => {
       [orgId, slug, otherOrgId, otherSlug],
     );
     await admin.query(`insert into org_settings (org_id) values ($1), ($2)`, [orgId, otherOrgId]);
-    await admin.query(`insert into users (id, email) values ($1,$2), ($3,$4), ($5,$6)`, [
+    await admin.query(`insert into users (id, email) values ($1,$2), ($3,$4), ($5,$6), ($7,$8)`, [
       analystId, analystEmail,
       readerId, readerEmail,
       outsiderId, outsiderEmail,
+      ownerId, ownerEmail,
     ]);
     await admin.query(
       `insert into memberships (org_id, user_id, role)
-       values ($1,$2,'analyst'), ($1,$3,'read_only'), ($4,$5,'analyst')`,
-      [orgId, analystId, readerId, otherOrgId, outsiderId],
+       values ($1,$2,'analyst'), ($1,$3,'read_only'), ($4,$5,'analyst'), ($1,$6,'owner')`,
+      [orgId, analystId, readerId, otherOrgId, outsiderId, ownerId],
     );
     await admin.query(
       `insert into debtors (org_id, retailer_key, display_name)
@@ -206,20 +209,55 @@ describeDb('operator commands on the prescribed login', () => {
     expect(reader.stderr).toContain('is read_only');
   }, 60_000);
 
-  it('link:qbo dry-runs as the restricted login without touching KMS', async () => {
+  // Digits, as Intuit's realm ids are, and this run's own.
+  const realmId = `93${Number.parseInt(suffix, 16)}`;
+
+  it('link:qbo dry-runs as the restricted login without touching KMS, for an owner only', async () => {
     const env = {
-      QBO_REALM_ID: `realm-${suffix}`,
+      QBO_REALM_ID: realmId,
       QBO_REFRESH_TOKEN: 'not-a-token',
       QBO_TOKEN_KMS_KEY_ID: 'alias/not-a-key',
       QBO_ACCESS_TOKEN: '',
     };
-    const dry = await command('link-qbo.ts', ['--org', slug, '--as', analystEmail, '--dry-run'], env);
+    const dry = await command('link-qbo.ts', ['--org', slug, '--as', ownerEmail, '--dry-run'], env);
     expect(dry.stderr).toBe('');
     expect(dry.code).toBe(0);
-    expect(dry.stdout).toContain(`would connect a QuickBooks company to org ${orgId} as member ${analystId}`);
+    expect(dry.stdout).toContain(
+      `would connect QuickBooks company ${realmId} to org ${orgId} as member ${ownerId}`,
+    );
+
+    // Connecting a ledger is an owner's act (ADR 0039): said by name, not as a
+    // policy violation from the database.
+    const analyst = await command('link-qbo.ts', ['--org', slug, '--as', analystEmail, '--dry-run'], env);
+    expect(analyst.code).toBe(1);
+    expect(analyst.stderr).toContain(`is analyst in ${slug}; only an owner connects a ledger`);
 
     const reader = await command('link-qbo.ts', ['--org', slug, '--as', readerEmail, '--dry-run'], env);
     expect(reader.code).toBe(1);
     expect(reader.stderr).toContain('is read_only');
+
+    const notARealm = await command(
+      'link-qbo.ts',
+      ['--org', slug, '--as', ownerEmail, '--dry-run'],
+      { ...env, QBO_REALM_ID: `realm-${suffix}` },
+    );
+    expect(notARealm.code).toBe(2);
+    expect(notARealm.stderr).toContain('a QuickBooks company id is digits');
+  }, 60_000);
+
+  it('unlink:qbo reads through RLS as the restricted login, for an owner only', async () => {
+    // Nothing is connected in this org, so the owner's lookup — the same read
+    // a real release makes — answers that there is nothing to release.
+    const none = await command('unlink-qbo.ts', [
+      '--org', slug, '--as', ownerEmail, '--realm', realmId, '--dry-run',
+    ]);
+    expect(none.code).toBe(1);
+    expect(none.stderr).toContain(`org ${slug} has no such QuickBooks connection. Nothing was changed.`);
+
+    const analyst = await command('unlink-qbo.ts', [
+      '--org', slug, '--as', analystEmail, '--realm', realmId, '--dry-run',
+    ]);
+    expect(analyst.code).toBe(1);
+    expect(analyst.stderr).toContain(`is analyst in ${slug}; only an owner disconnects a ledger`);
   }, 60_000);
 });

@@ -26,6 +26,7 @@ import type { Pool, PoolClient } from 'pg';
 import type { QboTokenStore, QboTokens } from '@recouple/qbo';
 import type { SealedToken, TokenCipher } from '@recouple/crypto';
 import { sessionPool, type PostgresStoreConfig, type TenantContext } from './store';
+import { withLedgerAccountLock } from './ledger-lock';
 
 /** Which connection this store is for, and which company that connection names. */
 export interface QboCredentialScope {
@@ -101,15 +102,115 @@ export class CredentialUnreadableError extends Error {
  */
 export class CredentialExpiryUnreadableError extends Error {
   constructor(
-    readonly connectionId: string,
+    /** What the token set is for: a connection, or — before one exists — a company. */
+    readonly subject: string,
     readonly field: string,
     readonly value: string,
   ) {
-    super(
-      `connection ${connectionId} was given a ${field} that is not a date: ${JSON.stringify(value)}`,
-    );
+    super(`${subject} was given a ${field} that is not a date: ${JSON.stringify(value)}`);
     this.name = 'CredentialExpiryUnreadableError';
   }
+}
+
+/**
+ * A token set, sealed, with the two expiries that are stored beside it in the
+ * clear — everything an `accounting_credentials` row needs except which
+ * connection it hangs off.
+ *
+ * Separate from the insert on purpose (ADR 0039 §4): the encryption context is
+ * `{orgId, realmId}`, both known before any connection row exists, so a connect
+ * seals first and then does every write in one transaction. A KMS failure
+ * therefore happens before the database is touched, and cannot leave a claimed
+ * connection with no tokens behind it.
+ */
+export interface SealedCredential {
+  readonly sealed: SealedToken;
+  readonly accessExpiresAt: string | null;
+  readonly refreshExpiresAt: string;
+}
+
+/** What every sealed token set is bound to (ADR 0033 §3). */
+export interface CredentialContext {
+  readonly orgId: string;
+  readonly realmId: string;
+}
+
+/**
+ * Seals a token set for one company of one tenant.
+ *
+ * The expiries are checked first, loudly, and the plaintext exists only as the
+ * argument to `encrypt`. `subject` names what it is for in an error — never a
+ * token.
+ */
+export async function sealTokenSet(
+  cipher: TokenCipher,
+  context: CredentialContext,
+  tokens: QboTokens,
+  subject: string,
+): Promise<SealedCredential> {
+  const refreshExpiresAt = isoInstant(tokens.refreshExpiresAt);
+  if (refreshExpiresAt === null) {
+    throw new CredentialExpiryUnreadableError(subject, 'refreshExpiresAt', tokens.refreshExpiresAt);
+  }
+  // A missing access token is legitimate — `link:qbo` stores a refresh token
+  // alone and the first read refreshes — and so is an unreadable expiry on one,
+  // which the adapter already treats as expired. Stored as null either way.
+  const accessExpiresAt =
+    tokens.accessToken.trim() === ''
+      ? null
+      : isoInstant(tokens.accessExpiresAt);
+
+  const sealed = await cipher.encrypt(JSON.stringify(tokens), {
+    orgId: context.orgId,
+    realmId: context.realmId,
+  });
+  return { sealed, accessExpiresAt, refreshExpiresAt };
+}
+
+/**
+ * Writes one sealed row, on a client the caller's transaction owns.
+ *
+ * The one copy of this INSERT. A rotation (`PostgresQboTokenStore.save`) and a
+ * connect (`connectQboCompany`) both call it, so the column list cannot drift
+ * between the two ways a row is written. `created_by` is the caller's own
+ * member, and since migration 0030 the database refuses any other.
+ */
+export async function insertSealedCredential(
+  client: PoolClient,
+  row: {
+    readonly orgId: string;
+    readonly connectionId: string;
+    readonly createdBy: string;
+    readonly credential: SealedCredential;
+  },
+): Promise<string> {
+  const { rows } = await client.query<{ id: string }>(
+    `insert into accounting_credentials
+       (org_id, connection_id, cipher, key_id, wrapped_key, ciphertext,
+        access_expires_at, refresh_expires_at, created_by)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     returning id`,
+    [
+      row.orgId,
+      row.connectionId,
+      row.credential.sealed.cipher,
+      row.credential.sealed.keyId,
+      row.credential.sealed.wrappedKey,
+      row.credential.sealed.ciphertext,
+      row.credential.accessExpiresAt,
+      row.credential.refreshExpiresAt,
+      row.createdBy,
+    ],
+  );
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('inserting a sealed credential returned no row');
+  return id;
+}
+
+/** An ISO instant for a column, or null when the value is not a date. */
+function isoInstant(value: string): string | null {
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? null : new Date(at).toISOString();
 }
 
 export class PostgresQboTokenStore implements QboTokenStore {
@@ -117,7 +218,7 @@ export class PostgresQboTokenStore implements QboTokenStore {
   private readonly role: string;
 
   constructor(
-    config: PostgresStoreConfig,
+    private readonly config: PostgresStoreConfig,
     private readonly tenant: TenantContext,
     private readonly scope: QboCredentialScope,
     private readonly cipher: TokenCipher,
@@ -195,33 +296,39 @@ export class PostgresQboTokenStore implements QboTokenStore {
   async save(realmId: string, tokens: QboTokens): Promise<void> {
     this.assertRealm(realmId);
 
-    const refreshExpiresAt = this.timestamp('refreshExpiresAt', tokens.refreshExpiresAt, false);
-    const accessExpiresAt =
-      tokens.accessToken.trim() === ''
-        ? null
-        : this.timestamp('accessExpiresAt', tokens.accessExpiresAt, true);
-
-    const sealed = await this.cipher.encrypt(JSON.stringify(tokens), this.context());
+    const credential = await sealTokenSet(
+      this.cipher,
+      this.context(),
+      tokens,
+      `connection ${this.scope.connectionId}`,
+    );
 
     await this.withTenant(async (client) => {
-      await client.query(
-        `insert into accounting_credentials
-           (org_id, connection_id, cipher, key_id, wrapped_key, ciphertext,
-            access_expires_at, refresh_expires_at, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          this.tenant.orgId,
-          this.scope.connectionId,
-          sealed.cipher,
-          sealed.keyId,
-          sealed.wrappedKey,
-          sealed.ciphertext,
-          accessExpiresAt,
-          refreshExpiresAt,
-          this.tenant.userId,
-        ],
-      );
+      await insertSealedCredential(client, {
+        orgId: this.tenant.orgId,
+        connectionId: this.scope.connectionId,
+        createdBy: this.tenant.userId,
+        credential,
+      });
     });
+  }
+
+  /**
+   * Runs `work` holding this company's lock (ADR 0039 §5): the adapter's load →
+   * refresh → save happens inside it, and so does every connect and disconnect
+   * of the same company, so no two of them interleave.
+   *
+   * The realm is checked like `load`'s and `save`'s: a store asked to lock a
+   * company it was not built for is the same mistake as one asked to read one.
+   */
+  async withRefreshLock<T>(realmId: string, work: () => Promise<T>): Promise<T> {
+    this.assertRealm(realmId);
+    return withLedgerAccountLock(
+      this.config,
+      this.tenant,
+      { provider: 'qbo', providerAccountId: this.scope.realmId },
+      work,
+    );
   }
 
   /**
@@ -309,15 +416,5 @@ export class PostgresQboTokenStore implements QboTokenStore {
       accessExpiresAt: raw.accessExpiresAt as string,
       refreshExpiresAt: raw.refreshExpiresAt as string,
     };
-  }
-
-  /** An ISO instant for a column, or a loud failure rather than a guess. */
-  private timestamp(field: string, value: string, nullable: boolean): string | null {
-    const at = Date.parse(value);
-    if (Number.isNaN(at)) {
-      if (nullable) return null;
-      throw new CredentialExpiryUnreadableError(this.scope.connectionId, field, value);
-    }
-    return new Date(at).toISOString();
   }
 }

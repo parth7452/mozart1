@@ -3,5 +3,7 @@ export * from './workflow';
 export * from './discovery';
 export * from './connections';
 export * from './credentials';
+export * from './ledger-lock';
+export * from './connect-qbo';
 export * from './session';
 export * from './operator';

@@ -4,6 +4,7 @@ do $test$
 declare
   a jsonb; org_a uuid; analyst_a uuid; approver_a uuid;
   b jsonb; org_b uuid; analyst_b uuid;
+  owner_a uuid; owner_b uuid;
   conn_a uuid; conn_b uuid;
   run_two uuid; run_three uuid; run_zero uuid; run_refused uuid; run_b uuid;
   n int; textish int;
@@ -18,6 +19,15 @@ begin
   org_a := (a->>'org')::uuid; analyst_a := (a->>'analyst')::uuid; approver_a := (a->>'approver')::uuid;
   b := test.seed_org('ledgeranomb');
   org_b := (b->>'org')::uuid; analyst_b := (b->>'analyst')::uuid;
+
+  -- Only an owner connects a ledger (ADR 0039 §8). The runs below still act as
+  -- the analyst: a run names whoever it acted as, whoever made the connection.
+  insert into users (email, full_name) values ('ledgeranom-owner-a@example.test', 'Owner A')
+    returning id into owner_a;
+  insert into users (email, full_name) values ('ledgeranom-owner-b@example.test', 'Owner B')
+    returning id into owner_b;
+  insert into memberships (org_id, user_id, role)
+    values (org_a, owner_a, 'owner'), (org_b, owner_b, 'owner');
 
   -- =========================================================================
   -- The table keeps a kind and ids, and no ledger text (ADR 0035 §5)
@@ -35,9 +45,10 @@ begin
     format('ledger_sync_anomalies carries no detail, memo, amount, number or name column (%s found)', textish));
 
   set role app_rw;
-  perform test.as_member(org_a, analyst_a);
+  perform test.as_member(org_a, owner_a);
   insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-    values (org_a, 'qbo', 'realm-anom-a', analyst_a) returning id into conn_a;
+    values (org_a, 'qbo', 'realm-anom-a', owner_a) returning id into conn_a;
+  perform test.as_member(org_a, analyst_a);
 
   run_two := app.record_ledger_sync_run(org_a, conn_a, analyst_a, win_from, win_to,
     now() - interval '5 seconds', now(), 'completed', 12, 0, 0, 0, 2, null);
@@ -132,9 +143,10 @@ begin
     'not that member', 'a run''s anomalies are written as the member it acted as');
 
   -- Another tenant sees another tenant's run as not existing at all.
-  perform test.as_member(org_b, analyst_b);
+  perform test.as_member(org_b, owner_b);
   insert into accounting_connections (org_id, provider, provider_account_id, created_by)
-    values (org_b, 'qbo', 'realm-anom-b', analyst_b) returning id into conn_b;
+    values (org_b, 'qbo', 'realm-anom-b', owner_b) returning id into conn_b;
+  perform test.as_member(org_b, analyst_b);
   run_b := app.record_ledger_sync_run(org_b, conn_b, analyst_b, win_from, win_to,
     now(), now(), 'completed', 1, 0, 0, 0, 1, null);
   perform test.expect_error(

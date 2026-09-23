@@ -179,6 +179,17 @@ export function sessionPool(config: PostgresStoreConfig): Pool {
 }
 
 /**
+ * The shared *lock* pool for a connection string: for a caller that holds an
+ * advisory lock in one transaction while its work runs in others
+ * (`withLedgerAccountLock`). Never the working pool, for `PoolPurpose`'s
+ * reason — a lock held on a working connection can starve the work it waits
+ * for.
+ */
+export function sessionLockPool(config: PostgresStoreConfig): Pool {
+  return poolFor(config, 'locks');
+}
+
+/**
  * Ends every shared pool. For a process that is shutting down, and for tests —
  * a request path never calls this, because the pool outlives the request.
  */

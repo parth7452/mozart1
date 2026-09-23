@@ -39,6 +39,16 @@ function tracked(seed: QboTokens, log: string[]): { store: QboTokenStore; inner:
       await inner.save(realmId, tokens);
       log.push(`save:${tokens.refreshToken}`);
     },
+    // Where the lock is taken and released, so the ordering assertions can
+    // see that the refresh and its save happen inside it (ADR 0039 §5).
+    async withRefreshLock(realmId, work) {
+      log.push('lock');
+      try {
+        return await inner.withRefreshLock(realmId, work);
+      } finally {
+        log.push('unlock');
+      }
+    },
   };
   return { store, inner };
 }
@@ -80,10 +90,16 @@ describe('proactive token rotation', () => {
       AUGUST,
     );
 
+    // The refresh happens under the company's lock, the tokens are read again
+    // once it is held, and the rotation is saved before the lock is released
+    // and before the ledger is read with it (ADR 0026, ADR 0039 §5).
     expect(log).toEqual([
+      'load',
+      'lock',
       'load',
       'fetch:token',
       'save:AB11605090630rotatedZmv1G4oX9Rtf2AoQ0hxXMvWmBcaLdjOWHdQFP',
+      'unlock',
       'fetch:query',
     ]);
 
@@ -180,5 +196,57 @@ describe('proactive token rotation', () => {
     const source = new QboAccountingSource(configFor(fetchImpl, undefined, { tokenStore: store }));
     await expect(source.listInvoices(AUGUST)).rejects.toThrow(/no usable refresh_token/);
     expect(store.saves).toEqual([]);
+  });
+
+  it('refreshes once when two reads find the same token near expiry at the same time', async () => {
+    // The race the lock is for: both readers load the same nearly-expired
+    // token set. Without the lock both would spend the same refresh token, and
+    // Intuit kills a refresh token the moment it issues its replacement — the
+    // second refresh would fail, or worse, rotate again and leave the first
+    // reader's saved token dead. With it, the second reader waits, reads again,
+    // finds the rotated tokens fresh and uses them.
+    const store = new InMemoryQboTokenStore({ [REALM_ID]: nearlyExpiredTokens() });
+    const { fetchImpl, calls } = recordingFetch(async (request) => {
+      if (request.url === INTUIT_TOKEN_URL) {
+        // Slow enough that the second reader arrives while this is in flight.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return jsonResponse(fixture('token-refresh.json'));
+      }
+      return jsonResponse({ QueryResponse: {} });
+    });
+
+    const first = new QboAccountingSource(configFor(fetchImpl, undefined, { tokenStore: store }));
+    const second = new QboAccountingSource(configFor(fetchImpl, undefined, { tokenStore: store }));
+    await Promise.all([first.listInvoices(AUGUST), second.listInvoices(AUGUST)]);
+
+    expect(calls.filter((call) => call.url === INTUIT_TOKEN_URL)).toHaveLength(1);
+    expect(store.saves).toHaveLength(1);
+    // And both ledger reads used the rotated access token.
+    const reads = calls.filter((call) => call.url !== INTUIT_TOKEN_URL);
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+    for (const read of reads) {
+      expect(read.headers.get('authorization')).toBe(
+        'Bearer eyJlbmMiOiJBMTI4Q0JDLUhTMjU2IiwiYWxnIjoiZGlyIn0..rotated-access-token',
+      );
+    }
+  });
+
+  it('releases the lock when a refresh fails, so the next reader is not stuck behind it', async () => {
+    const store = new InMemoryQboTokenStore({ [REALM_ID]: nearlyExpiredTokens() });
+    let refused = true;
+    const { fetchImpl } = recordingFetch((request) => {
+      if (request.url === INTUIT_TOKEN_URL) {
+        return refused
+          ? jsonResponse({ error: 'invalid_grant' }, 400)
+          : jsonResponse(fixture('token-refresh.json'));
+      }
+      return jsonResponse({ QueryResponse: {} });
+    });
+    const source = new QboAccountingSource(configFor(fetchImpl, undefined, { tokenStore: store }));
+
+    await expect(source.listInvoices(AUGUST)).rejects.toThrow(QboAuthError);
+    refused = false;
+    await expect(source.listInvoices(AUGUST)).resolves.toBeDefined();
+    expect(store.saves).toHaveLength(1);
   });
 });

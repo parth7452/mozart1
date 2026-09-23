@@ -1,17 +1,25 @@
 /**
- * Connect a tenant's QuickBooks company and store its first token set, sealed
- * (ADR 0033).
+ * Connect a tenant's QuickBooks company from an operator's `.env`, sealed
+ * (ADR 0033), by the same path the Settings → QuickBooks button takes
+ * (ADR 0039).
  *
- *   pnpm link:qbo --org harborline --as ap@harborline.test
- *   pnpm link:qbo --org harborline --as ap@harborline.test --dry-run
+ *   pnpm link:qbo --org harborline --as owner@harborline.test
+ *   pnpm link:qbo --org harborline --as owner@harborline.test --dry-run
  *
- * There is no OAuth consent flow yet (ADR 0031 §7 said so and ADR 0033 does not
- * change it), so the first token set is placed by a person, from the `.env`
- * file at the top of this repository. This is that person's command, and it is
- * the same shape as `pnpm link:retailer`: it resolves the org and the member it
- * acts as through `app.member_for_link()` as `app_rw` (ADR 0034), then does
- * every write through the tenant's own policies as `app_rw`. `DATABASE_URL` is
- * the login the app uses, never the owner.
+ * The button is the way in now: an owner consents at Intuit and nothing passes
+ * through a laptop. This is the fallback, and it follows the button's rules
+ * because it calls the button's function, `connectQboCompany` — only an owner,
+ * one enabled connection per company across the deployment, seal first, then
+ * the claim, the credential and the audit row in one transaction. So a run as
+ * the member who already holds the connection **re-enables** it and stores the
+ * new tokens, and a run as a different owner **moves** it to them — which is
+ * what "run it again as somebody current" after a `refused` sync is supposed to
+ * do, and until ADR 0039 did not.
+ *
+ * It resolves the org and the member it acts as through `app.member_for_link()`
+ * as `app_rw` (ADR 0034), then does every write through the tenant's own
+ * policies as `app_rw`. `DATABASE_URL` is the login the app uses, never the
+ * owner.
  *
  * **It seals with the real KMS cipher and there is no flag that changes that.**
  * `@recouple/crypto/testing` holds a local cipher for tests; this file does not
@@ -26,10 +34,12 @@
 import 'dotenv/config';
 import { KmsTokenCipher } from '@recouple/crypto';
 import {
+  AccountConnectedElsewhereError,
   closeAllPools,
+  connectQboCompany,
+  planLedgerClaim,
   resolveOperator,
   PostgresLedgerSyncStore,
-  PostgresQboTokenStore,
   PostgresStore,
 } from '@recouple/store-postgres';
 
@@ -39,15 +49,21 @@ function flag(name: string): string | undefined {
 }
 const has = (name: string): boolean => process.argv.includes(`--${name}`);
 
-const HELP = `Connect a QuickBooks company to a tenant and store its first tokens.
+const HELP = `Connect a QuickBooks company to a tenant and store its tokens.
 
-  pnpm link:qbo --org <slug> --as <member email> [--realm <company id>] [--dry-run]
+The Settings → QuickBooks page is the usual way to do this. This command is the
+fallback, and it follows the same rules.
+
+  pnpm link:qbo --org <slug> --as <owner email> [--realm <company id>] [--dry-run]
 
 Options:
   --org      the tenant's slug. No default: a connection belongs to one customer
-  --as       the member this acts as, by email. No default — and the member a
+  --as       the owner this acts as, by email. No default — and the member a
              scheduled sync will act as from then on, so make it somebody who
-             will still be here next quarter
+             will still be here next quarter. Only an owner may connect.
+             Run as the owner who already holds the connection, it re-enables
+             it with the new tokens; run as a different owner, it moves the
+             connection to them
   --realm    the QuickBooks company id, if it is not QBO_REALM_ID in .env
   --dry-run  say what would happen; write nothing and call nothing
 
@@ -110,6 +126,9 @@ const dryRun = has('dry-run');
 
 const realmId = (flag('realm') ?? process.env.QBO_REALM_ID ?? '').trim();
 if (realmId === '') usage('set QBO_REALM_ID in .env, or pass --realm');
+if (!/^\d{1,20}$/.test(realmId)) {
+  usage('a QuickBooks company id is digits — the realmId Intuit shows for the company');
+}
 
 const refreshToken = (process.env.QBO_REFRESH_TOKEN ?? '').trim();
 if (refreshToken === '') usage('set QBO_REFRESH_TOKEN in .env');
@@ -140,8 +159,12 @@ async function main(): Promise<void> {
     { connectionString: connectionString as string },
     { slug, email: actorEmail },
   );
-  if (actor.role === 'read_only') {
-    throw new Error(`${actorEmail} is read_only in ${slug} and may not connect a ledger`);
+  if (actor.role !== 'owner') {
+    // The database refuses anyone else too (migration 0030); this says so by
+    // name rather than as a policy violation.
+    throw new Error(
+      `${actorEmail} is ${actor.role} in ${slug}; only an owner connects a ledger (ADR 0039)`,
+    );
   }
   const orgId = actor.orgId;
   const actorId = actor.userId;
@@ -152,53 +175,68 @@ async function main(): Promise<void> {
   const connections = new PostgresLedgerSyncStore(config, tenant, store);
 
   try {
-    const existing = await connections.connectionForAccount('qbo', realmId);
-
     if (dryRun) {
       // Nothing is written and nothing is called — in particular no KMS call,
       // so a dry run works before the AWS half is set up and says whether the
-      // database half is.
-      console.log(
-        existing === undefined
-          ? `would connect a QuickBooks company to org ${orgId} as member ${actorId}`
-          : `would store tokens on existing connection ${existing.connectionId}` +
-              `${existing.enabled ? '' : ' (which is currently disabled)'}`,
+      // database half is. It sees this tenant's rows only: whether another
+      // workspace holds the company is something only the real run finds out,
+      // and it refuses rather than moves.
+      const plan = planLedgerClaim(
+        await connections.connectionsForAccount('qbo', realmId),
+        actorId,
       );
+      if (plan.outcome === 'connected') {
+        console.log(`would connect QuickBooks company ${realmId} to org ${orgId} as member ${actorId}`);
+      } else if (plan.outcome === 'reconnected') {
+        console.log(
+          `would store new tokens on connection ${plan.reuse?.connectionId}` +
+            `${plan.reuse?.enabled === false ? ' and enable it again' : ''}`,
+        );
+      } else {
+        console.log(
+          `would move the connection from member ${plan.disable
+            .map((row) => row.createdBy)
+            .join(', ')} to ${actorId}: ` +
+            `${plan.disable.map((row) => row.connectionId).join(', ')} turned off, ` +
+            `${plan.reuse === undefined ? 'a new connection' : `connection ${plan.reuse.connectionId}`} turned on`,
+        );
+      }
       console.log(`would seal them with KMS key ${kmsKeyId}${region === '' ? '' : ` in ${region}`}`);
       return;
     }
 
-    const connection =
-      existing ?? (await connections.createConnection({ provider: 'qbo', providerAccountId: realmId }));
-    console.log(
-      existing === undefined
-        ? `connection ${connection.connectionId} created for org ${orgId}, member ${actorId}`
-        : `connection ${connection.connectionId} already existed`,
-    );
-    if (!connection.enabled) {
-      // Not flipped here: enabling a connection somebody deliberately turned
-      // off is its own decision, and this command's job is the tokens.
-      console.warn(
-        `WARNING  connection ${connection.connectionId} is disabled, so nothing will sync it. ` +
-          `Enable it when you want it walked.`,
-      );
+    const cipher = KmsTokenCipher.forKey(kmsKeyId, region === '' ? {} : { region });
+    const environment = (process.env.QBO_ENVIRONMENT ?? '').trim();
+
+    let result;
+    try {
+      result = await connectQboCompany(config, tenant, {
+        realmId,
+        tokens: { accessToken, refreshToken, accessExpiresAt, refreshExpiresAt },
+        cipher,
+        via: 'operator_command',
+        ...(environment === 'sandbox' || environment === 'production' ? { environment } : {}),
+      });
+    } catch (error) {
+      if (error instanceof AccountConnectedElsewhereError) {
+        throw new Error(
+          `QuickBooks company ${realmId} is connected in another workspace. That workspace has to ` +
+            'disconnect it first (Settings → QuickBooks, or pnpm unlink:qbo as one of its owners). ' +
+            'Nothing was written.',
+        );
+      }
+      throw error;
     }
 
-    const cipher = KmsTokenCipher.forKey(kmsKeyId, region === '' ? {} : { region });
-    const tokens = new PostgresQboTokenStore(
-      config,
-      tenant,
-      { connectionId: connection.connectionId, realmId },
-      cipher,
+    const { connection, outcome, replacedConnectionIds } = result;
+    console.log(
+      outcome === 'connected'
+        ? `connection ${connection.connectionId} created for org ${orgId}, member ${actorId}`
+        : outcome === 'reconnected'
+          ? `connection ${connection.connectionId} reconnected with new tokens`
+          : `connection moved to member ${actorId}: ${replacedConnectionIds.join(', ')} turned off, ` +
+            `${connection.connectionId} turned on`,
     );
-
-    await tokens.save(realmId, {
-      accessToken,
-      refreshToken,
-      accessExpiresAt,
-      refreshExpiresAt,
-    });
-
     console.log(`tokens sealed with KMS key ${kmsKeyId} and stored against ${connection.connectionId}`);
     if (accessToken === '' || accessExpiresAt === ALREADY_EXPIRED) {
       console.log(

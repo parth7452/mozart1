@@ -11,6 +11,7 @@ export * from './client';
 export * from './errors';
 export * from './map';
 export * from './money';
+export * from './oauth';
 export * from './reader';
 export * from './source';
 export * from './tokens';
