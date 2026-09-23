@@ -358,6 +358,15 @@ security advisor's `function_search_path_mutable` finding is gone. `postgres` �
 the SQL editor and the MCP connector — can no longer `set role app_rw`, as ADR
 0037 accepted; read-only checks as `postgres` are unaffected.
 
+**A preview is not production** (2026-09-23). Vercel previews run against their
+own Supabase project, `mozart-preview` (`jvbnqofmoamyhntjwjdn`), with their own
+Auth and `DATABASE_URL`, and hold no Inngest, Anthropic, Reducto, QBO or KMS
+keys. Inngest re-registers the app on every deployment, so a preview holding
+Inngest keys takes production's jobs — which is how the 2026-09-23 daily ledger
+sync ran on an unmerged PR's preview and wrote into production. Never give
+Preview those keys or production's database; migrations go to `mozart-preview`
+first. `docs/supabase.md` has the variable-by-variable split.
+
 The Inngest binding over the existing steps exists, and which environment gets
 it is `runnerFromEnv`'s answer the way what scans is `scannerFromEnv`'s: both
 `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` gives a job, neither reads inside

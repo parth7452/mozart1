@@ -268,6 +268,47 @@ like `recouple_app` and runs each command as it.
   address and a `memberships` row for their tenant. Seed those as the owner —
   `app.link_auth_user()` refuses an address with no invitation, on purpose.
 
+## Preview deployments have their own project
+
+A Vercel preview is code nobody has merged, so it gets a Supabase project of its
+own: **`mozart-preview`** (`jvbnqofmoamyhntjwjdn`, free tier, us-east-1), with
+its own Auth and its own database. Until 2026-09-23 previews shared production's
+`DATABASE_URL` and Inngest keys, and at 07:00 UTC that day the daily ledger sync
+ran on PR #42's preview and wrote its run row into production. Inngest's
+integration re-registers the app on every deployment, so whichever build was
+deployed last received production's jobs.
+
+What each environment gets on Vercel:
+
+| Variable | Production | Preview |
+| --- | --- | --- |
+| `DATABASE_URL` | production, as `recouple_app` | `mozart-preview`, as its own `recouple_app` (same `noinherit` shape), transaction pooler, `sslmode=no-verify` |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | production | `mozart-preview` |
+| `NEXT_PUBLIC_SITE_URL` | set | **unset**: a preview derives its branch URL (`apps/web/lib/env.ts`), so a magic link returns to that preview rather than to production |
+| `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | set | **none**: a preview's `/api/inngest` answers 503, so the sync Inngest attempts on each preview deploy is refused and production stays registered. Previews read inline |
+| `ANTHROPIC_API_KEY`, `REDUCTO_API_KEY` | set | none: an upload on a preview is stored and scanned but not read. Add them to Preview deliberately if a preview needs to read, knowing it spends money |
+| `QBO_*`, `QBO_TOKEN_KMS_KEY_ID`, `AWS_*` | set | never |
+| `CLAMAV_SCAN_URL`, `CLAMAV_SCAN_TOKEN` | shared | shared (the scanner keeps nothing) |
+
+`sslmode=no-verify` is there because this driver treats `require` as
+`verify-full`, and the pooler's certificate is not signed by a public CA: the
+connection is encrypted, the certificate is not checked. Acceptable for a
+database of synthetic data; production's connection is its own decision.
+
+The preview database carries every migration, applied through the Supabase
+connector (so its recorded versions are apply times, not the filenames'
+timestamps). A schema fingerprint compared it with production object by object
+on 2026-09-23 — tables, constraints, indexes, policies, triggers, grants, views
+and function logic identical; only comment text differs. **New migrations go
+here first, then to production**: 0028 and 0029 were staged here before
+production and read back as ADR 0037 and ADR 0038 claim.
+
+It is seeded with one org, `recouple-preview` ("Recouple (preview)"), and the
+same two members as production (owner and approver), so both can sign in to a
+preview by magic link; Auth's redirect allow list holds
+`https://*-parth7452s-projects.vercel.app/**`. A free project pauses after a
+week without activity; unpause it from the dashboard.
+
 ## Sharing a project with Mozart
 
 This project was empty, so recouple uses it rather than spending a second
