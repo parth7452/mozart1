@@ -534,3 +534,19 @@ dl.fields .quote { border-left: 2px solid #d9e2ce; padding-left: 9px; margin-top
 }
 @media(max-width:370px) { .metric strong { font-size: 23px; }.metric { padding-inline: 12px; }.workspace-main { padding-inline: 14px; } }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { transition: none!important; scroll-behavior: auto!important; } }
+
+/* Coverage (ADR 0030, ADR 0035): one card per channel, however many there are. */
+.metrics.by-channel { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.coverage-month-tag { display: block; margin-top: 4px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--warn); }
+tr.coverage-total td { color: var(--muted); background: #f7f9f8; }
+td.money .hint { display: block; margin: 6px 0 0; white-space: normal; text-align: left; }
+td .hint { display: block; margin: 6px 0 0; }
+.anomaly-body { padding: 18px 24px 6px; }
+.anomaly-group { margin-bottom: 18px; }
+.anomaly-group h3 { font-size: 13px; font-weight: 500; margin: 0 0 6px; }
+.anomaly-group p { font-size: 12px; color: var(--ink-soft); margin: 0 0 8px; line-height: 1.5; }
+.anomaly-group ul { margin: 0; padding-left: 18px; font-size: 11px; }
+.anomaly-group li { overflow-wrap: anywhere; margin-bottom: 4px; }
+table.cases tr.has-note td { padding-bottom: 6px; border-bottom: 0; }
+table.cases tr.run-note td { padding-top: 0; font-size: 11px; color: var(--muted); white-space: normal; }
+table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { background: #f7f9f5; }
