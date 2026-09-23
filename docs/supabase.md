@@ -188,6 +188,9 @@ select 'default ' || d.defaclobjtype::text,
        pg_get_userbyid(a.grantee), a.privilege_type
   from pg_default_acl d cross join lateral aclexplode(d.defaclacl) a
  where pg_get_userbyid(a.grantee) in ('anon', 'authenticated', 'service_role')
+   -- The schemas 0028 cleans: public, app and every-schema rows. Supabase's own
+   -- defaults in storage, graphql and graphql_public are not ours and stay.
+   and d.defaclnamespace in (0::oid, 'public'::regnamespace::oid, 'app'::regnamespace::oid)
 union all
 select 'membership', pg_get_userbyid(am.roleid), pg_get_userbyid(am.member),
        format('inherit %s, set %s, granted by %s',
@@ -210,6 +213,16 @@ for a role 0028 reported (in a NOTICE) that it could not act as —
 `supabase_admin` is the expected one, and nothing here is created as it. Rerun
 the Security Advisor. Then sign in with a magic link, open a case, and have the
 second member do the same.
+
+This is what the preview project (`jvbnqofmoamyhntjwjdn`) returned when 0028
+and 0029 were staged there first on 2026-09-23: only `supabase_admin in public`
+default-privilege rows (one per privilege, for tables, sequences and functions,
+for each request role) and nothing else; zero
+security lints; `recouple_app` still able to `set role` to both app roles. The
+Supabase MCP connector and the SQL editor connect as `postgres`, which there
+held `app_rw` only through `authenticated`, so after 0028 they can no longer
+`set role app_rw` — ADR 0037's accepted cost. Read-only checks as `postgres`
+are unaffected.
 
 **The Data API switch comes last.** Turning off the Data API (Project Settings →
 Data API) is a second lock that no migration can set. It is the founder's to
