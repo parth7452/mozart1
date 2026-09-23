@@ -875,6 +875,20 @@ policies read as written, the request roles still hold nothing, and the one
 existing connection — made by the owner — is enabled with its six credential
 rows. Nothing here has met a live Intuit consent or revoke yet.
 
+**An approval is written by the person it names** (ADR 0040, migration 0031).
+`app.enforce_separation_of_duties()` judged the name on an `approvals` row —
+not the preparer, and an owner or approver — and never who wrote it, while
+`tenant_insert` admits any writer. So the analyst who prepared a decision could
+insert an approval naming an approver, pass every trigger, and then file the
+submission the gate let through; only the store's `requireCaller` was in the
+way. `app.approval_names_its_approver()` is 0016's authorship trigger for the
+other column SoD reads: `approver_id` must be `app.current_user_id()`, with no
+exception for the table owner or a session with no claims. It fires ahead of
+SoD by name, so a forged approval is refused as forged. The gate and SoD are
+untouched. Nine suites had written approvals as the analyst or as the owner;
+each now acts as the approver it names, and suite 27 is the hole. Not applied
+to either Supabase project yet.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.

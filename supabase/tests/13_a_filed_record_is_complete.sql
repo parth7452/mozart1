@@ -32,13 +32,14 @@ begin
             '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 0.51, 10, analyst)
     returning id into unapproved_dec;
 
-  -- Inserted as the owner, because separation of duties refuses an approval by
-  -- the analyst who prepared the decision (migration 0005). What this suite is
+  -- Written by the approver they name, in the approver's own session — an
+  -- approval in anybody else's name is refused (ADR 0040). What this suite is
   -- about is the shape of the row a legitimately approved filing may leave.
+  set role app_rw;
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit'), (org, second_dec, approver, 'submit');
 
-  set role app_rw;
   perform test.as_member(org, analyst);
 
   -- -------------------------------------------------------------------------

@@ -24,11 +24,11 @@ begin
   set role app_rw;
   perform test.as_member(org, analyst);
 
-  -- A properly approved submission, filed the legitimate way.
-  reset role;
+  -- A properly approved submission, filed the legitimate way: the approval by
+  -- the approver it names, in their own session (ADR 0040).
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');
-  set role app_rw;
   perform test.as_member(org, analyst);
 
   -- Complete when written: migration 0018 refuses a manual filing that does not
@@ -53,10 +53,9 @@ begin
   -- submission records what went out, not what could have.
   declare unused uuid;
   begin
-    reset role;
+    perform test.as_member(org, approver);
     insert into approvals (org_id, decision_id, approver_id, action_type)
       values (org, other_dec, approver, 'submit');
-    set role app_rw;
     perform test.as_member(org, analyst);
     perform test.expect_error(format(
       'update submissions set decision_id = %L where id = %L', other_dec, sub),
@@ -100,10 +99,9 @@ begin
   -- Write-offs: the approved amount and the recorded amount stay the same thing.
   declare wo uuid;
   begin
-    reset role;
+    perform test.as_member(org, approver);
     insert into approvals (org_id, decision_id, approver_id, action_type)
       values (org, dec, approver, 'writeoff');
-    set role app_rw;
     perform test.as_member(org, analyst);
 
     insert into writeoffs (org_id, deduction_id, decision_id, amount_cents)

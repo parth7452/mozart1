@@ -21,6 +21,8 @@ export const INVARIANTS: readonly Invariant[] = [
     enforcedBy: [
       'postgres: app.require_approval() trigger on submissions/writebacks/writeoffs',
       'supabase/tests/02_approval_invariant.sql',
+      'postgres: app.approval_names_its_approver() — the approval the gate looks for is written by the approver it names, in their own session, so the preparer cannot write it for them (ADR 0040)',
+      'supabase/tests/27_an_approval_is_written_by_its_approver.sql',
     ],
   },
   {

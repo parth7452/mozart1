@@ -112,7 +112,7 @@ const APPROVER_ROLES = ['owner', 'approver'] as const;
 // workflow's named refusals live in `@recouple/pipeline`'s `ports.ts`, where
 // both stores get the same class and a caller's `instanceof` holds whichever
 // one it was handed. What stays here is what only a database can refuse: the
-// translations of three triggers and a foreign key. Each is still a
+// translations of its triggers and a foreign key. Each is still a
 // `CaseWorkflowError` with its own name — never the bare base, which a caller
 // cannot tell one rule from another by.
 
@@ -129,6 +129,22 @@ export class HumanDecisionAuthorError extends CaseWorkflowError {
   constructor(readonly detail: string) {
     super(`decide refused: a human decision is written by the person it names (${detail})`);
     this.name = 'HumanDecisionAuthorError';
+  }
+}
+
+/**
+ * An approval that does not name its own author.
+ *
+ * `app.approval_names_its_approver()` (migration 0031, ADR 0040) compares
+ * `approver_id` to `app.current_user_id()`, which is what makes separation of
+ * duties judge the person approving rather than the name they wrote.
+ * `requireCaller` should have caught this first; when it did not, the database
+ * is the referee and its words are carried rather than replaced.
+ */
+export class ApprovalAuthorError extends CaseWorkflowError {
+  constructor(readonly detail: string) {
+    super(`approve refused: an approval is written by the person it names (${detail})`);
+    this.name = 'ApprovalAuthorError';
   }
 }
 
@@ -336,9 +352,10 @@ async function lockCase(
  * The store is constructed per request and carries the caller, so a method
  * naming a different actor is either a bug or a forgery — and on a money path
  * the two look identical from here. The database enforces exactly this for a
- * human decision (`app.human_decision_names_its_author()`, ADR 0020 §1); the
- * other three acts have no trigger of their own, and letting them name anyone
- * would put an approver's id in an analyst's write.
+ * human decision (`app.human_decision_names_its_author()`, ADR 0020 §1) and for
+ * an approval (`app.approval_names_its_approver()`, ADR 0040); the other acts
+ * have no trigger of their own, and letting them name anyone would put an
+ * approver's id in an analyst's write.
  */
 function requireCaller(actorId: string, callerId: string, action: string): void {
   if (actorId !== callerId) {
@@ -774,13 +791,23 @@ export async function approve(
       // the trigger, and a refusal this does not recognise reaches the caller
       // as itself rather than as the nearest rule.
       const refused = sqlState(error) === '23001';
+      // `app.approval_names_its_approver()` (migration 0031, ADR 0040): an
+      // approval is written by the person it names, in their own session.
+      // `requireCaller` above should have caught this already; if it did not,
+      // the database is the referee and its words are carried rather than
+      // replaced. Neither SoD message contains this substring, so the two
+      // matches below are unaffected by it. Pinned by
+      // supabase/tests/27_an_approval_is_written_by_its_approver.sql:42.
+      if (refused && /is not the caller/.test(text)) {
+        return new ApprovalAuthorError(text);
+      }
       // Pinned by supabase/tests/11_a_human_decides.sql:205 and
       // supabase/tests/03_separation_of_duties.sql:21.
       if (refused && /cannot approve their own decision/.test(text)) {
         return new PreparerCannotApproveError(input.decisionId, input.approverId);
       }
-      // Pinned by supabase/tests/11_a_human_decides.sql:214 and, as the shorter
-      // "is not an approver", supabase/tests/03_separation_of_duties.sql:27.
+      // Pinned by supabase/tests/11_a_human_decides.sql:217 and, as the shorter
+      // "is not an approver", supabase/tests/03_separation_of_duties.sql:31.
       if (refused && /is not an approver in org/.test(text)) {
         return new WrongRoleError(input.approverId, 'approve', APPROVER_ROLES);
       }
@@ -795,7 +822,7 @@ export async function approve(
         return new ApprovedPacketMissingError(input.decisionId);
       }
       // Pinned by supabase/tests/11_a_human_decides.sql:186 ("does not exist")
-      // and :396 ("belongs to another org").
+      // and :406 ("belongs to another org").
       if (refused && /decision .* (does not exist|belongs to another org)/.test(text)) {
         return new DecisionNotFoundError(input.decisionId, 'approve', text);
       }

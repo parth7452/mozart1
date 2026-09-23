@@ -72,8 +72,12 @@ begin
             '{"validity":{"invalid_deduction":0.96,"valid":0.04}}'::jsonb,
             0.96, 180, analyst)
     returning id into erp_dec;
+  -- The approver's own session: an approval in anybody else's name, or in
+  -- nobody's, is refused (ADR 0040).
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, erp_dec, approver, 'submit');
+  perform test.as_nobody();
   insert into submissions (org_id, deduction_id, decision_id, channel, packet_hash,
                            confirmation_number, submitted_at)
     values (org, erp_ded, erp_dec, 'manual_portal', digest('filed packet', 'sha256'),

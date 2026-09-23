@@ -26,8 +26,12 @@ begin
     'no writeoff approval row', 'write-off without an approval fails at the DB');
 
   -- A submit approval unlocks submission only, and only for this decision.
+  -- Written by the approver it names, in their own session: an approval in
+  -- anybody else's name is refused (ADR 0040, suite 27).
+  perform test.as_member(org, approver);
   insert into approvals (org_id, decision_id, approver_id, action_type)
     values (org, dec, approver, 'submit');
+  perform test.as_member(org, analyst);
 
   -- A manual filing names the packet that went out as well as the reference and
   -- the date: migration 0018 refuses an incomplete one, because 0017 froze
@@ -57,6 +61,9 @@ begin
     org, ded, dec, digest('filed packet', 'sha256')),
     'duplicate key', 'the same decision cannot be submitted twice on one channel');
 
+  -- As the approver, so that the unique key is what refuses it rather than
+  -- the caller check a second name would meet first.
+  perform test.as_member(org, approver);
   perform test.expect_error(format(
     'insert into approvals (org_id, decision_id, approver_id, action_type)
        values (%L, %L, %L, ''submit'')', org, dec, approver),
