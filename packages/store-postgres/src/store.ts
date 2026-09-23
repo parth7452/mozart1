@@ -40,10 +40,17 @@ import { restoreDocument } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
+  ActorIsNotTheSessionError,
   AmbiguousIdentityError,
   CaseMergedAwayError,
+  ClassificationFloorError,
   ClassificationRefusedError,
+  DOCUMENT_HELD,
+  DOCUMENT_HOLD_RELEASED,
   DuplicateCaseError,
+  holdAuditPayload,
+  holdFromAuditPayload,
+  parseClassificationFloor,
 } from '@recouple/pipeline';
 import type {
   CaseMerges,
@@ -53,10 +60,14 @@ import type {
   CaseWorkflowStore,
   DeclinedLine,
   DiscoveredVia,
+  DocumentHold,
   DocumentReadLease,
   DuplicateReviewStore,
   DuplicateVerdict,
   DuplicateVerdictRecord,
+  HeldDocumentStore,
+  HoldReason,
+  HoldRecord,
   IngestSource,
   JobStore,
   MergeRecord,
@@ -551,6 +562,7 @@ interface StoredFieldRowForRebuild {
   readonly confidence: string;
   readonly source_page: number;
   readonly source_quote: string;
+  readonly schema_version: string;
 }
 
 /** One stored field, with everything a reviewer needs to check it. */
@@ -650,6 +662,53 @@ interface UnattachedDocumentRow {
   filename: string;
   created_at: Date;
   doc_type: DocType;
+  /** `numeric(5,4)` as text, as the driver hands every numeric over. */
+  confidence: string;
+  /** The standing hold's columns, all null when there is none (ADR 0044). */
+  hold_org_id: string | null;
+  hold_payload: unknown;
+  held_at: Date | null;
+  held_by: string | null;
+}
+
+/**
+ * The hold standing on a document (ADR 0044), as a subquery over `audit_log`
+ * keyed on the given document-id expression: the latest `document.held` row
+ * that no `document.hold_released` row follows. One fragment, so `documentHold`
+ * and `unattachedDocuments` cannot disagree about what "held" means.
+ *
+ * `subject_id` is text (0004) and has no index of its own; the scan is over the
+ * tenant's audit rows, which RLS narrows it to. Indexing it is a migration.
+ */
+function standingHoldSql(documentIdText: string): string {
+  return `select a.org_id, a.actor_id, a.payload, a.observed_at
+            from audit_log a
+           where a.subject_table = 'documents'
+             and a.subject_id = ${documentIdText}
+             and a.action = '${DOCUMENT_HELD}'
+             and not exists (
+               select 1 from audit_log r
+                where r.subject_table = 'documents'
+                  and r.subject_id = a.subject_id
+                  and r.action = '${DOCUMENT_HOLD_RELEASED}'
+                  and r.id > a.id)
+           order by a.id desc
+           limit 1`;
+}
+
+/**
+ * A classification's confidence, read exactly: `numeric(5,4)` text such as
+ * `0.7500`, checked to be a number in [0, 1] (the column's own check) rather
+ * than trusted to be one.
+ */
+function classificationConfidence(text: string, documentId: string): number {
+  const value = Number(text);
+  if (!/^\d+(\.\d+)?$/.test(text) || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `document ${documentId}'s classification confidence is not a number in [0, 1]`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -758,7 +817,8 @@ export class PostgresStore
     DuplicateReviewStore,
     JobStore,
     UnreadDocumentsStore,
-    EvidenceAttachStore
+    EvidenceAttachStore,
+    HeldDocumentStore
 {
   private readonly pool: Pool;
   /** Held for the length of a read, so deliberately not the working pool. */
@@ -1306,7 +1366,7 @@ export class PostgresStore
       // rather than casting, and a field the document did not carry is filled
       // back in as an explicit absence rather than left out as a missing key.
       const { rows: fields } = await client.query<StoredFieldRowForRebuild>(
-        `select field_path, value_json, confidence, source_page, source_quote
+        `select field_path, value_json, confidence, source_page, source_quote, schema_version
            from extraction_results
           where document_id = $1 order by id asc`,
         [documentId],
@@ -1324,11 +1384,15 @@ export class PostgresStore
           sourceQuote: row.source_quote,
         })),
       );
+      // The newest row's version: the rows are in id order, and a document read
+      // twice carries both reads' rows.
+      const schemaVersion = fields.at(-1)?.schema_version;
       return {
         docType,
         document: rebuilt.document,
         validated: rebuilt.validated,
         issues: rebuilt.issues,
+        ...(schemaVersion !== undefined ? { schemaVersion } : {}),
       };
     });
   }
@@ -1718,6 +1782,116 @@ export class PostgresStore
         toleranceBps: row.bps,
         dedupDays: row.days,
       };
+    });
+  }
+
+  /**
+   * This tenant's `min_classification_confidence` (ADR 0044): one select as
+   * `app_rw` under the tenant's claims, the column read as text and parsed
+   * exactly (`parseClassificationFloor`).
+   *
+   * Unlike `remittanceSettings`, a missing row is refused rather than defaulted.
+   * This is a threshold invariant 7 guards, asked before a read spends anything,
+   * and a default would be a floor nobody set deciding which documents open
+   * cases. The `org_id` predicate is the tenant's own; RLS says the same thing,
+   * and another tenant's row is not one this could find either way.
+   */
+  async classificationFloor(): Promise<number> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ floor: string }>(
+        `select min_classification_confidence::text as floor
+           from org_settings where org_id = $1`,
+        [this.tenant.orgId],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new ClassificationFloorError(this.tenant.orgId, 'missing');
+      return parseClassificationFloor(row.floor, this.tenant.orgId);
+    });
+  }
+
+  /**
+   * One `document.held` row in `audit_log`, naming this store's member as the
+   * actor — migration 0030's insert policy refuses any other, and refuses a
+   * member who may not write (ADR 0044). The payload is `holdAuditPayload`'s:
+   * a doc type, two numbers, a reason and schema field paths.
+   */
+  async recordHold(hold: HoldRecord): Promise<void> {
+    if (hold.orgId !== this.tenant.orgId) {
+      throw new Error(
+        `a hold for org ${hold.orgId} cannot be recorded by a store acting in org ${this.tenant.orgId}`,
+      );
+    }
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into audit_log (org_id, actor_id, action, subject_table, subject_id, payload)
+         values ($1, $2, $3, 'documents', $4, $5::jsonb)`,
+        [
+          this.tenant.orgId,
+          this.tenant.userId,
+          DOCUMENT_HELD,
+          hold.documentId,
+          JSON.stringify(holdAuditPayload(hold)),
+        ],
+      );
+    });
+  }
+
+  /** The hold standing on a document, read through RLS (`standingHoldSql`). */
+  async documentHold(documentId: string): Promise<DocumentHold | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        org_id: string;
+        actor_id: string | null;
+        payload: unknown;
+        observed_at: Date;
+      }>(standingHoldSql('$1::text'), [documentId]);
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return holdFromAuditPayload(row.payload, {
+        documentId,
+        orgId: row.org_id,
+        heldAt: new Date(row.observed_at).toISOString(),
+        ...(row.actor_id !== null ? { heldBy: row.actor_id } : {}),
+      });
+    });
+  }
+
+  /**
+   * A person's release of a hold: one `document.hold_released` row naming them
+   * and the cases the release opened or joined. Ids and a reason only.
+   *
+   * Refused before the insert when `releasedBy` is not this store's caller —
+   * the policy would refuse it too, but as a bare row-level-security error, and
+   * a caller deserves to know it named the wrong person rather than only that
+   * the database said no.
+   */
+  async releaseHold(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly releasedBy: string;
+    readonly reason: HoldReason;
+    readonly deductionIds: readonly string[];
+  }): Promise<void> {
+    if (input.releasedBy !== this.tenant.userId) {
+      throw new ActorIsNotTheSessionError(input.releasedBy, this.tenant.userId, 'release a hold');
+    }
+    if (input.orgId !== this.tenant.orgId) {
+      throw new Error(
+        `a hold in org ${input.orgId} cannot be released by a store acting in org ${this.tenant.orgId}`,
+      );
+    }
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into audit_log (org_id, actor_id, action, subject_table, subject_id, payload)
+         values ($1, $2, $3, 'documents', $4, $5::jsonb)`,
+        [
+          this.tenant.orgId,
+          this.tenant.userId,
+          DOCUMENT_HOLD_RELEASED,
+          input.documentId,
+          JSON.stringify({ reason: input.reason, deduction_ids: [...input.deductionIds] }),
+        ],
+      );
     });
   }
 
@@ -2524,16 +2698,25 @@ export class PostgresStore
   async unattachedDocuments(limit = 50): Promise<readonly UnattachedDocument[]> {
     assertUnattachedDocumentsQuery(limit);
     return this.withTenant(async (client) => {
+      // The confidence comes off the same classification row as the type, and
+      // the hold is `documentHold`'s own subquery (ADR 0044), so the list and a
+      // press of its button agree about which documents are held.
       const { rows } = await client.query<UnattachedDocumentRow>(
         `select d.id,
                 coalesce(d.filename, '') as filename,
                 d.created_at,
-                c.doc_type
+                c.doc_type,
+                c.confidence::text as confidence,
+                h.org_id as hold_org_id,
+                h.payload as hold_payload,
+                h.observed_at as held_at,
+                h.actor_id as held_by
            from documents d
            join lateral (
-             select doc_type from document_classifications dc
+             select doc_type, confidence from document_classifications dc
               where dc.document_id = d.id order by dc.id desc limit 1
            ) c on true
+           left join lateral (${standingHoldSql('d.id::text')}) h on true
           where exists (select 1 from extraction_results e where e.document_id = d.id)
             and not exists (select 1 from deduction_documents dd where dd.document_id = d.id)
           order by d.created_at desc, d.id desc
@@ -2545,6 +2728,17 @@ export class PostgresStore
         filename: row.filename,
         createdAt: new Date(row.created_at).toISOString(),
         docType: row.doc_type,
+        confidence: classificationConfidence(row.confidence, row.id),
+        ...(row.hold_org_id !== null
+          ? {
+              hold: holdFromAuditPayload(row.hold_payload, {
+                documentId: row.id,
+                orgId: row.hold_org_id,
+                ...(row.held_at !== null ? { heldAt: new Date(row.held_at).toISOString() } : {}),
+                ...(row.held_by !== null ? { heldBy: row.held_by } : {}),
+              }),
+            }
+          : {}),
       }));
     });
   }

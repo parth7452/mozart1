@@ -310,7 +310,8 @@ export interface ReadDocumentInvocation {
  * What a line may carry is the rule the event payload follows: ids, flags and a
  * doc type, which is a closed set. Never a filename, never a quote, never a page
  * (invariant 4). `haltedBecause` is reduced to yes or no for that reason — it
- * is a sentence built around a scanner's own words.
+ * is a sentence built around a scanner's own words. A hold's reason is said in
+ * full, because it is one of two constants (ADR 0044).
  */
 export function readDocumentSteps(
   context: JobContext,
@@ -329,7 +330,10 @@ export function readDocumentSteps(
               ? 'found it already read and spent nothing'
               : 'finished the read') +
           `, ${where}, doc type ${read.docType ?? 'none'}, case ${read.deductionId ?? 'none'}, ` +
-          `halted ${read.haltedBecause === null ? 'no' : 'yes'}`,
+          `halted ${read.haltedBecause === null ? 'no' : 'yes'}, ` +
+          // A hold's reason is one of two constants (ADR 0044), so it may be
+          // said; `haltedBecause` stays yes-or-no for the reason above.
+          `held ${read.held ?? 'no'}`,
       );
       return read;
     });

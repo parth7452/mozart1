@@ -252,12 +252,53 @@ describe('the read job', () => {
             alreadyRead: true,
             beingRead: false,
             remittanceCases: [],
+            // Required since ADR 0044; no hold on this document.
+            held: null,
           }),
         },
       });
       expect(lines.map((line) => line.includes('step read-document'))).toEqual([false, false]);
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it('says a held read’s reason in its step line, and nothing off the page (ADR 0044)', async () => {
+    // The stub answers 0.99; a floor above that holds the notice for a person.
+    const store = jobStore();
+    store.classificationFloorValue = 0.995;
+    const documentId = await storedNotice(store);
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      const result = await readDocumentSteps(context)({
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
+        step: { run: async (_id, work) => work() },
+      });
+
+      expect(result).toMatchObject({
+        held: 'below_floor',
+        haltedBecause: 'held_for_review',
+        deductionId: null,
+        alreadyRead: false,
+      });
+      const step = lines.find((line) => line.includes('finished the read'));
+      expect(step).toContain('held below_floor');
+      expect(step).toContain('halted yes');
+      const all = lines.join('\n');
+      expect(all).not.toContain(notice.filename);
+      expect(all).not.toContain('APDP-99812');
+      expect(store.cases.size).toBe(0);
+    } finally {
+      log.mockRestore();
+      info.mockRestore();
     }
   });
 

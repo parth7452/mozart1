@@ -673,4 +673,29 @@ describe('asking for a stored document to be read again', () => {
       logged.mockRestore();
     }
   });
+
+  it('says a doubtful reading is held, and a second press reads nothing (ADR 0044)', async () => {
+    // The stub classifier answers 0.99; this workspace has raised its floor
+    // above that, so the notice is read and held for a person rather than
+    // opening a case — and pressing again must not buy another sample.
+    const store = harness.store as RouteTestStore;
+    store.classificationFloorValue = 0.995;
+    const documentId = await storedNotice(store);
+
+    const first = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(location(first).pathname).toBe('/');
+    expect(said(first)).toMatch(/reading was doubtful/);
+    expect(said(first)).toMatch(/Read, not on a case/);
+    expect(store.cases.size).toBe(0);
+    const spent = store.modelCalls.length;
+    expect(spent).toBe(2);
+
+    const again = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(said(again)).toMatch(/reading was doubtful/);
+    expect(store.modelCalls).toHaveLength(spent);
+    expect(store.cases.size).toBe(0);
+    expect(store.auditLog.filter((row) => row.action === 'document.held')).toHaveLength(1);
+  });
 });

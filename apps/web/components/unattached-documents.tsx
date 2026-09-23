@@ -1,7 +1,7 @@
 import { isClosed } from '@recouple/core-domain';
-import type { UnattachedDocument } from '@recouple/pipeline';
+import type { DocumentHold, UnattachedDocument } from '@recouple/pipeline';
 import type { CaseSummary } from '@recouple/store-postgres';
-import { docTypeLabel, money } from '../lib/format';
+import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/format';
 
 /**
  * The documents that were read and that no case holds, and a way to file each
@@ -16,8 +16,16 @@ import { docTypeLabel, money } from '../lib/format';
  * and nothing is charged, which is the difference from uploading the same file
  * on the case page (`attachReadDocument`).
  *
+ * A notice or a remittance a read *held* (ADR 0044) is here too, with a line
+ * saying why: the classifier was less sure than this workspace's floor, or the
+ * reading does not fit what it was read as. Where the reading fits, a person
+ * can open the case from it — nothing is read again. Where it does not, the
+ * page offers no such button, because the route would refuse it; the document
+ * can still be attached to a case as evidence.
+ *
  * A pure function of what the store returned. The filename is the one piece of
- * somebody else's text here, and React escapes it.
+ * somebody else's text here, and React escapes it. A hold's numbers are the
+ * hold's own, formatted and never computed here.
  */
 export function UnattachedDocuments({
   documents,
@@ -37,8 +45,9 @@ export function UnattachedDocuments({
       </h2>
       <p className="empty">
         These were read and are kept, but no case holds them. A deduction notice or a short-paid
-        remittance opens its own case; a delivery receipt, an invoice or a rate confirmation is
-        evidence for one. Attaching files what was already read — it is not read again.
+        remittance opens its own case when the reading is sure; one that is held says why, and a
+        person decides. A delivery receipt, an invoice or a rate confirmation is evidence for a
+        case. Attaching files what was already read — it is not read again.
       </p>
       <table className="cases">
         <thead>
@@ -53,9 +62,29 @@ export function UnattachedDocuments({
           {documents.map((document) => (
             <tr key={document.documentId}>
               <td>{document.filename === '' ? '—' : document.filename}</td>
-              <td>{docTypeLabel(document.docType)}</td>
+              <td>
+                {docTypeLabel(document.docType)}
+                {document.hold === undefined ? (
+                  // How sure the classifier was, as the classification row
+                  // recorded it — shown, never decided with here.
+                  <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
+                ) : (
+                  <p className="hold">{holdLine(document.hold)}</p>
+                )}
+              </td>
               <td>{document.createdAt.slice(0, 10)}</td>
               <td>
+                {document.hold !== undefined && mayOpenFrom(document.hold) ? (
+                  // A POST, for the attach form's reason. It reads nothing:
+                  // the case is opened from the reading already recorded.
+                  <form
+                    action={`/documents/${document.documentId}/open-case`}
+                    method="post"
+                    className="open-held"
+                  >
+                    <button type="submit">Open a case from it</button>
+                  </form>
+                ) : null}
                 {open.length === 0 ? (
                   <span className="empty">No open case yet</span>
                 ) : (
@@ -86,6 +115,45 @@ export function UnattachedDocuments({
       </table>
     </div>
   );
+}
+
+/**
+ * Whether the page offers "Open a case from it" for a hold.
+ *
+ * Only for a reading that fits its type and was held for its confidence alone:
+ * `fields` is present exactly when the reading did not fit (ADR 0044), and the
+ * route refuses to open a case from such a reading, so the page does not offer
+ * a button whose only answer is no.
+ */
+export function mayOpenFrom(hold: DocumentHold): boolean {
+  return hold.reason === 'below_floor' && hold.fields === undefined;
+}
+
+/**
+ * Why a document is held, in one sentence: what it was read as, how sure the
+ * classifier was against this workspace's floor, and which fields did not fit.
+ *
+ * The numbers are the hold's — what the gate compared — and the fields are
+ * schema paths said in words (`fieldLabel`), never a value off the page.
+ */
+export function holdLine(hold: DocumentHold): string {
+  const readAs = `read as a ${docTypeLabel(hold.docType)}`;
+  const missing =
+    hold.fields === undefined
+      ? ''
+      : hold.fields.length === 0
+        ? 'the reading does not fit that type'
+        : `the reading does not fit that type (missing: ${hold.fields.map(fieldLabel).join(', ')})`;
+
+  if (hold.reason === 'type_did_not_fit') {
+    return `Held: ${readAs}, but ${missing === '' ? 'the reading does not fit that type' : missing}. Attach it to a case as evidence instead.`;
+  }
+  const doubt =
+    `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace opens ` +
+    `a case on its own at ${confidencePercent(hold.floor)} or above.`;
+  return missing === ''
+    ? doubt
+    : `${doubt} ${missing.charAt(0).toUpperCase()}${missing.slice(1)}, so attach it to a case as evidence instead.`;
 }
 
 /**

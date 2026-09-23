@@ -668,6 +668,10 @@ describe('two deliveries of the same document at the same time', () => {
       // stay on the cases and the events, which are not a third party's run
       // history.
       'remittanceCases',
+      // Why the document is held for a person, when it is (ADR 0044): one of
+      // two constants or null — a reason, never a sentence or a value off the
+      // page. Added with the confidence floor; the list is otherwise unchanged.
+      'held',
     ].sort());
 
     const asSent = JSON.stringify(result);
