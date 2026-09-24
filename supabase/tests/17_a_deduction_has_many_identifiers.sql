@@ -200,8 +200,11 @@ begin
     'append-only', 'the trigger rejects DELETE even for the table owner');
   perform test.expect_error('truncate deduction_identifiers', 'append-only',
     'TRUNCATE is blocked even for the table owner');
+  -- This suite's two tenants, not the table: the owner sees every tenant's
+  -- rows, and a database the Vitest suites have used holds others. A TRUNCATE
+  -- or DELETE that got through would still move this count.
   perform test.ok(
-    (select count(*) from deduction_identifiers) = 6,
+    (select count(*) from deduction_identifiers where org_id in (org, other_org)) = 6,
     'every blocked mutation left the identifiers intact');
 end
 $test$;
