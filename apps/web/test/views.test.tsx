@@ -883,7 +883,7 @@ describe('documents that were read and that no case holds', () => {
       );
       expect(mayOpenFrom(byEmail)).toBe(true);
       const html = renderToStaticMarkup(
-        <UnattachedDocuments documents={[heldRow(byEmail)]} cases={[summary()]} />,
+        <UnattachedDocuments documents={[heldRow(byEmail)]} targets={offered([summary()])} />,
       );
       expect(html).toContain('/open-case"');
     });
