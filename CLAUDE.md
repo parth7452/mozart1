@@ -1209,8 +1209,20 @@ case this tenant cannot see. The case list's four figures had the same limit
 and summed the newest hundred; they now fold `caseTally`, a per-state count,
 sum and due-soon-or-past count over every case, with what a state means left
 to `isClosed` in the app, and the ledger says when its table lists only the
-newest. The attach control under "Read, not on a case" still offers only the
-open cases among the newest hundred.
+newest. The ledger's search had the same limit — it filtered the newest
+hundred in the browser, so an older case could not be found by its claim at
+all, and the state filter offered only the states among them. It is now a GET
+form to the page, which validates it (`ledgerFilterFrom`: an unknown state, a
+repeated or over-long query, or one with a control character is dropped, never
+passed on), and `searchCases` answers over every case: claim id, any
+`invoice_number` identifier on the case, debtor, printed name or id, by `ILIKE`
+with `%`, `_` and `\` escaped, an optional state, at most 100 rows and a total,
+through the same select and mapping as the list and the case page, as `app_rw`
+with no `org_id`. Nothing filters in the browser on top, so there is one
+matcher; the state filter offers every `CASE_STATES` value; and the ledger says
+what a search matched and how many of those it lists. The attach control under
+"Read, not on a case" still offers only the open cases among the newest
+hundred, whatever the ledger was searched for.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

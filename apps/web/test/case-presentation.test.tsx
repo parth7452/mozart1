@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { CaseSummary } from '@recouple/store-postgres';
-import { caseMetrics, filterCases } from '../lib/case-presentation';
+import { CASE_STATES } from '@recouple/core-domain';
+import { CASE_SEARCH_QUERY_MAX, type CaseSummary } from '@recouple/store-postgres';
+import { caseMetrics, ledgerFilterFrom, ledgerListing } from '../lib/case-presentation';
 import { tallyOf } from './case-tally';
 
 const row = (overrides: Partial<CaseSummary> = {}): CaseSummary => ({
@@ -55,15 +56,49 @@ describe('ledger presentation', () => {
     });
   });
 
-  it('searches the displayed customer, including unmatched printed names, with the state filter', () => {
-    const printed = row();
-    const matched = row({ deductionId: 'second', debtorName: 'Acme Staffing', state: 'submitted' });
-    const cases = [printed, matched];
-    expect(filterCases(cases, '  HARBOR  ', 'all')).toEqual([printed]);
-    expect(filterCases(cases, 'acme', 'submitted')).toEqual([matched]);
-    expect(filterCases(cases, 'acme', 'classified')).toEqual([]);
-    expect(filterCases(cases, 'abc-123', 'all')).toEqual(cases);
-    expect(filterCases(cases, 'test-claim-id', 'all')).toEqual([printed]);
-    expect(filterCases(cases, '', 'all')).toEqual(cases);
+  // What a search matches is the database's answer now, over every case
+  // (`searchCases`, case-search.test.ts in store-postgres, on Postgres): claim,
+  // invoice, debtor, printed name and id. What stays here is what reaches it.
+  it('passes a search on trimmed, and a state only when it is one', () => {
+    expect(ledgerFilterFrom({ q: '  APDP-99812 ', state: 'awaiting_approval' })).toEqual({
+      query: 'APDP-99812',
+      state: 'awaiting_approval',
+    });
+    expect(ledgerFilterFrom({})).toEqual({});
+    expect(ledgerFilterFrom({ q: '   ', state: '' })).toEqual({});
+    // Every state the database has is one a person may filter by.
+    for (const state of CASE_STATES) {
+      expect(ledgerFilterFrom({ state })).toEqual({ state });
+    }
+  });
+
+  it('drops what a query string can carry and the store was not written for', () => {
+    // Unknown, differently cased, or the old list's own "all": not a state.
+    for (const state of ['nope', 'WON', 'all', "won' or 1=1 --"]) {
+      expect(ledgerFilterFrom({ q: 'x', state })).toEqual({ query: 'x' });
+    }
+    // Sent twice, over the store's bound, or carrying a control character.
+    expect(ledgerFilterFrom({ q: ['a', 'b'], state: ['won', 'lost'] })).toEqual({});
+    expect(ledgerFilterFrom({ q: 'x'.repeat(CASE_SEARCH_QUERY_MAX) })).toEqual({
+      query: 'x'.repeat(CASE_SEARCH_QUERY_MAX),
+    });
+    expect(ledgerFilterFrom({ q: 'x'.repeat(CASE_SEARCH_QUERY_MAX + 1) })).toEqual({});
+    expect(ledgerFilterFrom({ q: 'APDP\u0000' })).toEqual({});
+    expect(ledgerFilterFrom({ q: 'a\tb' })).toEqual({});
+    // Wildcards are text; escaping them is the store's job, not a reason to drop.
+    expect(ledgerFilterFrom({ q: '10%_off' })).toEqual({ query: '10%_off' });
+  });
+
+  it('says what the table lists: the newest cases, or what a search matched', () => {
+    expect(ledgerListing({}, 100, 240, 240)).toBe('the newest 100 listed below');
+    expect(ledgerListing({}, 3, 3, 3)).toBe('');
+    expect(ledgerListing({ query: 'walmart' }, 3, 3, 240)).toBe('3 cases match “walmart”');
+    expect(ledgerListing({ query: 'KS-40112' }, 1, 1, 240)).toBe('1 case matches “KS-40112”');
+    expect(ledgerListing({ query: 'walmart', state: 'awaiting_approval' }, 100, 1_204, 5_000)).toBe(
+      '1,204 cases match “walmart” in awaiting approval, the newest 100 listed below',
+    );
+    expect(ledgerListing({ state: 'won' }, 2, 2, 240)).toBe('2 cases in won');
+    expect(ledgerListing({ query: 'nothing' }, 0, 0, 240)).toBe('no case matches “nothing”');
+    expect(ledgerListing({ state: 'merged' }, 0, 0, 240)).toBe('no case in merged');
   });
 });
