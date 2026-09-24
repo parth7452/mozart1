@@ -137,7 +137,7 @@ append-only tables.
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
-| `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
+| `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033). `connectQboCompany` is the only way a connection row is made — the button and `link:qbo` both call it — and it seals before it touches the database (ADR 0039). Every read of `deduction_identifiers` maps a merged-away case to its survivor through `deduction_merges_current`; a reader that forgets hits `RCM01` on its first write (ADR 0042). A case's documents and their fields are read by its `deduction_documents` links (`caseDocuments`, `fieldsForCase`, one shared CTE), never by `extraction_results.deduction_id`, which says only which case a read was paid for — a remittance's, a held notice's and a list-attached document's belong to none — and never derived from the fields: a ledger extract is a notice with none |
@@ -207,7 +207,7 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 15/15 |
+| customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -275,13 +275,15 @@ person. In replay no recorded document is held any more: two were —
 0.95 today and open; the hold is exercised by readings built to fall below the
 floor. The `classification_confidence_meets_tenant_minimum`
 guard, on Phase 2's `classified → evidence_pending` edge, still has no
-evaluator because that edge is not taken yet. Two fields:
+evaluator because that edge is not taken yet. One field:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
-rather than Westhaven Paper Supply, and
-`stf-203-short-payment-notice`'s reason code came back as the payer's own code
-(`CB-203`) rather than `PREMIUM-NOAUTH`. Both of those codes are printed on
-the page, and the model took the chargeback reference rather than the reason;
-`PREMIUM-NOAUTH` is the payer's own code, not a canonical one. Grounding on the
+rather than Westhaven Paper Supply; nothing in the product reads it.
+`stf-203-short-payment-notice`'s reason code came back as `CB-203` rather than
+`PREMIUM-NOAUTH` until 2026-09-24: the page prints "CB-203 / PREMIUM-NOAUTH",
+a chargeback's own number and then the payer's reason, and the notice schema
+had nowhere to put the first. It now has `lines[].deduction_reference`, and
+`reason_code` says a reason names a kind of reason while a chargeback or debit
+memo number belongs to one deduction (*A deduction's own number*, below). Grounding on the
 four STF-201 camera pages was 64–83% until the verifier learned column rules
 (*A column rule is one glyph*, below); it is now 100% on the remittance and the
 invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
@@ -1228,10 +1230,35 @@ its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
 `URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
 searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
 list once per waiting document) and the page says how many it is not listing;
-it is asked only when a document is waiting. A case past the limit is reached
-from the other end: an open case's own page lists the documents read and on no
-case (`unattachedDocuments`) and files one there through the same
-`/documents/[id]/attach` route, nothing read again.
+it is asked only when a document is waiting. Suites 17 and 20 counted rows
+table-wide as the owner, so `pnpm db:test` failed when re-run on a database
+the Vitest suites had used; each now counts its own orgs' rows. A case past the limit is reached from the other end: an open case's own page lists the documents read and on no case (`unattachedDocuments`) and files one there through the same `/documents/[id]/attach` route, nothing read again.
+
+**A deduction's own number is not its reason** (no ADR, no migration). A
+deduction notice's lines now carry `deduction_reference` — a chargeback, debit
+memo or deduction number printed beside the reason — and `reason_code` is told
+the difference; schema 1.2.0. All 17 recorded notices were re-read with
+`pnpm record:cassettes --extract-only --doc-type deduction_notice` ($0.4127),
+which re-asks the extractor alone against the OCR its cassette already holds:
+no Reducto key, and the classification and the pages stay byte for byte.
+`customer` rose to 98.8%, and `stf-203-short-payment-notice` reads
+`PREMIUM-NOAUTH` and `CB-203` exactly, which `packages/evals/test/deduction-reference.test.ts`
+asserts rather than trusting the eval's containment match. Four of the eight
+Harbor Lane notices (scans included) put their own notice number there as well, against the
+description, and one reported the text `"null"` with no quote, which provenance
+drops before it is stored. Nothing downstream reads the field yet.
+
+Every extraction recorded now carries an `extractor` stamp — model, schema
+version and a hash of the system prompt and that type's instruction — and
+`pnpm eval` names the ones this checkout's extractor did not give, as it does
+classifications; the 40 recorded before the stamp are counted, not listed. The
+remittance side was tried and **withdrawn**: told about the reference, the
+model read LOG-202's two deductions on one invoice as two lines, and
+`openCasesFromRemittance` keys a line by payment and invoice, so the $300 line
+exact-matched the $500 one and was merged into it — a deduction lost without a
+word. That collision does not need the new field: any remittance that prints
+two deductions against one invoice as two lines meets it today, and fixing it is
+identity's job (ADR 0028's claim key), a follow-up.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

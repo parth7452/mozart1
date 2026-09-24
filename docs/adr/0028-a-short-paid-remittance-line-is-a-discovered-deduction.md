@@ -1,6 +1,6 @@
 # 0028 — A short-paid remittance line is a discovered deduction
 
-- Status: accepted
+- Status: accepted; §7's claim key amended by 0048 for an invoice printed on several lines
 - Date: 2026-09-22
 
 ## Context

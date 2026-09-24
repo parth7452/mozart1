@@ -9,7 +9,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { buildExtractionResult } from './claude';
+import { buildExtractionResult, extractionInstruction } from './claude';
+import { SCHEMA_VERSION } from './field';
 import type { OcrBlock, OcrPage } from './ocr';
 import {
   ExtractionError,
@@ -21,7 +22,7 @@ import {
   type ExtractionResult,
   type ModelCallRecord,
 } from './ports';
-import { CLASSIFY_SYSTEM } from './prompt';
+import { CLASSIFY_SYSTEM, EXTRACTION_SYSTEM } from './prompt';
 import { classifyTemperatureFor } from './models';
 
 /**
@@ -71,6 +72,52 @@ export function classificationIsCurrent(
 }
 
 /**
+ * What produced a cassette's `document`: the extraction model, the schema
+ * version, and a hash of the system prompt and the instruction for the type it
+ * was read as — its guidance and its field list, descriptions included.
+ *
+ * The classifier's stamp exists because a prompt change moved no number while
+ * old answers replayed under it. Extraction has the same hole one step later:
+ * a field added to a type, or a description sharpened, leaves every cassette
+ * of that type replaying a reading nobody asked the new question of, and one
+ * re-record that dies halfway looks exactly like one that finished. The hash
+ * is per type, so a change to the notice schema makes notices stale and
+ * nothing else. The text-layer preamble is not covered, as it is not for the
+ * classifier.
+ */
+export interface ExtractorStamp {
+  readonly model: string;
+  /** sha256 of `EXTRACTION_SYSTEM` and `extractionInstruction(docType)`, hex. */
+  readonly promptSha256: string;
+  readonly schemaVersion: string;
+  readonly extractedAt: string;
+}
+
+export function extractorPromptSha256(docType: DocType): string {
+  return createHash('sha256')
+    .update(EXTRACTION_SYSTEM, 'utf8')
+    .update('\n\n', 'utf8')
+    .update(extractionInstruction(docType), 'utf8')
+    .digest('hex');
+}
+
+/**
+ * Whether a cassette's extraction was read by this model under this checkout's
+ * prompt and schema for its type. No stamp is not current: nothing says it was.
+ */
+export function extractionIsCurrent(
+  cassette: Pick<Cassette, 'extractor' | 'docType'>,
+  model: string,
+): boolean {
+  return (
+    cassette.extractor !== undefined &&
+    cassette.extractor.model === model &&
+    cassette.extractor.schemaVersion === SCHEMA_VERSION &&
+    cassette.extractor.promptSha256 === extractorPromptSha256(cassette.docType)
+  );
+}
+
+/**
  * The cassette with a new classification and everything else exactly as
  * recorded.
  *
@@ -102,6 +149,8 @@ export interface Cassette {
   /** Absent on every cassette recorded before classifications were stamped. */
   readonly classifier?: ClassifierStamp;
   readonly document: unknown;
+  /** Absent on every cassette recorded before extractions were stamped. */
+  readonly extractor?: ExtractorStamp;
   readonly recordedWith: string;
   readonly recordedAt: string;
   readonly call: {

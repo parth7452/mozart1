@@ -6,45 +6,63 @@
   "document": {
     "retailer_name": {
       "value": "Pine Ridge Distribution",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Pine Ridge Distribution"
     },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.85,
-      "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
-    },
     "claim_id": {
       "value": "DN-2609-006",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-006"
     },
     "invoice_number": {
       "value": "INV-260806",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Invoice: INV-260806"
     },
     "po_number": {
       "value": "PO-PRD-3356",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Purchase order: PO-PRD-3356"
     },
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "deduction_total": {
       "value": "$440.00",
-      "confidence": 0.9,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "$440.00"
     },
     "deduction_date": {
       "value": "2026-09-14",
-      "confidence": 0.85,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-14"
+    },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
     },
     "remittance_or_check": {
       "value": "RA-2609-006",
@@ -56,39 +74,45 @@
       {
         "deduction_amount": {
           "value": "$440.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$440.00"
         },
         "reason_code": {
           "value": "DISC",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Reason code: DISC"
         },
         "reason_description": {
-          "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date.",
-          "confidence": 0.8,
+          "value": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility ended August 21, 2026.",
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date."
+          "source_quote": "Customer took a 2% early-payment discount. Invoice terms are 2/10, net 30, calculated from the invoice date. Discount eligibility ended August 21, 2026."
         },
         "unit_cost": {
-          "value": "$22,000.00",
-          "confidence": 0.5,
+          "value": "null",
+          "confidence": 0.3,
           "source_page": 1,
-          "source_quote": "$22,000.00"
+          "source_quote": ""
         },
         "sku_upc": {
-          "value": null,
-          "confidence": 0,
+          "value": "null",
+          "confidence": 0.3,
           "source_page": 1,
           "source_quote": ""
         },
         "description": {
-          "value": null,
-          "confidence": 0,
+          "value": "null",
+          "confidence": 0.3,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": "DN-2609-006",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "Notice: DN-2609-006"
         },
         "qty_invoiced": {
           "value": null,
@@ -104,25 +128,7 @@
         }
       }
     ],
-    "store_or_dc": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "dispute_deadline": {
+    "vendor_number": {
       "value": null,
       "confidence": 0,
       "source_page": 1,
@@ -130,13 +136,13 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-21T15:14:29.385Z",
+  "recordedAt": "2026-09-24T19:08:56.369Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5734,
-    "outputTokens": 750,
-    "costMicros": 18968,
-    "latencyMs": 6445
+    "inputTokens": 6017,
+    "outputTokens": 1106,
+    "costMicros": 23094,
+    "latencyMs": 8493
   },
   "ocr": {
     "provider": "reducto",
@@ -204,5 +210,11 @@
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:43:25.059Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:08:56.369Z"
   }
 }

@@ -8,6 +8,7 @@
 
 import {
   applyTransition,
+  identifierMatchKey,
   parseMoneyToCents,
   resolveIdentity,
   subCents,
@@ -1530,6 +1531,18 @@ export async function openCasesFromRemittance(
     return { opened, mergedInto, lines };
   }
 
+  // Every line's claim key, computed over the whole advice at once, because
+  // whether a line's invoice repeats is a fact about the page and not the line
+  // (ADR 0048 §1).
+  const keys = lineClaimIds(rows, paymentReference);
+  // Each line's short-pay, up front, so which line of a repeated invoice owns a
+  // case opened under the old key does not depend on the order lines are
+  // processed in (ADR 0048 §3).
+  const shortPays = rows.map((row) => shortPayOnLine(row));
+  // Cases this advice opened. Its own lines are never candidates for each
+  // other, exact or probable (ADR 0048 §2).
+  const openedHere = new Set<string>();
+
   for (const [index, line] of rows.entries()) {
     const invoiceNumber = printedIdentifier(line, 'invoice_number');
     const reasonCode = printedIdentifier(line, 'reason_code');
@@ -1543,7 +1556,21 @@ export async function openCasesFromRemittance(
       });
     };
 
-    const shortPay = shortPayOnLine(line);
+    const key = keys[index];
+    if (key?.sharesGrossAndNet === true && !fieldWasPrinted(line, 'deduction_amount')) {
+      // `gross − net` here is the whole invoice's short-pay, which another line
+      // of this advice also claims. Given to every line it would count the same
+      // dollars once per line (ADR 0048 §4).
+      note({
+        outcome: 'unreadable',
+        detail:
+          'the line repeats its invoice\'s gross and net alongside another line of this advice ' +
+          'and prints no deduction of its own, so its share of the short-pay cannot be told',
+      });
+      continue;
+    }
+
+    const shortPay = shortPays[index] ?? shortPayOnLine(line);
     if ('problem' in shortPay) {
       note({ outcome: 'unreadable', detail: shortPay.problem });
       continue;
@@ -1620,7 +1647,10 @@ export async function openCasesFromRemittance(
       invoiceNumber,
       async (): Promise<RemittanceLineResult> => {
         // The claim id this line builds, which is what an exact match is on.
-        const claimId = lineClaimId(paymentReference, invoiceNumber);
+        // `key` is defined for every line that prints an invoice number, and this
+        // one does; the fallback is ADR 0028's key, never a guess.
+        const claimId = key?.claimId ?? lineClaimId(paymentReference, invoiceNumber);
+        const legacyClaimId = key?.legacyClaimId;
         // Deliberately only the claim id. The invoice number is *recorded* as an
         // identifier, because it is a name this deduction is known by — but it
         // is not matched on exactly, because one invoice legitimately carries
@@ -1629,11 +1659,27 @@ export async function openCasesFromRemittance(
         // where it is the probable branch's field and has to agree with the
         // amount and the date before it means anything (ADR 0028 §6).
         const arrivalIdentifiers = [{ kind: 'claim_id' as const, identifier: claimId }];
-        const candidates = await deps.store.identityCandidates({
+        const found = await deps.store.identityCandidates({
           orgId: document.orgId,
-          identifiers: arrivalIdentifiers,
+          identifiers:
+            legacyClaimId === undefined
+              ? arrivalIdentifiers
+              : [...arrivalIdentifiers, { kind: 'claim_id' as const, identifier: legacyClaimId }],
           invoiceNumber,
         });
+        // The cases this advice opened are not candidates for its own later
+        // lines: two deductions printed side by side are two (ADR 0048 §2).
+        const knownDeductions = found.knownDeductions.filter(
+          (known) => !openedHere.has(known.deductionId),
+        );
+        const claimKey = identifierMatchKey(claimId);
+        const legacyKey = legacyClaimId === undefined ? undefined : identifierMatchKey(legacyClaimId);
+        const knownIdentifiers = found.knownIdentifiers.filter(
+          (known) =>
+            !openedHere.has(known.deductionId) &&
+            known.kind === 'claim_id' &&
+            identifierMatchKey(known.identifier) === claimKey,
+        );
         const resolution = resolveIdentity(
           {
             identifiers: arrivalIdentifiers,
@@ -1641,8 +1687,8 @@ export async function openCasesFromRemittance(
             invoiceNumber,
             ...(paymentDate.date !== undefined ? { deductionDate: paymentDate.date } : {}),
           },
-          candidates.knownIdentifiers,
-          candidates.knownDeductions,
+          knownIdentifiers,
+          knownDeductions,
           { dateToleranceDays: settings.dedupDays },
         );
 
@@ -1666,7 +1712,53 @@ export async function openCasesFromRemittance(
           };
         }
 
-        const probableDuplicateOf = probableDuplicates(resolution);
+        // A case opened under ADR 0028's key before this invoice's lines were
+        // told apart (ADR 0048 §3). It is this line's when their amounts agree
+        // and no earlier line of the group owns it; any other line of the group
+        // leaves it alone when some line owns it, and names it when none does.
+        const legacyIds =
+          legacyKey === undefined
+            ? []
+            : [
+                ...new Set(
+                  found.knownIdentifiers
+                    .filter(
+                      (known) =>
+                        !openedHere.has(known.deductionId) &&
+                        known.kind === 'claim_id' &&
+                        identifierMatchKey(known.identifier) === legacyKey,
+                    )
+                    .map((known) => known.deductionId),
+                ),
+              ];
+        const legacyFlagged: string[] = [];
+        for (const legacyId of legacyIds) {
+          const amount = found.knownDeductions.find((d) => d.deductionId === legacyId)?.amountCents;
+          const owner =
+            amount === undefined ? undefined : legacyOwner(key?.group ?? [], shortPays, amount);
+          if (owner === index) {
+            await mergeIntoCase(legacyId, document, extraction, deps, {
+              invoiceNumber,
+              amountCents: shortPay.cents,
+              ...(reasonCode !== undefined ? { reasonCode } : {}),
+              matchedOn: ['claim_id'],
+              detail:
+                'this case was opened under the claim id the whole invoice shared before its ' +
+                'lines were told apart (ADR 0048), and its amount is this line\'s',
+              ...(options.confirmation !== undefined ? { confirmation: options.confirmation } : {}),
+            });
+            return { index, invoiceNumber, outcome: 'merged', deductionId: legacyId };
+          }
+          if (owner === undefined) legacyFlagged.push(legacyId);
+        }
+
+        const probableDuplicateOf = withLegacy(probableDuplicates(resolution), legacyFlagged);
+        const probableBasis =
+          legacyFlagged.length === 0
+            ? resolution.kind === 'none'
+              ? undefined
+              : resolution.basis
+            : [...(resolution.kind === 'none' ? [] : resolution.basis), 'legacy_claim_id'];
 
         try {
           const opened = await openCaseForLine(document, deps, {
@@ -1683,8 +1775,8 @@ export async function openCasesFromRemittance(
             ...(paymentDate.problem !== undefined
               ? { paymentDateProblem: paymentDate.problem }
               : {}),
-            ...(probableDuplicateOf !== undefined && resolution.kind !== 'none'
-              ? { probableDuplicateOf, probableBasis: resolution.basis }
+            ...(probableDuplicateOf !== undefined && probableBasis !== undefined
+              ? { probableDuplicateOf, probableBasis }
               : {}),
             ...(options.confirmation !== undefined ? { confirmation: options.confirmation } : {}),
           });
@@ -1726,6 +1818,7 @@ export async function openCasesFromRemittance(
     lines.push({ ...outcome, ...(reasonCode !== undefined ? { reasonCode } : {}) });
     if (outcome.deductionId === undefined) continue;
     if (outcome.outcome === 'opened' || outcome.outcome === 'probable_duplicate') {
+      openedHere.add(outcome.deductionId);
       const record = await deps.store.getCase(outcome.deductionId);
       if (record !== undefined) opened.push(record);
     } else {
@@ -1754,6 +1847,93 @@ function lineClaimId(paymentReference: string | undefined, invoiceNumber: string
   return paymentReference === undefined
     ? invoiceNumber
     : `${paymentReference}:${invoiceNumber}`;
+}
+
+/** One line's claim key, and what the rest of the advice says about it. */
+interface LineKey {
+  /** What this line's case is keyed by, and what an exact match is on. */
+  readonly claimId: string;
+  /**
+   * ADR 0028's key, when this line's invoice repeats on the advice and so no
+   * longer keys it: the claim id a case opened before ADR 0048 carries.
+   */
+  readonly legacyClaimId?: string;
+  /** Indices of every line printing this invoice, this one included, in page order. */
+  readonly group: readonly number[];
+  /** Another line of the group prints the same gross and the same net. */
+  readonly sharesGrossAndNet: boolean;
+}
+
+/**
+ * Every line's claim key, keyed by index; undefined for a line with no invoice.
+ *
+ * `lineClaimId` for an invoice printed on one line — unchanged, so every case
+ * already opened from such a line still matches exactly (ADR 0048 §3). For an
+ * invoice printed on several, each line is `…#n`, its 1-based ordinal among
+ * them in page order: two deductions against one invoice are two, and the old
+ * key would have made the second an exact match for the first (ADR 0048 §1).
+ */
+function lineClaimIds(
+  rows: readonly unknown[],
+  paymentReference: string | undefined,
+): readonly (LineKey | undefined)[] {
+  const groups = new Map<string, number[]>();
+  const invoices = rows.map((row) => printedIdentifier(row, 'invoice_number'));
+  invoices.forEach((invoice, index) => {
+    if (invoice === undefined) return;
+    const key = identifierMatchKey(invoice);
+    const group = groups.get(key) ?? [];
+    group.push(index);
+    groups.set(key, group);
+  });
+
+  return invoices.map((invoice, index) => {
+    if (invoice === undefined) return undefined;
+    const group = groups.get(identifierMatchKey(invoice)) ?? [index];
+    const base = lineClaimId(paymentReference, invoice);
+    if (group.length === 1) return { claimId: base, group, sharesGrossAndNet: false };
+    const gross = printedMoneyCents(rows[index], 'gross_amount');
+    const net = printedMoneyCents(rows[index], 'net_amount');
+    const sharesGrossAndNet =
+      gross !== undefined &&
+      net !== undefined &&
+      group.some(
+        (other) =>
+          other !== index &&
+          printedMoneyCents(rows[other], 'gross_amount') === gross &&
+          printedMoneyCents(rows[other], 'net_amount') === net,
+      );
+    return {
+      claimId: `${base}#${group.indexOf(index) + 1}`,
+      legacyClaimId: base,
+      group,
+      sharesGrossAndNet,
+    };
+  });
+}
+
+/**
+ * Which line of a repeated invoice owns a case opened under the old key: the
+ * first, in page order, whose short-pay is that case's amount. Undefined when
+ * none is. Pure over the whole group, so every line of it gets one answer.
+ */
+function legacyOwner(
+  group: readonly number[],
+  shortPays: readonly ReturnType<typeof shortPayOnLine>[],
+  amountCents: number,
+): number | undefined {
+  return group.find((i) => {
+    const pay = shortPays[i];
+    return pay !== undefined && 'cents' in pay && pay.cents === amountCents;
+  });
+}
+
+function withLegacy(
+  probable: readonly string[] | undefined,
+  legacy: readonly string[],
+): readonly string[] | undefined {
+  if (legacy.length === 0) return probable;
+  return [...new Set([...(probable ?? []), ...legacy])].sort();
 }
 
 /**
@@ -2248,10 +2428,19 @@ async function remittanceLineOfCase(
     const rows = fieldValue(stored.document, ['lines']);
     if (!Array.isArray(rows)) continue;
     const reference = printedIdentifier(stored.document, 'payment_reference');
-    const index = rows.findIndex((line) => {
-      const invoice = printedIdentifier(line, 'invoice_number');
-      return invoice !== undefined && lineClaimId(reference, invoice) === record.claimId;
-    });
+    const keys = lineClaimIds(rows, reference);
+    // The line whose key is the case's own; failing that, a case opened under
+    // ADR 0028's key before its invoice's lines were told apart, which is the
+    // line that owns it by amount (ADR 0048 §3).
+    let index = keys.findIndex((key) => key?.claimId === record.claimId);
+    if (index === -1) {
+      const shortPays = rows.map((row) => shortPayOnLine(row));
+      const legacy = keys.find((key) => key?.legacyClaimId === record.claimId);
+      index =
+        legacy === undefined || record.deductionAmountCents === undefined
+          ? -1
+          : (legacyOwner(legacy.group, shortPays, record.deductionAmountCents) ?? -1);
+    }
     if (index !== -1) return { found: { stored, index } };
   }
   return { found: undefined };

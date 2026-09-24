@@ -18,13 +18,13 @@
     },
     "invoice_number": {
       "value": "INV-260806",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260806"
     },
     "po_number": {
       "value": "PO-PRD-3356",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-PRD-3356"
     },
@@ -42,7 +42,7 @@
     },
     "remittance_or_check": {
       "value": "RA-2609-006",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-006"
     },
@@ -95,6 +95,12 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       }
     ],
@@ -130,18 +136,24 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:55:30.793Z",
+  "recordedAt": "2026-09-24T19:08:30.065Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5099,
-    "outputTokens": 672,
-    "costMicros": 16918,
-    "latencyMs": 5947
+    "inputTokens": 5382,
+    "outputTokens": 818,
+    "costMicros": 18944,
+    "latencyMs": 6427
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:43:16.081Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:08:30.065Z"
   }
 }
