@@ -549,6 +549,55 @@ export interface RemittanceLineInput {
  * item and no PO, so there is no three-way match and no PO on the delivery
  * record to compare.
  */
+/** A money field's cents, or undefined when absent or unreadable. Records nothing. */
+function quietMoney(field: FieldValue<string | null> | null | undefined): Cents | undefined {
+  const text = valueOf(field);
+  if (text === undefined) return undefined;
+  try {
+    return parseMoneyToCents(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The other lines of an advice that print this line's invoice with the same
+ * gross and the same net: the invoice's own figures, repeated once per
+ * deduction against it (ADR 0048 §5).
+ */
+function sharingInvoice(
+  lines: RemittanceAdvice['lines'],
+  index: number,
+  gross: Cents,
+  net: Cents,
+): number[] {
+  const invoice = valueOf(lines[index]?.invoice_number);
+  if (invoice === undefined) return [];
+  const siblings: number[] = [];
+  lines.forEach((other, i) => {
+    if (i === index) return;
+    const theirs = valueOf(other.invoice_number);
+    if (theirs === undefined || !sameReference(theirs, invoice)) return;
+    if (quietMoney(other.gross_amount) !== gross || quietMoney(other.net_amount) !== net) return;
+    siblings.push(i);
+  });
+  return siblings;
+}
+
+/** The printed deductions of these lines, summed; undefined if any is unreadable. */
+function sharedDeductions(
+  lines: RemittanceAdvice['lines'],
+  indices: readonly number[],
+): Cents | undefined {
+  const amounts: Cents[] = [];
+  for (const i of indices) {
+    const amount = quietMoney(lines[i]?.deduction_amount);
+    if (amount === undefined) return undefined;
+    amounts.push(amount);
+  }
+  return sumCents(amounts);
+}
+
 export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliation {
   const findings: Finding[] = [];
   const lines: LineReconciliation[] = [];
@@ -579,7 +628,40 @@ export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliat
       // here and never in the model (invariant 3).
       implied = subCents(gross, net);
       // Two witnesses to one fact only when the page printed both.
-      if (printed !== undefined) {
+      const siblings = sharingInvoice(input.line?.advice.lines ?? [], index, gross, net);
+      if (printed !== undefined && siblings.length > 0) {
+        // The invoice's gross and net are repeated on every line of it, and each
+        // line prints its own deduction: the witnesses are the sum of those
+        // deductions and the one subtraction (ADR 0048 §5).
+        const shared = sharedDeductions(input.line?.advice.lines ?? [], [index, ...siblings]);
+        verdict = shared === implied ? 'matches' : 'differs';
+        if (verdict === 'matches') {
+          findings.push({
+            code: 'remittance_invoice_shared',
+            severity: 'info',
+            message:
+              `${label}: ${siblings.length + 1} lines of this remittance share the invoice's ` +
+              `${formatCents(gross)} gross and ${formatCents(net)} paid, and their deductions ` +
+              `add up to the ${formatCents(implied)} withheld; this case is the ` +
+              `${formatCents(printed)} of it`,
+            fieldPath: path,
+          });
+        } else {
+          findings.push({
+            code: 'remittance_line_does_not_add_up',
+            severity: 'blocking',
+            message:
+              `${label}: ${formatCents(gross)} gross less ${formatCents(net)} paid is ` +
+              `${formatCents(implied)} withheld, but the ${siblings.length + 1} lines sharing ` +
+              `this invoice ${
+                shared === undefined
+                  ? 'do not all print a readable deduction'
+                  : `deduct ${formatCents(shared)} between them`
+              }. The lines and their own columns cannot all be right`,
+            fieldPath: path,
+          });
+        }
+      } else if (printed !== undefined) {
         verdict = printed === implied ? 'matches' : 'differs';
         if (verdict === 'differs') {
           findings.push({
@@ -598,13 +680,16 @@ export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliat
     // the subtraction (ADR 0028 §2).
     claimed = printed ?? implied;
 
+    // On a shared invoice this line's expected share is what it printed once
+    // the lines add up; the whole invoice's gap is not this case's.
+    const expected = verdict === 'matches' && printed !== undefined ? printed : implied;
     lines.push({
       sku: label,
       reasonCode: valueOf(line.reason_code) ?? '',
       claimedCents: claimed ?? null,
-      expectedShortageCents: implied ?? null,
+      expectedShortageCents: expected ?? null,
       deltaCents:
-        printed !== undefined && implied !== undefined ? subCents(printed, implied) : null,
+        printed !== undefined && expected !== undefined ? subCents(printed, expected) : null,
       verdict,
       grossCents: gross ?? null,
       netCents: net ?? null,
