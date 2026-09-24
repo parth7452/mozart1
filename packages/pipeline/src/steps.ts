@@ -202,11 +202,24 @@ export async function ingestDocument(
     // double count `declined_candidates` exists to avoid — and if the second
     // arrival came through a different channel, crediting it would move
     // coverage to whichever channel re-sent a document we already had.
-    const verdict = (await deps.store.latestScan(existing.documentId)) ?? {
-      status: 'error' as const,
-      scanner: 'none',
-      detail: 'previously stored document has no scan verdict',
-    };
+    //
+    // A clean or infected verdict is final. A document stored without one —
+    // the request died between storing and scanning, or the scanner answered
+    // `error` during an outage — is scanned again, here, with the bytes that
+    // just arrived (they hash to the same document). Answering from the missing
+    // verdict instead meant no retry, on any door, could ever get the document
+    // read (ADR 0047 §10). The new verdict is appended; nothing is mutated.
+    const recorded = await deps.store.latestScan(existing.documentId);
+    if (recorded !== undefined && recorded.status !== 'error') {
+      return {
+        document: existing,
+        verdict: recorded,
+        deduplicated: true,
+        warnings: accepted.warnings,
+      };
+    }
+    const verdict = await deps.scanner.scan(input.bytes);
+    await deps.store.recordScan(existing.documentId, verdict);
     return { document: existing, verdict, deduplicated: true, warnings: accepted.warnings };
   }
 

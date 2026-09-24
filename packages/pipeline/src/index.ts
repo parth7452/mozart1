@@ -6,3 +6,4 @@ export * from './ledger-job';
 export * from './attach';
 export * from './hold';
 export * from './open-held';
+export * from './inbound-ports';
