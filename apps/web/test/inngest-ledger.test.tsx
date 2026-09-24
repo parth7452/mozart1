@@ -30,6 +30,7 @@ import {
 } from '../lib/inngest-ledger';
 import { KmsTokenCipher, type KmsDataKeyProvider } from '@recouple/crypto';
 import { PostgresQboTokenStore, QboRealmMismatchError } from '@recouple/store-postgres';
+import { QboAuthError, type QboTokenStore } from '@recouple/qbo';
 import {
   accountingSourceFromEnv,
   qboTokenCipherFromEnv,
@@ -459,6 +460,25 @@ describe('what a failure may say', () => {
     expect(transient).not.toBeInstanceOf(NonRetriableError);
     expect(String((transient as Error).message)).not.toContain('socket hang up');
   });
+
+  it('does not retry a stored sign-in Intuit refused for good, and does retry our own app being refused (ADR 0046)', () => {
+    const ids = { connectionId: CONN_A, orgId: ORG_A };
+    const dead = asLedgerSyncFailure(
+      new QboAuthError('Intuit refused the token refresh (400): invalid_grant', 'grant_refused'),
+      ids,
+    );
+    expect(dead).toBeInstanceOf(NonRetriableError);
+    expect(String((dead as Error).message)).toContain('QboAuthError');
+    expect(String((dead as Error).message)).not.toContain('invalid_grant');
+
+    // `invalid_client` is this deployment's credentials: fixing them makes the
+    // next attempt succeed, so it stays retriable.
+    const ours = asLedgerSyncFailure(
+      new QboAuthError('Intuit refused the token refresh (401): invalid_client'),
+      ids,
+    );
+    expect(ours).not.toBeInstanceOf(NonRetriableError);
+  });
 });
 
 describe('how the runtime is asked to run these', () => {
@@ -535,6 +555,43 @@ describe('what this deployment can read a ledger with', () => {
     // Scoped to this connection's company: the port takes a realm and this one
     // answers for exactly one (ADR 0033 §5).
     await expect(store?.load('some-other-realm')).rejects.toThrow(QboRealmMismatchError);
+  });
+
+  it('says which stored sign-in a dead-grant failure refused, and nothing for any other failure (ADR 0046)', () => {
+    const tokenStore = (loaded?: string): QboTokenStore => ({
+      async load() {
+        return undefined;
+      },
+      async save() {},
+      async withRefreshLock<T>(_realm: string, work: () => Promise<T>) {
+        return work();
+      },
+      ...(loaded !== undefined ? { loadedCredential: () => loaded } : {}),
+    });
+    const env = { QBO_CLIENT_ID: 'client', QBO_CLIENT_SECRET: 'secret', QBO_ENVIRONMENT: 'sandbox' };
+
+    const resolved = accountingSourceFromEnv(env, {
+      tokenStoreFor: () => tokenStore('cred-1'),
+    }).resolve(connectionRecord());
+    expect(resolved.kind).toBe('ready');
+    if (resolved.kind !== 'ready') return;
+    expect(resolved.deadGrant?.(new QboAuthError('refused', 'grant_refused'))).toEqual({
+      reason: 'grant_refused',
+      credentialId: 'cred-1',
+    });
+    expect(resolved.deadGrant?.(new QboAuthError('expired', 'refresh_expired'))).toEqual({
+      reason: 'refresh_expired',
+      credentialId: 'cred-1',
+    });
+    expect(resolved.deadGrant?.(new QboAuthError('invalid_client'))).toBeUndefined();
+    expect(resolved.deadGrant?.(new Error('socket hang up'))).toBeUndefined();
+
+    // A store that cannot name its rows cannot be released automatically.
+    const unnamed = accountingSourceFromEnv(env, {
+      tokenStoreFor: () => tokenStore(),
+    }).resolve(connectionRecord());
+    if (unnamed.kind !== 'ready') throw new Error('expected a ready source');
+    expect(unnamed.deadGrant?.(new QboAuthError('refused', 'grant_refused'))).toBeUndefined();
   });
 
   it('builds nothing when there is a key but no member to act as', () => {

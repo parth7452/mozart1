@@ -143,14 +143,25 @@ export async function exchangeIntuitToken(
   );
 
   if (!response.ok) {
-    const said = `(${response.status}): ${oauthErrorOf(text)}`;
+    const code = oauthErrorOf(text);
+    const said = `(${response.status}): ${code}`;
     // Only a refusal of the grant or of our app is a reason to reconnect:
     // `invalid_grant` (400) or `invalid_client` (401). Rate limiting or an
     // Intuit outage mid-refresh is not, and reported as one it would tell an
     // owner to reconnect a connection that works (the settings page reads the
     // run log's class name).
+    //
+    // And of those two, only `invalid_grant` on a refresh says the customer's
+    // grant is gone (ADR 0046 §1). `invalid_client` is our own app's
+    // credentials, and a code exchange's refusal is a consent that did not
+    // complete — neither is a stored sign-in that died.
     if (response.status === 400 || response.status === 401) {
-      throw new QboAuthError(`Intuit refused ${call} for ${subject} ${said}`);
+      const dead =
+        grant.grantType === 'refresh_token' && response.status === 400 && code === 'invalid_grant';
+      throw new QboAuthError(
+        `Intuit refused ${call} for ${subject} ${said}`,
+        dead ? 'grant_refused' : undefined,
+      );
     }
     if (response.status === 429) {
       throw new QboRateLimited(

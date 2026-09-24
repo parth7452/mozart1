@@ -31,6 +31,17 @@ export interface QboTokenStore {
    * Never nested: `work` must not ask for the same lock again.
    */
   withRefreshLock<T>(realmId: string, work: () => Promise<T>): Promise<T>;
+  /**
+   * The id of the stored token set `load` last returned, when the store keeps
+   * its sets as rows.
+   *
+   * `QboClient` loads the tokens again under the lock before every refresh, so
+   * after a refused refresh this names the row Intuit refused. A release
+   * compares it with the latest row before turning the connection off, so a
+   * sign-in stored since — a reconnect — is never undone (ADR 0046 §2).
+   * Optional: a store with no rows to name cannot be released automatically.
+   */
+  loadedCredential?(): string | undefined;
 }
 
 /**

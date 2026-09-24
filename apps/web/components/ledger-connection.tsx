@@ -74,6 +74,11 @@ export function LedgerConnectionPage({
                 No QuickBooks company is connected to this workspace.
                 {configured ? ` This deployment reads ${deployment.environment} companies.` : ''}
               </p>
+              {previous[0]?.releasedBySync === undefined ? null : (
+                <p className="empty" role="status">
+                  {releasedSentence(previous[0].providerAccountId, previous[0].releasedBySync)}
+                </p>
+              )}
               {mayConnect && configured ? <ConnectButton label="Connect QuickBooks" /> : null}
               {mayConnect ? null : <OwnersOnly />}
             </>
@@ -106,7 +111,14 @@ export function LedgerConnectionPage({
                   <tr key={connection.connectionId}>
                     <td className="mono">{connection.providerAccountId}</td>
                     <td>{connection.createdByEmail ?? 'a former member'}</td>
-                    <td>{connection.updatedAt.slice(0, 10)}</td>
+                    <td>
+                      {connection.updatedAt.slice(0, 10)}
+                      {connection.releasedBySync === undefined
+                        ? ''
+                        : connection.releasedBySync.reason === 'grant_refused'
+                          ? ', after QuickBooks refused its sign-in'
+                          : ', after its QuickBooks sign-in expired'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -120,6 +132,27 @@ export function LedgerConnectionPage({
         </footer>
       </main>
     </WorkspaceShell>
+  );
+}
+
+/**
+ * Why the latest connection is off, when the sync turned it off itself
+ * (ADR 0046): Intuit refused its stored sign-in for good, so nothing reads the
+ * company and no other workspace is kept from it. Said once, beside the button
+ * that fixes it.
+ */
+function releasedSentence(
+  company: string,
+  released: NonNullable<LedgerConnectionOverview['releasedBySync']>,
+): string {
+  const on = released.at.slice(0, 10);
+  const what =
+    released.reason === 'grant_refused'
+      ? `QuickBooks refused the stored sign-in for company ${company} on ${on}`
+      : `The stored QuickBooks sign-in for company ${company} expired, found on ${on}`;
+  return (
+    `${what}, so it was turned off automatically and nothing reads it now. ` +
+    'Connect QuickBooks to sign in again.'
   );
 }
 

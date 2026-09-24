@@ -928,8 +928,17 @@ commits that first, then revokes at Intuit and audits the result —
 `confirmed`, `failed` with a class name, or `not_attempted` — and a failed
 revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release
 for a connection nobody will press Disconnect on, since one dead connection
-would otherwise hold its company from every other workspace; releasing
-automatically on `invalid_grant` is a follow-up, not built. The first sync is
+would otherwise hold its company from every other workspace. The sync now
+releases one itself (ADR 0046): when Intuit answers a refresh with
+`invalid_grant`, or the refresh token's own expiry has passed
+(`deadGrantOf`), the run is recorded `failed` as before and then, under the
+company's lock, the connection is turned off — only while the refused
+credential is still the latest, so a reconnect since is never undone — with
+`accounting_connection.disconnected` (`via: 'ledger_sync'`) and a
+`not_attempted` revoke row, as the owner the run acts as. The failure is not
+retried, `invalid_client` never releases, and a member who is no longer an
+owner is refused and left for `pnpm unlink:qbo`. The settings page says why the
+connection is off. The first sync is
 queued on connect. A redirect that arrives again after it connected — the first
 production click-through saw one, a second later — is refused like any request
 without a state, but says the company is connected when this member's own
