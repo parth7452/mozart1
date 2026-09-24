@@ -4,7 +4,13 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
-import type { CaseStateTally, CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
+import {
+  ATTACH_TARGETS_LIMIT,
+  type AttachTargets,
+  type CaseStateTally,
+  type CaseSummary,
+  type ReviewQueueRead,
+} from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import {
   caseMetrics,
@@ -38,13 +44,13 @@ export function CaseList({
   viewer,
   cases,
   ledger,
-  attachTo,
   tally,
   queue,
   today,
   mayUpload,
   unread,
   unattached,
+  attachTargets,
   duplicates,
   notice,
   noticeAbout,
@@ -60,12 +66,6 @@ export function CaseList({
    * `cases` holds. With no filter, that is every case.
    */
   ledger: { readonly filter: LedgerFilter; readonly matching: number };
-  /**
-   * The cases the attach control under "Read, not on a case" chooses from. Not
-   * the ledger's rows, which a search narrows: filing evidence on a case
-   * should not depend on what was last typed into the ledger's search box.
-   */
-  attachTo: readonly CaseSummary[];
   /**
    * Every case the tenant has, counted by state, which is what the figures
    * are over. `cases` stops at the newest hundred; a figure summed from it
@@ -99,6 +99,13 @@ export function CaseList({
    * list of things they are not allowed to file.
    */
   unattached?: readonly UnattachedDocument[] | undefined;
+  /**
+   * The open cases a document in `unattached` can be attached to, most urgent
+   * first — the store's own read of every open case, not `cases`, which stops
+   * at the newest hundred and which a search narrows: filing evidence on a
+   * case should not depend on what was last typed into the ledger's search box.
+   */
+  attachTargets?: AttachTargets | undefined;
   /**
    * The pairs the matcher called possible duplicates and nobody has answered
    * (ADR 0032).
@@ -247,7 +254,12 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
-        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={attachTo} /> : null}
+        {mayUpload ? (
+          <UnattachedDocuments
+            documents={unattached ?? []}
+            targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
+          />
+        ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>

@@ -98,7 +98,15 @@ import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
 import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
-import { readReviewQueue, REVIEW_QUEUE_LIMIT, type ReviewQueueRead } from './review-queue';
+import {
+  NOT_QUEUED,
+  QUEUED_SQL,
+  readReviewQueue,
+  REVIEW_QUEUE_LIMIT,
+  URGENCY_BUCKET_SQL,
+  URGENCY_ORDER_SQL,
+  type ReviewQueueRead,
+} from './review-queue';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -354,6 +362,23 @@ export interface CaseSearchResult {
   /** The newest matching cases, at most `limit`. */
   readonly rows: readonly CaseSummary[];
   /** Every case that matches, however many `rows` holds. */
+  readonly total: number;
+  readonly limit: number;
+}
+
+/**
+ * How many cases the attach control offers by default. Not the review queue's
+ * 500: the page draws the whole list once for every document waiting to be
+ * attached, up to fifty of them.
+ */
+export const ATTACH_TARGETS_LIMIT = 250;
+export const ATTACH_TARGETS_MAX = 2_000;
+
+/** The cases a document read and on no case can be attached to (`attachTargets`). */
+export interface AttachTargets {
+  /** The open cases offered, most urgent first, at most `limit` of them. */
+  readonly rows: readonly CaseSummary[];
+  /** Every open case, however many `rows` holds. */
   readonly total: number;
   readonly limit: number;
 }
@@ -733,12 +758,14 @@ interface CaseSummaryRow {
  * A case as the list and the case page show it, in SQL, with no `where`, order
  * or limit of its own.
  *
- * Written out once and shared by `listCases`, `searchCases` and `caseSummary`,
- * for `CASE_DOCUMENTS_CTE`'s reason: the one way a case can read one way in the
- * list and another on its own page is these reads disagreeing. There is no
- * `org_id` in it on purpose — RLS decides whose cases these are.
+ * Written out once and shared by `listCases`, `searchCases`, `caseSummary`
+ * and `attachTargets`, for `CASE_DOCUMENTS_CTE`'s reason: the one way a case
+ * can read one way in the list and another on its own page is these reads
+ * disagreeing. There is no `org_id` in it on purpose — RLS decides whose cases
+ * these are. The columns are apart from the `from` so a read can add one of
+ * its own (`attachTargets` adds a count) and still map through `toCaseSummary`.
  */
-const CASE_SUMMARY_SELECT = `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
+const CASE_SUMMARY_COLUMNS = `d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
         d.deduction_date, d.dispute_deadline, d.created_at,
         d.retailer_name_as_printed, d.discovered_via, d.reason_code_as_printed,
         b.display_name as debtor_name, b.retailer_key,
@@ -752,7 +779,9 @@ const CASE_SUMMARY_SELECT = `select d.id, d.state, d.claim_id, d.deduction_amoun
           where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
           order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
         (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
-          ::int as document_count
+          ::int as document_count`;
+
+const CASE_SUMMARY_SELECT = `select ${CASE_SUMMARY_COLUMNS}
    from deductions d
    left join debtors b on b.id = d.debtor_id`;
 
@@ -3586,6 +3615,69 @@ export class PostgresStore
         deductedCents: exactCents(row.deducted, 'deduction_amount_cents'),
         dueSoonOrPast: exactCents(row.due, 'due'),
       }));
+    });
+  }
+
+  /**
+   * The cases a document that was read and is on no case can be attached to,
+   * from the case list: every case this tenant has that is not closed.
+   *
+   * The attach control's own read. It used to be handed `listCases()`, the
+   * newest hundred, so past a hundred cases an older open case could never be
+   * chosen however urgent it was — the cases the review queue exists to surface
+   * (ADR 0043). Closed is `CLOSED_STATES`, the rule the picker always used:
+   * finished, or merged into another case, which `attachReadDocument` refuses
+   * (ADR 0042).
+   *
+   * The review queue's cases come first and in its order (`URGENCY_ORDER_SQL`),
+   * then the filed and the declined ones in the same order, so a cut at `limit`
+   * drops the least urgent rather than the oldest. `total` counts every open
+   * case, so the page can say what it is not listing. `today` is read as its
+   * UTC day, and the page passes the one it reads the queue with. One tenant
+   * transaction as `app_rw`, with no `org_id` of its own: RLS decides.
+   */
+  async attachTargets(
+    options: { readonly today?: Date; readonly limit?: number } = {},
+  ): Promise<AttachTargets> {
+    const today = options.today ?? new Date();
+    const limit = options.limit ?? ATTACH_TARGETS_LIMIT;
+    if (Number.isNaN(today.getTime())) {
+      throw new RangeError('the cases to attach to need a real date for today');
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > ATTACH_TARGETS_MAX) {
+      throw new RangeError(
+        `the cases to attach to are 1 to ${ATTACH_TARGETS_MAX}, not ${String(limit)}`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseSummaryRow & { total: string }>(
+        `with open_cases as (
+           select d.*,
+                  ${QUEUED_SQL} as queued,
+                  ${URGENCY_BUCKET_SQL} as bucket,
+                  (d.created_at at time zone 'UTC')::date as created_on
+             from deductions d
+            where d.state <> all ($5::text[])
+         )
+         select ${CASE_SUMMARY_COLUMNS}, count(*) over ()::text as total
+           from open_cases q
+           join deductions d on d.id = q.id
+           left join debtors b on b.id = d.debtor_id
+          order by q.queued desc, ${URGENCY_ORDER_SQL}
+          limit $4`,
+        [
+          [...NOT_QUEUED],
+          today.toISOString().slice(0, 10),
+          DUE_SOON_DAYS,
+          limit,
+          [...CLOSED_STATES],
+        ],
+      );
+      return {
+        rows: rows.map(toCaseSummary),
+        total: rows.length === 0 ? 0 : exactCents(rows[0]?.total ?? '0', 'total'),
+        limit,
+      };
     });
   }
 

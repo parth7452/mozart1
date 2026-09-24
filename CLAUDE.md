@@ -1221,8 +1221,14 @@ through the same select and mapping as the list and the case page, as `app_rw`
 with no `org_id`. Nothing filters in the browser on top, so there is one
 matcher; the state filter offers every `CASE_STATES` value; and the ledger says
 what a search matched and how many of those it lists. The attach control under
-"Read, not on a case" still offers only the open cases among the newest
-hundred, whatever the ledger was searched for.
+"Read, not on a case" offered the open cases among the newest hundred; it now
+has its own read, `attachTargets`: every case not in `CLOSED_STATES`, through
+RLS with the list's SELECT and mapping, the review queue's cases first and in
+its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
+`URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
+searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
+list once per waiting document) and the page says how many it is not listing;
+it is asked only when a document is waiting.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
