@@ -1,26 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { DUE_SOON_DAYS, isQueued, rankForReview } from '@recouple/core-domain';
-import { closeAllPools, PostgresStore, type CaseSummary } from '../src/store';
+import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 /**
- * The attach control's cases, on Postgres as `app_rw` under RLS.
+ * The cases the case list offers to attach a read document to, on Postgres as
+ * `app_rw` under RLS.
  *
- * "Read, not on a case" offered the open cases among `listCases`' newest
- * hundred, so evidence for an older case had nowhere to go from the list.
- * `attachTargets` reads every open case in the review queue's order, and what
- * only the database can answer is here: that a year-old case due in three days
- * comes first although a hundred and five newer ones exist, that a closed case
- * is never offered and a filed one still is, that the order is the one
- * `rankForReview` gives the same rows, that a limit cuts it exactly there and
- * `total` still counts every open case, and that another tenant's cases are
- * not in it.
+ * The control used to be handed the newest hundred cases, so an older open
+ * case could never be chosen. What only the database can answer: that the old
+ * open case is offered behind a hundred and ten newer ones, that a closed case
+ * is not, that the order is the review queue's and then the filed and declined
+ * cases', that a cut at a limit keeps the most urgent and counts the rest, and
+ * that another tenant's cases are not there.
  */
-describeDb('the attach targets, on Postgres', () => {
+describeDb('the cases to attach a document to, on Postgres', () => {
   const admin = new Pool({ connectionString });
   const orgId = randomUUID();
   const otherOrgId = randomUUID();
@@ -28,6 +25,7 @@ describeDb('the attach targets, on Postgres', () => {
   const readerId = randomUUID();
   const suffix = orgId.slice(0, 8);
   const today = new Date('2026-09-23T15:00:00Z');
+  const aYearAgo = '2025-09-01T09:00:00Z';
   let store: PostgresStore;
   let readOnlyStore: PostgresStore;
   let otherStore: PostgresStore;
@@ -68,17 +66,12 @@ describeDb('the attach targets, on Postgres', () => {
     return id;
   }
 
-  const ofIds = (rows: readonly CaseSummary[]) => rows.map((row) => row.deductionId);
-
   beforeAll(async () => {
     for (const [id, slug] of [
       [orgId, `at-${suffix}`],
       [otherOrgId, `at-other-${suffix}`],
     ] as const) {
-      await admin.query(`insert into organizations (id, slug, name) values ($1,$2,'Attach')`, [
-        id,
-        slug,
-      ]);
+      await admin.query(`insert into organizations (id, slug, name) values ($1,$2,'Attach')`, [id, slug]);
       await admin.query(`insert into org_settings (org_id) values ($1)`, [id]);
     }
     await admin.query(`insert into users (id, email) values ($1,$2), ($3,$4)`, [
@@ -93,31 +86,36 @@ describeDb('the attach targets, on Postgres', () => {
       [orgId, analystId, readerId, otherOrgId],
     );
 
-    // A year old and due in three days: the case the newest hundred drops.
-    await aCase('old-urgent', {
-      state: 'analyst_review',
-      amount: 777,
-      deadline: 3,
-      createdAt: '2025-09-01T09:00:00Z',
-    });
-    // One of each bucket, and a tie on the deadline broken by the amount.
+    // Opened a year ago and due tomorrow: the case the bug hid.
+    await aCase('old-urgent', { state: 'classified', amount: 12_345, deadline: 1, createdAt: aYearAgo });
+    // The review queue's four buckets.
+    await aCase('due-soon', { state: 'evidence_pending', amount: 1_000, deadline: 3 });
     await aCase('past', { state: 'classified', amount: 5_000, deadline: -2 });
-    await aCase('soon-small', { state: 'classified', amount: 1_000, deadline: DUE_SOON_DAYS });
-    await aCase('soon-large', { state: 'decided', amount: 9_000, deadline: DUE_SOON_DAYS });
-    await aCase('later', { state: 'classified', amount: 3_000, deadline: DUE_SOON_DAYS + 30 });
-    await aCase('no-deadline-old', { state: 'discovered', amount: 400, deductionDate: -90 });
-    // Filed: not the queue's, but evidence can still arrive for it.
-    await aCase('filed', { state: 'submitted', amount: 11, deadline: 1 });
-    // Closed: never offered.
-    await aCase('won', { state: 'won', amount: 22, deadline: 0 });
-    await aCase('written-off', { state: 'written_off', amount: 33, deadline: 0 });
-    // A hundred and five newer open cases with no deadline.
+    await aCase('ledger', { state: 'analyst_review', amount: 45_000, deductionDate: -60 });
+    await aCase('later', { state: 'decided', amount: 700, deadline: 30 });
+    // Open, not queued: filed, and declined without a state moving (ADR 0038).
+    // Evidence can still go on either, so both are offered — after the queue.
+    await aCase('filed', { state: 'submitted', amount: 1, deadline: 1, createdAt: aYearAgo });
+    const declined = await aCase('declined', { state: 'classified', amount: 99_999, deadline: 0 });
+    await admin.query(
+      `insert into declined_candidates (org_id, deduction_id, discovered_from, reason,
+                                        estimated_recoverable_cents, decided_by, decided_by_version)
+       values ($1, $2, 'web_upload', 'deduction_valid', 99999, 'at', 'human')`,
+      [orgId, declined],
+    );
+    // Closed, each as old and as urgent as the one that must be offered.
+    for (const state of ['won', 'lost', 'partial', 'written_off']) {
+      await aCase(state, { state, amount: 1, deadline: 1, createdAt: aYearAgo });
+    }
+    await aCase('theirs', { state: 'classified', amount: 1, deadline: 1, org: otherOrgId });
+
+    // A hundred and ten newer cases, all closed: enough to push every case
+    // above off a newest-first list of a hundred.
     await admin.query(
       `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
-       select $1, 'AT-' || $2 || '-newer-' || g, 100, 'classified' from generate_series(1, 105) g`,
+       select $1, 'AT-' || $2 || '-newer-' || g, 100, 'lost' from generate_series(1, 110) g`,
       [orgId, suffix],
     );
-    await aCase('theirs', { state: 'classified', amount: 123, deadline: 0, org: otherOrgId });
 
     const config = { connectionString: connectionString as string };
     store = new PostgresStore(config, { orgId, userId: analystId });
@@ -133,64 +131,59 @@ describeDb('the attach targets, on Postgres', () => {
     await admin.end();
   });
 
-  it('offers every open case, the old urgent one first, and no closed one', async () => {
+  /** The queue's order, then the filed and declined cases' in the same order. */
+  const expectedOrder = () => [
+    ids['old-urgent'],
+    ids['due-soon'],
+    ids.past,
+    ids.ledger,
+    ids.later,
+    // Due today, then due tomorrow.
+    ids.declined,
+    ids.filed,
+  ];
+
+  it('offers the old open case a newest-first hundred drops, and no closed case', async () => {
     const newest = await store.listCases();
-    expect(ofIds(newest)).not.toContain(ids['old-urgent']);
+    expect(newest).toHaveLength(100);
+    expect(newest.some((c) => c.deductionId === ids['old-urgent'])).toBe(false);
 
     const targets = await store.attachTargets({ today });
-    // Seven labelled open cases and the hundred and five newer ones.
-    expect(targets.total).toBe(112);
-    expect(targets.rows).toHaveLength(112);
-    expect(targets.limit).toBe(500);
-    expect(ofIds(targets.rows).slice(0, 4)).toEqual([
-      ids['filed'], // due tomorrow, filed or not
-      ids['old-urgent'], // due in three days
-      ids['soon-large'], // due on the last day of the window, the larger first
-      ids['soon-small'],
-    ]);
-    expect(ofIds(targets.rows)).toContain(ids['past']);
-    expect(ofIds(targets.rows)).not.toContain(ids['won']);
-    expect(ofIds(targets.rows)).not.toContain(ids['written-off']);
-    expect(targets.rows.every((row) => row.state !== 'won' && row.state !== 'written_off')).toBe(
-      true,
+    expect(targets.rows.map((c) => c.deductionId)).toEqual(expectedOrder());
+    expect(targets.total).toBe(7);
+    expect(targets.limit).toBe(250);
+    // The row the list and the case page show, mapped the same way.
+    expect(targets.rows[0]).toEqual(await store.caseSummary(ids['old-urgent'] as string));
+  });
+
+  it('puts the review queue’s cases first, in the queue’s own order', async () => {
+    const queue = await store.reviewQueue({ today });
+    const targets = await store.attachTargets({ today });
+    expect(targets.rows.slice(0, queue.total).map((c) => c.deductionId)).toEqual(
+      queue.rows.map((r) => r.deductionId),
     );
   });
 
-  it('is in the order rankForReview gives the same cases', async () => {
-    const { rows } = await store.attachTargets({ today });
-    // `rankForReview` ranks only the queue's cases, so the filed one is left
-    // out of both sides; every other case must come back in its order.
-    const queued = rows.filter((row) => isQueued(row.state));
-    const ranked = rankForReview(
-      queued.map((row) => ({ ...row, hasApproval: false })),
-      today,
-    ).map((r) => r.case.deductionId);
-    expect(ofIds(queued)).toEqual(ranked);
-  });
-
-  it('cuts at a limit where the full order does, and still counts every open case', async () => {
-    const all = ofIds((await store.attachTargets({ today })).rows);
-    for (const limit of [1, 2, 5, 8, 100]) {
+  it('cuts at a limit where the order says, and still counts every open case', async () => {
+    const all = expectedOrder();
+    for (let limit = 1; limit <= all.length; limit += 1) {
       const cut = await store.attachTargets({ today, limit });
-      expect(ofIds(cut.rows)).toEqual(all.slice(0, limit));
-      expect(cut.total).toBe(112);
+      expect(cut.rows.map((c) => c.deductionId)).toEqual(all.slice(0, limit));
+      expect(cut.total).toBe(all.length);
       expect(cut.limit).toBe(limit);
     }
   });
 
-  it('is this tenant’s, the same for a read-only member, and refuses what it was not written for', async () => {
-    expect(await readOnlyStore.attachTargets({ today })).toEqual(
-      await store.attachTargets({ today }),
-    );
+  it('is this tenant’s, read the same by a read-only member, and refuses nonsense', async () => {
     const theirs = await otherStore.attachTargets({ today });
-    expect(ofIds(theirs.rows)).toEqual([ids['theirs']]);
+    expect(theirs.rows.map((c) => c.deductionId)).toEqual([ids.theirs]);
     expect(theirs.total).toBe(1);
-    expect(ofIds((await store.attachTargets({ today })).rows)).not.toContain(ids['theirs']);
 
-    await expect(store.attachTargets({ today, limit: 0 })).rejects.toBeInstanceOf(RangeError);
-    await expect(store.attachTargets({ today, limit: 2_001 })).rejects.toBeInstanceOf(RangeError);
-    await expect(store.attachTargets({ today: new Date('nope') })).rejects.toBeInstanceOf(
-      RangeError,
-    );
+    expect(await readOnlyStore.attachTargets({ today })).toEqual(await store.attachTargets({ today }));
+
+    for (const limit of [0, 1.5, 2_001, Number.NaN]) {
+      await expect(store.attachTargets({ today, limit })).rejects.toBeInstanceOf(RangeError);
+    }
+    await expect(store.attachTargets({ today: new Date('nope') })).rejects.toBeInstanceOf(RangeError);
   });
 });

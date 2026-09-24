@@ -207,7 +207,7 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 15/15 |
+| customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -275,13 +275,15 @@ person. In replay no recorded document is held any more: two were —
 0.95 today and open; the hold is exercised by readings built to fall below the
 floor. The `classification_confidence_meets_tenant_minimum`
 guard, on Phase 2's `classified → evidence_pending` edge, still has no
-evaluator because that edge is not taken yet. Two fields:
+evaluator because that edge is not taken yet. One field:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
-rather than Westhaven Paper Supply, and
-`stf-203-short-payment-notice`'s reason code came back as the payer's own code
-(`CB-203`) rather than `PREMIUM-NOAUTH`. Both of those codes are printed on
-the page, and the model took the chargeback reference rather than the reason;
-`PREMIUM-NOAUTH` is the payer's own code, not a canonical one. Grounding on the
+rather than Westhaven Paper Supply; nothing in the product reads it.
+`stf-203-short-payment-notice`'s reason code came back as `CB-203` rather than
+`PREMIUM-NOAUTH` until 2026-09-24: the page prints "CB-203 / PREMIUM-NOAUTH",
+a chargeback's own number and then the payer's reason, and the notice schema
+had nowhere to put the first. It now has `lines[].deduction_reference`, and
+`reason_code` says a reason names a kind of reason while a chargeback or debit
+memo number belongs to one deduction (*A deduction's own number*, below). Grounding on the
 four STF-201 camera pages was 64–83% until the verifier learned column rules
 (*A column rule is one glyph*, below); it is now 100% on the remittance and the
 invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
@@ -1221,18 +1223,42 @@ through the same select and mapping as the list and the case page, as `app_rw`
 with no `org_id`. Nothing filters in the browser on top, so there is one
 matcher; the state filter offers every `CASE_STATES` value; and the ledger says
 what a search matched and how many of those it lists. The attach control under
-"Read, not on a case" had the same limit too, offering the open cases among the
-newest hundred. It now reads `attachTargets`: every case not in
-`CLOSED_STATES`, filed and declined ones included since evidence still arrives
-for them, in the review queue's own order (`queueOrderBy`, the one ORDER BY
-`reviewQueue` uses too, with the same `today`), up to 500 and a total, so the
-case a reviewer is working on is near the top however old it is. Past the
-limit the control says how many open cases there are and that uploading the
-same file on a case's page files it from the recorded reading. It is asked only
-for a member who may write, and whatever the ledger was searched for.
-`attach-targets.test.ts` holds its order to `rankForReview`. Suites 17 and 20
-counted rows table-wide as the owner, so `pnpm db:test` failed when re-run on
-a database the Vitest suites had used; each now counts its own orgs' rows.
+"Read, not on a case" offered the open cases among the newest hundred; it now
+has its own read, `attachTargets`: every case not in `CLOSED_STATES`, through
+RLS with the list's SELECT and mapping, the review queue's cases first and in
+its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
+`URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
+searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
+list once per waiting document) and the page says how many it is not listing;
+it is asked only when a document is waiting. Suites 17 and 20 counted rows
+table-wide as the owner, so `pnpm db:test` failed when re-run on a database
+the Vitest suites had used; each now counts its own orgs' rows.
+
+**A deduction's own number is not its reason** (no ADR, no migration). A
+deduction notice's lines now carry `deduction_reference` — a chargeback, debit
+memo or deduction number printed beside the reason — and `reason_code` is told
+the difference; schema 1.2.0. All 17 recorded notices were re-read with
+`pnpm record:cassettes --extract-only --doc-type deduction_notice` ($0.4127),
+which re-asks the extractor alone against the OCR its cassette already holds:
+no Reducto key, and the classification and the pages stay byte for byte.
+`customer` rose to 98.8%, and `stf-203-short-payment-notice` reads
+`PREMIUM-NOAUTH` and `CB-203` exactly, which `packages/evals/test/deduction-reference.test.ts`
+asserts rather than trusting the eval's containment match. Four of the eight
+Harbor Lane notices (scans included) put their own notice number there as well, against the
+description, and one reported the text `"null"` with no quote, which provenance
+drops before it is stored. Nothing downstream reads the field yet.
+
+Every extraction recorded now carries an `extractor` stamp — model, schema
+version and a hash of the system prompt and that type's instruction — and
+`pnpm eval` names the ones this checkout's extractor did not give, as it does
+classifications; the 40 recorded before the stamp are counted, not listed. The
+remittance side was tried and **withdrawn**: told about the reference, the
+model read LOG-202's two deductions on one invoice as two lines, and
+`openCasesFromRemittance` keys a line by payment and invoice, so the $300 line
+exact-matched the $500 one and was merged into it — a deduction lost without a
+word. That collision does not need the new field: any remittance that prints
+two deductions against one invoice as two lines meets it today, and fixing it is
+identity's job (ADR 0028's claim key), a follow-up.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

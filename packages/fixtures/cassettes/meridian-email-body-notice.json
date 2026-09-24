@@ -40,6 +40,18 @@
       "source_page": 1,
       "source_quote": "Ship To: RDC 12 — Joliet, IL"
     },
+    "gln": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "deduction_total": {
       "value": "$499.20",
       "confidence": 0.98,
@@ -59,10 +71,10 @@
       "source_quote": "Dispute Deadline: 11/07/2026"
     },
     "remittance_or_check": {
-      "value": "09/08/2026",
-      "confidence": 0.6,
+      "value": "null",
+      "confidence": 0.85,
       "source_page": 1,
-      "source_quote": "Please see the deduction below, taken against your remittance of 09/08/2026."
+      "source_quote": ""
     },
     "lines": [
       {
@@ -70,23 +82,23 @@
           "value": "000-4471-08",
           "confidence": 0.98,
           "source_page": 1,
-          "source_quote": "000-4471-08    Case Pack Olive Oil       48     40      $62.40      $499.20"
+          "source_quote": "000-4471-08"
         },
         "description": {
           "value": "Case Pack Olive Oil",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Case Pack Olive Oil"
         },
         "qty_invoiced": {
           "value": 48,
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "48"
         },
         "qty_received": {
           "value": 40,
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "40"
         },
@@ -104,15 +116,21 @@
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.98,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Reason Code 24 — Shortage on receipt"
         },
         "reason_description": {
           "value": "Shortage on receipt",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Shortage on receipt"
+          "source_quote": "Reason Code 24 — Shortage on receipt"
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
@@ -120,23 +138,23 @@
           "value": "000-4471-22",
           "confidence": 0.98,
           "source_page": 1,
-          "source_quote": "000-4471-22    Case Pack Balsamic        24     24      $41.10        $0.00"
+          "source_quote": "000-4471-22"
         },
         "description": {
           "value": "Case Pack Balsamic",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "Case Pack Balsamic"
         },
         "qty_invoiced": {
           "value": 24,
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "24"
         },
         "qty_received": {
           "value": 24,
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "24"
         },
@@ -148,50 +166,50 @@
         },
         "deduction_amount": {
           "value": "$0.00",
-          "confidence": 0.97,
+          "confidence": 0.98,
           "source_page": 1,
           "source_quote": "$0.00"
         },
         "reason_code": {
           "value": "24",
-          "confidence": 0.7,
+          "confidence": 0.6,
           "source_page": 1,
           "source_quote": "Reason Code 24 — Shortage on receipt"
         },
         "reason_description": {
           "value": "Shortage on receipt",
-          "confidence": 0.6,
+          "confidence": 0.5,
           "source_page": 1,
-          "source_quote": "Shortage on receipt"
+          "source_quote": "Reason Code 24 — Shortage on receipt"
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       }
-    ],
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    }
+    ]
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:57:39.137Z",
+  "recordedAt": "2026-09-24T19:09:08.737Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 2850,
-    "outputTokens": 1627,
-    "costMicros": 21970,
-    "latencyMs": 11583
+    "inputTokens": 3133,
+    "outputTokens": 1723,
+    "costMicros": 23496,
+    "latencyMs": 12364
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:43:42.004Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:09:08.737Z"
   }
 }

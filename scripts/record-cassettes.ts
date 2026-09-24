@@ -10,6 +10,8 @@
  *   pnpm record:cassettes walmart             # only fixtures whose key matches
  *   pnpm record:cassettes --suite customer    # only one suite
  *   pnpm record:cassettes --classify-only     # re-ask the classifier, nothing else
+ *   pnpm record:cassettes --extract-only      # re-ask the extractor, nothing else
+ *   pnpm record:cassettes --doc-type deduction_notice   # only documents of one type
  *
  * The suite filter exists because a suite is the unit that gets recorded: a new
  * corpus lands whole, and re-recording the other 26 documents to get 15 is
@@ -25,6 +27,22 @@
  * byte for byte as recorded. A scan is shown the OCR text its cassette already
  * holds — the text the classifier saw when it was recorded — so no OCR provider
  * is called. It refuses a document with no cassette: there is nothing to keep.
+ *
+ * `--extract-only` is the same idea from the other side, for a change to what
+ * the extractor is asked — a field added to a document type, a description
+ * sharpened. It re-reads each document against its expected type and replaces
+ * the extraction, its cost and its model; the classification, its stamp and
+ * the OCR pages and blocks stay as recorded. A scan is read with the OCR text
+ * its cassette already holds, so no OCR provider is called and no Reducto key
+ * is needed, and its quotes are checked against the same text layer they were
+ * before. It refuses a document with no cassette, and a scan whose cassette
+ * holds no OCR, for the same reasons `--classify-only` does. `--doc-type` is
+ * its natural companion: a schema change is a change to one type, and the
+ * other types' readings are not what it asked about.
+ *
+ * Every extraction recorded — in full or with `--extract-only` — carries an
+ * `extractor` stamp saying what produced it, so `pnpm eval` can name the
+ * readings this checkout's extractor did not give, as it does classifications.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -37,7 +55,9 @@ import {
   ExtractionError,
   classifierPromptSha256,
   classifyTemperatureFor,
+  extractorPromptSha256,
   groundingReport,
+  SCHEMA_VERSION,
   locateQuote,
   modelFor,
   ocrFromEnv,
@@ -46,6 +66,7 @@ import {
   type Cassette,
   type ClassificationResult,
   type ClassifierStamp,
+  type ExtractorStamp,
   type DocType,
   type DocumentPayload,
   type OcrBlock,
@@ -61,6 +82,16 @@ const args = process.argv.slice(2);
 const classifyOnlyAt = args.indexOf('--classify-only');
 const classifyOnly = classifyOnlyAt !== -1;
 if (classifyOnly) args.splice(classifyOnlyAt, 1);
+const extractOnlyAt = args.indexOf('--extract-only');
+const extractOnly = extractOnlyAt !== -1;
+if (extractOnly) args.splice(extractOnlyAt, 1);
+if (classifyOnly && extractOnly) {
+  console.error(
+    '--classify-only and --extract-only each keep what the other re-asks; together they ' +
+      'are a full recording. Run without either for that.',
+  );
+  process.exit(1);
+}
 const suiteAt = args.findIndex((a) => a === '--suite' || a.startsWith('--suite='));
 let suite: string | undefined;
 if (suiteAt !== -1) {
@@ -72,17 +103,49 @@ if (suiteAt !== -1) {
   }
   args.splice(suiteAt, inline.startsWith('--suite=') ? 1 : 2);
 }
+const docTypeAt = args.findIndex((a) => a === '--doc-type' || a.startsWith('--doc-type='));
+let docTypeFilter: string | undefined;
+if (docTypeAt !== -1) {
+  const inline = args[docTypeAt] as string;
+  docTypeFilter = inline.startsWith('--doc-type=')
+    ? inline.slice('--doc-type='.length)
+    : args[docTypeAt + 1];
+  if (docTypeFilter === undefined || docTypeFilter === '') {
+    console.error('--doc-type needs a document type, for example `--doc-type deduction_notice`');
+    process.exit(1);
+  }
+  args.splice(docTypeAt, inline.startsWith('--doc-type=') ? 1 : 2);
+}
+if (args.length > 1 || (args[0] !== undefined && args[0].startsWith('--'))) {
+  // One key filter at most. A second word used to be dropped without a sound,
+  // which on a paid run means paying for a selection nobody asked for.
+  console.error(
+    `unexpected arguments: ${args.join(' ')}. Give at most one key filter, plus --suite, ` +
+      '--doc-type, --classify-only or --extract-only.',
+  );
+  process.exit(1);
+}
 const filter = args[0];
 
 const everything = everyDocument();
+if (docTypeFilter !== undefined && !everything.some((d) => d.docType === docTypeFilter)) {
+  console.error(
+    `no fixture document is of type ${JSON.stringify(docTypeFilter)}. Types: ` +
+      `${[...new Set(everything.map((d) => d.docType))].sort().join(', ')}`,
+  );
+  process.exit(1);
+}
 const documents = everything.filter(
   (d) =>
-    (filter === undefined || d.key.includes(filter)) && (suite === undefined || d.suite === suite),
+    (filter === undefined || d.key.includes(filter)) &&
+    (suite === undefined || d.suite === suite) &&
+    (docTypeFilter === undefined || d.docType === docTypeFilter),
 );
 
 if (documents.length === 0) {
   const asked = [
     ...(suite !== undefined ? [`suite ${JSON.stringify(suite)}`] : []),
+    ...(docTypeFilter !== undefined ? [`type ${JSON.stringify(docTypeFilter)}`] : []),
     ...(filter !== undefined ? [`key containing ${JSON.stringify(filter)}`] : []),
   ].join(' and ');
   console.error(
@@ -92,8 +155,11 @@ if (documents.length === 0) {
 }
 
 console.log(
-  `${classifyOnly ? 're-classifying' : 'recording'} ${documents.length} of ${everything.length} fixture documents` +
-    `${suite !== undefined ? ` in suite ${suite}` : ''}${filter !== undefined ? ` matching ${filter}` : ''}`,
+  `${classifyOnly ? 're-classifying' : extractOnly ? 're-extracting' : 'recording'} ` +
+    `${documents.length} of ${everything.length} fixture documents` +
+    `${suite !== undefined ? ` in suite ${suite}` : ''}` +
+    `${docTypeFilter !== undefined ? ` of type ${docTypeFilter}` : ''}` +
+    `${filter !== undefined ? ` matching ${filter}` : ''}`,
 );
 
 const classifier = new ClaudeClassifier();
@@ -104,6 +170,14 @@ const stampFor = (classification: ClassificationResult): ClassifierStamp => ({
   promptSha256: classifierPromptSha256(),
   temperature: classifyTemperatureFor(classification.call.modelVersion),
   classifiedAt: new Date().toISOString(),
+});
+
+/** What produced an extraction, written onto the cassette beside it. */
+const extractorStampFor = (docType: DocType, modelVersion: string): ExtractorStamp => ({
+  model: modelVersion,
+  promptSha256: extractorPromptSha256(docType),
+  schemaVersion: SCHEMA_VERSION,
+  extractedAt: new Date().toISOString(),
 });
 
 /**
@@ -202,6 +276,88 @@ if (classifyOnly) {
 }
 
 const extractor = new ClaudeExtractor();
+
+if (extractOnly) {
+  let spent = 0;
+  for (const fixture of documents) {
+    const file = path.join(cassetteDir, `${fixture.key}.json`);
+    process.stdout.write(`\n=== ${fixture.key} (${fixture.filename})\n`);
+    if (!existsSync(file)) {
+      console.error(
+        '  extract   REFUSED   no cassette to re-extract. Record this document in full ' +
+          '(without --extract-only); nothing was written for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
+    const recorded = JSON.parse(readFileSync(file, 'utf8')) as Cassette;
+    if (needsOcr(fixture) && recorded.ocr === undefined) {
+      // Its quotes would be checked against a blank page, and the eval would
+      // score it as if it had been read.
+      console.error(
+        '  extract   REFUSED   this page has no text layer and its cassette holds no OCR ' +
+          'pages. Record it in full; nothing was written for it.',
+      );
+      process.exitCode = 1;
+      continue;
+    }
+    const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const payload: DocumentPayload = {
+      ...payloadFor(fixture),
+      ...(ocrPages !== undefined ? { pageText: ocrPages, pageTextSource: 'ocr' as const } : {}),
+    };
+    try {
+      // Against the expected type, as a full recording does.
+      const extraction = await extractor.extract(payload, fixture.docType as DocType);
+      spent += extraction.call.costMicros;
+      const blocks: readonly OcrBlock[] = recorded.ocr?.blocks ?? [];
+      const boxed =
+        blocks.length === 0
+          ? 0
+          : extraction.fields.filter(
+              (f) => locateQuote(f.sourceQuote, f.sourcePage, blocks) !== undefined,
+            ).length;
+      const grounding = groundingReport(extraction.fields);
+      console.log(
+        `  extract   ${extraction.fields.length} fields, ` +
+          `${grounding.verified} quotes verified, ${grounding.ungrounded} ungrounded` +
+          `${blocks.length > 0 ? `, ${boxed} boxed` : ''} ` +
+          `(was ${recorded.call.costMicros}µ$; now ${extraction.call.latencyMs}ms, ` +
+          `${extraction.call.costMicros}µ$, ` +
+          `${extraction.call.inputTokens}in/${extraction.call.outputTokens}out)`,
+      );
+      // Spread first, so every key keeps its place and only these four move.
+      const cassette: Cassette = {
+        ...recorded,
+        document: extraction.document,
+        extractor: extractorStampFor(fixture.docType as DocType, extraction.call.modelVersion),
+        recordedWith: modelFor('extract'),
+        recordedAt: new Date().toISOString(),
+        call: {
+          modelVersion: extraction.call.modelVersion,
+          inputTokens: extraction.call.inputTokens ?? 0,
+          outputTokens: extraction.call.outputTokens ?? 0,
+          costMicros: extraction.call.costMicros,
+          latencyMs: extraction.call.latencyMs,
+        },
+      };
+      writeFileSync(file, `${JSON.stringify(cassette, null, 2)}\n`);
+    } catch (error) {
+      if (error instanceof ExtractionError) {
+        spent += error.call.costMicros;
+        console.error(`  FAILED    ${error.message} [${error.call.outcome}]`);
+      } else {
+        console.error(`  FAILED    ${error instanceof Error ? error.message : String(error)}`);
+      }
+      process.exitCode = 1;
+    }
+  }
+  console.log(
+    `\ntotal ${(spent / 1_000_000).toFixed(4)} USD across ${documents.length} documents. ` +
+      'Classification, OCR and their costs were not touched; run `pnpm eval` next.',
+  );
+  process.exit();
+}
 
 const ocr = ocrFromEnv();
 const withoutTextLayer = documents.filter(needsOcr);
@@ -305,6 +461,7 @@ for (const fixture of documents) {
       classifierConfidence: classification.confidence,
       classifier: stampFor(classification),
       document: extraction.document,
+      extractor: extractorStampFor(fixture.docType as DocType, extraction.call.modelVersion),
       recordedWith: modelFor('extract'),
       recordedAt: new Date().toISOString(),
       call: {

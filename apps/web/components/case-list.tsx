@@ -4,11 +4,12 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
-import type {
-  AttachTargets,
-  CaseStateTally,
-  CaseSummary,
-  ReviewQueueRead,
+import {
+  ATTACH_TARGETS_LIMIT,
+  type AttachTargets,
+  type CaseStateTally,
+  type CaseSummary,
+  type ReviewQueueRead,
 } from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import {
@@ -43,13 +44,13 @@ export function CaseList({
   viewer,
   cases,
   ledger,
-  attachTo,
   tally,
   queue,
   today,
   mayUpload,
   unread,
   unattached,
+  attachTargets,
   duplicates,
   notice,
   noticeAbout,
@@ -65,14 +66,6 @@ export function CaseList({
    * `cases` holds. With no filter, that is every case.
    */
   ledger: { readonly filter: LedgerFilter; readonly matching: number };
-  /**
-   * The cases the attach control under "Read, not on a case" chooses from:
-   * every open case, most urgent first (`attachTargets`), and how many there
-   * are. Not the ledger's rows, which are the newest and which a search
-   * narrows: filing evidence on a case should depend on neither. Asked only
-   * for a member who may write, as `unattached` is.
-   */
-  attachTo?: AttachTargets | undefined;
   /**
    * Every case the tenant has, counted by state, which is what the figures
    * are over. `cases` stops at the newest hundred; a figure summed from it
@@ -106,6 +99,13 @@ export function CaseList({
    * list of things they are not allowed to file.
    */
   unattached?: readonly UnattachedDocument[] | undefined;
+  /**
+   * The open cases a document in `unattached` can be attached to, most urgent
+   * first — the store's own read of every open case, not `cases`, which stops
+   * at the newest hundred and which a search narrows: filing evidence on a
+   * case should not depend on what was last typed into the ledger's search box.
+   */
+  attachTargets?: AttachTargets | undefined;
   /**
    * The pairs the matcher called possible duplicates and nobody has answered
    * (ADR 0032).
@@ -257,8 +257,7 @@ export function CaseList({
         {mayUpload ? (
           <UnattachedDocuments
             documents={unattached ?? []}
-            cases={attachTo?.rows ?? []}
-            openCount={attachTo?.total}
+            targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
           />
         ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
