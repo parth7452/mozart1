@@ -584,7 +584,27 @@ export interface StoredField {
    * "unchecked" and "checked and wrong" are not the same claim.
    */
   readonly quoteVerified: boolean | null;
+  /**
+   * How the document is on this case: `notice` for the document the case was
+   * opened from — a notice, or the remittance whose line opened it (ADR 0028) —
+   * and `evidence` for what was attached to it. A document linked in more than
+   * one role reads as the stronger, `notice` first. Document-level, like
+   * `filename`: every field of one document carries the same answer.
+   */
+  readonly role: DocumentRole;
+  /**
+   * Whether a read of this document was recorded against this case, which is
+   * what puts its model spend in {@link PostgresStore.costForCase}. False for a
+   * document read against no case and then put on this one — a remittance,
+   * whose one read serves every case it opens (ADR 0028); a held notice a
+   * person opened (ADR 0044); evidence attached from "Read, not on a case" —
+   * whose spend stays unattributed. Document-level, like `role`.
+   */
+  readonly readForCase: boolean;
 }
+
+/** The roles `deduction_documents.role` admits (migration 0007). */
+export type DocumentRole = 'notice' | 'evidence' | 'remittance' | 'context';
 
 /**
  * `identifierMatchKey`, written in SQL.
@@ -634,6 +654,8 @@ interface StoredFieldRow {
   source_quote: string;
   source_bbox: string[] | null;
   quote_verified: boolean | null;
+  role: DocumentRole;
+  read_for_case: boolean;
 }
 
 interface DocumentRow {
@@ -3318,21 +3340,63 @@ export class PostgresStore
    * This is the read behind the review route. It deliberately returns the field
    * rows rather than the rebuilt objects — a reviewer checks values against the
    * page, and the page reference is the part a rebuilt object throws away.
+   *
+   * **By the case's documents, not by the rows' `deduction_id`.** A document is
+   * on a case because `deduction_documents` says so, and a row's `deduction_id`
+   * says something else: which case the read that wrote it was paid for. The
+   * two differ whenever a document was read against no case and then put on
+   * one — every remittance-opened case, whose remittance's one read serves all
+   * the cases it opens (ADR 0028); a held notice a person opened (ADR 0044);
+   * evidence attached from "Read, not on a case". Reading by `deduction_id`
+   * showed those cases no document at all. `reconcileCase` already reads by
+   * link (`documentsForCase`, then `latestExtraction`), so this is now the same
+   * set of documents the findings are computed over.
+   *
+   * One row per document and field path, the latest: a document read twice
+   * carries both reads' rows, and `latestExtraction` rebuilds from all of them
+   * with the later row winning a path, so this lists the fields that rebuild
+   * uses rather than each twice. The case's notice first, then the documents in
+   * the order they were put on it, each in the order its fields were written.
+   *
+   * Nothing about spend moves: `readForCase` says which reads were paid for
+   * this case, and `costForCase` still sums only those (ADR 0028).
    */
   async fieldsForCase(deductionId: string): Promise<readonly StoredField[]> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<StoredFieldRow>(
-        `select e.document_id, coalesce(d.filename, '') as filename, d.mime_type,
-                c.doc_type, e.field_path, e.value_json, e.confidence,
-                e.source_page, e.source_quote, e.source_bbox, e.quote_verified
-           from extraction_results e
-           join documents d on d.id = e.document_id
+        `with on_case as (
+           select dd.document_id,
+                  -- The stronger role when a document is linked in two.
+                  (array_agg(dd.role order by case dd.role
+                     when 'notice' then 0 when 'remittance' then 1
+                     when 'evidence' then 2 else 3 end))[1] as role,
+                  min(dd.id) as linked_at
+             from deduction_documents dd
+            where dd.deduction_id = $1
+            group by dd.document_id
+         ), latest as (
+           select distinct on (e.document_id, e.field_path)
+                  e.id, e.document_id, e.field_path, e.value_json, e.confidence,
+                  e.source_page, e.source_quote, e.source_bbox, e.quote_verified
+             from extraction_results e
+             join on_case o on o.document_id = e.document_id
+            order by e.document_id, e.field_path, e.id desc
+         )
+         select l.document_id, coalesce(d.filename, '') as filename, d.mime_type,
+                c.doc_type, l.field_path, l.value_json, l.confidence,
+                l.source_page, l.source_quote, l.source_bbox, l.quote_verified,
+                o.role,
+                exists (select 1 from extraction_results x
+                         where x.document_id = l.document_id
+                           and x.deduction_id = $1) as read_for_case
+           from latest l
+           join on_case o on o.document_id = l.document_id
+           join documents d on d.id = l.document_id
            left join lateral (
              select doc_type from document_classifications dc
-              where dc.document_id = e.document_id order by dc.id desc limit 1
+              where dc.document_id = l.document_id order by dc.id desc limit 1
            ) c on true
-          where e.deduction_id = $1
-          order by e.document_id, e.id asc`,
+          order by (o.role <> 'notice'), o.linked_at, l.id asc`,
         [deductionId],
       );
       return rows.map((row) => ({
@@ -3350,6 +3414,8 @@ export class PostgresStore
             ? null
             : (row.source_bbox.map((n) => Number(n)) as [number, number, number, number]),
         quoteVerified: row.quote_verified,
+        role: row.role,
+        readForCase: row.read_for_case,
       }));
     });
   }

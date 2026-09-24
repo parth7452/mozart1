@@ -48,6 +48,16 @@ export interface LineReconciliation {
   readonly expectedShortageCents: Cents | null;
   readonly deltaCents: Cents | null;
   readonly verdict: LineVerdict;
+  /**
+   * A remittance line's two columns, when it printed them: what was owed and
+   * what was paid, whose difference is `expectedShortageCents` (ADR 0040).
+   * Present only on the line `reconcileRemittanceLine` reconciled, so a page can
+   * show the working — "$4,800.00 gross less $4,200.00 paid" — rather than only
+   * its answer. A notice line's working is quantities and a unit cost, and is
+   * not carried here.
+   */
+  readonly grossCents?: Cents | null;
+  readonly netCents?: Cents | null;
 }
 
 export interface Reconciliation {
@@ -596,6 +606,8 @@ export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliat
       deltaCents:
         printed !== undefined && implied !== undefined ? subCents(printed, implied) : null,
       verdict,
+      grossCents: gross ?? null,
+      netCents: net ?? null,
     });
 
     if (input.invoice !== undefined) {

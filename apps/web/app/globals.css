@@ -126,6 +126,7 @@ dl.fields .quote { display: block; color: var(--ink-soft); font-size: 12.5px; fo
 .mark.unchecked { background: #eef1f6; color: var(--ink-soft); }
 h2.section { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin: 22px 0 8px; }
 ul.findings { margin: 0; padding-left: 18px; font-size: 14px; }
+p.line-check { margin: 0 0 10px; font-size: 14px; }
 .gate {
   margin-top: 18px;
   padding: 12px 14px;

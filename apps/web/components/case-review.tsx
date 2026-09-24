@@ -16,10 +16,14 @@ import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
 import type { Viewer } from './case-list';
 import { WorkspaceShell } from './workspace-shell';
 
-/** Which document a reviewer looks at first: the notice the case came from. */
+/**
+ * The order evidence is listed in, after the document the case was opened from.
+ * Which document that is is the link's answer (`role`), not a doc type's: a
+ * remittance-opened case's notice is a `remittance_advice` (ADR 0028).
+ */
 const DOC_ORDER: readonly string[] = [
   'deduction_notice',
-  'remittance',
+  'remittance_advice',
   'invoice',
   'po',
   'bol',
@@ -40,6 +44,134 @@ export function markFor(verified: boolean | null): { label: string; tone: string
   if (verified === true) return { label: 'quote found', tone: 'verified' };
   if (verified === false) return { label: 'quote not found', tone: 'unverified' };
   return { label: 'not checked', tone: 'unchecked' };
+}
+
+/**
+ * The fields of the document a case was opened from, narrowed to this case's
+ * line when that document is a remittance.
+ *
+ * A remittance opens one case per short-paid line (ADR 0028), so the rest of
+ * the advice is other invoices — other cases, or short-pays under the floor —
+ * and forty-one of them on a forty-two-line advice would bury the one this
+ * case is about. The line is the one whose invoice is the invoice this case
+ * recorded when it opened (`deduction_identifiers`). It narrows only when
+ * exactly one line answers; otherwise every field is shown, because hiding a
+ * line we could not place is worse than showing one too many.
+ */
+export function fieldsOfThisLine(
+  documentFields: readonly StoredField[],
+  summary: Pick<CaseSummary, 'discoveredVia' | 'invoiceNumber'>,
+): { readonly shown: readonly StoredField[]; readonly otherLines: number } {
+  const all = { shown: documentFields, otherLines: 0 };
+  const invoice = summary.invoiceNumber?.trim();
+  if (summary.discoveredVia !== 'remittance_line' || invoice === undefined) return all;
+  if (documentFields[0]?.docType !== 'remittance_advice') return all;
+
+  const lineOf = (path: string): number | undefined => {
+    const match = /^lines\[(\d+)\]\./.exec(path);
+    return match?.[1] === undefined ? undefined : Number(match[1]);
+  };
+  const lines = new Set<number>();
+  const matching = new Set<number>();
+  for (const field of documentFields) {
+    const line = lineOf(field.fieldPath);
+    if (line === undefined) continue;
+    lines.add(line);
+    if (
+      field.fieldPath === `lines[${line}].invoice_number` &&
+      typeof field.value === 'string' &&
+      field.value.trim() === invoice
+    ) {
+      matching.add(line);
+    }
+  }
+  const [only, ...more] = [...matching];
+  if (only === undefined || more.length > 0) return all;
+  return {
+    shown: documentFields.filter((field) => {
+      const line = lineOf(field.fieldPath);
+      return line === undefined || line === only;
+    }),
+    otherLines: lines.size - 1,
+  };
+}
+
+/**
+ * The remittance line the case was opened from, reconciled against itself:
+ * what was owed less what was paid, against what the line says was deducted
+ * (ADR 0040). `undefined` for any other case — a notice line's working is not
+ * carried on the reconciliation.
+ */
+export function reconciledLine(
+  reconciliation: Reconciliation | undefined,
+): { readonly sentence: string; readonly verdict: string; readonly tone: string } | undefined {
+  const line = reconciliation?.lines.find((l) => l.grossCents !== undefined);
+  if (line === undefined) return undefined;
+  const label = line.sku;
+  const printed =
+    line.claimedCents !== null && line.deltaCents !== null ? line.claimedCents : undefined;
+  const tone =
+    line.verdict === 'matches' ? 'verified' : line.verdict === 'differs' ? 'unverified' : 'unchecked';
+  const verdict = line.verdict.replace(/_/g, ' ');
+  if (
+    line.grossCents === null ||
+    line.grossCents === undefined ||
+    line.netCents === null ||
+    line.netCents === undefined ||
+    line.expectedShortageCents === null
+  ) {
+    return {
+      sentence:
+        `${label}: ` +
+        (line.claimedCents === null
+          ? 'the line prints no amount this case can be checked against'
+          : `the line says ${money(line.claimedCents)} was deducted, and prints no gross and ` +
+            'paid amount to check that against'),
+      verdict,
+      tone,
+    };
+  }
+  const working =
+    `${label}: ${money(line.grossCents)} gross less ${money(line.netCents)} paid is ` +
+    `${money(line.expectedShortageCents)} withheld`;
+  return {
+    sentence:
+      printed === undefined
+        ? `${working}; the line prints no deduction of its own, so this case is for that difference`
+        : `${working}, and the line says ${money(printed)} was deducted`,
+    verdict,
+    tone,
+  };
+}
+
+/**
+ * What the case's reads cost, said so that the figure and the documents it
+ * covers agree.
+ *
+ * `costMicros` is spend recorded against this case. A document read against no
+ * case and then put on this one — a remittance, whose one read serves every
+ * case it opens (ADR 0028); a held notice a person opened; evidence attached
+ * from "Read, not on a case" — is on the page and not in that figure, and the
+ * sentence says so rather than implying the figure covers it.
+ */
+export function spendSentence(input: {
+  readonly costMicros: number;
+  readonly documents: readonly { readonly readForCase: boolean }[];
+  readonly fieldCount: number;
+}): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const total = input.documents.length;
+  const unpaid = input.documents.filter((d) => !d.readForCase).length;
+  const read =
+    `Read so far: ${plural(input.fieldCount, 'field')} from ${plural(total, 'document')}, ` +
+    `and ${money(Math.round(input.costMicros / 10_000))} of model spend on ` +
+    `${unpaid === 0 ? (total === 1 ? 'it' : 'them') : `the ${total - unpaid} read for this case`}.`;
+  if (unpaid === 0) return read;
+  return (
+    `${read} ${unpaid === 1 ? 'One was' : `${unpaid} were`} read for no one case — a ` +
+    'remittance’s one read serves every case it opens — so what ' +
+    `${unpaid === 1 ? 'it' : 'they'} cost is not in that figure.`
+  );
 }
 
 export interface CaseReviewProps {
@@ -152,10 +284,18 @@ export function CaseReview({
     bucket.push(field);
     byDocument.set(field.documentId, bucket);
   }
+  // The document the case was opened from first — the link says which, and a
+  // remittance's doc type is no notice's — then the evidence by kind.
+  const isNotice = (entry: [string, StoredField[]]) => entry[1][0]?.role === 'notice';
   const documents = [...byDocument.entries()].sort(
-    (a, b) => orderOf(a[1][0]?.docType ?? null) - orderOf(b[1][0]?.docType ?? null),
+    (a, b) =>
+      Number(!isNotice(a)) - Number(!isNotice(b)) ||
+      orderOf(a[1][0]?.docType ?? null) - orderOf(b[1][0]?.docType ?? null),
   );
-  const primary = documents[0];
+  // Only the notice is the original. Evidence embedded under that title is how
+  // a carrier invoice came to be shown as a remittance case's deduction.
+  const primary = documents.find(isNotice);
+  const line = reconciledLine(reconciliation);
   const due = deadline(summary.disputeDeadline, today);
   // The debtor when one matched, otherwise the name the notice printed, marked
   // as unmatched — and only "Retailer unknown" when nothing was read at all.
@@ -217,7 +357,11 @@ export function CaseReview({
                 </p>
               )}
               {primary === undefined ? (
-                <p className="empty">No document has been read for this case yet.</p>
+                <p className="empty">
+                  {documents.length === 0
+                    ? 'No document has been read for this case yet.'
+                    : 'The document this case was opened from has no reading to show here.'}
+                </p>
               ) : (
                 <div className="doc">
                   {/* The bytes come back through the same policies as the rest of
@@ -234,11 +378,20 @@ export function CaseReview({
               )}
             </div>
 
-            {findings.length > 0 ? (
+            {findings.length > 0 || line !== undefined ? (
               <div className="card" style={{ marginTop: 18 }}>
                 <h2 className="section" style={{ marginTop: 0 }}>
                   What the documents say together
                 </h2>
+                {/* The claim's own arithmetic before anything is compared with
+                    it: a remittance prints the short-pay twice, and the two have
+                    to agree (ADR 0040). Computed in cents by reconcile, only
+                    formatted here. */}
+                {line === undefined ? null : (
+                  <p className="line-check">
+                    <span className={`mark ${line.tone}`}>{line.verdict}</span> {line.sentence}
+                  </p>
+                )}
                 <ul className="findings">
                   {/* Not keyed by code alone: one message can move two
                       appointments, and a reading of LOG-001's does, so two
@@ -260,31 +413,43 @@ export function CaseReview({
           </div>
 
           <div>
-            {documents.map(([documentId, documentFields]) => (
-              <div className="card" key={documentId} style={{ marginBottom: 18 }}>
-                <h2 className="section" style={{ marginTop: 0 }}>
-                  {(documentFields[0]?.docType ?? 'document').replace(/_/g, ' ')} ·{' '}
-                  <span className="mono">{documentFields[0]?.filename}</span>
-                </h2>
-                <dl className="fields">
-                  {documentFields.map((field) => {
-                    const mark = markFor(field.quoteVerified);
-                    return (
-                      <div key={`${documentId}:${field.fieldPath}`}>
-                        <dt>{fieldLabel(field.fieldPath)}</dt>
-                        <dd>
-                          {fieldValue(field.value)}
-                          <span className={`mark ${mark.tone}`}>{mark.label}</span>
-                          <span className="quote">
-                            p{field.sourcePage}: &ldquo;{field.sourceQuote}&rdquo;
-                          </span>
-                        </dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </div>
-            ))}
+            {documents.map(([documentId, documentFields]) => {
+              const { shown, otherLines } = isNotice([documentId, documentFields])
+                ? fieldsOfThisLine(documentFields, summary)
+                : { shown: documentFields, otherLines: 0 };
+              return (
+                <div className="card" key={documentId} style={{ marginBottom: 18 }}>
+                  <h2 className="section" style={{ marginTop: 0 }}>
+                    {(documentFields[0]?.docType ?? 'document').replace(/_/g, ' ')} ·{' '}
+                    <span className="mono">{documentFields[0]?.filename}</span>
+                  </h2>
+                  {otherLines === 0 ? null : (
+                    <p className="hint">
+                      This case&rsquo;s line only. The advice&rsquo;s {otherLines} other line
+                      {otherLines === 1 ? ' is another invoice' : 's are other invoices'} — other
+                      cases, or short-pays under the floor.
+                    </p>
+                  )}
+                  <dl className="fields">
+                    {shown.map((field) => {
+                      const mark = markFor(field.quoteVerified);
+                      return (
+                        <div key={`${documentId}:${field.fieldPath}`}>
+                          <dt>{fieldLabel(field.fieldPath)}</dt>
+                          <dd>
+                            {fieldValue(field.value)}
+                            <span className={`mark ${mark.tone}`}>{mark.label}</span>
+                            <span className="quote">
+                              p{field.sourcePage}: &ldquo;{field.sourceQuote}&rdquo;
+                            </span>
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </div>
+              );
+            })}
 
             {/* What the last action came back saying — a decline recorded, a
                 duplicate claim the upload route sent us here to explain. Same
@@ -401,9 +566,13 @@ export function CaseReview({
               only way this case moves.
               <br />
               <br />
-              Read so far: {money(Math.round(costMicros / 10_000))} of model spend on{' '}
-              {documents.length} document{documents.length === 1 ? '' : 's'}, {fields.length}{' '}
-              fields.
+              {spendSentence({
+                costMicros,
+                documents: documents.map(([, documentFields]) => ({
+                  readForCase: documentFields[0]?.readForCase ?? false,
+                })),
+                fieldCount: fields.length,
+              })}
             </div>
           </div>
         </div>

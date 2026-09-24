@@ -146,6 +146,8 @@ function field(overrides: Partial<StoredField> = {}): StoredField {
     sourceQuote: 'Claim ID: APDP-99812',
     sourceBbox: null,
     quoteVerified: true,
+    role: 'notice',
+    readForCase: true,
     ...overrides,
   };
 }
@@ -945,6 +947,188 @@ describe('the review page', () => {
     );
     expect(html).toContain('first move');
     expect(html).toContain('second move');
+  });
+});
+
+/**
+ * A case a remittance line opened (ADR 0028): the remittance is its notice by
+ * the link, its read belongs to no one case, and the line it was opened from is
+ * the claim. Running the LOG-001 demo on 2026-09-23 showed none of it — no
+ * fields, the carrier invoice embedded as the original, the remittance named
+ * "document 1" in the packet.
+ */
+describe('the review page for a case a remittance line opened', () => {
+  const REMITTANCE_DOC = 'dddddddd-1111-2222-3333-444444444444';
+  const INVOICE_DOC = 'eeeeeeee-1111-2222-3333-444444444444';
+  const remittanceField = (fieldPath: string, value: string) =>
+    field({
+      documentId: REMITTANCE_DOC,
+      filename: '01_short_pay_remittance.pdf',
+      docType: 'remittance_advice',
+      fieldPath,
+      value,
+      sourceQuote: value,
+      role: 'notice',
+      readForCase: false,
+    });
+  const fields: readonly StoredField[] = [
+    // The store lists the notice first; the view must not depend on it.
+    field({
+      documentId: INVOICE_DOC,
+      filename: '02_carrier_invoice.pdf',
+      docType: 'invoice',
+      fieldPath: 'invoice_number',
+      value: 'INV-AFS-260814',
+      role: 'evidence',
+      readForCase: true,
+    }),
+    remittanceField('payment_reference', 'ACH-91844'),
+    remittanceField('lines[0].invoice_number', 'INV-AFS-260814'),
+    remittanceField('lines[0].deduction_amount', '$600.00'),
+    remittanceField('lines[1].invoice_number', 'INV-AFS-260901'),
+    remittanceField('lines[1].deduction_amount', '$75.00'),
+    remittanceField('lines[2].invoice_number', 'INV-AFS-260902'),
+  ];
+  const remittanceCase = summary({
+    claimId: 'ACH-91844:INV-AFS-260814',
+    deductionAmountCents: 60_000,
+    discoveredVia: 'remittance_line',
+    invoiceNumber: 'INV-AFS-260814',
+    reasonCodeAsPrinted: 'LATE-DEL',
+    documentCount: 2,
+  });
+  const matches = {
+    claimedTotalCents: cents(60_000),
+    lineSumCents: cents(60_000),
+    internallyConsistent: true,
+    lines: [
+      {
+        sku: 'INV-AFS-260814',
+        reasonCode: 'LATE-DEL',
+        claimedCents: cents(60_000),
+        expectedShortageCents: cents(60_000),
+        deltaCents: cents(0),
+        verdict: 'matches' as const,
+        grossCents: cents(480_000),
+        netCents: cents(420_000),
+      },
+    ],
+    findings: [],
+  };
+
+  function render(props: Partial<Parameters<typeof CaseReview>[0]> = {}): string {
+    return renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={remittanceCase}
+        fields={fields}
+        reconciliation={matches}
+        costMicros={210_000}
+        today={today}
+        {...props}
+      />,
+    );
+  }
+
+  it('embeds the remittance as the original document, not the evidence', () => {
+    const html = render();
+    expect(html).toContain(`src="/api/document/${REMITTANCE_DOC}"`);
+    expect(html).not.toContain(`src="/api/document/${INVOICE_DOC}"`);
+    expect(html).not.toContain('No document has been read');
+  });
+
+  it('shows the line that opened the case, with its quotes, and not the other invoices', () => {
+    const html = render();
+    expect(html).toContain('lines 1 · deduction amount');
+    expect(html).toContain('$600.00');
+    expect(html).toContain('quote found');
+    expect(html).toContain('payment reference');
+    expect(html).not.toContain('INV-AFS-260901');
+    expect(html).not.toContain('$75.00');
+    expect(html).toContain('2 other lines are other invoices');
+  });
+
+  it('shows every line when the case’s own cannot be placed', () => {
+    // Two lines answering to one invoice, or none: hiding a line we could not
+    // place is worse than showing one too many.
+    const html = render({ summary: { ...remittanceCase, invoiceNumber: 'INV-NOT-HERE' } });
+    expect(html).toContain('INV-AFS-260901');
+    expect(html).not.toContain('other lines are other invoices');
+  });
+
+  it('says the line adds up: gross less paid against what it says was deducted', () => {
+    const html = render();
+    expect(html).toContain('What the documents say together');
+    expect(html).toContain(
+      'INV-AFS-260814: $4,800.00 gross less $4,200.00 paid is $600.00 withheld, and the line ' +
+        'says $600.00 was deducted',
+    );
+    expect(html).toContain('>matches<');
+  });
+
+  it('says so when the line does not add up', () => {
+    const html = render({
+      reconciliation: {
+        ...matches,
+        lines: [
+          {
+            ...matches.lines[0]!,
+            claimedCents: cents(65_000),
+            deltaCents: cents(5_000),
+            verdict: 'differs' as const,
+          },
+        ],
+      },
+    });
+    expect(html).toContain('the line says $650.00 was deducted');
+    expect(html).toContain('class="mark unverified">differs<');
+  });
+
+  it('counts the remittance among the documents, and not in the spend', () => {
+    const html = render();
+    expect(html).toContain('from 2 documents');
+    expect(html).toContain('model spend on the 1 read for this case');
+    expect(html).toContain('not in that figure');
+  });
+
+  it('names the remittance in the packet, not "document 1"', () => {
+    const html = render({
+      mayAct: true,
+      summary: { ...remittanceCase, state: 'awaiting_approval' },
+      workflow: {
+        ...workflow({ state: 'awaiting_approval' }),
+        packet: {
+          ...workflow({ state: 'awaiting_approval' }).packet!,
+          fileDocumentIds: [REMITTANCE_DOC, INVOICE_DOC],
+        },
+      },
+    });
+    expect(html).toContain('>01_short_pay_remittance.pdf</a>');
+    expect(html).toContain('>02_carrier_invoice.pdf</a>');
+    expect(html).not.toContain('document 1');
+  });
+
+  it('says the spend covers every document when every read was this case’s', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary()}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={140_000}
+        today={today}
+      />,
+    );
+    expect(html).toContain('Read so far: 1 field from 1 document, and $0.14 of model spend on it.');
+    expect(html).not.toContain('not in that figure');
+  });
+
+  it('does not show evidence as the original when the notice has no reading', () => {
+    const html = render({ fields: fields.filter((f) => f.documentId === INVOICE_DOC) });
+    expect(html).not.toContain('<embed');
+    expect(html).toContain('The document this case was opened from has no reading to show here.');
   });
 });
 
