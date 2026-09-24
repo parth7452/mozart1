@@ -11,7 +11,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { SCHEMA_VERSION } from './field';
-import { costMicros, modelFor } from './models';
+import { classifyTemperatureFor, costMicros, modelFor } from './models';
 import {
   DOC_TYPES,
   ExtractionError,
@@ -111,9 +111,14 @@ export class ClaudeClassifier implements Classifier {
     } as const;
 
     try {
+      const temperature = classifyTemperatureFor(this.model);
       const response = await this.client.messages.parse({
         model: this.model,
         max_tokens: 1024,
+        // Pinned where the model takes it (`classifyTemperatureFor`): a doc
+        // type decides whether and how a case opens, so one page should get
+        // one answer.
+        ...(temperature !== null ? { temperature } : {}),
         system: CLASSIFY_SYSTEM,
         messages: [
           {

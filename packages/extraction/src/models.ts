@@ -16,6 +16,43 @@ const DEFAULTS: Record<ModelRole, string> = {
   narrative: 'claude-sonnet-5',
 };
 
+/**
+ * The classifier's sampling temperature: 0.
+ *
+ * A doc type decides whether a document opens a case, how many, and whether a
+ * person is asked first (ADR 0028, ADR 0044), so it should not be a coin toss.
+ * With no temperature set, the same page read `remittance_advice` three times in
+ * five and `deduction_notice` twice, and every classification number the eval
+ * reported was one sample. Zero makes the answer as repeatable as the model
+ * allows. It does not make it right.
+ */
+export const CLASSIFY_TEMPERATURE = 0;
+
+/**
+ * Models that reject a sampling parameter outright. Sending `temperature` to
+ * one is a 400, and `RECOUPLE_CLASSIFY_MODEL` can point the classifier at any
+ * of them. Matched by prefix, so a dated snapshot counts as its family.
+ */
+const NO_SAMPLING_PREFIXES = [
+  'claude-fable-',
+  'claude-mythos-',
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-opus-4-7',
+  'claude-opus-4-8',
+] as const;
+
+/**
+ * The temperature to send the classifier on `model`, or `null` when that model
+ * takes none: then nothing is sent, and the stamp on a recorded classification
+ * says it was not pinned rather than pretending it was.
+ */
+export function classifyTemperatureFor(model: string): number | null {
+  return NO_SAMPLING_PREFIXES.some((prefix) => model.startsWith(prefix))
+    ? null
+    : CLASSIFY_TEMPERATURE;
+}
+
 const ENV_KEYS: Record<ModelRole, string> = {
   classify: 'RECOUPLE_CLASSIFY_MODEL',
   extract: 'RECOUPLE_EXTRACT_MODEL',

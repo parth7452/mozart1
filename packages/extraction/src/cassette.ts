@@ -22,6 +22,7 @@ import {
   type ModelCallRecord,
 } from './ports';
 import { CLASSIFY_SYSTEM } from './prompt';
+import { classifyTemperatureFor } from './models';
 
 /**
  * What answered a cassette's `classifiedAs`: the classifier model and a hash
@@ -38,6 +39,12 @@ export interface ClassifierStamp {
   readonly model: string;
   /** sha256 of the classifier's system prompt, hex. */
   readonly promptSha256: string;
+  /**
+   * The temperature the classifier was asked at, or `null` when none was sent.
+   * Absent on a stamp written before the classifier pinned one, which reads
+   * as not current: an unpinned answer was one sample of several.
+   */
+  readonly temperature?: number | null;
   readonly classifiedAt: string;
 }
 
@@ -47,7 +54,7 @@ export function classifierPromptSha256(system: string = CLASSIFY_SYSTEM): string
 
 /**
  * Whether the classification a cassette replays was answered by this model
- * under this prompt. A cassette with no stamp is not current: it was recorded
+ * under this prompt, at the temperature this checkout asks it at. A cassette with no stamp is not current: it was recorded
  * before anything wrote down what answered it, so nothing says it was.
  */
 export function classificationIsCurrent(
@@ -58,7 +65,8 @@ export function classificationIsCurrent(
   return (
     cassette.classifier !== undefined &&
     cassette.classifier.model === model &&
-    cassette.classifier.promptSha256 === classifierPromptSha256(system)
+    cassette.classifier.promptSha256 === classifierPromptSha256(system) &&
+    cassette.classifier.temperature === classifyTemperatureFor(model)
   );
 }
 

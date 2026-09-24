@@ -7,6 +7,7 @@ import {
   type Cassette,
 } from '../src/cassette';
 import { CLASSIFY_SYSTEM } from '../src/prompt';
+import { CLASSIFY_TEMPERATURE, classifyTemperatureFor } from '../src/models';
 
 const recorded: Cassette = {
   key: 'service-order',
@@ -32,9 +33,14 @@ const recorded: Cassette = {
   },
 };
 
-const stamp = (model: string, system: string = CLASSIFY_SYSTEM) => ({
+const stamp = (
+  model: string,
+  system: string = CLASSIFY_SYSTEM,
+  temperature: number | null | 'absent' = classifyTemperatureFor(model),
+) => ({
   model,
   promptSha256: classifierPromptSha256(system),
+  ...(temperature !== 'absent' ? { temperature } : {}),
   classifiedAt: '2026-09-23T00:00:00.000Z',
 });
 
@@ -58,6 +64,15 @@ describe('what answered a recorded classification', () => {
     expect(classificationIsCurrent(stamped, 'claude-haiku-4-5', `${CLASSIFY_SYSTEM}\nMore.`)).toBe(
       false,
     );
+  });
+
+  it('calls an answer given before the temperature was pinned not current', () => {
+    // A stamp from before the pin records no temperature: that answer was one
+    // sample of several, and nothing says this checkout would give it.
+    const unpinned = { ...recorded, classifier: stamp('claude-haiku-4-5', CLASSIFY_SYSTEM, 'absent') };
+    expect(classificationIsCurrent(unpinned, 'claude-haiku-4-5')).toBe(false);
+    const other = { ...recorded, classifier: stamp('claude-haiku-4-5', CLASSIFY_SYSTEM, 0.7) };
+    expect(classificationIsCurrent(other, 'claude-haiku-4-5')).toBe(false);
   });
 });
 
@@ -101,5 +116,21 @@ describe('re-classifying a cassette', () => {
       byteSize: 0,
     });
     expect([result.docType, result.confidence]).toEqual(['price_agreement', 0.9]);
+  });
+});
+
+describe('the classifier temperature', () => {
+  it('is pinned at zero on the default classifier and on models that take sampling', () => {
+    expect(CLASSIFY_TEMPERATURE).toBe(0);
+    expect(classifyTemperatureFor('claude-haiku-4-5')).toBe(0);
+    expect(classifyTemperatureFor('claude-sonnet-4-6')).toBe(0);
+  });
+
+  it('is not sent to a model that refuses sampling parameters', () => {
+    // A 400 on every read would be worse than an unpinned classifier; the
+    // stamp says `null` so the eval can tell the difference.
+    for (const model of ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-fable-5-1']) {
+      expect(classifyTemperatureFor(model)).toBeNull();
+    }
   });
 });
