@@ -4,7 +4,12 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
-import type { CaseStateTally, CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
+import type {
+  AttachTargets,
+  CaseStateTally,
+  CaseSummary,
+  ReviewQueueRead,
+} from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import {
   caseMetrics,
@@ -61,11 +66,13 @@ export function CaseList({
    */
   ledger: { readonly filter: LedgerFilter; readonly matching: number };
   /**
-   * The cases the attach control under "Read, not on a case" chooses from. Not
-   * the ledger's rows, which a search narrows: filing evidence on a case
-   * should not depend on what was last typed into the ledger's search box.
+   * The cases the attach control under "Read, not on a case" chooses from:
+   * every open case, most urgent first (`attachTargets`), and how many there
+   * are. Not the ledger's rows, which are the newest and which a search
+   * narrows: filing evidence on a case should depend on neither. Asked only
+   * for a member who may write, as `unattached` is.
    */
-  attachTo: readonly CaseSummary[];
+  attachTo?: AttachTargets | undefined;
   /**
    * Every case the tenant has, counted by state, which is what the figures
    * are over. `cases` stops at the newest hundred; a figure summed from it
@@ -247,7 +254,13 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
-        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={attachTo} /> : null}
+        {mayUpload ? (
+          <UnattachedDocuments
+            documents={unattached ?? []}
+            cases={attachTo?.rows ?? []}
+            openCount={attachTo?.total}
+          />
+        ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>

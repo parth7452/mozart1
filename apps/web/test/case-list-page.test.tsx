@@ -6,6 +6,7 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import type {
+  AttachTargets,
   CaseSearch,
   CaseSearchResult,
   CaseStateTally,
@@ -50,9 +51,11 @@ const harness = vi.hoisted(() => ({
   /** Every `searchCases` call: the ledger's rows, for whatever was searched. */
   searchCalls: [] as (CaseSearch | undefined)[],
   search: { rows: [], total: 0, limit: 100 } as CaseSearchResult,
-  /** Every `listCases` call: the attach control's cases, when a search narrowed the ledger. */
+  /** Every `listCases` call: the newest hundred, which nothing on this page reads now. */
   listCalls: 0,
-  newest: [] as CaseSummary[],
+  /** Every `attachTargets` call: the attach control's cases, most urgent first. */
+  attachCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
+  attachTargets: { rows: [], total: 0, limit: 500 } as AttachTargets,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -66,7 +69,11 @@ vi.mock('../lib/session', () => ({
     ({
       async listCases() {
         harness.listCalls += 1;
-        return harness.newest;
+        return [];
+      },
+      async attachTargets(options?: { today?: Date; limit?: number }) {
+        harness.attachCalls.push(options);
+        return harness.attachTargets;
       },
       async searchCases(search?: CaseSearch) {
         harness.searchCalls.push(search);
@@ -186,7 +193,8 @@ describe('the case list page', () => {
     harness.searchCalls = [];
     harness.search = { rows: [], total: 0, limit: 100 };
     harness.listCalls = 0;
-    harness.newest = [];
+    harness.attachCalls = [];
+    harness.attachTargets = { rows: [], total: 0, limit: 500 };
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -298,7 +306,7 @@ describe('the case list page', () => {
     }
   });
 
-  it('lists the newest cases, and reads no second list, when nothing was searched', async () => {
+  it('lists the newest cases when nothing was searched', async () => {
     harness.search = {
       rows: [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-99812')],
       total: 240,
@@ -308,7 +316,6 @@ describe('the case list page', () => {
     const html = await render();
 
     expect(harness.searchCalls).toEqual([{}]);
-    // The attach control offers the ledger's own rows: they are the newest.
     expect(harness.listCalls).toBe(0);
     expect(html).toContain('APDP-99812');
     expect(html).toContain('the newest 1 listed below');
@@ -344,25 +351,42 @@ describe('the case list page', () => {
     expect(harness.searchCalls).toEqual([{ query: 'walmart' }, { state: 'won' }, {}, {}]);
   });
 
-  it('keeps the attach control on the newest cases while the ledger is searched', async () => {
+  it('offers the attach control every open case, most urgent first, whatever was searched', async () => {
+    // A year-old case the queue puts first, and the newest hundred would drop.
     harness.search = {
-      rows: [listed('aaaaaaaa-0000-0000-0000-000000000009', 'OLD-4471')],
+      rows: [listed('aaaaaaaa-0000-0000-0000-000000000001', 'KS-40112')],
       total: 1,
       limit: 100,
     };
-    harness.newest = [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-77001')];
-    const html = await render({ q: 'OLD-4471' });
+    harness.attachTargets = {
+      rows: [
+        listed('aaaaaaaa-0000-0000-0000-000000000009', 'OLD-4471'),
+        listed('aaaaaaaa-0000-0000-0000-000000000001', 'KS-40112'),
+      ],
+      total: 640,
+      limit: 500,
+    };
+    for (const params of [{}, { q: 'KS-40112' }]) {
+      harness.attachCalls = [];
+      harness.queueCalls = [];
+      const html = await render(params);
 
-    expect(harness.listCalls).toBe(1);
-    const attach = html.slice(html.indexOf('Read, not on a case'));
-    expect(attach).toContain('APDP-77001');
-    expect(attach).not.toContain('OLD-4471');
+      expect(harness.attachCalls).toHaveLength(1);
+      expect(harness.attachCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+      expect(harness.listCalls).toBe(0);
+      const attach = html.slice(html.indexOf('Read, not on a case'));
+      expect(attach.indexOf('OLD-4471')).toBeGreaterThan(-1);
+      expect(attach.indexOf('OLD-4471')).toBeLessThan(attach.indexOf('KS-40112'));
+      expect(attach).toContain('Each list offers the 2 most urgent of 640 open cases.');
+    }
 
     // A member who cannot attach is not shown the control, so nothing is read for it.
-    harness.role = 'read_only';
-    harness.listCalls = 0;
-    await render({ q: 'OLD-4471' });
-    expect(harness.listCalls).toBe(0);
+    for (const role of ['read_only', 'accountant_guest']) {
+      harness.role = role;
+      harness.attachCalls = [];
+      await render({ q: 'KS-40112' });
+      expect(harness.attachCalls).toEqual([]);
+    }
   });
 
   it('does not ask the member who prepared a decision to approve it', async () => {

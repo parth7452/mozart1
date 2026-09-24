@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { CASE_STATES, MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
+import { CASE_STATES, MAX_RATIONALE_LENGTH, cents, isClosed } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
-import type { CaseDocument, CaseSummary, StoredField } from '@recouple/store-postgres';
+import type {
+  AttachTargets,
+  CaseDocument,
+  CaseSummary,
+  StoredField,
+} from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
 import type {
   CaseWorkflow,
@@ -42,11 +47,21 @@ const today = new Date('2026-09-18T12:00:00Z');
 type CaseListProps = Parameters<typeof CaseList>[0];
 
 /**
+ * What `attachTargets` answers for a tenant whose every case is in `cases`: the
+ * open ones, all of them. Their order is the store's business and is tested
+ * there (case-search.test.ts in store-postgres).
+ */
+function attachTargetsOf(cases: readonly CaseSummary[]): AttachTargets {
+  const rows = cases.filter((row) => !isClosed(row.state));
+  return { rows, total: rows.length, limit: 500 };
+}
+
+/**
  * The list for a tenant whose every case is in `cases`, with the figures the
  * store would tally for them, so a test's rows and its figures describe one
  * tenant. Unsearched unless a test says otherwise, and the attach control
- * offers the same rows, as the page reads them. The tests about figures that
- * reach past the rows render `CaseList`.
+ * offers those cases' open ones. The tests about figures that reach past the
+ * rows render `CaseList`.
  */
 function EveryCaseList(
   props: Omit<CaseListProps, 'tally' | 'ledger' | 'attachTo'> &
@@ -56,7 +71,7 @@ function EveryCaseList(
     <CaseList
       {...props}
       ledger={props.ledger ?? { filter: {}, matching: props.cases.length }}
-      attachTo={props.attachTo ?? props.cases}
+      attachTo={props.attachTo ?? attachTargetsOf(props.cases)}
       tally={tallyOf(props.cases, props.today)}
     />
   );
@@ -245,7 +260,7 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[summary(), summary({ deductionId: '99999999-8888-7777-6666-555555555555' })]}
         ledger={{ filter: {}, matching: 240 }}
-        attachTo={[]}
+        attachTo={attachTargetsOf([])}
         tally={[
           { state: 'classified', cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
           { state: 'awaiting_approval', cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
@@ -415,7 +430,7 @@ describe('the case list', () => {
         viewer={viewer}
         cases={rows}
         ledger={{ filter: { query: 'walmart' }, matching: 1_204 }}
-        attachTo={rows}
+        attachTo={attachTargetsOf(rows)}
         tally={[{ state: 'classified', cases: 5_000, deductedCents: 50_000_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
@@ -434,7 +449,7 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[]}
         ledger={{ filter: { query: 'no-such-claim' }, matching: 0 }}
-        attachTo={[]}
+        attachTo={attachTargetsOf([])}
         tally={[{ state: 'classified', cases: 240, deductedCents: 2_400_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
@@ -890,7 +905,7 @@ describe('documents that were read and that no case holds', () => {
         viewer={viewer}
         cases={[searched]}
         ledger={{ filter: { query: 'KS-40112' }, matching: 1 }}
-        attachTo={[searched, other]}
+        attachTo={attachTargetsOf([searched, other])}
         today={today}
         unattached={[loose()]}
       />,
@@ -898,6 +913,26 @@ describe('documents that were read and that no case holds', () => {
     const attach = html.slice(html.indexOf('Read, not on a case'));
     expect(attach).toContain('APDP-77001');
     expect(attach).toContain('KS-40112');
+    // Every open case is offered, so nothing says otherwise.
+    expect(attach).not.toContain('most urgent of');
+  });
+
+  it('offers the attach targets in the order they came, and says when there are more', () => {
+    // The store reads the most urgent open cases first (`attachTargets`); past
+    // its limit, the control says how many there are and how to reach the rest.
+    const urgent = summary({ claimId: 'OLD-4471', deductionId: 'aaaaaaaa-0000-0000-0000-000000000009' });
+    const later = summary({ claimId: 'NEW-0001', deductionId: 'aaaaaaaa-0000-0000-0000-000000000001' });
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} cases={[urgent, later]} openCount={1_240} />,
+    );
+    expect(html.indexOf('OLD-4471')).toBeLessThan(html.indexOf('NEW-0001'));
+    expect(html).toContain('Each list offers the 2 most urgent of 1,240 open cases.');
+    expect(html).toContain('upload the same file on that case’s page');
+
+    const all = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} cases={[urgent, later]} openCount={2} />,
+    );
+    expect(all).not.toContain('most urgent of');
   });
 
   it('is where the queued-upload notice points, instead of promising a case', () => {

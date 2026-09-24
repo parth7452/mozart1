@@ -3,7 +3,7 @@ import { mayWrite } from '../lib/pipeline';
 import { mayApprove } from '../lib/workflow';
 import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
-import { isFiltered, ledgerFilterFrom } from '../lib/case-presentation';
+import { ledgerFilterFrom } from '../lib/case-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +50,10 @@ export default async function CaseListPage({
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
         cases={ledger.rows}
         ledger={{ filter, matching: ledger.total }}
-        // The attach control chooses from the newest cases whatever the ledger
-        // was searched for; unfiltered, those are the ledger's rows already.
-        attachTo={mayUpload && isFiltered(filter) ? await store.listCases() : ledger.rows}
+        // Every open case, in the queue's order and with its today, whatever
+        // the ledger was searched for. Asked only for a member who could attach
+        // a document, for the reason the unattached documents are.
+        attachTo={mayUpload ? await store.attachTargets({ today }) : undefined}
         // The figures are over every case, not the newest hundred in `cases`:
         // the same RLS, counted by state, and the queue's today for deadlines.
         tally={await store.caseTally({ today })}

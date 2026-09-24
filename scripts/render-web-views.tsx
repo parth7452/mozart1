@@ -175,7 +175,7 @@ writeFileSync(
       viewer={viewer}
       cases={cases}
       ledger={{ filter: {}, matching: ledger.total }}
-      attachTo={cases}
+      attachTo={await store.attachTargets({ today })}
       tally={tally}
       queue={queue}
       today={today}

@@ -98,7 +98,13 @@ import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
 import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
-import { readReviewQueue, REVIEW_QUEUE_LIMIT, type ReviewQueueRead } from './review-queue';
+import {
+  queueOrderBy,
+  readReviewQueue,
+  REVIEW_QUEUE_LIMIT,
+  REVIEW_QUEUE_MAX,
+  type ReviewQueueRead,
+} from './review-queue';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -354,6 +360,15 @@ export interface CaseSearchResult {
   /** The newest matching cases, at most `limit`. */
   readonly rows: readonly CaseSummary[];
   /** Every case that matches, however many `rows` holds. */
+  readonly total: number;
+  readonly limit: number;
+}
+
+/** The open cases a read document may be filed against (`attachTargets`). */
+export interface AttachTargets {
+  /** The most urgent open cases, in the review queue's order, at most `limit`. */
+  readonly rows: readonly CaseSummary[];
+  /** Every open case, however many `rows` holds. */
   readonly total: number;
   readonly limit: number;
 }
@@ -3539,6 +3554,55 @@ export class PostgresStore
            left join debtors b on b.id = d.debtor_id
           ${CASE_SEARCH_WHERE}`,
         parameters,
+      );
+      return {
+        rows: rows.map(toCaseSummary),
+        total: exactCents(counted[0]?.total ?? '0', 'total'),
+        limit,
+      };
+    });
+  }
+
+  /**
+   * The cases the attach control under "Read, not on a case" offers: every
+   * open case, most urgent first.
+   *
+   * It offered the open cases among `listCases`' newest hundred, so evidence
+   * for an older case — the old, urgent ones the review queue exists to surface
+   * among them — had nowhere to go from the list. This reads every case that is
+   * not closed (`CLOSED_STATES`: finished, or merged away), in the queue's own
+   * order (`queueOrderBy`, with the same `today` and `DUE_SOON_DAYS`), so the
+   * case a reviewer is working on is near the top however old it is. It is not
+   * the queue: a filed case and a declined one are still cases evidence can
+   * arrive for, and `attachReadDocument` accepts any case not merged away.
+   * `total` says how many open cases there are when `rows` stops short.
+   *
+   * One tenant transaction as `app_rw`, `CASE_SUMMARY_SELECT` and
+   * `toCaseSummary` as everywhere else, and no `org_id`: RLS decides.
+   */
+  async attachTargets(
+    options: { readonly today?: Date; readonly limit?: number } = {},
+  ): Promise<AttachTargets> {
+    const today = options.today ?? new Date();
+    if (Number.isNaN(today.getTime())) {
+      throw new RangeError('attach targets need a real date for today');
+    }
+    const limit = options.limit ?? REVIEW_QUEUE_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > REVIEW_QUEUE_MAX) {
+      throw new RangeError(`attach targets are 1 to ${REVIEW_QUEUE_MAX} cases`);
+    }
+    const closed = [...CLOSED_STATES];
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseSummaryRow>(
+        `${CASE_SUMMARY_SELECT}
+          where d.state <> all ($1::text[])
+          order by ${queueOrderBy('d')}
+          limit $4`,
+        [closed, today.toISOString().slice(0, 10), DUE_SOON_DAYS, limit],
+      );
+      const { rows: counted } = await client.query<{ total: string }>(
+        `select count(*)::text as total from deductions d where d.state <> all ($1::text[])`,
+        [closed],
       );
       return {
         rows: rows.map(toCaseSummary),

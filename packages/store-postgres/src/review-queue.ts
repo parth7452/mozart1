@@ -65,6 +65,36 @@ export interface ReviewQueueRead {
   readonly limit: number;
 }
 
+/**
+ * The queue's order, in SQL, over a `deductions` row called `row`: the four
+ * buckets `rankForReview` draws, each with its own ordering, then the larger
+ * amount, then the id.
+ *
+ * Written once and used by the review queue and by `attachTargets`, so the
+ * cases offered for a document are in the order the queue shows them rather
+ * than in an order that looks like it. The statement that interpolates it must
+ * bind `$2` to today as a `YYYY-MM-DD` and `$3` to `DUE_SOON_DAYS`; `row` is a
+ * table alias this code chose, never input.
+ */
+export function queueOrderBy(row: string): string {
+  const bucket = `(case
+      when ${row}.dispute_deadline is null then 2
+      when ${row}.dispute_deadline < $2::date then 1
+      when ${row}.dispute_deadline <= $2::date + $3::int then 0
+      else 3
+    end)`;
+  return `${bucket},
+      -- due soon and due later: soonest deadline first
+      case when ${bucket} in (0, 3) then ${row}.dispute_deadline end asc,
+      -- past the deadline: most recently passed first
+      case when ${bucket} = 1 then ${row}.dispute_deadline end desc,
+      -- no deadline: oldest short-pay first, the UTC day it opened standing in
+      case when ${bucket} = 2
+        then coalesce(${row}.deduction_date, (${row}.created_at at time zone 'UTC')::date) end asc,
+      ${row}.deduction_amount_cents desc,
+      ${row}.id asc`;
+}
+
 /** The states the queue leaves out, from the one rule that says so. */
 const NOT_QUEUED: readonly CaseState[] = CASE_STATES.filter((state) => !isQueued(state));
 
@@ -103,12 +133,6 @@ export async function readReviewQueue(
   const { rows } = await client.query<QueueDbRow>(
     `with queued as (
        select d.*,
-              case
-                when d.dispute_deadline is null then 2
-                when d.dispute_deadline < $2::date then 1
-                when d.dispute_deadline <= $2::date + $3::int then 0
-                else 3
-              end as bucket,
               (d.created_at at time zone 'UTC')::date as created_on
          from deductions d
         where d.state <> all ($1::text[])
@@ -131,15 +155,7 @@ export async function readReviewQueue(
             count(*) over ()::text as total
        from queued q
        left join debtors b on b.id = q.debtor_id
-      order by q.bucket,
-               -- due soon and due later: soonest deadline first
-               case when q.bucket in (0, 3) then q.dispute_deadline end asc,
-               -- past the deadline: most recently passed first
-               case when q.bucket = 1 then q.dispute_deadline end desc,
-               -- no deadline: oldest short-pay first
-               case when q.bucket = 2 then coalesce(q.deduction_date, q.created_on) end asc,
-               q.deduction_amount_cents desc,
-               q.id asc
+      order by ${queueOrderBy('q')}
       limit $4`,
     [[...NOT_QUEUED], todayIso, DUE_SOON_DAYS, limit],
   );

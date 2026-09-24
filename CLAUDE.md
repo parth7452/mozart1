@@ -1221,8 +1221,18 @@ through the same select and mapping as the list and the case page, as `app_rw`
 with no `org_id`. Nothing filters in the browser on top, so there is one
 matcher; the state filter offers every `CASE_STATES` value; and the ledger says
 what a search matched and how many of those it lists. The attach control under
-"Read, not on a case" still offers only the open cases among the newest
-hundred, whatever the ledger was searched for.
+"Read, not on a case" had the same limit too, offering the open cases among the
+newest hundred. It now reads `attachTargets`: every case not in
+`CLOSED_STATES`, filed and declined ones included since evidence still arrives
+for them, in the review queue's own order (`queueOrderBy`, the one ORDER BY
+`reviewQueue` uses too, with the same `today`), up to 500 and a total, so the
+case a reviewer is working on is near the top however old it is. Past the
+limit the control says how many open cases there are and that uploading the
+same file on a case's page files it from the recorded reading. It is asked only
+for a member who may write, and whatever the ledger was searched for.
+`attach-targets.test.ts` holds its order to `rankForReview`. Suites 17 and 20
+counted rows table-wide as the owner, so `pnpm db:test` failed when re-run on
+a database the Vitest suites had used; each now counts its own orgs' rows.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

@@ -31,13 +31,23 @@ import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/forma
 export function UnattachedDocuments({
   documents,
   cases,
+  openCount,
 }: {
   documents: readonly UnattachedDocument[];
-  /** The tenant's cases, to choose from. A closed or merged-away case is not offered. */
+  /**
+   * The cases to choose from, most urgent first (`attachTargets`). A closed or
+   * merged-away case is not offered.
+   */
   cases: readonly CaseSummary[];
+  /**
+   * How many open cases the tenant has, when `cases` stops short of them; the
+   * control then says how to reach the rest. Absent means `cases` is all.
+   */
+  openCount?: number | undefined;
 }) {
   if (documents.length === 0) return null;
   const open = cases.filter((summary) => !isClosed(summary.state));
+  const unlisted = openCount === undefined ? 0 : openCount - open.length;
 
   return (
     <div className="card unattached">
@@ -50,6 +60,13 @@ export function UnattachedDocuments({
         person decides. A delivery receipt, an invoice or a rate confirmation is evidence for a
         case. Attaching files what was already read — it is not read again.
       </p>
+      {unlisted > 0 ? (
+        <p className="empty">
+          Each list offers the {open.length.toLocaleString('en-US')} most urgent of{' '}
+          {(openCount ?? 0).toLocaleString('en-US')} open cases. For another, upload the same file
+          on that case&rsquo;s page: it is filed from this reading, not read again.
+        </p>
+      ) : null}
       {/* A list on the review queue's grid (ADR 0043) rather than a table: on a
           phone a row stacks, so its actions are never scrolled out of reach. */}
       <div className="unattached-columns" aria-hidden="true">
