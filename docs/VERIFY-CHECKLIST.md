@@ -989,19 +989,19 @@ not change the money; it is in the list below.
 
 ## Found while writing this
 
-None of these is fixed in this PR. Each needs a decision or its own change.
+None of these is fixed in this PR. Each needs a decision or its own change;
+2 and 3 were fixed by another change the same day.
 
 1. **Email-in is not wired** (§5). This is the largest one.
-2. **A case page opens as "404" once there are more than 100 newer cases.**
-   - The page finds its case among the newest 100.
-   - So the old, urgent cases the queue exists to surface cannot be opened,
-     once a workspace has more than 100 cases.
-   - Queued as a separate task.
-3. **The sign-in page shows any text put in its link** (`/login?denied=…`).
-   - A crafted link can put any sentence on the sign-in page, in the app's
-     voice.
-   - Every other page was fixed for this earlier.
-   - Queued as a separate task.
+2. ~~**A case page opens as "404" once there are more than 100 newer
+   cases.**~~ **Fixed** by
+   [parth7452/mozart1#71](https://github.com/parth7452/mozart1/pull/71): a
+   case page now reads its own case, and the case list's figures count every
+   case.
+3. ~~**The sign-in page shows any text put in its link**
+   (`/login?denied=…`).~~ **Fixed** by
+   [parth7452/mozart1#68](https://github.com/parth7452/mozart1/pull/68): the
+   page now shows only its own messages.
 4. **A duplicate raised by a remittance line is never listed.** If the notice
    arrives *before* the remittance, both cases open, but they never appear
    under Possible duplicates (§7).
