@@ -22,6 +22,7 @@ import { Pool, type PoolClient } from 'pg';
 import {
   cents,
   CLOSED_STATES,
+  DUE_SOON_DAYS,
   identifierMatchKey,
   resolveDebtorId,
   resolveIdentity,
@@ -306,6 +307,23 @@ export interface CaseSummary {
   readonly reasonCodeAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
+}
+
+/**
+ * How many of a tenant's cases are in one state, and what they add up to: the
+ * case list's figures before anything decides what a state means.
+ */
+export interface CaseStateTally {
+  readonly state: CaseState;
+  readonly cases: number;
+  /** Deducted across them, integer cents (invariant 3). */
+  readonly deductedCents: number;
+  /**
+   * How many have a dispute deadline at most `DUE_SOON_DAYS` after the day the
+   * tally was asked for: due soon, due that day, or past it — every deadline
+   * the list's label does not call ok.
+   */
+  readonly dueSoonOrPast: number;
 }
 
 /**
@@ -3408,6 +3426,47 @@ export class PostgresStore
       );
       const row = rows[0];
       return row === undefined ? undefined : toCaseSummary(row);
+    });
+  }
+
+  /**
+   * The case list's figures, per state, over every case this tenant has.
+   *
+   * Not over `listCases`, which is the newest hundred: past a hundred cases the
+   * list's total, its open cases and its deadlines to watch undercounted and
+   * said nothing. Here the SQL counts, sums and compares one date per state;
+   * what a state means — open, filed, merged away — is decided by the page with
+   * `isClosed`, the rule every other list uses. `today` is read as its UTC day,
+   * as the review queue and the deadline label read it, and the page passes
+   * the one it reads the queue with. One tenant transaction as `app_rw`; RLS
+   * decides whose cases these are.
+   */
+  async caseTally(options: { readonly today?: Date } = {}): Promise<readonly CaseStateTally[]> {
+    const today = options.today ?? new Date();
+    if (Number.isNaN(today.getTime())) {
+      throw new RangeError('a case tally needs a real date for today');
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        state: CaseState;
+        cases: string;
+        deducted: string;
+        due: string;
+      }>(
+        `select d.state, count(*)::text as cases,
+                sum(d.deduction_amount_cents)::text as deducted,
+                count(*) filter (where d.dispute_deadline <= $1::date + $2::int)::text as due
+           from deductions d
+          group by d.state
+          order by d.state`,
+        [today.toISOString().slice(0, 10), DUE_SOON_DAYS],
+      );
+      return rows.map((row) => ({
+        state: row.state,
+        cases: exactCents(row.cases, 'cases'),
+        deductedCents: exactCents(row.deducted, 'deduction_amount_cents'),
+        dueSoonOrPast: exactCents(row.due, 'due'),
+      }));
     });
   }
 
