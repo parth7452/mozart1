@@ -6,7 +6,10 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import type {
+  CaseSearch,
+  CaseSearchResult,
   CaseStateTally,
+  CaseSummary,
   PostgresStore,
   ReviewQueueRead,
   ReviewQueueRow,
@@ -44,6 +47,12 @@ const harness = vi.hoisted(() => ({
   /** Every `caseTally` call: the figures, over every case, with the queue's today. */
   tallyCalls: [] as ({ today?: Date } | undefined)[],
   tally: [] as CaseStateTally[],
+  /** Every `searchCases` call: the ledger's rows, for whatever was searched. */
+  searchCalls: [] as (CaseSearch | undefined)[],
+  search: { rows: [], total: 0, limit: 100 } as CaseSearchResult,
+  /** Every `listCases` call: the attach control's cases, when a search narrowed the ledger. */
+  listCalls: 0,
+  newest: [] as CaseSummary[],
 }));
 
 vi.mock('../lib/session', () => ({
@@ -56,7 +65,12 @@ vi.mock('../lib/session', () => ({
   storeFor: () =>
     ({
       async listCases() {
-        return [];
+        harness.listCalls += 1;
+        return harness.newest;
+      },
+      async searchCases(search?: CaseSearch) {
+        harness.searchCalls.push(search);
+        return harness.search;
       },
       async unreadDocuments(olderThanMinutes: number, limit?: number) {
         harness.unreadCalls.push({ olderThanMinutes, ...(limit === undefined ? {} : { limit }) });
@@ -134,8 +148,23 @@ function awaitingApproval(preparedBy: string): ReviewQueueRow {
   };
 }
 
-async function render(): Promise<string> {
-  return renderToStaticMarkup(await CaseListPage({ searchParams: Promise.resolve({}) }));
+type SearchParams = Awaited<Parameters<typeof CaseListPage>[0]['searchParams']>;
+
+async function render(searchParams: SearchParams = {}): Promise<string> {
+  return renderToStaticMarkup(await CaseListPage({ searchParams: Promise.resolve(searchParams) }));
+}
+
+/** A case as the store lists it. */
+function listed(deductionId: string, claimId: string): CaseSummary {
+  return {
+    deductionId,
+    state: 'classified',
+    claimId,
+    deductionAmountCents: 42_150,
+    discoveredVia: 'notice',
+    documentCount: 1,
+    createdAt: '2025-09-01T09:00:00.000Z',
+  };
 }
 
 describe('the case list page', () => {
@@ -154,6 +183,10 @@ describe('the case list page', () => {
     };
     harness.tallyCalls = [];
     harness.tally = [];
+    harness.searchCalls = [];
+    harness.search = { rows: [], total: 0, limit: 100 };
+    harness.listCalls = 0;
+    harness.newest = [];
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -263,6 +296,73 @@ describe('the case list page', () => {
       expect(html).toContain('Across 240 recorded cases');
       expect(html).toContain('$24,000.00');
     }
+  });
+
+  it('lists the newest cases, and reads no second list, when nothing was searched', async () => {
+    harness.search = {
+      rows: [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-99812')],
+      total: 240,
+      limit: 100,
+    };
+    harness.tally = [{ state: 'classified', cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
+    const html = await render();
+
+    expect(harness.searchCalls).toEqual([{}]);
+    // The attach control offers the ledger's own rows: they are the newest.
+    expect(harness.listCalls).toBe(0);
+    expect(html).toContain('APDP-99812');
+    expect(html).toContain('the newest 1 listed below');
+    expect(html).toContain('1 of 240 cases');
+  });
+
+  it('passes the search to the store, trimmed, so it reaches every case', async () => {
+    // A year-old case behind the newest hundred, found by its invoice.
+    harness.search = {
+      rows: [listed('aaaaaaaa-0000-0000-0000-000000000009', 'OLD-4471')],
+      total: 1,
+      limit: 100,
+    };
+    harness.tally = [{ state: 'analyst_review', cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
+    for (const role of ['analyst', 'read_only']) {
+      harness.role = role;
+      harness.searchCalls = [];
+      const html = await render({ q: '  INV-8812 ', state: 'analyst_review' });
+
+      expect(harness.searchCalls).toEqual([{ query: 'INV-8812', state: 'analyst_review' }]);
+      expect(html).toContain('OLD-4471');
+      expect(html).toContain('1 case matches “INV-8812” in analyst review');
+      expect(html).toContain('value="INV-8812"');
+    }
+  });
+
+  it('ignores a state it does not know, and a query it cannot search, rather than passing them on', async () => {
+    await render({ q: 'walmart', state: 'nope' });
+    await render({ q: ['a', 'b'], state: 'won' });
+    await render({ q: 'APDP\u0000', state: ['won', 'lost'] });
+    await render({ q: '', state: '' });
+
+    expect(harness.searchCalls).toEqual([{ query: 'walmart' }, { state: 'won' }, {}, {}]);
+  });
+
+  it('keeps the attach control on the newest cases while the ledger is searched', async () => {
+    harness.search = {
+      rows: [listed('aaaaaaaa-0000-0000-0000-000000000009', 'OLD-4471')],
+      total: 1,
+      limit: 100,
+    };
+    harness.newest = [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-77001')];
+    const html = await render({ q: 'OLD-4471' });
+
+    expect(harness.listCalls).toBe(1);
+    const attach = html.slice(html.indexOf('Read, not on a case'));
+    expect(attach).toContain('APDP-77001');
+    expect(attach).not.toContain('OLD-4471');
+
+    // A member who cannot attach is not shown the control, so nothing is read for it.
+    harness.role = 'read_only';
+    harness.listCalls = 0;
+    await render({ q: 'OLD-4471' });
+    expect(harness.listCalls).toBe(0);
   });
 
   it('does not ask the member who prepared a decision to approve it', async () => {

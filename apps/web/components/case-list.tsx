@@ -6,7 +6,12 @@ import type {
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
 import type { CaseStateTally, CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
 import { money } from '../lib/format';
-import { caseMetrics } from '../lib/case-presentation';
+import {
+  caseMetrics,
+  isFiltered,
+  ledgerListing,
+  type LedgerFilter,
+} from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
 import { CaseTable } from './case-table';
 import { resolveNotice } from '../lib/notices';
@@ -32,6 +37,8 @@ export interface Viewer {
 export function CaseList({
   viewer,
   cases,
+  ledger,
+  attachTo,
   tally,
   queue,
   today,
@@ -43,8 +50,22 @@ export function CaseList({
   noticeAbout,
 }: {
   viewer: Viewer;
-  /** The ledger's rows: the newest cases, as many as the store was asked for. */
+  /**
+   * The ledger's rows: the newest cases answering to `ledger.filter`, as many
+   * as the store was asked for (`searchCases`).
+   */
   cases: readonly CaseSummary[];
+  /**
+   * What the ledger was searched for, and how many cases answered however many
+   * `cases` holds. With no filter, that is every case.
+   */
+  ledger: { readonly filter: LedgerFilter; readonly matching: number };
+  /**
+   * The cases the attach control under "Read, not on a case" chooses from. Not
+   * the ledger's rows, which a search narrows: filing evidence on a case
+   * should not depend on what was last typed into the ledger's search box.
+   */
+  attachTo: readonly CaseSummary[];
   /**
    * Every case the tenant has, counted by state, which is what the figures
    * are over. `cases` stops at the newest hundred; a figure summed from it
@@ -102,6 +123,8 @@ export function CaseList({
   const caseCount = metrics.caseCount.toLocaleString('en-US');
   const plural = metrics.caseCount === 1 ? '' : 's';
   const said = resolveNotice(notice, noticeAbout ?? []);
+  const searched = isFiltered(ledger.filter);
+  const listing = ledgerListing(ledger.filter, cases.length, ledger.matching, metrics.caseCount);
 
   return (
     <WorkspaceShell viewer={viewer}>
@@ -164,7 +187,7 @@ export function CaseList({
           <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
         )}
         <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
-        <section className="card ledger" aria-label="Deduction ledger">
+        <section id="ledger" className="card ledger" aria-label="Deduction ledger">
           <div className="ledger-heading">
             <div>
               <h2>Deduction ledger</h2>
@@ -172,22 +195,26 @@ export function CaseList({
                 {metrics.caseCount === 0
                   ? 'No cases yet'
                   : `${caseCount} case${plural} · ${money(total)} deducted` +
-                    // The figures are over every case; the table stops at the newest.
-                    (cases.length < metrics.caseCount
-                      ? ` · the newest ${cases.length.toLocaleString('en-US')} listed below`
-                      : '')}
+                    // The figures are over every case; the table is the newest
+                    // of them, or the newest of what a search matched.
+                    (listing === '' ? '' : ` · ${listing}`)}
               </p>
             </div>
-            <span className="ledger-tag">ALL DEDUCTIONS</span>
+            <span className="ledger-tag">{searched ? 'SEARCH RESULTS' : 'ALL DEDUCTIONS'}</span>
           </div>
-          {cases.length === 0 ? (
+          {cases.length === 0 && !searched ? (
             <p className="empty">
               A case opens when a deduction notice arrives — by upload, or by email to this
               workspace&rsquo;s inbound address. Nothing is submitted anywhere until a person
               approves it.
             </p>
           ) : (
-            <CaseTable cases={cases} todayISO={today.toISOString()} />
+            <CaseTable
+              cases={cases}
+              matching={ledger.matching}
+              filter={ledger.filter}
+              todayISO={today.toISOString()}
+            />
           )}
         </section>
         {mayUpload ? (
@@ -220,7 +247,7 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
-        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={cases} /> : null}
+        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={attachTo} /> : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>

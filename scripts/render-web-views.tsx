@@ -139,7 +139,9 @@ const viewer = {
 // queue's SQL cuts at its limit by the same buckets the render draws.
 const today = new Date();
 
-const cases = await store.listCases();
+// Unsearched, as the page reads it: the newest cases, and how many there are.
+const ledger = await store.searchCases();
+const cases = ledger.rows;
 const tally = await store.caseTally({ today });
 // The viewer is an analyst, who prepares and may not approve — the same answer
 // `mayApprove` in `apps/web/lib/workflow.ts` gives for that role. Not imported:
@@ -169,7 +171,16 @@ const page = (title: string, body: string): string =>
 writeFileSync(
   path.join(outDir, 'case-list.html'),
   page('Recouple — cases', renderToStaticMarkup(
-    <CaseList viewer={viewer} cases={cases} tally={tally} queue={queue} today={today} mayUpload />,
+    <CaseList
+      viewer={viewer}
+      cases={cases}
+      ledger={{ filter: {}, matching: ledger.total }}
+      attachTo={cases}
+      tally={tally}
+      queue={queue}
+      today={today}
+      mayUpload
+    />,
   )),
 );
 

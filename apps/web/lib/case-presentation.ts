@@ -1,6 +1,5 @@
-import { cents, isClosed, sumCents } from '@recouple/core-domain';
-import type { CaseStateTally, CaseSummary } from '@recouple/store-postgres';
-import { retailer } from './format';
+import { CASE_STATES, cents, isClosed, sumCents, type CaseState } from '@recouple/core-domain';
+import { CASE_SEARCH_QUERY_MAX, type CaseStateTally } from '@recouple/store-postgres';
 
 /**
  * Counts describe the ledger we have, never estimated recovery or cash received.
@@ -34,13 +33,77 @@ export function caseMetrics(tally: readonly CaseStateTally[]) {
   };
 }
 
-export function filterCases(cases: readonly CaseSummary[], query: string, state: string) {
-  const search = query.trim().toLocaleLowerCase('en-US');
-  return cases.filter(
-    (row) =>
-      (state === 'all' || row.state === state) &&
-      [row.claimId ?? '', row.deductionId, retailer(row, '').name].some((value) =>
-        value.toLocaleLowerCase('en-US').includes(search),
-      ),
-  );
+/** C0 controls and DEL: nothing a person types into a search box. */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * What the ledger was searched for, from the query string, or nothing.
+ *
+ * The search is the database's (`PostgresStore.searchCases`), over every case
+ * the tenant has; this only decides what reaches it. A query string anybody
+ * can write, so anything this was not written for is dropped rather than
+ * passed through: a state that is not one of `CASE_STATES`, a query sent twice,
+ * one longer than the store searches, or one carrying a control character
+ * (Postgres refuses a NUL outright). Dropped means unfiltered, which shows the
+ * newest cases as the page always has.
+ */
+export function ledgerFilterFrom(params: {
+  q?: string | readonly string[] | undefined;
+  state?: string | readonly string[] | undefined;
+}): LedgerFilter {
+  const query = typeof params.q === 'string' ? params.q.trim() : '';
+  const state = typeof params.state === 'string' ? params.state : '';
+  return {
+    ...(query !== '' && query.length <= CASE_SEARCH_QUERY_MAX && !CONTROL.test(query)
+      ? { query }
+      : {}),
+    ...((CASE_STATES as readonly string[]).includes(state) ? { state: state as CaseState } : {}),
+  };
+}
+
+/** What the ledger's table was asked for; neither is the newest cases. */
+export interface LedgerFilter {
+  readonly query?: string;
+  readonly state?: CaseState;
+}
+
+export function isFiltered(filter: LedgerFilter): boolean {
+  return filter.query !== undefined || filter.state !== undefined;
+}
+
+/** `awaiting_approval` → `awaiting approval`, as the table's pills read. */
+export function stateLabel(state: CaseState): string {
+  return state.replace(/_/g, ' ');
+}
+
+/**
+ * What the ledger's table lists, said after the figures, or nothing when it
+ * lists every case.
+ *
+ * The figures are over every case (`caseMetrics`). Unfiltered, the table is
+ * the newest `shown` of `caseCount`. Searched, it is the newest `shown` of the
+ * `matching` cases the store counted, and the sentence says what was searched
+ * for, so a short table is never read as a short ledger.
+ */
+export function ledgerListing(
+  filter: LedgerFilter,
+  shown: number,
+  matching: number,
+  caseCount: number,
+): string {
+  const count = (n: number) => n.toLocaleString('en-US');
+  if (!isFiltered(filter)) {
+    return shown < caseCount ? `the newest ${count(shown)} listed below` : '';
+  }
+  const text = filter.query === undefined ? '' : ` “${filter.query}”`;
+  const where = filter.state === undefined ? '' : ` in ${stateLabel(filter.state)}`;
+  if (matching === 0) {
+    return filter.query === undefined ? `no case${where}` : `no case matches${text}${where}`;
+  }
+  const noun = `${count(matching)} case${matching === 1 ? '' : 's'}`;
+  const cases =
+    filter.query === undefined
+      ? `${noun}${where}`
+      : `${noun} match${matching === 1 ? 'es' : ''}${text}${where}`;
+  return shown < matching ? `${cases}, the newest ${count(shown)} listed below` : cases;
 }

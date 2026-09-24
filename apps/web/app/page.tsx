@@ -3,6 +3,7 @@ import { mayWrite } from '../lib/pipeline';
 import { mayApprove } from '../lib/workflow';
 import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
+import { isFiltered, ledgerFilterFrom } from '../lib/case-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,21 +25,34 @@ export default async function CaseListPage({
     action?: string;
     reread?: string;
     about?: string | string[];
+    // The ledger's search, from its GET form. Validated before it reaches the
+    // store: an unknown state or an unusable query is dropped, not passed on.
+    q?: string | string[];
+    state?: string | string[];
   }>;
 }) {
   const session = await requireSession();
-  const { upload, action, reread, about } = await searchParams;
+  const { upload, action, reread, about, q, state } = await searchParams;
   const store = storeFor(session);
   const mayUpload = mayWrite(session.org.role);
+  const filter = ledgerFilterFrom({ q, state });
   // One "today" for the read and the render: the SQL cuts the queue at its
   // limit by the same buckets `rankForReview` draws, and a render on the far
   // side of midnight from the read could put a case in a different one.
   const today = new Date();
   try {
+    // Over every case the tenant has, not the newest hundred: an older case is
+    // found by its claim, invoice or customer, and `matching` says how many
+    // answered when the table cannot list them all.
+    const ledger = await store.searchCases(filter);
     return (
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
-        cases={await store.listCases()}
+        cases={ledger.rows}
+        ledger={{ filter, matching: ledger.total }}
+        // The attach control chooses from the newest cases whatever the ledger
+        // was searched for; unfiltered, those are the ledger's rows already.
+        attachTo={mayUpload && isFiltered(filter) ? await store.listCases() : ledger.rows}
         // The figures are over every case, not the newest hundred in `cases`:
         // the same RLS, counted by state, and the queue's today for deadlines.
         tally={await store.caseTally({ today })}

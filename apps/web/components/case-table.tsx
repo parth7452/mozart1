@@ -1,52 +1,73 @@
-'use client';
-
 import Link from 'next/link';
-import { useState } from 'react';
-import type { CaseSummary } from '@recouple/store-postgres';
+import { CASE_STATES } from '@recouple/core-domain';
+import { CASE_SEARCH_QUERY_MAX, type CaseSummary } from '@recouple/store-postgres';
 import { deadline, money, retailer } from '../lib/format';
-import { filterCases } from '../lib/case-presentation';
+import { isFiltered, stateLabel, type LedgerFilter } from '../lib/case-presentation';
 
-/** Filters only rows already authorised and read by the server route. */
+/**
+ * The ledger's table, with the search that chose its rows.
+ *
+ * The search is a GET form to this page, so it reaches every case the tenant
+ * has through `PostgresStore.searchCases`, rather than filtering the rows
+ * already here — which were the newest hundred, so an older case could not be
+ * found at all. There is no filtering in the browser on top: a second matcher
+ * over the loaded rows would have to agree with the SQL's in every case, and a
+ * row the database returned would vanish wherever the two disagreed. Every
+ * state is offered, from `CASE_STATES`, not only the states among the rows.
+ */
 export function CaseTable({
   cases,
+  matching,
+  filter,
   todayISO,
 }: {
+  /** The rows the store listed for `filter`, newest first. */
   cases: readonly CaseSummary[];
+  /** How many cases answer to `filter`, however many `cases` holds. */
+  matching: number;
+  filter: LedgerFilter;
   todayISO: string;
 }) {
-  const [query, setQuery] = useState('');
-  const [state, setState] = useState('all');
-  const rows = filterCases(cases, query, state);
   const today = new Date(todayISO);
-  const states = [...new Set(cases.map((row) => row.state))].sort();
+  const filtered = isFiltered(filter);
   return (
     <>
-      <div className="table-tools">
+      <form className="table-tools" role="search" method="get" action="/#ledger">
         <label className="search-control">
           <span aria-hidden="true">⌕</span>
           <span className="sr-only">Search deductions</span>
           <input
             type="search"
-            placeholder="Search claim or customer…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            name="q"
+            placeholder="Search claim, invoice or customer…"
+            defaultValue={filter.query ?? ''}
+            maxLength={CASE_SEARCH_QUERY_MAX}
           />
         </label>
         <label className="state-control">
           <span className="sr-only">Filter by state</span>
-          <select value={state} onChange={(event) => setState(event.target.value)}>
-            <option value="all">All states</option>
-            {states.map((value) => (
+          <select name="state" defaultValue={filter.state ?? ''}>
+            <option value="">All states</option>
+            {CASE_STATES.map((value) => (
               <option key={value} value={value}>
-                {value.replace(/_/g, ' ')}
+                {stateLabel(value)}
               </option>
             ))}
           </select>
         </label>
+        <button type="submit" className="search-submit">
+          Search
+        </button>
+        {filtered ? (
+          <Link href="/#ledger" className="text-button">
+            Clear
+          </Link>
+        ) : null}
         <span className="results-count" role="status">
-          {rows.length} of {cases.length} cases
+          {cases.length.toLocaleString('en-US')} of {matching.toLocaleString('en-US')} case
+          {matching === 1 ? '' : 's'}
         </span>
-      </div>
+      </form>
       <div className="table-scroll" role="region" aria-label="Deductions table" tabIndex={0}>
         <table className="cases">
           <thead>
@@ -62,7 +83,7 @@ export function CaseTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {cases.map((row) => {
               const due = deadline(row.disputeDeadline, today);
               const who = retailer(row, '—');
               return (
@@ -84,7 +105,7 @@ export function CaseTable({
                   <td className="money">{money(row.deductionAmountCents)}</td>
                   <td>
                     <span className={`pill state-${row.state}`}>
-                      {row.state.replace(/_/g, ' ')}
+                      {stateLabel(row.state)}
                     </span>
                   </td>
                   <td className="evidence-count">
@@ -103,20 +124,13 @@ export function CaseTable({
           </tbody>
         </table>
       </div>
-      {rows.length === 0 ? (
+      {cases.length === 0 ? (
         <div className="empty filter-empty">
           <strong>No matching deductions</strong>
-          <p>Try another claim, customer, or state.</p>
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => {
-              setQuery('');
-              setState('all');
-            }}
-          >
+          <p>Try another claim, invoice, customer, or state.</p>
+          <Link href="/#ledger" className="text-button">
             Clear filters
-          </button>
+          </Link>
         </div>
       ) : null}
       <div className="table-foot">
