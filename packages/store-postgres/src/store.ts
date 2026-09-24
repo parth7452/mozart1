@@ -2881,6 +2881,22 @@ export class PostgresStore
             and (select s.status from document_scans s
                   where s.document_id = d.id order by s.id desc limit 1) = 'clean'
             and not exists (select 1 from extraction_results e where e.document_id = d.id)
+            -- An email's body is read only when no attachment was the notice
+            -- (ADR 0047 §8), so a cover note beside an attachment read as one
+            -- is not a stalled read, and this list does not present it as one.
+            -- Derived from the rows, not recorded.
+            and not exists (
+              select 1
+                from inbound_message_parts bp
+                join inbound_message_parts ap
+                  on ap.org_id = bp.org_id
+                 and ap.inbound_message_id = bp.inbound_message_id
+                 and ap.kind = 'attachment'
+                 and ap.document_id is not null
+               where bp.org_id = d.org_id and bp.document_id = d.id and bp.kind = 'body'
+                 and (select c.doc_type from document_classifications c
+                       where c.document_id = ap.document_id
+                       order by c.id desc limit 1) = 'deduction_notice')
           order by d.created_at asc
           limit $2`,
         [olderThanMinutes, limit],
@@ -3009,17 +3025,6 @@ export class PostgresStore
         ],
       );
       return true;
-    });
-  }
-
-  async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {
-    return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ id: string; slug: string }>(
-        `select id, slug from organizations where slug = $1`,
-        [slug],
-      );
-      const row = rows[0];
-      return row === undefined ? undefined : { orgId: row.id, slug: row.slug };
     });
   }
 

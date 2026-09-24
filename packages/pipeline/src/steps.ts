@@ -40,11 +40,7 @@ import {
   acceptEmailBody,
   acceptUpload,
   assertScannedClean,
-  InboundEmailError,
-  parseInboundEmail,
   RejectedUploadError,
-  type InboundEmail,
-  type PostmarkInboundPayload,
   type ScanVerdict,
 } from '@recouple/ingest';
 import type {
@@ -61,8 +57,10 @@ import {
   HELD_FOR_REVIEW,
   holdFor,
   opensCaseOnItsOwn,
+  typeFits,
   type DocumentHold,
   type HoldConfirmation,
+  type HoldDecision,
 } from './hold';
 
 /**
@@ -181,7 +179,7 @@ export interface IngestResult {
  */
 export async function ingestDocument(
   input: IngestInput,
-  deps: PipelineDeps,
+  deps: Pick<PipelineDeps, 'store' | 'scanner'>,
 ): Promise<IngestResult> {
   const accepted =
     input.source === 'email_body'
@@ -856,13 +854,24 @@ export async function readDocument(
   let caseRecord: CaseRecord | undefined = attachedCase;
   const mayOpenCase = options.allowCaseOpen ?? true;
 
+  // A document that arrived by email is held for a person whenever it reads as
+  // a notice or a remittance (ADR 0047 §7), whatever `allowCaseOpen` a caller
+  // computed — the job, "Read again", or a re-upload of the same bytes. Keyed on
+  // the recorded arrival, which no caller can pass.
+  const arrival =
+    caseRecord === undefined ? await deps.store.uploadSourceFor(document.documentId) : undefined;
+  const byEmail = arrival === 'email_in' || arrival === 'email_body';
+
   // The tenant's classification floor, when this read might open a case (ADR
-  // 0044). Asked before the page is fetched or a model is called: a tenant with
-  // no readable floor is refused loudly, and the refusal costs nothing. A read
+  // 0044), or might hold one by email and record the floor beside the hold.
+  // Asked before the page is fetched or a model is called: a tenant with no
+  // readable floor is refused loudly, and the refusal costs nothing. A read
   // attached to a named case, or one that may not open a case at all, never
   // opens one on the classifier's say-so, so it has no use for the floor.
   const floor =
-    caseRecord === undefined && mayOpenCase ? await deps.store.classificationFloor() : undefined;
+    caseRecord === undefined && (mayOpenCase || byEmail)
+      ? await deps.store.classificationFloor()
+      : undefined;
 
   // Read the document once. Classification and extraction both need the page
   // text, and on a scan that text costs money and carries the boxes a reviewer
@@ -911,12 +920,15 @@ export async function readDocument(
   // what the hold is about and it is already paid for. Nothing else happens: no
   // case, no identifier, no declined line.
   if (floor !== undefined && opensCaseOnItsOwn(classification.docType)) {
-    const hold = holdFor({
-      docType: classification.docType,
-      confidence: classification.confidence,
-      floor,
-      reading: extraction,
-    });
+    const fit = typeFits(classification.docType, extraction);
+    const hold: HoldDecision | undefined = byEmail
+      ? { reason: 'by_email', ...(fit.fits ? {} : { fields: fit.fields }) }
+      : holdFor({
+          docType: classification.docType,
+          confidence: classification.confidence,
+          floor,
+          reading: extraction,
+        });
     if (hold !== undefined) {
       await recordTheRead();
       const held: DocumentHold = {
@@ -2298,149 +2310,4 @@ function unusableDocument(
       `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
       `reconciliation${why === '' ? '' : ` (${why})`}`,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Email-in
-// ---------------------------------------------------------------------------
-
-export interface InboundEmailResult {
-  readonly orgId: string;
-  readonly email: InboundEmail;
-  readonly documents: readonly ProcessedDocument[];
-  /**
-   * Whether a case may be opened from this email without a human. False for an
-   * unauthenticated sender: `From:` is forgeable, so an email that fails DKIM
-   * and DMARC is filed for review rather than acted on.
-   */
-  readonly mayOpenCase: boolean;
-  readonly skipped: readonly { readonly filename: string; readonly reason: string }[];
-}
-
-/**
- * Ingests an inbound email: its attachments, and its body when the body is what
- * the notice was written in.
- *
- * The tenant comes from the address the email was sent to — never from the
- * sender, and never from anything in the body. An attachment the front door
- * refuses (wrong type, too large, a bomb) is skipped with its reason rather than
- * failing the whole email: a supplier who attaches their signature image
- * alongside a notice should not lose the notice.
- */
-export async function ingestInboundEmail(
-  payload: PostmarkInboundPayload,
-  deps: PipelineDeps,
-): Promise<InboundEmailResult> {
-  const email = parseInboundEmail(payload);
-
-  const org = await deps.store.findOrgBySlug(email.orgSlug);
-  if (org === undefined) {
-    throw new InboundEmailError(
-      `no tenant with inbound slug ${JSON.stringify(email.orgSlug)}; refusing to guess one`,
-    );
-  }
-
-  const documents: ProcessedDocument[] = [];
-  const skipped: { filename: string; reason: string }[] = [];
-
-  for (const attachment of email.attachments) {
-    const bytes = new Uint8Array(Buffer.from(attachment.base64, 'base64'));
-    try {
-      documents.push(
-        await processUpload(
-          {
-            orgId: org.orgId,
-            filename: attachment.filename,
-            bytes,
-            declaredMimeType: attachment.contentType,
-            // The channel, recorded on the `uploads` row this opens. No
-            // `uploadedBy`: the sender is not one of our members, and `From:`
-            // is forgeable, so the column stays null rather than naming a
-            // person on the strength of a header.
-            source: 'email_in',
-          },
-          deps,
-          // `From:` is forgeable, so an email that fails DKIM and DMARC may not
-          // open a case. The documents are still read — they may be perfectly
-          // real — and wait for a human to attach them.
-          { allowCaseOpen: email.authenticated },
-        ),
-      );
-    } catch (error) {
-      skipped.push({
-        filename: attachment.filename,
-        reason:
-          error instanceof RejectedUploadError
-            ? `${error.code}: ${error.message}`
-            : error instanceof Error
-              ? error.message
-              : String(error),
-      });
-    }
-  }
-
-  // Some retailers put the deduction in the message rather than attaching it.
-  // Until this existed, such an email produced nothing and said nothing about
-  // why — the loop above only reads attachments, so an inbox with a real notice
-  // in it looked like an empty inbox.
-  //
-  // The body is read only when no attachment turned out to be the notice. If one
-  // did, the body is a cover note ("please see attached") and reading it would
-  // cost a model call to learn that.
-  const foundNotice = documents.some(
-    (d) => d.classification?.docType === 'deduction_notice',
-  );
-  if (!foundNotice) {
-    try {
-      const body = acceptEmailBody(email.textBody);
-      documents.push(
-        await processUpload(
-          {
-            orgId: org.orgId,
-            filename: emailBodyFilename(email),
-            bytes: body.bytes,
-            // Its own channel, not `email_in`: a notice written in the message
-            // and one attached to it are different things to have found, and
-            // coverage counts them separately (migration 0014, ADR 0016).
-            source: 'email_body',
-            pageText: [body.text],
-          },
-          deps,
-          { allowCaseOpen: email.authenticated },
-        ),
-      );
-    } catch (error) {
-      // A body too short to be a notice is the ordinary case — most email is
-      // "thanks" — so it is recorded as skipped rather than raised.
-      skipped.push({
-        filename: 'the email body',
-        reason:
-          error instanceof RejectedUploadError
-            ? `${error.code}: ${error.message}`
-            : error instanceof Error
-              ? error.message
-              : String(error),
-      });
-    }
-  }
-
-  return {
-    orgId: org.orgId,
-    email,
-    documents,
-    mayOpenCase: email.authenticated,
-    skipped,
-  };
-}
-
-/**
- * A name for a document that arrived as a message rather than a file.
- *
- * It goes in front of a reviewer, so it says where the thing came from. The
- * subject is the sender's text and is trimmed and stripped of path characters
- * before it becomes part of a filename.
- */
-function emailBodyFilename(email: InboundEmail): string {
-  const subject = email.subject.replace(/[^\w .\-]+/g, ' ').trim().slice(0, 80);
-  return subject === '' ? 'email body.txt' : `${subject} (email body).txt`;
 }

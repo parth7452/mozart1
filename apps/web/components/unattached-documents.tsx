@@ -154,11 +154,16 @@ export function holdLine(hold: DocumentHold): string {
         : `the reading does not fit that type (missing: ${hold.fields.map(fieldLabel).join(', ')})`;
 
   const why =
-    hold.reason === 'type_did_not_fit'
-      ? `Held: ${readAs}, but ${misfit ?? 'the reading does not fit that type'}.`
-      : `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace ` +
-        `opens a case on its own at ${confidencePercent(hold.floor)} or above.` +
-        (misfit === undefined ? '' : ` Also, ${misfit}.`);
+    hold.reason === 'by_email'
+      ? // ADR 0047 §7: no email opens a case by itself, however sure the reading.
+        `Held: ${readAs}, and it arrived by email. No email opens a case on its own — ` +
+        'a person decides each time.' +
+        (misfit === undefined ? '' : ` Also, ${misfit}.`)
+      : hold.reason === 'type_did_not_fit'
+        ? `Held: ${readAs}, but ${misfit ?? 'the reading does not fit that type'}.`
+        : `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace ` +
+          `opens a case on its own at ${confidencePercent(hold.floor)} or above.` +
+          (misfit === undefined ? '' : ` Also, ${misfit}.`);
 
   if (hasNoLines(hold)) {
     return `${why} With no lines there is nothing to open a case from — attach it to a case as evidence instead.`;

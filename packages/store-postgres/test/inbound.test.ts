@@ -1,8 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { ingestDocument, type PipelineDeps } from '@recouple/pipeline';
-import type { ScanVerdict } from '@recouple/ingest';
+import {
+  ingestDocument,
+  readInboundEmailJob,
+  receiveInboundEmail,
+  type PipelineDeps,
+} from '@recouple/pipeline';
+import { parsePostmarkInbound, type ScanVerdict } from '@recouple/ingest';
+import {
+  buildExtractionResult,
+  type ClassificationResult,
+  type DocType,
+  type DocumentPayload,
+  type ExtractionResult,
+} from '@recouple/extraction';
+import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
 import {
   InboundAddressRefusedError,
   InboundRecordRefusedError,
@@ -223,6 +236,83 @@ describeDb('email-in on Postgres', () => {
     expect(await owner.receivedMessage('postmark', randomUUID())).toBeUndefined();
     release();
     await Promise.all([a, b]);
+  });
+
+  it('receives an email, reads it in a job, and holds its notice for a person (§7, §8)', async () => {
+    const notice = allFixtureDocuments().find((d) => d.key === 'walmart-apdp-notice')!;
+    const { addressId, token } = await owner.issueAddress();
+    const resolved = await inboundAddressFor(config, token);
+    expect(resolved?.addressId).toBe(addressId);
+
+    const reader = {
+      name: 'fixture',
+      classify: async (document: DocumentPayload): Promise<ClassificationResult> => ({
+        docType: 'deduction_notice',
+        confidence: 0.99,
+        call: { purpose: 'classify', provider: 'anthropic', modelVersion: 'fixture',
+                documentId: document.documentId, costMicros: 1, latencyMs: 1, outcome: 'ok' },
+      }),
+      extract: async (document: DocumentPayload, docType: DocType): Promise<ExtractionResult> =>
+        buildExtractionResult({
+          docType, extractor: 'fixture', document: expectedExtraction(notice),
+          pageText: document.pageText,
+          call: { purpose: 'extract', provider: 'anthropic', modelVersion: 'fixture',
+                  documentId: document.documentId, costMicros: 1, latencyMs: 1, outcome: 'ok' },
+        }),
+    };
+    const store = new PostgresStore(config, { orgId, userId: ownerId });
+    const deps = {
+      store,
+      inbound: owner,
+      scanner: { name: 'clean', scan: async (): Promise<ScanVerdict> => ({ status: 'clean', scanner: 'clean' }) },
+      classifier: reader,
+      extractor: reader,
+      now: () => new Date(),
+    };
+    const cover = `Please see the attached deduction notice. ${'We will follow up. '.repeat(12)}${randomUUID()}`;
+    const email = parsePostmarkInbound(
+      {
+        MessageID: randomUUID(),
+        FromFull: { Email: 'ap@walmart.example' },
+        From: 'ap@walmart.example',
+        OriginalRecipient: `${token}@in.example.test`,
+        TextBody: cover,
+        Headers: [],
+        Attachments: [{ Name: notice.filename, ContentType: 'application/pdf',
+                        Content: Buffer.from(notice.bytes).toString('base64') }],
+      },
+      'in.example.test',
+    );
+
+    const receipt = await receiveInboundEmail(email, resolved!, deps);
+    expect(receipt).toMatchObject({ kind: 'recorded', alreadyRecorded: false });
+    if (receipt.kind !== 'recorded') return;
+    const parts = await owner.inboundMessageParts(receipt.inboundMessageId);
+    expect(parts.map((p) => [p.kind, p.outcome])).toEqual([
+      ['attachment', 'stored'],
+      ['body', 'stored'],
+    ]);
+    const sources = await admin.query<{ source: string; created_by: string | null }>(
+      `select u.source, u.created_by from documents d join uploads u on u.id = d.upload_id
+        where d.id = any($1::uuid[]) order by u.source`,
+      [parts.map((p) => p.documentId)],
+    );
+    expect(sources.rows).toEqual([
+      { source: 'email_body', created_by: null },
+      { source: 'email_in', created_by: null },
+    ]);
+
+    const read = await readInboundEmailJob(deps, {
+      orgId, userId: ownerId, inboundMessageId: receipt.inboundMessageId,
+    });
+    expect(read.reads[0]).toMatchObject({ docType: 'deduction_notice', held: 'by_email', deductionId: null });
+    expect(read.bodyRead).toBe(false);
+    const cases = await admin.query(`select 1 from deductions where org_id = $1`, [orgId]);
+    expect(cases.rowCount).toBe(0);
+
+    // The cover note was not read, and is not presented as a stalled read.
+    const waiting = await store.unreadDocuments(0, 50);
+    expect(waiting.map((w) => w.documentId)).not.toContain(parts[1]?.documentId);
   });
 
   it('scans a stored document again when its first scan gave no verdict (ADR 0047 §10)', async () => {

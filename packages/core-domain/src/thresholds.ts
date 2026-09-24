@@ -93,3 +93,17 @@ export function classificationIsActionable(
 function isProbability(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
 }
+
+/**
+ * The parts of one tenant's email a day that are read (ADR 0047 §8).
+ *
+ * Counted over the trailing 24 hours as the parts recorded `stored` or
+ * `already_held`. It bounds what anyone who holds a tenant's inbound address
+ * can make that tenant spend on reads: past it a part is still stored and
+ * scanned, recorded `over_daily_budget`, and read only when a person presses
+ * "Read again". A code constant rather than a tenant setting, so no tenant can
+ * loosen it — and raising it is a loosening, which needs its own ADR. Invariant
+ * 7's database guard does not cover a constant, and that is said here rather
+ * than assumed.
+ */
+export const INBOUND_READS_PER_DAY = 100;

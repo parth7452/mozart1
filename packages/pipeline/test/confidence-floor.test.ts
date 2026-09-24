@@ -788,7 +788,11 @@ describe('the recorded corpus, replayed through processUpload', () => {
   });
 
   for (const { document, cassette: recording } of recorded) {
-    const expectHeld = HELD.has(document.key);
+    // A notice written in an email's body arrives through the email door, and
+    // no email opens a case by itself (ADR 0047 §7): held, whatever its
+    // confidence.
+    const byEmail = document.mimeType === 'text/plain';
+    const expectHeld = HELD.has(document.key) || byEmail;
     it(`${document.key} (${recording.classifiedAs} at ${recording.classifierConfidence}) is ${
       expectHeld ? 'held' : 'opened'
     }`, async () => {
@@ -807,7 +811,7 @@ describe('the recorded corpus, replayed through processUpload', () => {
       const result = await processUpload(upload(document, pageText), deps);
 
       if (expectHeld) {
-        expect(result.held?.reason).toBe('below_floor');
+        expect(result.held?.reason).toBe(byEmail ? 'by_email' : 'below_floor');
         expect(result.held?.confidence).toBe(recording.classifierConfidence);
         expect(result.case).toBeUndefined();
         expect(result.remittance).toBeUndefined();
