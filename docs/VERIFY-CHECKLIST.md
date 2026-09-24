@@ -67,8 +67,8 @@ Nothing else is needed.
 ### Suggested order
 
 Do **2** first (sign-in), then **4** (make the test workspace), then **3**,
-**1**, **6**, **7** and **8**. **5** waits for your Postmark setup and the
-migration; see its first step.
+**1**, **6**, **7** and **8**. **5** waits for your Postmark setup; see its
+first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
 one from GitHub while you are signed in: open the link, then click **Download
@@ -689,7 +689,7 @@ records email Postmark could not deliver.
   `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`;
 - `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` are set on Vercel
   **Production only**, and production has been redeployed since;
-- migration 0034 is applied to production. I apply it on your go.
+- migration 0034 is applied to production. Done: 2026-09-24, and read back.
 
 **Where:** your own workspace, as its owner. The test adds one real case
 (DN-2609-003, $2,000.00), so if you would rather keep your workspace clean,
@@ -1098,8 +1098,8 @@ None of these is fixed in this PR. Each needs a decision or its own change;
 2 and 3 were fixed by another change the same day.
 
 1. ~~**Email-in is not wired** (§5).~~ **Built** under ADR 0047: an address,
-   the webhook, the job, Settings → Email and the sweep. It waits for your
-   Postmark setup and migration 0034 in production.
+   the webhook, the job, Settings → Email and the sweep. Migration 0034 is in
+   production; it waits for your Postmark setup.
 2. ~~**A case page opens as "404" once there are more than 100 newer
    cases.**~~ **Fixed** by
    [parth7452/mozart1#71](https://github.com/parth7452/mozart1/pull/71): a

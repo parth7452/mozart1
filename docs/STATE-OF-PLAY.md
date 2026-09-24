@@ -37,7 +37,8 @@ behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
 401.
 
-Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migrations through 0033. 0028 and
+Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migrations through 0034 (0034, ADR 0047, on
+2026-09-24 at 21:37, after `mozart-preview`, read back on both). 0028 and
 0029 were applied 2026-09-23 after being staged on the preview project
 (`jvbnqofmoamyhntjwjdn`) the same morning, 0030 (ADR 0039) that afternoon and
 0032 (ADR 0042) and then 0031 (ADR 0041) that evening, preview first each time.
@@ -60,7 +61,7 @@ The gap between *it worked once* and *it works*:
 | **QuickBooks connect** (ADR 0039, migration 0030) | Deployed, and 0030 applied and read back on 2026-09-23. What would prove it: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
-| **Email-in** (ADR 0047, migration 0034) | **Built, not deployed to mail.** The webhook, the job, Settings → Email, "Email that filed nothing" and `pnpm sweep:inbound` are built and tested against in-memory stores and Postgres. It waits on the founder's Postmark setup (domain, MX, server, webhook URL, two Production variables) and 0034 in production. What would prove it: an address issued, a Gmail notice held "by email" with aligned DKIM "yes", and a case opened from it (`docs/VERIFY-CHECKLIST.md` §5) |
+| **Email-in** (ADR 0047, migration 0034) | **Built, not deployed to mail.** The webhook, the job, Settings → Email, "Email that filed nothing" and `pnpm sweep:inbound` are built and tested against in-memory stores and Postgres. Migration 0034 is in production since 2026-09-24. It waits on the founder's Postmark setup (domain, MX, server, webhook URL, two Production variables). What would prove it: an address issued, a Gmail notice held "by email" with aligned DKIM "yes", and a case opened from it (`docs/VERIFY-CHECKLIST.md` §5) |
 | **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
 | **Closed sign-ups, and the claims guard** (ADR 0045, migration 0033) | 0033 was applied to `mozart-preview` and then production on 2026-09-24 and read back on both (md5, both functions still definer and pinned, same results and grants, a `sub`-only caller refused). The web half deployed on merge. What would prove it: both members sign in through the new form; an address with no auth user gets the same "sent" page and no mail, with `otp_disabled` in the log; a person invited from the dashboard follows the invitation once and then signs in from the form; then the founder switches off "Allow new users to sign up" |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
@@ -75,7 +76,7 @@ screen should say, and the query or log line that proves it.
 | --- | --- | --- |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
 | Production QuickBooks keys | **you** | Intuit's production-keys assessment (privacy and terms pages). Until then only sandbox companies can connect |
-| Postmark setup for email-in | **you** | ADR 0047 "What the founder does", steps 1–3: the inbound domain and its MX record, a Postmark server and webhook URL, and `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` on Vercel Production only. Then migration 0034 in production, on your go |
+| Postmark setup for email-in | **you** | ADR 0047 "What the founder does", steps 1–3: the inbound domain and its MX record, a Postmark server and webhook URL, and `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` on Vercel Production only. Migration 0034 is already in production |
 
 ## Where the phases stand
 

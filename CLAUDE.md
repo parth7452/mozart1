@@ -191,8 +191,8 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and email-in through Postmark (ADR 0047),
-built and waiting on the founder's Postmark setup and migration 0034 in
-production (`docs/VERIFY-CHECKLIST.md` §5).
+built, with migration 0034 in production, and waiting on the founder's Postmark
+setup (`docs/VERIFY-CHECKLIST.md` §5).
 
 Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
@@ -400,14 +400,15 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0033 as
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0034 as
 of 2026-09-24 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
 morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
 project; 0032 at 20:26 and then 0031 at 20:31, each after the preview
 project — 0031 merged after 0032, and 0032 does not touch `approvals`, so the
 order does not matter; 0033 on 2026-09-24 at 05:20, a minute after the preview
-project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+project; 0034 on 2026-09-24 at 21:37, half an hour after the preview project,
+on the founder's go). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -1324,8 +1325,18 @@ inbound messages one Eastern-time day at a time — the search returns no receip
 time, and the `Date` it does return is the sender's — and records each one sent
 to a live address as `not_received` on that tenant, as the address's member,
 with `POSTMARK_SERVER_TOKEN` from the operator's `.env` and never Vercel's.
-Nothing here has met a live Postmark message yet: the founder's setup, the
-migration in production and ADR 0047's unverified list come first.
+Migration 0034 is on `mozart-preview` (21:03) and production (21:37) since
+2026-09-24, and was read back on both: the stored statement's md5 equals the
+file's; all five tables have RLS, `no_update_delete` and `no_truncate`;
+`app_rw` holds SELECT and INSERT on the three address tables and SELECT only on
+the two message tables, `app_ro` SELECT; both functions are definer, pinned
+and executable by `app_rw` and the owner alone; the request roles hold nothing
+and have no usage on `app`; no `app` function is unpinned; and the lookup
+refuses a caller carrying only a `sub`, only an `org_id`, or both, while a
+caller with neither gets an empty answer (tested in a block that writes
+nothing). The security advisor shows only its old leaked-password notice.
+Nothing here has met a live Postmark message yet: the founder's setup and ADR
+0047's unverified list come first.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
