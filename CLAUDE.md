@@ -233,11 +233,19 @@ five. The two classification misses now are `stf-203-dispatch-note`
 (`correspondence`, expected `other`, 0.85) and `stf-203-short-payment-notice`,
 which reads `remittance_advice` at 0.70–0.75 three times in five **under the old
 prompt too** — its correct answer in the first recording was a lucky draw.
-Classification runs with no pinned temperature, so every classification number
-here is one sample, and a suite's classification rate can move by a document
+Every classification number here was recorded with no pinned temperature, so
+each is one sample, and a suite's classification rate could move by a document
 between runs of the same prompt; a notice read as a remittance opens cases per
-line instead of per claim, which makes that instability a product problem, not
-only an eval one.
+line instead of per claim, which made that instability a product problem, not
+only an eval one. The classifier now asks at `temperature: 0`
+(`CLASSIFY_TEMPERATURE`) on every model that accepts sampling, and sends none to
+one that rejects it (`classifyTemperatureFor`: Sonnet 5, Opus 4.7 and later,
+Fable and Mythos would answer a 400), so `RECOUPLE_CLASSIFY_MODEL` cannot turn
+every read into an error. A cassette's classifier stamp records the temperature,
+and `classificationIsCurrent` requires it, so every classification recorded
+before the pin replays as stale until `pnpm record:cassettes --classify-only`
+re-asks it; the eval says so rather than gating on it. The re-ask is pending an
+Anthropic key in the environment.
 
 The review floor is the product's as well as the eval's (ADR 0044). Wherever a
 notice or a remittance would open its case(s) on its own, `readDocument` reads

@@ -36,6 +36,7 @@ import {
   ClaudeExtractor,
   ExtractionError,
   classifierPromptSha256,
+  classifyTemperatureFor,
   groundingReport,
   locateQuote,
   modelFor,
@@ -101,6 +102,7 @@ const classifier = new ClaudeClassifier();
 const stampFor = (classification: ClassificationResult): ClassifierStamp => ({
   model: classification.call.modelVersion,
   promptSha256: classifierPromptSha256(),
+  temperature: classifyTemperatureFor(classification.call.modelVersion),
   classifiedAt: new Date().toISOString(),
 });
 
