@@ -327,9 +327,11 @@ export function readDocumentSteps(
         '[recouple] read job: step read-document ' +
           (read.beingRead
             ? 'found another delivery reading it and spent nothing'
-            : read.alreadyRead
-              ? 'found it already read and spent nothing'
-              : 'finished the read') +
+            : read.filedFromRecord
+              ? 'found it already read, filed that reading on the case and spent nothing'
+              : read.alreadyRead
+                ? 'found it already read and spent nothing'
+                : 'finished the read') +
           `, ${where}, doc type ${read.docType ?? 'none'}, case ${read.deductionId ?? 'none'}, ` +
           `halted ${read.haltedBecause === null ? 'no' : 'yes'}, ` +
           // A hold's reason is one of two constants (ADR 0044), so it may be

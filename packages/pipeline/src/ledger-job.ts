@@ -128,6 +128,36 @@ export interface LedgerSyncRunStore {
   /** Read under the tenant's own claims: another tenant's is simply not found. */
   connection(connectionId: string): Promise<LedgerConnectionRecord | undefined>;
   recordLedgerSyncRun(input: LedgerSyncRunRecord): Promise<string>;
+  /**
+   * Turns a connection off because the provider refused its stored sign-in
+   * for good, so the company is no longer held from every other workspace
+   * (ADR 0046). Only while `credentialId` is still the latest stored sign-in:
+   * a reconnect since is `newer_sign_in`, and nothing is written. `undefined`
+   * when this tenant cannot see the connection.
+   *
+   * Optional: a store without it never releases, which is where every sync
+   * stood before ADR 0046.
+   */
+  releaseDeadConnection?(input: {
+    readonly connectionId: string;
+    readonly credentialId: string;
+    readonly reason: DeadLedgerGrant['reason'];
+  }): Promise<LedgerReleaseOutcome | undefined>;
+}
+
+/** What a release answered (ADR 0046 §2). */
+export type LedgerReleaseOutcome = 'released' | 'newer_sign_in' | 'already_off';
+
+/**
+ * A stored sign-in the provider has refused for good, and which one (ADR 0046).
+ *
+ * `reason` is one of the two answers that are final: the provider refused a
+ * refresh (`grant_refused`), or the refresh token's own expiry passed
+ * (`refresh_expired`). `credentialId` is the stored row that was refused.
+ */
+export interface DeadLedgerGrant {
+  readonly reason: 'grant_refused' | 'refresh_expired';
+  readonly credentialId: string;
 }
 
 /**
@@ -139,7 +169,17 @@ export interface LedgerSyncRunStore {
  * that takes the fleet with it.
  */
 export type ResolvedLedgerSource =
-  | { readonly kind: 'ready'; readonly source: LedgerSource }
+  | {
+      readonly kind: 'ready';
+      readonly source: LedgerSource;
+      /**
+       * Whether a failure the source threw says the stored sign-in is dead
+       * for good, and which stored sign-in it was (ADR 0046) — `undefined`
+       * for every other failure. The provider-specific half of the question:
+       * this job knows no provider's errors.
+       */
+      readonly deadGrant?: (error: unknown) => DeadLedgerGrant | undefined;
+    }
   | { readonly kind: 'not_configured'; readonly reason: string };
 
 export interface LedgerSourceFactory {
@@ -373,6 +413,7 @@ export async function syncLedgerJob(
       anomalies: [],
       errorClass: error instanceof Error ? error.name : typeof error,
     });
+    await releaseIfDead(deps, resolved, error, connection);
     throw error;
   }
 
@@ -389,6 +430,51 @@ export async function syncLedgerJob(
     report.anomalies.map(toAnomalyRecord),
   );
   return { ...completed, classifiedCount: report.classified.length };
+}
+
+/**
+ * After a run failed because the provider refused the stored sign-in for good,
+ * turns the connection off so the company is not held from every other
+ * workspace (ADR 0046) — and says what happened, in ids and one of three
+ * outcomes.
+ *
+ * Never in the way of the failure it follows. The run row is already written
+ * and the caller re-throws the original error; a release that is refused (a
+ * member who is no longer an owner) or that breaks is logged by class name and
+ * left for the operator's `pnpm unlink:qbo`, as before this existed.
+ */
+async function releaseIfDead(
+  deps: LedgerSyncJobDeps,
+  resolved: Extract<ResolvedLedgerSource, { kind: 'ready' }>,
+  error: unknown,
+  connection: LedgerConnectionRecord,
+): Promise<void> {
+  const dead = resolved.deadGrant?.(error);
+  if (dead === undefined || deps.runs.releaseDeadConnection === undefined) return;
+  const where = `connection ${connection.connectionId} for org ${connection.orgId}`;
+  try {
+    const outcome = await deps.runs.releaseDeadConnection({
+      connectionId: connection.connectionId,
+      credentialId: dead.credentialId,
+      reason: dead.reason,
+    });
+    console.warn(
+      `[recouple] ledger sync: ${where}: the provider refused its stored sign-in (${dead.reason}); ` +
+        (outcome === 'released'
+          ? 'released it, so nothing reads it and it can be connected again'
+          : outcome === 'newer_sign_in'
+            ? 'a newer sign-in was stored since, so it was left on'
+            : outcome === 'already_off'
+              ? 'it was already off'
+              : 'it is not visible to this tenant, so nothing was changed'),
+    );
+  } catch (releaseError) {
+    console.error(
+      `[recouple] ledger sync: ${where}: the provider refused its stored sign-in (${dead.reason}), ` +
+        `and releasing it failed (${releaseError instanceof Error ? releaseError.name : typeof releaseError}); ` +
+        'it stays on until an owner reconnects or an operator runs `pnpm unlink:qbo`',
+    );
+  }
 }
 
 interface Counts {

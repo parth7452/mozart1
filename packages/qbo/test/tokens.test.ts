@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INTUIT_TOKEN_URL } from '../src/client';
-import { QboAuthError } from '../src/errors';
+import { deadGrantOf, QboAuthError } from '../src/errors';
 import { QboAccountingSource } from '../src/source';
 import { InMemoryQboTokenStore } from '../src/testing';
 import type { QboTokenStore, QboTokens } from '../src/tokens';
@@ -162,6 +162,29 @@ describe('proactive token rotation', () => {
     await expect(source.listInvoices(AUGUST)).rejects.toThrow(/has to reconnect/);
     // Nothing is sent: there is no point asking Intuit to honour a dead token.
     expect(calls).toHaveLength(0);
+    // And it says the sign-in is dead for good, so the job can release the
+    // company rather than hold it (ADR 0046).
+    const error = await source.listInvoices(AUGUST).catch((thrown: unknown) => thrown);
+    expect(deadGrantOf(error)).toBe('refresh_expired');
+  });
+
+  it('names a refused refresh as a dead sign-in, and no stored tokens as none (ADR 0046)', async () => {
+    const { fetchImpl } = recordingFetch(() => jsonResponse({ error: 'invalid_grant' }, 400));
+    const source = new QboAccountingSource(
+      configFor(fetchImpl, undefined, {
+        tokenStore: new InMemoryQboTokenStore({ [REALM_ID]: nearlyExpiredTokens() }),
+      }),
+    );
+    expect(deadGrantOf(await source.listInvoices(AUGUST).catch((e: unknown) => e))).toBe(
+      'grant_refused',
+    );
+
+    const empty = new QboAccountingSource(
+      configFor(fetchImpl, undefined, { tokenStore: new InMemoryQboTokenStore() }),
+    );
+    const none = await empty.listInvoices(AUGUST).catch((e: unknown) => e);
+    expect(none).toBeInstanceOf(QboAuthError);
+    expect(deadGrantOf(none)).toBeUndefined();
   });
 
   it('raises an auth error, not an empty ledger, when no tokens are stored', async () => {

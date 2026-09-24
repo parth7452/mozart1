@@ -25,6 +25,8 @@
  */
 
 import type { Pool, PoolClient } from 'pg';
+import type { DeadGrant } from '@recouple/qbo';
+import { releaseDeadLedger, type LedgerReleaseOutcome } from './connect-qbo';
 import { sessionPool, type PostgresStore, type PostgresStoreConfig, type TenantContext } from './store';
 
 /**
@@ -242,12 +244,24 @@ export class PostgresLedgerSyncStore {
   private readonly role: string;
 
   constructor(
-    config: PostgresStoreConfig,
+    private readonly config: PostgresStoreConfig,
     private readonly tenant: TenantContext,
     private readonly store: PostgresStore,
   ) {
     this.pool = sessionPool(config);
     this.role = config.role ?? 'app_rw';
+  }
+
+  /**
+   * Turns off a connection whose stored sign-in Intuit refused for good
+   * (ADR 0046) — `releaseDeadLedger`, as the member this sync acts as.
+   */
+  async releaseDeadConnection(input: {
+    readonly connectionId: string;
+    readonly credentialId: string;
+    readonly reason: DeadGrant;
+  }): Promise<LedgerReleaseOutcome | undefined> {
+    return releaseDeadLedger(this.config, this.tenant, input);
   }
 
   /**
@@ -356,6 +370,9 @@ export class PostgresLedgerSyncStore {
         skipped_count: number | null;
         declined_count: number | null;
         anomaly_count: number | null;
+        off_at: Date | null;
+        off_via: string | null;
+        off_reason: string | null;
       }>(
         `select c.id, c.org_id, c.provider, c.provider_account_id, c.enabled, c.created_by,
                 u.email as created_by_email, c.created_at, c.updated_at,
@@ -364,7 +381,8 @@ export class PostgresLedgerSyncStore {
                 run.outcome as run_outcome, run.started_at as run_started_at,
                 run.finished_at as run_finished_at, run.error_class as run_error_class,
                 run.invoices_examined, run.opened_count, run.skipped_count,
-                run.declined_count, run.anomaly_count
+                run.declined_count, run.anomaly_count,
+                off.observed_at as off_at, off.via as off_via, off.reason as off_reason
            from accounting_connections c
            left join users u on u.id = c.created_by
            left join lateral (
@@ -383,6 +401,16 @@ export class PostgresLedgerSyncStore {
               order by r.started_at desc, r.recorded_at desc
               limit 1
            ) run on true
+           left join lateral (
+             select a.observed_at, a.payload->>'via' as via, a.payload->>'reason' as reason
+               from audit_log a
+              where a.org_id = c.org_id
+                and a.subject_table = 'accounting_connections'
+                and a.subject_id = c.id::text
+                and a.action = 'accounting_connection.disconnected'
+              order by a.id desc
+              limit 1
+           ) off on true
           order by c.enabled desc, c.updated_at desc, c.id`,
       );
       return rows.map((row) => ({
@@ -413,6 +441,20 @@ export class PostgresLedgerSyncStore {
                 skippedCount: row.skipped_count ?? 0,
                 declinedCount: row.declined_count ?? 0,
                 anomalyCount: row.anomaly_count ?? 0,
+              },
+            }
+          : {}),
+        // Only for a connection that is still off, and only when its latest
+        // turn-off was the sync's own release (ADR 0046): a reconnect since
+        // makes the release history, and a person's Disconnect since is theirs.
+        ...(!row.enabled &&
+        row.off_via === 'ledger_sync' &&
+        row.off_at !== null &&
+        (row.off_reason === 'grant_refused' || row.off_reason === 'refresh_expired')
+          ? {
+              releasedBySync: {
+                at: new Date(row.off_at).toISOString(),
+                reason: row.off_reason,
               },
             }
           : {}),
@@ -554,6 +596,16 @@ export interface LedgerConnectionOverview extends AccountingConnectionRow {
     readonly storedAt: string;
     readonly accessExpiresAt?: string;
     readonly refreshExpiresAt: string;
+  };
+  /**
+   * Set when this connection is off because the sync released it: Intuit
+   * refused its stored sign-in for good (ADR 0046). From the latest
+   * `accounting_connection.disconnected` audit row, which says who turned it
+   * off and why; absent when a person did, or when it is on.
+   */
+  readonly releasedBySync?: {
+    readonly at: string;
+    readonly reason: DeadGrant;
   };
   /** The most recent run, as the run log recorded it. */
   readonly lastRun?: {

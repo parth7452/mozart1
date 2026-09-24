@@ -60,11 +60,14 @@ The gap between *it worked once* and *it works*:
 | **QuickBooks connect** (ADR 0039, migration 0030) | Deployed, and 0030 applied and read back on 2026-09-23. What would prove it: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
-| **Email-in** | Postmark is built. Has a real email ever opened a case? |
+| **Email-in** | **Not wired.** The parser and `ingestInboundEmail` are built and tested, but the app has no inbound webhook route, so no email can reach them; the tenant lookup and an acting member need an ADR first (`docs/VERIFY-CHECKLIST.md` §5) |
 | **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
 | **Closed sign-ups, and the claims guard** (ADR 0045, migration 0033) | 0033 was applied to `mozart-preview` and then production on 2026-09-24 and read back on both (md5, both functions still definer and pinned, same results and grants, a `sub`-only caller refused). The web half deployed on merge. What would prove it: both members sign in through the new form; an address with no auth user gets the same "sent" page and no mail, with `otp_disabled` in the log; a person invited from the dashboard follows the invitation once and then signs in from the form; then the founder switches off "Allow new users to sign up" |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
 | **The classification floor** (ADR 0044) | A real notice or remittance classified below 0.950 is held in production — listed under "Read, not on a case" with its confidence, not read again on "Read again" — and "Open a case from it" opens its case with `confirmed_by` on `case.discovered` and no new `model_calls` row. Every real one read so far has been at 0.95 or above, so nothing in production has been held yet |
+
+Each row has a click-through in `docs/VERIFY-CHECKLIST.md`: the steps, what the
+screen should say, and the query or log line that proves it.
 
 ## Blocked, and on whom
 
@@ -175,11 +178,22 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    case" for a person to open or attach, so `stf-203-short-payment-notice` — a
    notice read as a remittance at 0.75 — no longer opens a case per line. A
    misread *evidence* type still opens nothing either way and is not gated.
+   **2026-09-24:** every classification re-asked at temperature 0 (the same two
+   misses, so they were the prompt, not the draw), then the classifier's
+   definitions sharpened — a short payment notice is a notice, "advice" alone
+   decides nothing, and a note written for one's own file is not
+   correspondence. 57/57 classified, `customer` 15/15, and no recorded notice
+   or remittance is below the floor any more. The column-rule fix took
+   `customer` grounding to 98.2%. Left: `stf-203-short-payment-notice`'s reason
+   code and `log-202-rate-confirmation`'s counterparty.
 4. ~~**Decide how a confirmed duplicate merges.**~~ **built** — ADR 0042,
    migration 0032: "Same deduction" merges in one click, the database moves the
    copy to `merged`, coverage counts the pair once, and an undo puts it back.
    0032 applied to `mozart-preview` and then production on 2026-09-23 and read
    back on both. Not yet exercised on real data: no pair has been confirmed.
+   **Not everything is closed:** five ways one deduction still counts twice
+   or three times, silently, are written down with reproductions in
+   `docs/audits/duplicate-counting/` (2026-09-24).
 5. **Triage**, the rest of Phase 1.5.
    Step A is **built** — ADR 0043: a deterministic review queue in four
    buckets, and ledger cases that open `classified`. Step B, a shadow-only

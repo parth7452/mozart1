@@ -216,6 +216,8 @@ function isoInstant(value: string): string | null {
 export class PostgresQboTokenStore implements QboTokenStore {
   private readonly pool: Pool;
   private readonly role: string;
+  /** The row `load` last opened — what a release compares against (ADR 0046 §2). */
+  private loadedCredentialId: string | undefined;
 
   constructor(
     private readonly config: PostgresStoreConfig,
@@ -258,6 +260,7 @@ export class PostgresQboTokenStore implements QboTokenStore {
     });
 
     if (row === undefined) return undefined;
+    this.loadedCredentialId = row.id;
 
     const sealed: SealedToken = {
       cipher: row.cipher,
@@ -282,6 +285,17 @@ export class PostgresQboTokenStore implements QboTokenStore {
     }
 
     return this.parse(plaintext, row.id, row.cipher, row.key_id);
+  }
+
+  /**
+   * The id of the row `load` last opened, or `undefined` before the first.
+   *
+   * After a refresh Intuit refused, this is the refused row: `QboClient` loads
+   * again under the lock before it refreshes. `releaseDeadLedger` turns the
+   * connection off only while this is still the latest row (ADR 0046 §2).
+   */
+  loadedCredential(): string | undefined {
+    return this.loadedCredentialId;
   }
 
   /**

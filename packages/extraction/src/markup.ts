@@ -54,3 +54,25 @@ export function withoutInlineMarkup(text: string): string {
       return NAMED[name as string] ?? reference;
     });
 }
+
+/**
+ * A column rule, whichever glyph drew it: `|`.
+ *
+ * A camera page prints its columns separated by a vertical rule, and neither
+ * reader draws it the same way twice. Reducto writes `|`, `I` or nothing; the
+ * model, reading the pixels, writes `|` or `I`, sometimes both in one quote.
+ * So a value quoted exactly as printed failed its check on nothing but the
+ * rule — twelve of the STF-201 camera pages' quotes, every one of them right.
+ *
+ * Only a token that is nothing but a rule glyph is rewritten: a whitespace-
+ * bounded `|`, `I`, `l`, `!`, `¦` or `│`. Nothing inside a longer token
+ * changes, no digit is ever rewritten, and `1` is never a rule, so a quote
+ * that differs from the page by a digit still differs. What is lost is only
+ * whether a lone token was a pipe, a capital I or a lower-case l.
+ */
+export function withColumnRules(text: string): string {
+  // Twice, because adjacent rules share the whitespace between them.
+  return text.replace(COLUMN_RULE, '$1|').replace(COLUMN_RULE, '$1|');
+}
+
+const COLUMN_RULE = /(^|\s)[|Il!¦│](?=\s|$)/g;

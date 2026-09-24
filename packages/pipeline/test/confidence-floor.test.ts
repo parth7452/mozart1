@@ -771,11 +771,19 @@ describe('the recorded corpus, replayed through processUpload', () => {
           entry.cassette.classifiedAs === 'remittance_advice'),
     );
 
-  const HELD = new Set(['stf-203-short-payment-notice', 'stf-201-short-pay-remittance']);
+  // None, today. Two were held while they were recorded: `stf-201-short-pay-
+  // remittance`, one unpinned sample at 0.92 that reads 0.95 at temperature 0,
+  // and `stf-203-short-payment-notice`, a notice read as a remittance at 0.75
+  // until the classifier learned that a short payment notice is a notice. Both
+  // now meet the floor — inclusive, like LOG-001's remittance — and open. The
+  // hold itself is exercised above, on readings built to fall below it.
+  const HELD = new Set<string>();
 
-  it('covers every recorded notice and remittance, including the two below the floor', () => {
+  it('covers every recorded notice and remittance, and each meets the floor', () => {
     const keys = recorded.map((entry) => entry.document.key);
     expect(keys.length).toBeGreaterThanOrEqual(25);
+    expect(keys).toContain('stf-203-short-payment-notice');
+    expect(keys).toContain('stf-201-short-pay-remittance');
     for (const key of HELD) expect(keys).toContain(key);
   });
 

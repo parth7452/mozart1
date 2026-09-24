@@ -314,9 +314,13 @@ export class QboClient {
   private async refresh(stored: QboTokens): Promise<QboTokens> {
     const refreshExpiresAt = Date.parse(stored.refreshExpiresAt);
     if (!Number.isNaN(refreshExpiresAt) && refreshExpiresAt <= this.now().getTime()) {
+      // Intuit's own expiry for this token, recorded when it was issued: the
+      // sign-in is dead for good, and saying so lets the job release the
+      // company rather than hold it (ADR 0046 §1).
       throw new QboAuthError(
         `the QuickBooks refresh token for realm ${this.config.realmId} expired at ` +
           `${stored.refreshExpiresAt}: the customer has to reconnect`,
+        'refresh_expired',
       );
     }
 

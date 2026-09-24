@@ -6,10 +6,10 @@
  * confirmation were uploaded from the case list, read, and — being evidence
  * rather than notices — opened nothing. They were stored, classified and
  * extracted, and they appeared nowhere. The only way to put one on its case was
- * to upload the same file again from the case page, which reads it a second
- * time: `recordedRead` sends an attachment to a case the document is not on
- * through the read, on purpose, because that is where an upload's link and its
- * `evidence.uploaded` event are written.
+ * to upload the same file again from the case page, which then read it a second
+ * time, because the read was where an upload's link and its `evidence.uploaded`
+ * event were written. That upload now files the recorded reading too
+ * (`answerFromRecord`), through the same `attachEvidence`.
  *
  * Attaching from the list starts from a document id rather than from bytes, so
  * there is nothing to read "again". What the case needs of the document — its

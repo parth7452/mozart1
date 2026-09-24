@@ -22,6 +22,7 @@ import { denseDocuments } from './dense';
 import { emailBodyDocuments } from './email-body';
 import { logisticsDocuments } from './logistics';
 import { customerDocuments } from './customer';
+import { formatsDocuments } from './formats';
 import { pendingDocuments } from './pending';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
@@ -212,5 +213,6 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...emailBodyDocuments(),
     ...logisticsDocuments(),
     ...customerDocuments(),
+    ...formatsDocuments(),
   ];
 }

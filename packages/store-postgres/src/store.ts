@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
 import {
   cents,
+  CASE_STATES,
   CLOSED_STATES,
   DUE_SOON_DAYS,
   identifierMatchKey,
@@ -332,6 +333,37 @@ export interface CaseStateTally {
    * the list's label does not call ok.
    */
   readonly dueSoonOrPast: number;
+}
+
+/** How many cases the ledger lists when nothing says otherwise: `listCases`' hundred. */
+export const CASE_SEARCH_LIMIT = 100;
+/** The most a ledger read will list at once. */
+export const CASE_SEARCH_MAX = 500;
+/** The longest text searched for. A claim, an invoice or a name is far shorter. */
+export const CASE_SEARCH_QUERY_MAX = 200;
+
+/**
+ * What the case list's ledger is asked for (`searchCases`). Neither filter is
+ * the newest cases, as `listCases` reads them.
+ */
+export interface CaseSearch {
+  /**
+   * Text a person typed, matched anywhere in a case's claim id, invoice
+   * number, debtor, printed retailer name or id, ignoring case. It is text,
+   * never a pattern: `%`, `_` and `\` match themselves.
+   */
+  readonly query?: string;
+  readonly state?: CaseState;
+  readonly limit?: number;
+}
+
+/** A page of the ledger, and how many cases it is a page of. */
+export interface CaseSearchResult {
+  /** The newest matching cases, at most `limit`. */
+  readonly rows: readonly CaseSummary[];
+  /** Every case that matches, however many `rows` holds. */
+  readonly total: number;
+  readonly limit: number;
 }
 
 /**
@@ -726,9 +758,9 @@ interface CaseSummaryRow {
  * A case as the list and the case page show it, in SQL, with no `where`, order
  * or limit of its own.
  *
- * Written out once and shared by `listCases`, `caseSummary` and
- * `attachTargets`, for `CASE_DOCUMENTS_CTE`'s reason: the one way a case can
- * read one way in the list and another on its own page is these reads
+ * Written out once and shared by `listCases`, `searchCases`, `caseSummary`
+ * and `attachTargets`, for `CASE_DOCUMENTS_CTE`'s reason: the one way a case
+ * can read one way in the list and another on its own page is these reads
  * disagreeing. There is no `org_id` in it on purpose — RLS decides whose cases
  * these are. The columns are apart from the `from` so a read can add one of
  * its own (`attachTargets` adds a count) and still map through `toCaseSummary`.
@@ -752,6 +784,38 @@ const CASE_SUMMARY_COLUMNS = `d.id, d.state, d.claim_id, d.deduction_amount_cent
 const CASE_SUMMARY_SELECT = `select ${CASE_SUMMARY_COLUMNS}
    from deductions d
    left join debtors b on b.id = d.debtor_id`;
+
+/**
+ * Which cases a ledger search reaches, as a `where` over `CASE_SUMMARY_SELECT`'s
+ * `d` and `b`. `$1` is a state or null, `$2` a `containing` pattern or null.
+ *
+ * Every invoice number a case carries is matched, not only the earliest one the
+ * list shows, since any of them is a name a person may look the case up by. A
+ * merged-away case matches on its own names and reads as `merged`, and its page
+ * names the survivor (ADR 0042); nothing here writes, so there is nothing to
+ * redirect to it.
+ */
+const CASE_SEARCH_WHERE = `where ($1::text is null or d.state = $1::text)
+    and ($2::text is null
+         or d.claim_id ilike $2 escape '\\'
+         or d.id::text ilike $2 escape '\\'
+         or b.display_name ilike $2 escape '\\'
+         or d.retailer_name_as_printed ilike $2 escape '\\'
+         or exists (select 1 from deduction_identifiers i
+                     where i.deduction_id = d.id
+                       and i.identifier_kind = 'invoice_number'
+                       and i.identifier ilike $2 escape '\\'))`;
+
+/**
+ * `text` as an `ilike … escape '\'` pattern that matches it anywhere.
+ *
+ * The escape character is escaped first, so a `\` somebody typed cannot escape
+ * the `%` or `_` after it, and those two are escaped so that "10%" finds "10%"
+ * rather than everything that starts with "10".
+ */
+function containing(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
 
 function toCaseSummary(row: CaseSummaryRow): CaseSummary {
   const deductionDate = isoDate(row.deduction_date);
@@ -2922,9 +2986,11 @@ export class PostgresStore
    * inserts and the other inserts nothing, and only the one that inserted
    * writes the event.
    *
-   * `evidence.attached` rather than `evidence.uploaded`: nothing was uploaded to
-   * this case and nothing was read for it, and the case's history should say
-   * which of the two happened.
+   * `evidence.attached` rather than `evidence.uploaded`: nothing was read for
+   * this case, and the case's history should say which of the two happened.
+   * The Attach button on the case list reaches this, and so does the same file
+   * uploaded to a case that does not hold it yet (`answerFromRecord`): the
+   * bytes were already read, and it is the recorded reading that is filed.
    */
   async attachEvidence(input: {
     readonly orgId: string;
@@ -3455,6 +3521,59 @@ export class PostgresStore
       );
       const row = rows[0];
       return row === undefined ? undefined : toCaseSummary(row);
+    });
+  }
+
+  /**
+   * The case list's ledger: the newest cases matching a search, and how many
+   * match in all.
+   *
+   * The ledger's table used to filter `listCases` in the browser, so a search
+   * reached only the newest hundred cases — past that, an older case could not
+   * be found by its claim at all, and the state filter offered only the states
+   * among those hundred. The search is the database's now, over every case this
+   * tenant has, matched as `CASE_SEARCH_WHERE` says; `total` says how many
+   * matched, so the page can say what it is not listing. With neither filter
+   * this is `listCases` with a total.
+   *
+   * One tenant transaction as `app_rw`, the same select and mapping as the list
+   * and the case page, and no `org_id` anywhere: RLS decides whose cases these
+   * are, for a `read_only` member as for anyone.
+   */
+  async searchCases(search: CaseSearch = {}): Promise<CaseSearchResult> {
+    const limit = search.limit ?? CASE_SEARCH_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > CASE_SEARCH_MAX) {
+      throw new RangeError(`a case search lists 1 to ${CASE_SEARCH_MAX} cases`);
+    }
+    const state = search.state;
+    if (state !== undefined && !(CASE_STATES as readonly string[]).includes(state)) {
+      throw new RangeError('a case search filters by one of CASE_STATES');
+    }
+    const text = search.query?.trim() ?? '';
+    if (text.length > CASE_SEARCH_QUERY_MAX) {
+      throw new RangeError(`a case search is at most ${CASE_SEARCH_QUERY_MAX} characters`);
+    }
+    const parameters = [state ?? null, text === '' ? null : containing(text)];
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseSummaryRow>(
+        `${CASE_SUMMARY_SELECT}
+          ${CASE_SEARCH_WHERE}
+          order by d.created_at desc, d.id desc
+          limit $3`,
+        [...parameters, limit],
+      );
+      const { rows: counted } = await client.query<{ total: string }>(
+        `select count(*)::text as total
+           from deductions d
+           left join debtors b on b.id = d.debtor_id
+          ${CASE_SEARCH_WHERE}`,
+        parameters,
+      );
+      return {
+        rows: rows.map(toCaseSummary),
+        total: exactCents(counted[0]?.total ?? '0', 'total'),
+        limit,
+      };
     });
   }
 

@@ -21,6 +21,11 @@
  * turned off first; a revoke that fails is reported and recorded and does not
  * undo that.
  *
+ * **Release** is the sync's own disconnect, for a sign-in Intuit has refused
+ * for good (ADR 0046): lock → one transaction that turns the connection off
+ * only while the refused credential is still the latest, with its audit rows.
+ * Nothing is revoked, because there is nothing live to revoke.
+ *
  * Everything runs as `app_rw` with the tenant's claims set transaction-locally,
  * and the database refuses anyone who is not an owner (migration 0030). The
  * service role appears nowhere. Nothing here puts a token in a log, an error or
@@ -29,7 +34,7 @@
 
 import type { PoolClient } from 'pg';
 import type { TokenCipher } from '@recouple/crypto';
-import { assertQboId, type QboTokens } from '@recouple/qbo';
+import { assertQboId, type DeadGrant, type QboTokens } from '@recouple/qbo';
 import {
   AccountConnectedElsewhereError,
   ONE_ENABLED_PER_ACCOUNT_INDEX,
@@ -386,6 +391,101 @@ export async function disconnectLedger(
         ...(revokeAuditErrorClass !== undefined ? { revokeAuditErrorClass } : {}),
       };
     },
+  );
+}
+
+/** What a release answered (ADR 0046 §2). */
+export type LedgerReleaseOutcome =
+  /** Turned off, and audited as the sync's disconnect. */
+  | 'released'
+  /** A sign-in was stored after the refused one — a reconnect — so it was left on. */
+  | 'newer_sign_in'
+  /** It was off already; nothing was written. */
+  | 'already_off';
+
+/**
+ * Turns off a connection whose stored sign-in Intuit refused for good, so the
+ * company is no longer held from every other workspace (ADR 0046).
+ *
+ * Under the company's lock and in one transaction, as the member the run acts
+ * as:
+ *
+ * - the latest credential must still be `credentialId`, the one the refused
+ *   refresh presented. A newer row means somebody signed in since — a
+ *   reconnect stores one under this same lock — and turning the connection off
+ *   would undo a connect that works, so nothing is written;
+ * - the connection is turned off only if it is still on;
+ * - `accounting_connection.disconnected` and `accounting_connection.revoke`
+ *   (`not_attempted`) are written with `via: 'ledger_sync'`, so this
+ *   disconnect has its revoke row like every other, saying truthfully that
+ *   none was sent.
+ *
+ * The database is still the referee of who may do it: the UPDATE is an
+ * owner's (migration 0030), and `OwnerRequiredError` is raised before it for a
+ * member who is no longer one. `undefined` when this tenant cannot see the
+ * connection at all.
+ */
+export async function releaseDeadLedger(
+  config: PostgresStoreConfig,
+  tenant: TenantContext,
+  input: {
+    readonly connectionId: string;
+    /** The stored token set the refused refresh presented (`loadedCredential`). */
+    readonly credentialId: string;
+    readonly reason: DeadGrant;
+  },
+): Promise<LedgerReleaseOutcome | undefined> {
+  const found = await inTenant(config, tenant, async (client) => {
+    const { rows } = await client.query<ConnectionDbRow>(
+      `select id, org_id, provider, provider_account_id, enabled, created_by
+         from accounting_connections where id = $1`,
+      [input.connectionId],
+    );
+    return rows[0] === undefined ? undefined : rowToConnection(rows[0]);
+  });
+  if (found === undefined) return undefined;
+
+  return withLedgerAccountLock(
+    config,
+    tenant,
+    { provider: found.provider, providerAccountId: found.providerAccountId },
+    () =>
+      inTenant(config, tenant, async (client): Promise<LedgerReleaseOutcome> => {
+        await assertOwner(client, tenant);
+
+        const { rows: latest } = await client.query<{ id: string }>(
+          `select id from accounting_credentials
+            where connection_id = $1
+            order by seq desc
+            limit 1`,
+          [found.connectionId],
+        );
+        if (latest[0]?.id !== input.credentialId) return 'newer_sign_in';
+
+        const { rows } = await client.query<ConnectionDbRow>(
+          `update accounting_connections set enabled = false
+            where id = $1 and enabled
+            returning id, org_id, provider, provider_account_id, enabled, created_by`,
+          [found.connectionId],
+        );
+        const row = rows[0];
+        if (row === undefined) return 'already_off';
+
+        await audit(client, tenant, 'accounting_connection.disconnected', row.id, {
+          provider: row.provider,
+          provider_account_id: row.provider_account_id,
+          via: 'ledger_sync',
+          reason: input.reason,
+          credential_id: input.credentialId,
+        });
+        await audit(client, tenant, 'accounting_connection.revoke', row.id, {
+          provider: row.provider,
+          provider_account_id: row.provider_account_id,
+          via: 'ledger_sync',
+          result: 'not_attempted' satisfies LedgerRevokeResult,
+        });
+        return 'released';
+      }),
   );
 }
 

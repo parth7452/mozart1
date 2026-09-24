@@ -1,8 +1,8 @@
 {
   "key": "stf-203-short-payment-notice",
   "docType": "deduction_notice",
-  "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.75,
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.95,
   "document": {
     "retailer_name": {
       "value": "Faircrest Assembly Ltd.",
@@ -333,7 +333,8 @@
   },
   "classifier": {
     "model": "claude-haiku-4-5",
-    "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
-    "classifiedAt": "2026-09-23T15:29:52.504Z"
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-24T18:44:11.693Z"
   }
 }

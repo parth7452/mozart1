@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { QboAuthError, QboInvalidId, QboRateLimited, QboRequestFailed } from '../src/errors';
+import {
+  deadGrantOf,
+  QboAuthError,
+  QboInvalidId,
+  QboRateLimited,
+  QboRequestFailed,
+} from '../src/errors';
 import {
   exchangeIntuitToken,
   INTUIT_AUTHORIZE_URL,
@@ -162,6 +168,40 @@ describe('trading an authorization code for tokens', () => {
       expect((failed as QboRequestFailed).status).toBe(status);
       expect((failed as Error).message).not.toContain('refresh-token-DO-NOT-LOG');
     }
+  });
+
+  it('calls only invalid_grant on a refresh a dead sign-in (ADR 0046)', async () => {
+    const refused = async (
+      status: number,
+      code: string,
+      grant: Parameters<typeof exchangeIntuitToken>[1] = {
+        grantType: 'refresh_token',
+        refreshToken: 'refresh-token-DO-NOT-LOG',
+      },
+    ) => {
+      const { fetchImpl } = recordingFetch(() => jsonResponse({ error: code }, status));
+      return exchangeIntuitToken(APP, grant, 'realm 4620816365213417000', { fetchImpl })
+        .then(() => undefined)
+        .catch((thrown: unknown) => thrown);
+    };
+
+    // The customer's grant is gone: the one answer a release acts on.
+    const dead = await refused(400, 'invalid_grant');
+    expect(dead).toBeInstanceOf(QboAuthError);
+    expect(deadGrantOf(dead)).toBe('grant_refused');
+
+    // Our app's credentials refused: a deployment fault, and every connection
+    // would come back when it is fixed. Still a reason to reconnect on the
+    // page, never a reason to release.
+    expect(deadGrantOf(await refused(401, 'invalid_client'))).toBeUndefined();
+    expect(deadGrantOf(await refused(400, 'invalid_request'))).toBeUndefined();
+    // A code exchange that is refused is a consent that did not complete, not
+    // a stored sign-in that died.
+    expect(deadGrantOf(await refused(400, 'invalid_grant', grant))).toBeUndefined();
+    // Nothing that is not an auth error is a dead grant.
+    expect(deadGrantOf(await refused(503, 'invalid_grant'))).toBeUndefined();
+    expect(deadGrantOf(new Error('invalid_grant'))).toBeUndefined();
+    expect(deadGrantOf(undefined)).toBeUndefined();
   });
 
   it('gives up on a body that stalls, not only on headers that never come', async () => {

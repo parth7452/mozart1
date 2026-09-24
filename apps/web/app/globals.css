@@ -431,6 +431,9 @@ button:disabled { cursor: wait; opacity: .65; }
 .state-control { margin: 0!important; }
 .state-control select { margin: 0; width: auto; min-width: 132px; font-size: 12px; padding: 9px 28px 9px 12px; text-transform: capitalize; }
 .results-count { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.search-submit { border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--ink); padding: 9px 14px; font-size: 12px; cursor: pointer; }
+.search-submit:hover { border-color: var(--muted); }
+.table-tools .text-button { font-size: 12px; }
 .table-scroll { overflow: auto; }
 table.cases { font-size: 12px; }
 table.cases th { font-size: 8px; letter-spacing: 1.2px; padding: 12px 18px; background: #f7f9f8; border-top: 1px solid var(--line); white-space: nowrap; }

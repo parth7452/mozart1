@@ -48,7 +48,12 @@ export interface FixtureDocument {
     | 'dense'
     | 'email_body'
     | 'logistics'
-    | 'customer';
+    | 'customer'
+    /**
+     * Formats no other suite has: a distributor's table with merged cells and
+     * a supplier portal's printout of an EDI 812 (`formats.ts`).
+     */
+    | 'formats';
 }
 
 export interface FixtureCase {

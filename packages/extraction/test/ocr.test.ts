@@ -55,6 +55,14 @@ describe('placing a quote on the page', () => {
   it('ignores an empty quote', () => {
     expect(locateQuote('   ', 1, blocks)).toBeUndefined();
   });
+
+  it('boxes a quote whose column rule the OCR drew as I', () => {
+    const ruled: OcrBlock[] = [
+      { page: 1, text: 'Gross $7,200.00 I Deduction $600.00 I Paid $6,600.00', bbox: [0.1, 0.2, 0.9, 0.25], kind: 'text', confidence: 0.9 },
+    ];
+    expect(locateQuote('Deduction $600.00 | Paid $6,600.00', 1, ruled)?.bbox).toEqual([0.1, 0.2, 0.9, 0.25]);
+    expect(locateQuote('Deduction $600.00 | Paid $6,660.00', 1, ruled)).toBeUndefined();
+  });
 });
 
 describe('verifying a quote against OCR text', () => {

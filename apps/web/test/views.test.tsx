@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
+import { CASE_STATES, MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
 import type { AttachTargets, CaseDocument, CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
@@ -40,13 +40,25 @@ const NO_QUEUE = {
 } as const;
 const today = new Date('2026-09-18T12:00:00Z');
 
+type CaseListProps = Parameters<typeof CaseList>[0];
+
 /**
  * The list for a tenant whose every case is in `cases`, with the figures the
  * store would tally for them, so a test's rows and its figures describe one
- * tenant. The test about figures that reach past the rows renders `CaseList`.
+ * tenant. Unsearched unless a test says otherwise, and the attach control
+ * offers the same rows, as the page reads them. The tests about figures that
+ * reach past the rows render `CaseList`.
  */
-function EveryCaseList(props: Omit<Parameters<typeof CaseList>[0], 'tally'>) {
-  return <CaseList {...props} tally={tallyOf(props.cases, props.today)} />;
+function EveryCaseList(
+  props: Omit<CaseListProps, 'tally' | 'ledger'> & Partial<Pick<CaseListProps, 'ledger'>>,
+) {
+  return (
+    <CaseList
+      {...props}
+      ledger={props.ledger ?? { filter: {}, matching: props.cases.length }}
+      tally={tallyOf(props.cases, props.today)}
+    />
+  );
 }
 
 /**
@@ -231,6 +243,7 @@ describe('the case list', () => {
         mayUpload
         viewer={viewer}
         cases={[summary(), summary({ deductionId: '99999999-8888-7777-6666-555555555555' })]}
+        ledger={{ filter: {}, matching: 240 }}
         tally={[
           { state: 'classified', cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
           { state: 'awaiting_approval', cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
@@ -249,8 +262,8 @@ describe('the case list', () => {
     expect(figure('OPEN CASES')).toBe('160');
     expect(figure('APPROVAL STAGE')).toBe('4');
     expect(figure('DEADLINES TO WATCH')).toBe('15');
-    // The table is still the rows the store listed.
-    expect(html).toContain('2 of 2 cases');
+    // The table is still the rows the store listed, and says of how many.
+    expect(html).toContain('2 of 240 cases');
   });
 
   it('says nothing about the newest when the table holds every case', () => {
@@ -340,8 +353,110 @@ describe('the case list', () => {
     const html = renderToStaticMarkup(
       <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
     );
-    expect(html).not.toContain('invoice');
+    // The rows, not the page: the search box says it searches invoices.
+    const rows = html.slice(html.indexOf('<tbody>'), html.indexOf('</tbody>'));
+    expect(rows).toContain('APDP-99812');
+    expect(rows).not.toContain('invoice');
   });
+
+  it('searches every case with a GET form to this page, not the rows already here', () => {
+    // The table used to filter the newest hundred in the browser, so an older
+    // case could not be found at all, and its states were only those present.
+    const html = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    const form = /<form[^>]*role="search"[^>]*>/.exec(html)?.[0] ?? '';
+    expect(form).toContain('method="get"');
+    expect(form).toContain('action="/#ledger"');
+    expect(html).toContain('id="ledger"');
+    expect(html).toContain('name="q"');
+    expect(html).toContain('placeholder="Search claim, invoice or customer…"');
+    expect(html).toContain('name="state"');
+    // Every state, from `CASE_STATES`, though the one row here is `classified`.
+    for (const state of CASE_STATES) {
+      expect(html).toContain(`<option value="${state}">${state.replace(/_/g, ' ')}</option>`);
+    }
+    expect(html).toContain('<option value="" selected="">All states</option>');
+    expect(html).toContain('ALL DEDUCTIONS');
+    expect(html).not.toContain('>Clear<');
+  });
+
+  it('says what a search matched, keeps what was asked in the form, and offers to clear it', () => {
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[summary({ state: 'awaiting_approval' })]}
+        ledger={{ filter: { query: 'walmart', state: 'awaiting_approval' }, matching: 1 }}
+        today={today}
+      />,
+    );
+    expect(html).toContain('1 case · $3,120.00 deducted · 1 case matches “walmart” in awaiting approval');
+    expect(html).toContain('SEARCH RESULTS');
+    expect(html).toContain('value="walmart"');
+    expect(html).toContain('<option value="awaiting_approval" selected="">awaiting approval</option>');
+    expect(html).toContain('href="/#ledger"');
+    expect(html).toContain('1 of 1 case<');
+  });
+
+  it('says when a search matched more than the table lists', () => {
+    // A tenant of 5,000 cases, 1,204 of them Walmart's: the table is the
+    // newest hundred of those, and the figures are still every case.
+    const rows = Array.from({ length: 100 }, (_, n) =>
+      summary({ deductionId: `11111111-2222-3333-4444-${String(n).padStart(12, '0')}` }),
+    );
+    const html = renderToStaticMarkup(
+      <CaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={rows}
+        ledger={{ filter: { query: 'walmart' }, matching: 1_204 }}
+        tally={[{ state: 'classified', cases: 5_000, deductedCents: 50_000_000, dueSoonOrPast: 0 }]}
+        today={today}
+      />,
+    );
+    expect(html).toContain(
+      '5,000 cases · $500,000.00 deducted · 1,204 cases match “walmart”, the newest 100 listed below',
+    );
+    expect(html).toContain('100 of 1,204 cases');
+  });
+
+  it('shows the search, not the first-run text, when a search matched nothing', () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[]}
+        ledger={{ filter: { query: 'no-such-claim' }, matching: 0 }}
+        tally={[{ state: 'classified', cases: 240, deductedCents: 2_400_000, dueSoonOrPast: 0 }]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('240 cases · $24,000.00 deducted · no case matches “no-such-claim”');
+    expect(html).toContain('No matching deductions');
+    expect(html).toContain('Try another claim, invoice, customer, or state.');
+    expect(html).toContain('value="no-such-claim"');
+    expect(html).not.toContain('A case opens when a deduction notice arrives');
+  });
+
+  it('prints a query as text, never as markup', () => {
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[]}
+        ledger={{ filter: { query: '<img src=x onerror=alert(1)>' }, matching: 0 }}
+        today={today}
+      />,
+    );
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
 
   it('offers the upload to a member who may write, and not to one who may not', () => {
     const writer = renderToStaticMarkup(
@@ -824,6 +939,28 @@ describe('documents that were read and that no case holds', () => {
       />,
     );
     expect(reader).not.toContain('Read, not on a case');
+  });
+
+  it('offers the attach control its own cases, not what the ledger was searched for', () => {
+    // Filing evidence on a case should not depend on what was last typed into
+    // the ledger's search box.
+    const searched = summary({ claimId: 'KS-40112', deductionId: 'aaaaaaaa-0000-0000-0000-000000000001' });
+    const other = summary({ claimId: 'APDP-77001', deductionId: 'aaaaaaaa-0000-0000-0000-000000000002' });
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[searched]}
+        ledger={{ filter: { query: 'KS-40112' }, matching: 1 }}
+        attachTargets={offered([searched, other])}
+        today={today}
+        unattached={[loose()]}
+      />,
+    );
+    const attach = html.slice(html.indexOf('Read, not on a case'));
+    expect(attach).toContain('APDP-77001');
+    expect(attach).toContain('KS-40112');
   });
 
   it('is where the queued-upload notice points, instead of promising a case', () => {

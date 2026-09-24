@@ -1,11 +1,11 @@
 {
-  "recordedAt": "2026-09-22T20:39:23.614Z",
+  "recordedAt": "2026-09-24T18:45:00.325Z",
   "extractModel": "claude-sonnet-5",
-  "recall": 0.9906103286384976,
-  "precision": 0.9937205651491365,
-  "groundedRate": 0.9804927505520391,
-  "classificationAccuracy": 0.9636363636363636,
-  "totalCostMicros": 1276968,
+  "recall": 0.9915014164305949,
+  "precision": 0.9943181818181818,
+  "groundedRate": 0.9941063529609169,
+  "classificationAccuracy": 1,
+  "totalCostMicros": 1372008,
   "suites": {
     "authored": {
       "recall": 1,
@@ -59,9 +59,16 @@
     "customer": {
       "recall": 0.9761904761904762,
       "precision": 0.9761904761904762,
-      "groundedRate": 0.9288357375313897,
-      "classificationAccuracy": 0.8666666666666667,
+      "groundedRate": 0.9820816864295125,
+      "classificationAccuracy": 1,
       "documents": 15
+    },
+    "formats": {
+      "recall": 1,
+      "precision": 1,
+      "groundedRate": 0.9691358024691358,
+      "classificationAccuracy": 1,
+      "documents": 2
     }
   }
 }

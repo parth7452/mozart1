@@ -1,4 +1,9 @@
-import { QBO_PRODUCTION_BASE_URL, QBO_SANDBOX_BASE_URL, QboAccountingSource } from '@recouple/qbo';
+import {
+  QBO_PRODUCTION_BASE_URL,
+  QBO_SANDBOX_BASE_URL,
+  QboAccountingSource,
+  deadGrantOf,
+} from '@recouple/qbo';
 import type { QboTokenStore } from '@recouple/qbo';
 import { KmsTokenCipher, type TokenCipher } from '@recouple/crypto';
 import type {
@@ -261,6 +266,17 @@ export function accountingSourceFromEnv(
           clientSecret: app.clientSecret,
           tokenStore,
         }),
+        // Intuit refused the stored sign-in for good, and which stored row it
+        // was: the one the store opened last, since the client reads again
+        // under the lock before it refreshes (ADR 0046). A store that cannot
+        // name its rows cannot be released automatically.
+        deadGrant: (error: unknown) => {
+          const reason = deadGrantOf(error);
+          const credentialId = tokenStore.loadedCredential?.();
+          return reason === undefined || credentialId === undefined
+            ? undefined
+            : { reason, credentialId };
+        },
       };
     },
   };

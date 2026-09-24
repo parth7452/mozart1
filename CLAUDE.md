@@ -190,9 +190,11 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
-with every invariant verified there, and Postmark email-in.
+with every invariant verified there, and the Postmark email-in parser and
+pipeline step — which nothing in the app calls yet: there is no inbound
+webhook route, so no email can reach it (`docs/VERIFY-CHECKLIST.md` §5).
 
-Eight recorded suites, every one of them scored
+Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -205,7 +207,8 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 92.9% | 13/15 |
+| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 15/15 |
+| formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -220,8 +223,8 @@ the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
-($0.39, OCR through Reducto for the twelve photographs), so `pendingSuites` is
-empty.
+($0.39, OCR through Reducto for the twelve photographs), and `formats` on
+2026-09-24 ($0.10), so `pendingSuites` is empty.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -229,9 +232,9 @@ and orders no quantities — read as `po` at 0.95, so its agreed rates were neve
 extracted as an agreement. The classifier's definitions now say that setting
 prices is not ordering, and re-asked (2026-09-23, `--classify-only`) it reads
 `price_agreement` five times in five, where the old prompt read `po` five in
-five. The two classification misses now are `stf-203-dispatch-note`
+five. The two classification misses that remained were `stf-203-dispatch-note`
 (`correspondence`, expected `other`, 0.85) and `stf-203-short-payment-notice`,
-which reads `remittance_advice` at 0.70–0.75 three times in five **under the old
+which read `remittance_advice` at 0.70–0.75 three times in five **under the old
 prompt too** — its correct answer in the first recording was a lucky draw.
 Every classification number here was recorded with no pinned temperature, so
 each is one sample, and a suite's classification rate could move by a document
@@ -244,27 +247,48 @@ Fable and Mythos would answer a 400), so `RECOUPLE_CLASSIFY_MODEL` cannot turn
 every read into an error. A cassette's classifier stamp records the temperature,
 and `classificationIsCurrent` requires it, so every classification recorded
 before the pin replays as stale until `pnpm record:cassettes --classify-only`
-re-asks it; the eval says so rather than gating on it. The re-ask is pending an
-Anthropic key in the environment.
+re-asks it; the eval says so rather than gating on it. That re-ask ran on
+2026-09-24 ($0.2046, all 57 documents, prompt unchanged): 55 of 57, the same
+two misses at the same confidences, and eight answers whose type held while
+their confidence moved by a point or three. So the two misses were never the
+sampling — they are what this prompt says — and the one-sample caveat above no
+longer applies to any recorded classification.
+
+The same day the definitions were sharpened for both, and re-asked in full
+($0.2258, then $0.0114 on three documents and $0.2289 in full again): a
+deduction notice is a payer's, not a retailer's; the printed title decides
+notice against remittance by what it names, and "advice" alone decides
+nothing — a remittance advice is a remittance and a deduction advice is a
+notice, which the first wording got wrong for LOG-202's remittance; and
+correspondence is a message one organisation sent another, while a note
+written for one's own file is `other`. 57 of 57, and every notice and
+remittance at or above 0.95.
 
 The review floor is the product's as well as the eval's (ADR 0044). Wherever a
 notice or a remittance would open its case(s) on its own, `readDocument` reads
 the tenant's `org_settings.min_classification_confidence` and opens only when
 `classificationIsActionable` holds — inclusive, so LOG-001's remittance at 0.95
 still opens — and the reading fits its type. Anything else is held for a
-person, and in replay exactly two recorded documents are:
-`stf-203-short-payment-notice` (a notice read as a remittance at 0.75) and
-`stf-201-short-pay-remittance` (0.92). The `classification_confidence_meets_tenant_minimum`
+person. In replay no recorded document is held any more: two were —
+`stf-203-short-payment-notice`, a notice read as a remittance at 0.75, and
+`stf-201-short-pay-remittance`, one unpinned sample at 0.92 — and both read
+0.95 today and open; the hold is exercised by readings built to fall below the
+floor. The `classification_confidence_meets_tenant_minimum`
 guard, on Phase 2's `classified → evidence_pending` edge, still has no
 evaluator because that edge is not taken yet. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
 rather than Westhaven Paper Supply, and
 `stf-203-short-payment-notice`'s reason code came back as the payer's own code
-(`CB-203`) rather than `PREMIUM-NOAUTH`. Grounding on the four STF-201 camera
-pages is 64–83%: values right, quotes that do not survive being checked against
-the OCR text layer.
+(`CB-203`) rather than `PREMIUM-NOAUTH`. Both of those codes are printed on
+the page, and the model took the chargeback reference rather than the reason;
+`PREMIUM-NOAUTH` is the payer's own code, not a canonical one. Grounding on the
+four STF-201 camera pages was 64–83% until the verifier learned column rules
+(*A column rule is one glyph*, below); it is now 100% on the remittance and the
+invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
+still refused are ones where OCR glued a rule onto a number (`STF-2011`,
+`0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 53/55, both misses in `customer` (the service order is no longer one of them). Before it, the two field
+Classification is 57/57. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -279,7 +303,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0232 per document across 55 of them, and 416 of 1,025 fields carry a
+About $0.0241 per document across 57 of them, and 428 of 1,133 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -497,10 +521,16 @@ page lists a case's documents with `caseDocuments` rather than from their
 fields, so the original it embeds is the notice by its link — a ledger case's
 JSON extract included, which `/api/document` now shows in place, sandboxed —
 and the packet names every file it encloses.
-Uploading the same file on the case page still
-reads it again, because `recordedRead` sends an attachment to a case the
-document is not on through the read. `jobs.test.ts` pins that, and making it
-reuse the reading is a follow-up.
+Uploading the same file on the case page files it the same way: the bytes
+dedupe to the document already read, and `answerFromRecord` — asked first by
+the inline upload, by the request that would queue a read and by the job —
+files the recorded reading on the case with `attachEvidence` rather than
+reading it again (`evidence.attached`, `read_again: false`, no model call;
+`jobs.test.ts` and `upload-route.test.tsx`). What it cannot reach is an upload
+to a second case while the first read is still running: nothing is recorded
+yet, so it is queued, and the upload's `readKey` (the document id) is the
+first upload's, whose idempotency window swallows it. Keying an attachment's
+read on the case too is a follow-up.
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
@@ -920,8 +950,17 @@ commits that first, then revokes at Intuit and audits the result —
 `confirmed`, `failed` with a class name, or `not_attempted` — and a failed
 revoke never undoes the disable. `pnpm unlink:qbo` is the operator's release
 for a connection nobody will press Disconnect on, since one dead connection
-would otherwise hold its company from every other workspace; releasing
-automatically on `invalid_grant` is a follow-up, not built. The first sync is
+would otherwise hold its company from every other workspace. The sync now
+releases one itself (ADR 0046): when Intuit answers a refresh with
+`invalid_grant`, or the refresh token's own expiry has passed
+(`deadGrantOf`), the run is recorded `failed` as before and then, under the
+company's lock, the connection is turned off — only while the refused
+credential is still the latest, so a reconnect since is never undone — with
+`accounting_connection.disconnected` (`via: 'ledger_sync'`) and a
+`not_attempted` revoke row, as the owner the run acts as. The failure is not
+retried, `invalid_client` never releases, and a member who is no longer an
+owner is refused and left for `pnpm unlink:qbo`. The settings page says why the
+connection is off. The first sync is
 queued on connect. A redirect that arrives again after it connected — the first
 production click-through saw one, a second later — is refused like any request
 without a state, but says the company is connected when this member's own
@@ -1140,6 +1179,27 @@ and is what a later read of that document checks against. That is the only
 thing the check gained. No recorded string changes under it, so `pnpm eval` is
 byte-identical.
 
+**A column rule is one glyph, and a number keeps its point** (no ADR, no
+migration). A camera page prints its columns separated by a vertical rule, and
+neither reader draws it the same way twice: Reducto writes `|`, `I` or nothing,
+and the model — reading the pixels, since a JPEG's text layer is withheld from
+it (ADR 0009) — writes `|` or `I`. Twelve right quotes on the STF-201 pages
+failed on nothing but that. `withColumnRules` (`markup.ts`) turns a
+whitespace-bounded token that is only a rule glyph (`|`, `I`, `l`, `!`, `¦`,
+`│`) into `|`; it never touches a character inside a longer token and never a
+digit. `checkQuote` gains a `separator` tier after `exact`, and every later tier
+reads the rule-normalised text, and `locateQuote` normalises the same way (416 →
+428 boxes). Two holes closed with it. The glyph fold read a rule drawn as a lone
+`I` as a `1`, so an invented "Qty 201" verified against a page reading "Qty 20
+I"; on normalised text that `I` is punctuation and nothing folds. And the
+punctuation tier dropped every `.` and `,`, so "$60,000" verified against
+"$600.00"; a decimal point or thousands separator between two digits is now
+kept, by that tier and by the fold (which folds letters to digits first, so an
+OCR'd "$6OO.OO" still reads). Every one of the 53 matches the old punctuation
+tier made still verifies. `customer` grounding rose 92.9% → 98.2%, overall
+98.0% → 99.4%, and the baseline was re-recorded for those two numbers only;
+`grounding.test.ts` and `ocr.test.ts` pin both holes shut.
+
 **A case's page opens however old the case is** (no ADR, no migration). The
 case page found its case in `listCases()`, the newest 100, so past a hundred
 cases every older one was a 404 on its own page — the old, urgent cases the
@@ -1149,16 +1209,40 @@ case this tenant cannot see. The case list's four figures had the same limit
 and summed the newest hundred; they now fold `caseTally`, a per-state count,
 sum and due-soon-or-past count over every case, with what a state means left
 to `isClosed` in the app, and the ledger says when its table lists only the
-newest. The attach control under "Read, not on a case" offered the open cases
-among the newest hundred; it now has its own read, `attachTargets`: every case
-not in `CLOSED_STATES`, through RLS with the list's SELECT and mapping, the
-review queue's cases first and in its order (the queue's rule and order are
-one copy of SQL, `QUEUED_SQL` and `URGENCY_ORDER_SQL`), then the filed and
-declined ones. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws
-the list once per waiting document) and the page says how many it is not
-listing; it is asked only when a document is waiting. The ledger table's
-search still filters only the newest hundred, in the browser.
+newest. The ledger's search had the same limit — it filtered the newest
+hundred in the browser, so an older case could not be found by its claim at
+all, and the state filter offered only the states among them. It is now a GET
+form to the page, which validates it (`ledgerFilterFrom`: an unknown state, a
+repeated or over-long query, or one with a control character is dropped, never
+passed on), and `searchCases` answers over every case: claim id, any
+`invoice_number` identifier on the case, debtor, printed name or id, by `ILIKE`
+with `%`, `_` and `\` escaped, an optional state, at most 100 rows and a total,
+through the same select and mapping as the list and the case page, as `app_rw`
+with no `org_id`. Nothing filters in the browser on top, so there is one
+matcher; the state filter offers every `CASE_STATES` value; and the ledger says
+what a search matched and how many of those it lists. The attach control under
+"Read, not on a case" offered the open cases among the newest hundred; it now
+has its own read, `attachTargets`: every case not in `CLOSED_STATES`, through
+RLS with the list's SELECT and mapping, the review queue's cases first and in
+its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
+`URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
+searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
+list once per waiting document) and the page says how many it is not listing;
+it is asked only when a document is waiting.
 
-Still to do before Phase 1 is done: fixtures for the formats still missing —
-dense retailer tables with merged cells, and EDI-derived portal exports. Real
-customer documents would be worth more than all of them.
+The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
+suite `formats`), both from the beachhead — a foodservice manufacturer and a
+broadline distributor. A chargeback statement whose program cells are merged
+down their groups, so each reason code is printed once for several lines, the
+same item sits in two programs under two codes, and three subtotal rows are not
+lines. And a supplier portal's printout of an EDI 812, which states every amount
+twice: once as money and once in the raw segments with the decimal point
+implied (`184250`), which a reader must not copy. Both are generated from one
+table, and `formats.test.ts` holds them to it. Recorded 2026-09-24 ($0.1036):
+both read at 100% recall and precision — every line took its group's code, no
+subtotal was read as a line, and no EDI amount was copied as money. Grounding on
+the chargeback is 93.8%: the five reason descriptions a merged cell prints
+across two rows ("Deviated price" / "billback") come back joined, and a joined
+quote is not on the page. That is this format's real cost, measured. With it,
+Phase 1's fixture list is complete. Real customer documents would still be worth
+more than all of them.
