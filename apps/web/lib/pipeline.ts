@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { ClaudeClassifier, ClaudeExtractor, ReductoOcr } from '@recouple/extraction';
 import { scannerFromEnv } from '@recouple/ingest';
 import {
+  answerFromRecord,
   assertCaseAttachable,
   ingestForJob,
   processUpload,
   readDocumentJob,
-  recordedRead,
   type CaseRecord,
   type DocumentHold,
   type IngestInput,
@@ -119,6 +119,13 @@ export type UploadOutcome =
        * purpose, and the reviewer is told where it is waiting.
        */
       readonly held?: DocumentHold;
+      /**
+       * It was uploaded to a case that did not hold it, and the recorded
+       * reading was filed there in this request — a link and an
+       * `evidence.attached` event, no model call (`answerFromRecord`). `case`
+       * is that case.
+       */
+      readonly filedFromRecord?: true;
     };
 
 /**
@@ -265,24 +272,29 @@ export class InngestRunner implements UploadRunner {
     // back to a list instead of to its case.
     //
     // It is also the second press of the same button, which is the ordinary
-    // way this happens. Nothing is spent either way: this is one query against
-    // `extraction_results`, and no event goes out at all.
+    // way this happens. Nothing is spent either way: this is a query against
+    // `extraction_results`, and no event goes out at all. The same bytes
+    // uploaded to a case that does not hold them yet are filed there from the
+    // recorded reading, here and now — one transaction, no model call — rather
+    // than queued to be read a second time (`answerFromRecord`).
     if (ingested.deduplicated) {
-      const already = await recordedRead(
+      const already = await answerFromRecord(
         { documentId: ingested.documentId },
         deps,
         options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {},
       );
       if (already !== undefined) {
         const existing =
-          already.deductionId === undefined
+          already.filedOn ??
+          (already.deductionId === undefined
             ? undefined
-            : await deps.store.getCase(already.deductionId);
+            : await deps.store.getCase(already.deductionId));
         return {
           kind: 'already_read',
           documentId: ingested.documentId,
           ...(existing !== undefined ? { case: existing } : {}),
           ...(already.held !== undefined ? { held: already.held } : {}),
+          ...(already.filedOn !== undefined ? { filedFromRecord: true as const } : {}),
         };
       }
     }

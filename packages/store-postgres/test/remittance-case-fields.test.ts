@@ -6,7 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { CassetteClassifier, CassetteExtractor, type Cassette } from '@recouple/extraction';
 import { logisticsDocuments, type FixtureDocument } from '@recouple/fixtures';
-import { attachReadDocument, processUpload, type PipelineDeps } from '@recouple/pipeline';
+import {
+  attachReadDocument,
+  processUpload,
+  readDocument,
+  type PipelineDeps,
+} from '@recouple/pipeline';
 import { closeAllPools, PostgresStore } from '../src/store';
 
 /**
@@ -210,16 +215,63 @@ describeDb('the fields of a case a remittance line opened', () => {
     expect(await store.costForCase(deductionId)).toBe(Number(rows[0]?.total));
   });
 
+  it('files the same invoice on another case from its recorded reading, and reads nothing', async () => {
+    // Uploaded again from a second case's page, the bytes dedupe to the
+    // invoice already read, and the recorded reading is filed there
+    // (`answerFromRecord`): one link and one `evidence.attached` event, as
+    // `app_rw` through RLS, and no second extraction or model call.
+    const other = await store.openCase({
+      orgId,
+      claimId: `FILED-${suffix}`,
+      deductionAmountCents: 1_000,
+    });
+    const counts = async () =>
+      (
+        await admin.query<{ extractions: string; calls: string }>(
+          `select (select count(*) from extraction_results where document_id = $1)::text as extractions,
+                  (select count(*) from model_calls where document_id = $1)::text as calls`,
+          [invoiceId],
+        )
+      ).rows[0];
+    const before = await counts();
+
+    const filed = await upload(INVOICE, other.deductionId);
+
+    expect(filed.filedFromRecord).toBe(true);
+    expect(filed.case?.deductionId).toBe(other.deductionId);
+    expect(await counts()).toEqual(before);
+    const { rows: events } = await admin.query<{ event_type: string; payload: unknown }>(
+      `select event_type, payload from deduction_events where deduction_id = $1 order by id`,
+      [other.deductionId],
+    );
+    expect(events.filter((e) => e.event_type === 'evidence.attached')).toEqual([
+      {
+        event_type: 'evidence.attached',
+        payload: { document_id: invoiceId, doc_type: 'invoice', read_again: false },
+      },
+    ]);
+    const fields = (await store.fieldsForCase(other.deductionId)).filter(
+      (f) => f.documentId === invoiceId,
+    );
+    expect(fields.length).toBeGreaterThan(0);
+  });
+
   it('lists a field once when its document has been read twice', async () => {
-    // The same invoice uploaded again for another case is read again, and its
-    // rows then name that case. On this case it is still one set of fields —
-    // the ones `latestExtraction` rebuilds from — not two.
+    // A document read twice, each read naming the case it was read for. An
+    // upload no longer does that — the same bytes uploaded for another case
+    // are filed from the recorded reading — but rows written before it did,
+    // and two inline reads racing each other, still leave a document so. So
+    // the second read here is the read half itself, which reads whatever it
+    // is handed. On each case it is still one set of fields — the ones
+    // `latestExtraction` rebuilds from — not two.
     const second = await store.openCase({
       orgId,
       claimId: `SECOND-${suffix}`,
       deductionAmountCents: 1_000,
     });
-    await upload(INVOICE, second.deductionId);
+    const invoice = await store.getDocument(invoiceId);
+    if (invoice === undefined) throw new Error('the invoice is not visible to its own tenant');
+    await readDocument(invoice, deps, { attachToCase: second.deductionId });
     const { rows } = await admin.query<{ n: string }>(
       `select count(distinct deduction_id)::text as n from extraction_results where document_id = $1`,
       [invoiceId],

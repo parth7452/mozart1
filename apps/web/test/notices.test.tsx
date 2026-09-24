@@ -184,6 +184,7 @@ const EVERY_KEY: readonly string[] = [
   'upload_case_merged',
   'upload_duplicate_case',
   'upload_duplicate_case_unsaid',
+  'upload_filed_from_record',
   'upload_held',
   'upload_no_file',
   'upload_not_queued',

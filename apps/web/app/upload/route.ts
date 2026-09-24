@@ -138,6 +138,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // sends them — to the case that first read opened, when it opened one —
       // rather than being told a read is coming that is not. A document the
       // first read held for a person (ADR 0044) is said to be held, and where.
+      // Uploaded to a case that did not hold it, its recorded reading was just
+      // filed there, and the case page says that nothing was read or charged.
+      if (outcome.case !== undefined && outcome.filedFromRecord === true) {
+        back.pathname = `/cases/${outcome.case.deductionId}`;
+        return say('upload_filed_from_record');
+      }
       if (outcome.case !== undefined) {
         return NextResponse.redirect(new URL(`/cases/${outcome.case.deductionId}`, request.url), {
           status: 303,
@@ -158,6 +164,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const result = outcome.result;
+    if (result.case !== undefined && result.filedFromRecord === true) {
+      back.pathname = `/cases/${result.case.deductionId}`;
+      return say('upload_filed_from_record');
+    }
     if (result.case !== undefined) {
       return NextResponse.redirect(new URL(`/cases/${result.case.deductionId}`, request.url), {
         status: 303,

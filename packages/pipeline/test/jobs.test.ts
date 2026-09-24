@@ -25,6 +25,7 @@ import {
   processUpload,
   type IngestInput,
 } from '../src/steps';
+import { CaseMergedAwayError } from '../src/ports';
 import {
   DocumentNotFoundError,
   InvalidJobPayloadError,
@@ -468,10 +469,10 @@ describe('a redelivered event', () => {
   });
 
   it('still files an already-read document against a case it is not on yet', async () => {
-    // The guard above must not swallow the one thing a second read of the same
-    // document is for: the same BOL is evidence for two deductions, and the
-    // second upload dedupes to the same document id. Skipping that read would
-    // lose the reviewer's attachment silently.
+    // The guard above must not swallow the one thing a second delivery of the
+    // same document is for: the same BOL is evidence for two deductions, and
+    // the second upload dedupes to the same document id. Skipping the link
+    // would lose the reviewer's attachment silently.
     const { store, deps } = harness();
     const first = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
     const other = await store.openCase({ orgId: ORG, claimId: 'SECOND-CLAIM' });
@@ -483,6 +484,9 @@ describe('a redelivered event', () => {
       actor: ACTOR,
       attachToCase: first.case?.deductionId as string,
     });
+    const spentOnFirstRead = store.totalCostMicros();
+    const callsAfterFirstRead = store.modelCalls.length;
+
     const second = await readDocumentJob(deps, {
       documentId: ingested.documentId,
       orgId: ORG,
@@ -490,11 +494,33 @@ describe('a redelivered event', () => {
       attachToCase: other.deductionId,
     });
 
-    expect(second.alreadyRead).toBe(false);
-    expect(second.deductionId).toBe(other.deductionId);
+    // Filed, and not read: the reading the first delivery paid for is the one
+    // the second case gets.
+    expect(second).toMatchObject({
+      alreadyRead: true,
+      filedFromRecord: true,
+      beingRead: false,
+      docType: 'bol',
+      deductionId: other.deductionId,
+      haltedBecause: null,
+    });
     expect(
       store.links.filter((l) => l.documentId === ingested.documentId).map((l) => l.deductionId),
     ).toEqual([first.case?.deductionId, other.deductionId]);
+    expect(store.modelCalls).toHaveLength(callsAfterFirstRead);
+    expect(store.totalCostMicros()).toBe(spentOnFirstRead);
+    expect(store.extractions.filter((e) => e.documentId === ingested.documentId)).toHaveLength(1);
+    expect(
+      store.classifications.filter((c) => c.documentId === ingested.documentId),
+    ).toHaveLength(1);
+    expect(store.events.filter((e) => e.deductionId === other.deductionId)).toEqual([
+      {
+        orgId: ORG,
+        deductionId: other.deductionId,
+        eventType: 'evidence.attached',
+        payload: { document_id: ingested.documentId, doc_type: 'bol', read_again: false },
+      },
+    ]);
 
     // And a third delivery of the event that already landed does nothing.
     const again = await readDocumentJob(deps, {
@@ -503,8 +529,77 @@ describe('a redelivered event', () => {
       actor: ACTOR,
       attachToCase: other.deductionId,
     });
-    expect(again.alreadyRead).toBe(true);
+    expect(again).toMatchObject({ alreadyRead: true, filedFromRecord: false });
     expect(store.links.filter((l) => l.documentId === ingested.documentId)).toHaveLength(2);
+    expect(store.events.filter((e) => e.deductionId === other.deductionId)).toHaveLength(1);
+    expect(store.modelCalls).toHaveLength(callsAfterFirstRead);
+  });
+
+  it('files an already-read upload on a case page from the record, on the inline path too', async () => {
+    // The same bytes uploaded from a second case's page, with no queue: the
+    // request itself files the recorded reading and reads nothing.
+    const { store, deps } = harness();
+    const first = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const other = await store.openCase({ orgId: ORG, claimId: 'SECOND-CLAIM' });
+    const bol = upload(fixtureFor('carrier-bol.pdf'));
+
+    await processUpload(bol, deps, { attachToCase: first.case?.deductionId as string });
+    const callsAfterFirstRead = store.modelCalls.length;
+
+    const second = await processUpload(bol, deps, { attachToCase: other.deductionId });
+
+    expect(second.filedFromRecord).toBe(true);
+    expect(second.case?.deductionId).toBe(other.deductionId);
+    expect(second.classification).toBeUndefined();
+    expect(second.extraction).toBeUndefined();
+    expect(second.haltedBecause).toBeUndefined();
+    expect(store.modelCalls).toHaveLength(callsAfterFirstRead);
+    expect(store.links.filter((l) => l.deductionId === other.deductionId)).toEqual([
+      { deductionId: other.deductionId, documentId: second.ingest.document.documentId, role: 'evidence' },
+    ]);
+    expect(store.events.filter((e) => e.deductionId === other.deductionId).map((e) => e.eventType)).toEqual([
+      'evidence.attached',
+    ]);
+
+    // Pressed again on the same case: the case holds it, nothing is written,
+    // and the reviewer is sent to it as before.
+    const third = await processUpload(bol, deps, { attachToCase: other.deductionId });
+    expect(third.filedFromRecord).toBeUndefined();
+    expect(third.case?.deductionId).toBe(other.deductionId);
+    expect(store.events.filter((e) => e.deductionId === other.deductionId)).toHaveLength(1);
+    expect(store.modelCalls).toHaveLength(callsAfterFirstRead);
+  });
+
+  it('refuses to file a recorded reading on a case that was merged away, and writes nothing', async () => {
+    // The case was resolvable when the upload started and merged before the
+    // job ran. `resolveAttachTarget` is asked again before the write, so the
+    // refusal is named rather than left to the database's RCM01.
+    const { store, deps } = harness();
+    const first = await processUpload(upload(fixtureFor('walmart-apdp-notice.pdf')), deps);
+    const other = await store.openCase({ orgId: ORG, claimId: 'SECOND-CLAIM' });
+    const ingested = await ingestForJob(deps, upload(fixtureFor('carrier-bol.pdf')));
+    await readDocumentJob(deps, {
+      documentId: ingested.documentId,
+      orgId: ORG,
+      actor: ACTOR,
+      attachToCase: first.case?.deductionId as string,
+    });
+    const record = store.cases.get(other.deductionId);
+    if (record === undefined) throw new Error('the second case was not opened');
+    store.cases.set(other.deductionId, { ...record, state: 'merged' });
+    const linksBefore = store.links.length;
+    const eventsBefore = store.events.length;
+
+    await expect(
+      readDocumentJob(deps, {
+        documentId: ingested.documentId,
+        orgId: ORG,
+        actor: ACTOR,
+        attachToCase: other.deductionId,
+      }),
+    ).rejects.toBeInstanceOf(CaseMergedAwayError);
+    expect(store.links).toHaveLength(linksBefore);
+    expect(store.events).toHaveLength(eventsBefore);
   });
 
   it('stores one document for the same bytes, however many times they arrive', async () => {
@@ -672,6 +767,9 @@ describe('two deliveries of the same document at the same time', () => {
       // two constants or null — a reason, never a sentence or a value off the
       // page. Added with the confidence floor; the list is otherwise unchanged.
       'held',
+      // Whether an already-read document's recorded reading was filed on the
+      // case the event named instead of being read again. A flag.
+      'filedFromRecord',
     ].sort());
 
     const asSent = JSON.stringify(result);
