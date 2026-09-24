@@ -1,0 +1,1018 @@
+# Verify checklist — proving what is built but not yet exercised
+
+*2026-09-24. For the founder. Every item here is built and tested by machines;
+none has yet been done by a person on the live app. Each checklist below is
+something to click through once, so that "it works" means someone watched it
+work.*
+
+`docs/STATE-OF-PLAY.md` → *Built, not yet exercised* is the list these come
+from. When a checklist passes, that row can move to *Live in production*.
+
+## How to use this
+
+Every step has three parts:
+
+- **Do** — what to click or type.
+- **You should see** — what the screen should show. The words in quotes are
+  copied from the app, so they should match exactly.
+- **Proof** — how to confirm it from the records rather than from the
+  screen: a database query, a log line, or both.
+
+**Where to run the queries.** Supabase dashboard → project
+`hvheqbgkvwhlqutklwfh` (production, *not* `mozart-preview`) → **SQL Editor**.
+Paste one block, press **Run**. Every query here only *reads*, except the
+ones marked **WRITE**, and those only add rows. The SQL editor sees every
+workspace at once (it runs as the database owner), so the queries filter
+carefully. Please don't adapt them without asking.
+
+**Where to read logs.**
+
+- **Vercel** → the web project → **Logs**. Choose the time of the step and
+  search for the text given, for example `[sign-in link]`.
+- **Inngest** → the production environment → **Runs**, for background jobs.
+
+Logs are kept for a short time, so check them right after each step.
+
+**What to send me when a step does not match:**
+
+- a screenshot;
+- the time (with timezone);
+- the number of the step;
+- the output of the step's proof query.
+
+Nothing else is needed.
+
+### Before you start — five things that will otherwise trip you up
+
+1. **Production is permanent.** The database is append-only by design:
+   anything uploaded, decided, declined, merged or undone stays in the record
+   for ever. So checklists **3, 7 and 8 run in a separate test workspace**
+   (made in checklist 4). Only the checklists that must touch real data
+   (1, 2, 6) run in your own workspace.
+2. **There is no sign-out button.** Use a separate private (incognito) window
+   for each person you sign in as, and close it to sign out. Better still,
+   use a separate browser profile for each.
+3. **Open every sign-in link in the same window that asked for it.** The link
+   only works in the browser that requested it. If your email app opens links
+   somewhere else, you'll see "that link has expired". In that case, copy the
+   link and paste it into the window that asked for it.
+4. **There is no workspace switcher.** Someone who belongs to two workspaces
+   always lands in the one whose name comes first alphabetically. So use a
+   *different email address* for the test workspace. With Gmail,
+   `you+tenantb@gmail.com` works: it arrives in your own inbox, but the app
+   treats it as a different person.
+5. **The app is `https://app.mozart.financial`.** Always use that address,
+   never a `vercel.app` one. Sign-in and QuickBooks only work on that address.
+
+### Suggested order
+
+Do **2** first (sign-in), then **4** (make the test workspace), then **3**,
+**1**, **6**, **7** and **8**. **5** is blocked; see below.
+
+The fixture files mentioned below are synthetic test documents. Download each
+one from GitHub while you are signed in: open the link, then click **Download
+raw file**.
+
+| File | What it is | Link |
+| --- | --- | --- |
+| `hl-case-01-notice.pdf` | A $600.00 deduction notice, claim DN-2609-001 | [download](https://github.com/parth7452/mozart1/blob/main/packages/fixtures/corpus/hl-case-01-notice.pdf) |
+| `hl-case-02-remittance.pdf` | A payment that short-paid invoice INV-260802 by $900.00 | [download](https://github.com/parth7452/mozart1/blob/main/packages/fixtures/corpus/hl-case-02-remittance.pdf) |
+| `hl-case-02-notice.pdf` | The notice for that same $900.00 deduction, claim DN-2609-002 | [download](https://github.com/parth7452/mozart1/blob/main/packages/fixtures/corpus/hl-case-02-notice.pdf) |
+| `crosswind-dense-remittance-scan.jpg` | A scanned 42-row remittance, 12 lines short-paid | [download](https://github.com/parth7452/mozart1/blob/main/packages/fixtures/scans/crosswind-dense-remittance-scan.jpg) |
+
+Reading a document costs money: about 2–3 cents for a one-page notice and
+about 12–15 cents for the 42-row remittance.
+
+---
+
+## 1. QuickBooks: disconnect, connect, first sync, disconnect, connect again
+
+**What it proves:**
+
+- the owner can connect the company themselves;
+- the first sync starts on its own;
+- Disconnect really ends our access at Intuit;
+- connecting again after a revoke works.
+
+That last point is one of the two things ADR 0039 left open. Nothing here has
+yet met a live Intuit consent or revoke.
+
+**Who:** the workspace **owner**, in your own workspace. The company is the
+QuickBooks **sandbox** company.
+
+**Start state:** production already holds an enabled connection to the sandbox
+company (made 2026-09-23), so the page will show **Connected** rather than a
+Connect button. That is why this checklist starts with Disconnect.
+
+> Always pick the **same sandbox company** at Intuit. The page shows only one
+> connected company. A second company would connect, but you would not see
+> it.
+
+**Q0 — before you start: note these numbers.**
+
+```sql
+select now() as checked_at,
+       (select max(id)  from audit_log)              as audit_high_water,
+       (select max(seq) from accounting_credentials) as credential_high_water,
+       (select count(*) from ledger_sync_runs)       as runs_so_far;
+```
+
+The queries below use `<COMPANY_ID>`: the number shown next to **Company** on
+the settings page.
+
+**Q1 — the connection.** It should read `enabled = true` after a connect and
+`false` after a disconnect. The `connection_id` should stay the same
+throughout.
+
+```sql
+select c.id as connection_id, o.slug as workspace, c.provider_account_id as company_id,
+       c.enabled, u.email as syncs_as, c.created_at, c.updated_at
+  from accounting_connections c
+  join organizations o on o.id = c.org_id
+  left join users u on u.id = c.created_by
+ where c.provider = 'qbo' and c.provider_account_id = '<COMPANY_ID>'
+ order by c.enabled desc, c.updated_at desc;
+```
+
+**Q2 — stored sign-ins.** One new row per connect. The sign-in itself is
+encrypted and not shown.
+
+```sql
+select ac.connection_id, ac.seq, ac.created_at, ac.cipher,
+       ac.access_expires_at, ac.refresh_expires_at, u.email as stored_by
+  from accounting_credentials ac
+  join accounting_connections c on c.id = ac.connection_id
+  left join users u on u.id = ac.created_by
+ where c.provider_account_id = '<COMPANY_ID>'
+ order by ac.seq desc limit 5;
+```
+
+**Q3 — the audit trail.** `revoke_result` should read `confirmed`.
+
+```sql
+select a.id, a.observed_at, a.action, u.email as actor,
+       a.payload->>'via' as via, a.payload->>'environment' as environment,
+       a.payload->>'result' as revoke_result, a.payload->>'error_class' as revoke_error
+  from audit_log a
+  left join users u on u.id = a.actor_id
+ where a.subject_table = 'accounting_connections'
+   and a.payload->>'provider_account_id' = '<COMPANY_ID>'
+ order by a.id desc limit 10;
+```
+
+**Q4 — sync runs.** The newest first. The outcome should be `completed` and
+`error_class` should be empty.
+
+```sql
+select r.started_at, r.outcome, r.error_class, r.window_from, r.window_to,
+       r.invoices_examined, r.opened_count, r.skipped_count, r.declined_count, r.anomaly_count
+  from ledger_sync_runs r
+  join accounting_connections c on c.id = r.connection_id
+ where c.provider_account_id = '<COMPANY_ID>'
+ order by r.started_at desc, r.recorded_at desc limit 5;
+```
+
+### Steps
+
+**1.1 Open the settings page.**
+
+- **Do:** sign in as the owner. In the left sidebar, choose **QuickBooks**.
+- **You should see:**
+  - the heading "Connected";
+  - **Company** followed by a number (write it down as `<COMPANY_ID>`);
+  - **Reads** "sandbox QuickBooks companies";
+  - **Syncs as** your email;
+  - a **Last sync** line;
+  - a **Disconnect** button.
+- **Proof:** Q1 shows `enabled = true`.
+- **Optional:** the approver, in another window, sees the same page with no
+  buttons and the line "Only an owner of this workspace can connect or
+  disconnect QuickBooks."
+
+**1.2 Disconnect.**
+
+- **Do:** press **Disconnect**.
+- **You should see:**
+  - the green notice "QuickBooks is disconnected, and Intuit confirmed our
+    access is revoked";
+  - the heading "Not connected";
+  - an **Earlier connections** table listing the company with today's date.
+- If the notice instead says "…but Intuit did not confirm the revoke…", the
+  connection is still off, but **that is a finding: stop and send it to me**.
+- **Proof:**
+  - Q1 shows `enabled = false`;
+  - Q3 shows two new rows: `accounting_connection.disconnected` (via
+    `web_consent`), then `accounting_connection.revoke` with `revoke_result`
+    `confirmed`.
+- **Log:** a confirmed revoke logs nothing. A failed one logs
+  `[recouple] QuickBooks disconnect: connection … is off; revoke failed`.
+
+**1.3 Connect.**
+
+- **Do:** press **Connect QuickBooks**. You are taken to Intuit. The address
+  starts `https://appcenter.intuit.com/connect/oauth2` and contains
+  `redirect_uri=https%3A%2F%2Fapp.mozart.financial%2Fsettings%2Fquickbooks%2Fcallback`.
+  Sign in with the Intuit developer account, choose **the same sandbox
+  company**, and approve.
+- **Finish within 10 minutes, in one tab, pressing Connect once.**
+- **You should see:** back on the settings page:
+  - the green notice "QuickBooks is connected, and a first sync is on its way
+    — short-paid invoices it finds will appear on the case list";
+  - the heading "Connected".
+- **If instead you see:**
+  - "…could not be matched to this session…" — you took too long, used a
+    second tab, or pressed twice. Press Connect once more.
+  - "QuickBooks connects from this address only…" — you were not on
+    `app.mozart.financial`.
+  - "…already connected in another workspace…" — send it to me.
+- **Proof:**
+  - Q1 shows `enabled = true` with **the same** `connection_id` as before;
+  - Q2 shows one new row;
+  - Q3 shows a new `accounting_connection.reconnected` row, with via
+    `web_consent` and environment `sandbox`.
+- **Log:** `[recouple] QuickBooks connect: reconnected company <COMPANY_ID> as
+  connection …`.
+
+**1.4 The first sync arrives.**
+
+- **Do:** wait about 3 minutes, then reload the settings page. The page does
+  not refresh by itself.
+- **You should see:** **Last sync** reads "<date and time> UTC: N invoices
+  read, N cases opened, N declined, N anomalies". **Expect 0 cases opened.**
+  The short-pays in this company were already found on 2026-09-23, so they
+  count as already open.
+- Then open **Coverage** (sidebar). Under **LEDGER SYNC → Recent runs**, the
+  top row says **Completed**, with its **ALREADY OPEN** count.
+- **Proof:**
+  - Q4's newest row has outcome `completed` and an empty `error_class`;
+  - in Inngest → Runs, "Sync one accounting ledger" shows as completed;
+  - in the Vercel logs, `[recouple] ledger sync: step sync-ledger completed,
+    connection …`.
+
+**1.5 Disconnect again, and confirm Intuit's revoke.**
+
+- **Do:** press **Disconnect**.
+- **You should see and prove:** the same as 1.2 — green "…Intuit confirmed
+  our access is revoked", Q1 `false`, Q3 `revoke_result = confirmed`.
+
+**1.6 Connect again.**
+
+- **Do and see:** repeat 1.3, then 1.4. Both notices should match, and a new
+  completed run should appear.
+- This proves that a fresh consent works after a revoke.
+
+**1.7 End state.** Leave it **connected**, so the daily 07:00 UTC sync keeps
+running. This must return one row with `enabled_connections = 1`:
+
+```sql
+select provider_account_id as company_id,
+       count(*) filter (where enabled) as enabled_connections, count(*) as all_connections
+  from accounting_connections where provider = 'qbo' group by provider_account_id;
+```
+
+### After this passes: Intuit production keys
+
+Until Intuit grants production keys, only sandbox companies can connect. The
+application is in the Intuit Developer portal, under your app's production
+settings. What it asks for:
+
+- a verified developer profile and email;
+- **an end-user licence agreement (terms) URL** and **a privacy policy URL**;
+- the host domain, launch URL, disconnect URL and connect/reconnect URL;
+- the production redirect URI;
+- at least one app category;
+- a declaration of regulated industries;
+- **where the app is hosted** (country and IP addresses);
+- an **app assessment questionnaire** covering legal, technical and security
+  questions.
+
+Values that already exist (`docs/qbo-credentials.md`):
+
+| Field | Value |
+| --- | --- |
+| Host domain | `app.mozart.financial` |
+| Launch URL | `https://app.mozart.financial/settings/quickbooks` |
+| Connect / reconnect URL | `https://app.mozart.financial/settings/quickbooks` |
+| Disconnect URL | `https://app.mozart.financial/settings/quickbooks` |
+| Redirect URI (production keys) | `https://app.mozart.financial/settings/quickbooks/callback` |
+| Hosting country | United States: the app on Vercel, the database on Supabase (AWS us-east-1) |
+
+**The hosting IP question needs me.** Vercel does not give fixed IP
+addresses. Ask me before you answer that one.
+
+**What is missing: the two pages.**
+
+- The app has **no privacy policy and no terms page**. This repository has
+  neither, and I cannot see whether `mozart.financial` has them.
+- Both must be **public** (readable without signing in) and at stable
+  addresses. They should sit on the same domain as the app, for example
+  `https://mozart.financial/privacy` and `https://mozart.financial/terms`.
+  Link both from the site's footer and from the sign-in page.
+- Have a lawyer write the final text. What follows are **the facts the pages
+  have to state**, taken from how the product actually works.
+
+**The privacy policy must say:**
+
+1. **Who you are** and how to contact you about privacy.
+2. **What you collect:**
+   - the name and work email of invited users;
+   - documents customers upload (deduction notices, remittances, invoices,
+     proofs of delivery) and the fields read from them;
+   - **from QuickBooks, read only:**
+     - the company id;
+     - invoices: number, customer name and id, dates, totals, balance and
+       currency;
+     - the payments and credit memos applied to those invoices: amounts,
+       dates, reference numbers and memos.
+3. **What you never do with QuickBooks:** Mozart never writes to QuickBooks.
+   It does not read payroll, bank feeds or other data it doesn't use.
+   - Intuit's permission (the "accounting" scope) would allow writing. Say
+     plainly that you only read.
+4. **Why you use the data:**
+   - to find short-paid invoices and deductions;
+   - to open cases for the customer's team to review;
+   - to prepare dispute paperwork, which a person approves before anything is
+     sent;
+   - to measure what was recovered.
+5. **How it is protected:**
+   - QuickBooks sign-in tokens are encrypted with keys held in AWS's key
+     service;
+   - each customer's data is kept apart by the database itself;
+   - only invited people can sign in;
+   - nothing is sent outside without a person's approval.
+6. **Who else processes it (sub-processors):**
+   - Intuit (QuickBooks);
+   - Supabase (database and sign-in email);
+   - Vercel (hosting);
+   - Amazon Web Services (encryption keys);
+   - Inngest (background jobs; it receives record ids, not documents);
+   - Anthropic (an AI model reads *uploaded documents* to pull out their
+     fields; it never receives QuickBooks data);
+   - Reducto (reads the text off scanned pages);
+   - Fly.io (the virus scanner uploads pass through);
+   - later, Postmark, when email-in exists.
+7. **AI use:** say that uploaded documents are read by an AI model, what the
+   model provider's contract says about using that data, and that a person
+   reviews before anything is filed.
+8. **Retention and deletion.** Be honest: the system keeps a permanent audit
+   trail on purpose, because a dispute's evidence has to survive audits about
+   two years later. Disconnecting QuickBooks stops all reading, but what was
+   already imported stays.
+   - **This needs a decision from you:** how long records are kept after a
+     customer leaves, and what "delete my data" means. Today the database
+     refuses deletions by design, so an end-of-contract deletion would be a
+     new engineering decision (an ADR).
+9. **Customer rights and requests:** access, export, correction and deletion,
+   and how to ask for them.
+10. **Cookies:** only the sign-in session cookie and a 10-minute cookie used
+    while connecting QuickBooks. No advertising trackers (check the marketing
+    site too).
+11. **Where the data is stored** (the United States), how you will tell
+    customers about a security incident, and the policy's effective date and
+    how changes are announced.
+
+**The terms (end-user licence agreement) must say:**
+
+1. **Who may use it:** people invited to a customer's workspace. The customer
+   must have the authority to connect its QuickBooks company.
+2. **What the service does and does not do:**
+   - it finds and helps dispute deductions;
+   - its QuickBooks access is read-only;
+   - **nothing is filed or sent without a person's approval**;
+   - recovery is not guaranteed.
+3. **Data:** the customer owns its data, and grants you the right to process
+   it only to provide the service. Confidentiality.
+4. **Fees:** the contingency fee on recovered amounts, what counts as
+   "recovered", and how it is invoiced. It must match the customer contract.
+5. **Third parties:** QuickBooks is Intuit's product, and Intuit is not
+   responsible for Mozart.
+6. **Disconnecting and ending the service:**
+   - how to disconnect: Settings → QuickBooks → Disconnect, or inside
+     QuickBooks;
+   - what happens to data afterwards (see privacy item 8).
+7. **The usual legal terms:** acceptable use, warranty disclaimer, limitation
+   of liability, governing law, how changes are announced, and contact
+   details.
+
+---
+
+## 2. Invite-only sign-in (ADR 0045), then switching off sign-ups
+
+**What it proves:**
+
+- members sign in through the new form;
+- a stranger gets the same message but no email;
+- a person invited from the dashboard can sign in.
+
+After that, you can safely turn off open sign-ups.
+
+**R1 — who is invited where.** The last column becomes `true` once that
+person has reached the app.
+
+```sql
+select o.name as workspace, u.email, m.role, u.auth_user_id is not null as has_reached_the_app
+  from memberships m
+  join organizations o on o.id = m.org_id
+  join users u on u.id = m.user_id
+ order by o.name, u.email;
+```
+
+**R3 — every sign-in identity Supabase holds, and what the app does with
+it.**
+
+```sql
+select a.email, a.created_at, a.last_sign_in_at,
+       case when u.id is null then 'NO INVITATION: refused and signed out'
+            when u.auth_user_id is null then 'invited, not yet reached the app'
+            when u.auth_user_id = a.id then 'linked'
+            else 'LINKED TO ANOTHER IDENTITY: refused' end as status
+  from auth.users a
+  left join users u on lower(u.email) = lower(a.email)
+ order by a.created_at;
+```
+
+**R4 — must return no rows.** Two invitations for one address, differing
+only in capital letters, would block that person's sign-in.
+
+```sql
+select lower(email) as address, count(*), array_agg(email)
+  from users group by lower(email) having count(*) > 1;
+```
+
+### Steps
+
+**2.1 The owner signs in.**
+
+- **Do:**
+  1. In a new private window, open `https://app.mozart.financial/login`.
+  2. Type your address under **Work email** and press **Email me a sign-in
+     link**.
+  3. Open the email's link **in this same window**.
+- **You should see:**
+  - the heading "Welcome back.";
+  - after pressing the button, the green notice "If that address belongs to
+    a workspace, a sign-in link is on its way. Nothing within a few minutes?
+    Sign-in emails are rate-limited: wait and try again, or ask whoever
+    invited you.";
+  - after the link, the case list.
+- **Proof:** R1 shows `true` for you. R3 shows `linked` with a fresh
+  `last_sign_in_at`.
+
+**2.2 The approver signs in** in their own private window or browser. Same
+steps, same result.
+
+**2.3 A stranger gets the same answer and no email.**
+
+- **Do:**
+  1. Pick an address you control that has never been invited, for example
+     `you+stranger1@gmail.com`.
+  2. Check it is unknown: this query must return `0`:
+     ```sql
+     select count(*) from auth.users where lower(email) = lower('you+stranger1@gmail.com');
+     ```
+  3. Request a link for it.
+- **You should see:** exactly the same green notice as in 2.1, and **no
+  email**. Wait five minutes and check spam.
+- **Proof:**
+  - Vercel logs, search `[sign-in link]`:
+    `… — no link sent: the provider has no account it will send to at that
+    address (AuthApiError otp_disabled, HTTP 422). Answered as sent (ADR
+    0045).`
+  - The count query above is still `0`.
+  - Supabase → Logs → Auth shows a `422` for `otp_disabled` ("Signups not
+    allowed for otp").
+
+**2.4 Invite someone from the dashboard.** This person becomes the
+`read_only` member for checklist 3.
+
+- **Do (WRITE)**, in the SQL editor. Replace the address with one you
+  control, such as `you+readonly@gmail.com`, and the slug with your
+  workspace's slug from R1:
+  ```sql
+  -- WRITE: the invitation row (refuses a second row that differs only in capitals)
+  insert into users (email, full_name)
+  select 'you+readonly@gmail.com', 'Read-only tester'
+   where not exists (select 1 from users where lower(email) = lower('you+readonly@gmail.com'));
+
+  -- WRITE: the membership, as read_only
+  insert into memberships (org_id, user_id, role)
+  select o.id, u.id, 'read_only'
+    from organizations o, users u
+   where o.slug = '<YOUR_WORKSPACE_SLUG>' and lower(u.email) = lower('you+readonly@gmail.com')
+  on conflict (org_id, user_id) do nothing;
+  ```
+- **Then, in the Supabase dashboard:** Authentication → Users → **Add user**
+  → **Send invitation**, with the same address.
+- **Do:**
+  1. Open the invitation email's link once, in a new private window. It lands
+     on the plain sign-in page, **not signed in**. That is expected.
+  2. In that window, sign in with the form, as in 2.1.
+- **You should see:** the case list, with "Read Only" as the role in the
+  sidebar.
+- **Proof:** R1 shows the new person with `true`. R3 shows `linked`.
+
+**2.5 Switch off open sign-ups.** Do this only after 2.1–2.4 all pass.
+
+- **Do:** Supabase dashboard → Authentication → **Sign In / Providers** →
+  turn off **Allow new users to sign up** → Save.
+
+**2.6 Check again.**
+
+- **Do:** repeat 2.3 with a new address (`you+stranger2@gmail.com`), then
+  sign in once more as the owner.
+- **You should see:** the same green notice and no email for the stranger;
+  the owner still gets in.
+- **Proof:** the log line says `otp_disabled` or `signup_disabled`. Either
+  is right.
+
+---
+
+## 3. A `read_only` member cannot upload or decline
+
+**What it proves:** the app does not offer a reader the upload or decline
+actions, and it refuses them if a reader's browser sends one anyway. The
+database refuses them too; the automated tests prove that part.
+
+**Who:** the read-only person from 2.4, in your workspace for 3.1–3.3. The
+forced refusal (3.4) is done in the test workspace from checklist 4.
+
+**3.1 The case list.**
+
+- **Do:** sign in as the read-only person.
+- **You should see:**
+  - **no** "＋ Add a document" button at the top;
+  - **no** "Add a document" / **Read it** form at the bottom;
+  - the "What to work on next" queue and the "Deduction ledger", both
+    visible;
+  - "Read Only" as the role in the sidebar.
+
+**3.2 A case page.**
+
+- **Do:** open any case from the list, for example one of the two ledger
+  cases.
+- **You should see:** no "Add evidence" card, no "Dispute this deduction"
+  card, and no "Not worth fighting?" (decline) card.
+
+**3.3 Coverage and Settings.**
+
+- **Do:** open both from the sidebar.
+- **You should see:** both pages open. Settings → QuickBooks has no buttons
+  and says "Only an owner of this workspace can connect or disconnect
+  QuickBooks."
+
+**3.4 The refusal itself** (the "stale tab" test). Do this in the **test
+workspace**, after checklist 4, as tester B.
+
+The app hides the forms from a reader, so the only way to see the refusal is
+to open a form while you can still write, then lose the right to write before
+you submit it.
+
+1. As tester B (an analyst), open the case list. The **Read it** form is
+   there. Choose `hl-case-01-notice.pdf` in it, but **don't press Read it
+   yet**.
+2. **WRITE:** make tester B read-only:
+   ```sql
+   update memberships m set role = 'read_only'
+     from organizations o, users u
+    where m.org_id = o.id and m.user_id = u.id
+      and o.slug = 'test-tenant-b' and lower(u.email) = lower('<TESTER_B_EMAIL>');
+   ```
+3. Back in the same tab, press **Read it**.
+   - **You should see:** the red notice "your role can review documents but
+     not add them".
+   - **Proof:** the document count for workspace B has not changed:
+     ```sql
+     select count(*) from documents d join organizations o on o.id = d.org_id
+      where o.slug = 'test-tenant-b';
+     ```
+4. For the decline:
+   - Before step 2, open a case page in workspace B that shows the **Record
+     this decline** button.
+   - After step 2, fill it in and press it.
+   - **You should see:** the red notice "your role can review cases but not
+     decide them".
+   - **Proof:** this returns `0`:
+     ```sql
+     select count(*) from declined_candidates dc join organizations o on o.id = dc.org_id
+      where o.slug = 'test-tenant-b';
+     ```
+5. **WRITE:** set tester B back to `analyst` (same query, with `'analyst'`),
+   so checklists 7 and 8 can use them.
+
+---
+
+## 4. Two workspaces side by side, each seeing only its own
+
+**What it proves:** a second customer, through the app rather than through
+SQL, sees only its own cases and cannot open yours. This checklist also
+creates the **test workspace** used by 3, 7 and 8.
+
+**4.1 Create "Test Tenant B" and its member.** (**WRITE** — all four are
+needed. The settings row is required: without it, nothing in that workspace
+can be read.)
+
+```sql
+-- WRITE: the workspace
+insert into organizations (slug, name) values ('test-tenant-b', 'Test Tenant B')
+on conflict (slug) do nothing;
+
+-- WRITE: its settings (every value takes the default)
+insert into org_settings (org_id)
+select id from organizations where slug = 'test-tenant-b'
+on conflict (org_id) do nothing;
+
+-- WRITE: its tester (use an address you control, e.g. you+tenantb@gmail.com)
+insert into users (email, full_name)
+select '<TESTER_B_EMAIL>', 'Tester B'
+ where not exists (select 1 from users where lower(email) = lower('<TESTER_B_EMAIL>'));
+
+-- WRITE: the tester's membership, as analyst (can upload, decide, merge — not approve)
+insert into memberships (org_id, user_id, role)
+select o.id, u.id, 'analyst'
+  from organizations o, users u
+ where o.slug = 'test-tenant-b' and lower(u.email) = lower('<TESTER_B_EMAIL>')
+on conflict (org_id, user_id) do nothing;
+```
+
+Then, in the Supabase dashboard: Authentication → Users → **Add user** →
+**Send invitation** to `<TESTER_B_EMAIL>`. Follow it once, as in 2.4.
+
+**4.2 Tester B signs in** in a separate private window or browser profile.
+
+- **You should see:**
+  - "Test Tenant B" under **YOUR WORKSPACE** in the sidebar;
+  - a case list reading "No cases yet";
+  - a queue reading "No case is open yet. A case appears here when it opens,
+    most urgent first.";
+  - Coverage reading "Nothing found yet…".
+- None of your cases appear anywhere.
+
+**4.3 Give B a case of its own.**
+
+- **Do:** as tester B, use **Add a document** → choose `hl-case-01-notice.pdf`
+  → **Read it**.
+- **You should see:** the green notice "that document is being read…".
+  After 1–2 minutes, reload: a case **DN-2609-001**, $600.00, "Harbor Lane
+  Markets" marked *not matched*, in the queue under "No deadline printed".
+
+**4.4 Cross-check both directions.**
+
+- **Do:**
+  1. Copy B's case address (`/cases/…`) from B's window into **your** window.
+  2. Copy one of your case addresses into B's window.
+- **You should see:** both show "404 — This page could not be found."
+  - This is on purpose: the app doesn't even admit the case exists.
+  - Your case list does not show DN-2609-001, and B's does not show your
+    cases.
+- **Proof** — cases per workspace (B should have 1):
+  ```sql
+  select o.name, count(d.id) as cases
+    from organizations o left join deductions d on d.org_id = o.id
+   group by o.name order by o.name;
+  ```
+
+---
+
+## 5. Email-in — **blocked: not built yet**
+
+**What I found while writing this:** a real email cannot open a case today,
+because **there is no address for Postmark to deliver to.**
+
+- The code that understands an inbound email exists and is tested.
+- But the web app has no inbound-email route, so nothing in production calls
+  that code.
+- The Postmark settings named in `.env.example` are read by nothing.
+
+`docs/adr/0024` says so in passing ("`ingestInboundEmail` has never had a
+production caller"). The status docs listed email-in as "built", which
+overstated it.
+
+**What building it needs** (an engineering task, and an ADR first):
+
+- **An inbound web address**, and a way for Postmark to prove to us that it
+  sent the email.
+- **Working out which workspace an email belongs to**, from the address it
+  was sent *to*. Today's lookup can only see the workspace the database
+  already knows it is acting for, so it cannot answer the question for an
+  email that arrives from outside. Fixing that needs a small database change,
+  and so an ADR.
+- **A member to act as** when an email writes records. Every write is made
+  as a person, and an email has none.
+- **Confirming, on a real message, that Postmark passes the sender checks**
+  (DKIM/DMARC) the code relies on to open a case. If it does not pass them,
+  every email would be filed but open nothing.
+- **Your Postmark setup:** an inbound server, the webhook address, and
+  ideally your own inbound domain.
+
+I have not built this, because it was not on the list and it needs your OK
+and an ADR. It is the first item in the PR's "found while writing" list.
+
+Once it is built, the click-through will be:
+
+1. From Gmail (which passes the sender checks), send an email with
+   `hl-case-03-notice.pdf` attached to your workspace's inbound address.
+2. Within a couple of minutes a case **DN-2609-003**, $2,000.00, "Summit
+   Basket Retail" appears.
+3. The proof is an `uploads` row with source `email_in` and no person in
+   `created_by`.
+
+---
+
+## 6. Decide one ledger case from the review queue
+
+**What it proves:** a deduction found in QuickBooks (not uploaded by anyone)
+can be picked from the queue and decided by a person, which ADR 0043 made
+possible.
+
+**Who:** the owner or an analyst, in **your** workspace. The two ledger cases
+live there.
+
+> **Deciding is permanent.** There is no undecide. Pick the case you would
+> really dispute. After deciding, an **Assemble the packet** card appears:
+> don't press it unless you mean to continue, because packets are permanent
+> too.
+
+**Q6a — the two ledger cases.** Expect two rows: $450.00 and $239.00, state
+`classified`, `arrived_via = erp_sync`, no claim id.
+
+```sql
+select d.id, d.state, d.deduction_amount_cents, d.retailer_name_as_printed, d.deduction_date,
+       d.claim_id, doc.filename, u.source as arrived_via
+  from deductions d
+  join deduction_documents dd on dd.deduction_id = d.id and dd.role = 'notice'
+  join documents doc on doc.id = dd.document_id
+  join uploads u on u.id = doc.upload_id
+ where u.source = 'erp_sync'
+ order by d.created_at;
+```
+
+**6.1 Find it in the queue.**
+
+- **Do:** open `https://app.mozart.financial/`.
+- **You should see:**
+  - under "What to work on next" (tag "REVIEW QUEUE"), the bucket **"No
+    deadline printed"** with its hint "Oldest first. Nothing we hold printed
+    a dispute window, so age stands in for one. The payer's real window may
+    be shorter.";
+  - both ledger cases in it, each showing the customer name marked *not
+    matched*, "invoice …", and **"Decide: dispute or decline"** as the next
+    step.
+
+**6.2 Open one.**
+
+- **Do:** click its id (the first 8 characters, since a ledger case has no
+  claim number).
+- **You should see:**
+  - "… · $450.00 deducted" (or $239.00);
+  - the state "classified";
+  - an embedded "Original deduction document" (the QuickBooks extract, shown
+    as data);
+  - a **Dispute this deduction** card and a **Not worth fighting?** card.
+
+**6.3 Decide to dispute.**
+
+- **Do:**
+  1. Under **Why this deduction is invalid**, choose a reason. For a
+     short-pay with no paperwork, "A deduction with no basis given" fits.
+  2. Write one line under **In one line, for whoever approves it**.
+  3. Press **Decide to dispute**.
+- **You should see:**
+  - the green notice "recorded: this case is yours to assemble a packet for.
+    Nothing has been sent.";
+  - "Decided to dispute" on the case's timeline, with your name;
+  - the queue now showing "Assemble the packet" for this case.
+- **Proof** — put the case id in both places:
+  ```sql
+  select c.provider, c.schema_id, c.result, u.email as prepared_by, c.created_at
+    from decisions c left join users u on u.id = c.prepared_by
+   where c.deduction_id = '<CASE_ID>';            -- one row: provider 'human', prepared_by = you
+  select state from deductions where id = '<CASE_ID>';   -- 'analyst_review'
+  select event_type, observed_at from deduction_events
+   where deduction_id = '<CASE_ID>' order by id;  -- case.discovered, case.classified, decision.recorded
+  ```
+
+**Optional: declining the other one.**
+
+- Choose a reason under **Not worth fighting?** and press **Record this
+  decline**.
+- **You should see:** the notice "recorded: this case is logged as declined,
+  not discarded".
+- Two things to know:
+  - A decline is permanent.
+  - **Once that notice is gone, the case page shows no trace of the decline**
+    (a gap noted below). The proof is that the case leaves the queue, plus
+    this query:
+    ```sql
+    select reason, estimated_recoverable_cents, discovered_from, provenance_kind, decided_by, decided_at
+      from declined_candidates where deduction_id = '<OTHER_CASE_ID>';  -- discovered_from 'erp_sync', provenance_kind 'observed'
+    ```
+
+---
+
+## 7. A real duplicate pair: confirm, merge, undo
+
+**What it proves:** when the same deduction arrives twice without a shared
+claim number, the app spots it, and a person can say "same deduction". The
+two are then merged (ADR 0042), and the merge can be undone.
+
+**Where:** the **test workspace**, as tester B. A merge and its undo are
+permanent records.
+
+**Two orders matter:**
+
+1. **Upload the remittance first, then the notice.** In the other order the
+   app still opens both cases, but it doesn't list them as a pair (a gap
+   noted below).
+2. **Upload the notice from the case list's "Add a document" form**, not from
+   a case page's "Add evidence". "Add evidence" files it on that case instead
+   of opening one.
+
+**Pre-check** (must return no rows):
+
+```sql
+select d.id, o.slug, d.filename from documents d join organizations o on o.id = d.org_id
+ where encode(d.sha256, 'hex') in (
+   '72682868cf9a286a0996022c92fba543e0101a38ffd05dce7b3e60fb5417665d',   -- hl-case-02-remittance.pdf
+   '19e19d67449617fab2cc7e6107311def04a4f0db9df5b080a5e59221b8f65a19');  -- hl-case-02-notice.pdf
+```
+
+**7.1 The remittance.**
+
+- **Do:** **Add a document** → `hl-case-02-remittance.pdf` → **Read it**.
+  Reload after 1–2 minutes.
+- **You should see:** a case **SIM-PAY-2609-002:INV-260802**, $900.00, "Cedar
+  Point Grocers".
+- **If it isn't there:** look under **Read, not on a case**.
+  - This file sits exactly at the confidence level where the app asks a
+    person, so it may be listed as "Held: read as a remittance advice at 95%
+    confidence…".
+  - If it is, press **Open a case from it** before going on.
+
+**7.2 The notice.**
+
+- **Do:** **Add a document** (on the case list) → `hl-case-02-notice.pdf` →
+  **Read it**, then reload.
+- **You should see:**
+  - a second case, **DN-2609-002**, also $900.00;
+  - a **Possible duplicates** card on the case list with the two side by
+    side, and "the same invoice, the same amount and a deduction date within
+    a week".
+- **Proof:**
+  ```sql
+  select d.claim_id, e.payload, e.observed_at from deduction_events e join deductions d on d.id = e.deduction_id
+   where e.event_type = 'case.possible_duplicate' and d.org_id = (select id from organizations where slug = 'test-tenant-b');
+  ```
+
+**7.3 Say they are the same.**
+
+- **Do:** open DN-2609-002. In the card "This may already be a case", press
+  **Same deduction — merge them**.
+- **You should see:**
+  - the green notice "recorded: these two are one deduction, and they were
+    merged. The copy is marked as merged into the case that carries on…";
+  - on DN-2609-002, "Merged into another case — This is the same deduction
+    as SIM-PAY-2609-002:INV-260802 ($900.00), which carries on.";
+  - on the other case, "Merged into this case";
+  - DN-2609-002 gone from the queue, its state now "merged".
+- The older case carries on, which is why the remittance case survives.
+
+**7.4 Undo it.**
+
+- **Do:** on DN-2609-002, press **Undo the merge**.
+- **You should see:**
+  - the notice "undone: this case is back exactly where it was, and the two
+    are an open question again — answer it below";
+  - the state back to "classified";
+  - the "This may already be a case" card back.
+
+**Proof for 7.3 and 7.4.** Replace `<A>` and `<B>` with the two case ids
+from the address bar.
+
+```sql
+select id, claim_id, state from deductions where id in ('<A>', '<B>');
+select action, state_before, amount_cents, created_at from deduction_merges
+ where '<A>'::uuid in (merged_deduction_id, surviving_deduction_id) order by created_at;   -- 'merge' then 'unmerge'
+select d.claim_id, e.event_type, e.observed_at from deduction_events e join deductions d on d.id = e.deduction_id
+ where e.deduction_id in ('<A>', '<B>')
+   and e.event_type in ('case.duplicate_confirmed','case.merged_into','case.absorbed',
+                        'case.merge_undone','case.duplicate_verdict_withdrawn')
+ order by e.id;
+```
+
+**7.5 Optional: the "merged once" rule.**
+
+- **Do:** press **Same deduction — merge them** again.
+- **You should see:** the answer is recorded, but the page says "They were
+  not merged: these two were merged once and the merge was undone. A pair is
+  merged at most once, so both stay open."
+- As a result, Coverage in the test workspace will say that $900.00 counts
+  twice. In the test workspace that is fine, and it shows the warning works.
+
+---
+
+## 8. A 42-row remittance, read by the background job
+
+**What it proves:** a long document is read in the background rather than
+while you wait (ADR 0021), and its short-paid lines become cases (ADR 0028).
+
+The recorded read of this file takes about 60 seconds of model time. The
+question is whether the background job finishes inside the time the hosting
+plan allows.
+
+**Where:** the **test workspace**, as tester B.
+
+**8.1 Upload it.**
+
+- **Do:** **Add a document** → `crosswind-dense-remittance-scan.jpg` →
+  **Read it**. Note the time.
+- **You should see:** the green notice starting "that document is being read.
+  A deduction notice, or a remittance with a short payment, opens its case
+  here within a couple of minutes…".
+
+**8.2 Watch the job.**
+
+- **Inngest:** Runs → a run of **Read an uploaded document** that ends
+  **Completed** after roughly 1½ minutes. There should be one attempt; a
+  retry means it was cut off.
+- **Vercel logs:** search `read job:`. Four lines, in order:
+  - `run entered`
+  - `step read-document entered`
+  - `step read-document finished the read, document … doc type remittance_advice, case none, halted no, held no`
+  - `run returned`
+- "case none" is normal for a remittance, because it opens one case per line.
+
+**8.3 The cases.**
+
+- **Do:** reload the case list after about 2 minutes.
+- **You should see:**
+  - **12 new cases** named `ACH-CW-880412:INV-2710…`, adding up to
+    **$12,478.00**;
+  - all 12 under "No deadline printed" / "Decide: dispute or decline",
+    largest first: INV-271033 **$2,185.00**, INV-271011 $1,976.00, … the
+    smallest INV-271008 $128.00.
+- **Then open one.** You should see:
+  - "This case's line only. The advice's 41 other lines are other invoices —
+    other cases, or short-pays under the floor.";
+  - a line check such as "INV-271002: $13,100.00 gross less $12,400.00 paid
+    is $700.00 withheld, and the line says $700.00 was deducted".
+- **If after 5 minutes nothing has appeared:**
+  - look under **Documents waiting to be read** (it stalled) or **Read, not
+    on a case** (it was held);
+  - send me the time and the Inngest run.
+
+**Proof.** Put the document id in `<DOC>`; the first query finds it.
+
+```sql
+select d.id, d.filename, u.source, d.created_at from documents d join uploads u on u.id = d.upload_id
+ where encode(d.sha256, 'hex') = '5b13a132be882fbbacdb249cd644ba5f14e6f29dc38677e2aa2c7d8898118b3f';
+
+-- three calls (OCR, classify, extract), none charged to a case; about $0.12–0.15 in all
+select purpose, provider, model_version, round(cost_micros / 1e6, 4) as usd, latency_ms, outcome, deduction_id
+  from model_calls where document_id = '<DOC>' order by id;
+
+-- 12 cases, 1,247,800 cents in total
+select count(*), sum(d.deduction_amount_cents)
+  from deductions d join deduction_documents dd on dd.deduction_id = d.id and dd.role = 'notice'
+ where dd.document_id = '<DOC>' and d.discovered_via = 'remittance_line';
+
+-- what happened to all 42 lines
+select payload->'counts' as counts from deduction_events
+ where event_type = 'remittance.lines_processed' and payload->>'document_id' = '<DOC>' limit 1;
+```
+
+In the last query, expect 12 lines `opened`. The 30 lines that were paid in
+full are likely to show as `unreadable` rather than `not_short_paid`. That
+is a known quirk of how this page prints a dash for "no deduction". It does
+not change the money; it is in the list below.
+
+---
+
+## Found while writing this
+
+None of these is fixed in this PR. Each needs a decision or its own change;
+2 and 3 were fixed by another change the same day.
+
+1. **Email-in is not wired** (§5). This is the largest one.
+2. ~~**A case page opens as "404" once there are more than 100 newer
+   cases.**~~ **Fixed** by
+   [parth7452/mozart1#71](https://github.com/parth7452/mozart1/pull/71): a
+   case page now reads its own case, and the case list's figures count every
+   case.
+3. ~~**The sign-in page shows any text put in its link**
+   (`/login?denied=…`).~~ **Fixed** by
+   [parth7452/mozart1#68](https://github.com/parth7452/mozart1/pull/68): the
+   page now shows only its own messages.
+4. **A duplicate raised by a remittance line is never listed.** If the notice
+   arrives *before* the remittance, both cases open, but they never appear
+   under Possible duplicates (§7).
+5. **A decline leaves no trace on the case page** once its notice is gone
+   (§6).
+6. **A line with a printed dash is counted as "unreadable"** rather than
+   "paid in full" (§8). There is no money impact.
+7. **Coverage shows a misleading reason** when a sync is refused because the
+   connection was disconnected mid-run. It blames the member rather than the
+   disconnect.
+8. **No sign-out button and no workspace switcher.** Both are workable for
+   now (see *Before you start*), but a customer will notice.
+9. **No privacy policy or terms page** (§1). This blocks Intuit production
+   keys.

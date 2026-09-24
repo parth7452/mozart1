@@ -190,7 +190,9 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
-with every invariant verified there, and Postmark email-in.
+with every invariant verified there, and the Postmark email-in parser and
+pipeline step — which nothing in the app calls yet: there is no inbound
+webhook route, so no email can reach it (`docs/VERIFY-CHECKLIST.md` §5).
 
 Eight recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
