@@ -4,10 +4,12 @@ import type { CaseMerges, CaseWorkflow, PossibleDuplicatePair } from '@recouple/
 import {
   DECLINE_REASONS,
   MISSING_EVIDENCE_TYPES,
+  type CaseDocument,
   type CaseSummary,
   type MissingEvidence,
   type StoredField,
 } from '@recouple/store-postgres';
+import { displaysInline } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { CaseActions } from './case-actions';
@@ -148,35 +150,51 @@ export function reconciledLine(
  * What the case's reads cost, said so that the figure and the documents it
  * covers agree.
  *
- * `costMicros` is spend recorded against this case. A document read against no
- * case and then put on this one — a remittance, whose one read serves every
- * case it opens (ADR 0028); a held notice a person opened; evidence attached
- * from "Read, not on a case" — is on the page and not in that figure, and the
- * sentence says so rather than implying the figure covers it.
+ * `costMicros` is spend recorded against this case. A document read before it
+ * was on this case — a remittance, whose one read serves every case it opens
+ * (ADR 0028); a held notice a person opened (ADR 0044); evidence attached from
+ * "Read, not on a case" — is on the page and not in that figure, and the
+ * sentence says so rather than implying the figure covers it. A document no
+ * model reads — a ledger extract (ADR 0029) — cost nothing, and needs no
+ * caveat.
  */
 export function spendSentence(input: {
   readonly costMicros: number;
-  readonly documents: readonly { readonly readForCase: boolean }[];
+  readonly documents: readonly { readonly read: boolean; readonly readForCase: boolean }[];
   readonly fieldCount: number;
 }): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const total = input.documents.length;
-  const unpaid = input.documents.filter((d) => !d.readForCase).length;
+  const earlier = input.documents.filter((d) => d.read && !d.readForCase).length;
   const read =
-    `Read so far: ${plural(input.fieldCount, 'field')} from ${plural(total, 'document')}, ` +
-    `and ${money(Math.round(input.costMicros / 10_000))} of model spend on ` +
-    `${unpaid === 0 ? (total === 1 ? 'it' : 'them') : `the ${total - unpaid} read for this case`}.`;
-  if (unpaid === 0) return read;
+    `Read so far: ${plural(input.fieldCount, 'field')} from ${plural(total, 'document')} on ` +
+    `this case, and ${money(Math.round(input.costMicros / 10_000))} of model spend recorded ` +
+    'against it.';
+  if (earlier === 0) return read;
+  const which =
+    earlier === total
+      ? total === 1
+        ? 'It was'
+        : `All ${total} were`
+      : earlier === 1
+        ? 'One of them was'
+        : `${earlier} of them were`;
   return (
-    `${read} ${unpaid === 1 ? 'One was' : `${unpaid} were`} read for no one case — a ` +
-    'remittance’s one read serves every case it opens — so what ' +
-    `${unpaid === 1 ? 'it' : 'they'} cost is not in that figure.`
+    `${read} ${which} read before ${earlier === 1 ? 'it was' : 'they were'} on this case, so ` +
+    `${earlier === 1 ? 'that read is' : 'those reads are'} not in the figure.`
   );
 }
 
 export interface CaseReviewProps {
   readonly viewer: Viewer;
   readonly summary: CaseSummary;
+  /**
+   * The documents on the case, from `caseDocuments`: which one it was opened
+   * from, what each is called, and whose spend each read is. The list, rather
+   * than whatever documents the fields happen to name — a ledger extract is a
+   * case's notice and has no fields (ADR 0029).
+   */
+  readonly documents: readonly CaseDocument[];
   readonly fields: readonly StoredField[];
   readonly reconciliation: Reconciliation | undefined;
   readonly costMicros: number;
@@ -265,6 +283,7 @@ const MISSING_EVIDENCE_LABELS: Readonly<Record<MissingEvidence, string>> = {
 export function CaseReview({
   viewer,
   summary,
+  documents,
   fields,
   reconciliation,
   costMicros,
@@ -284,26 +303,40 @@ export function CaseReview({
     bucket.push(field);
     byDocument.set(field.documentId, bucket);
   }
-  // The document the case was opened from first — the link says which, and a
-  // remittance's doc type is no notice's — then the evidence by kind.
-  const isNotice = (entry: [string, StoredField[]]) => entry[1][0]?.role === 'notice';
-  const documents = [...byDocument.entries()].sort(
-    (a, b) =>
-      Number(!isNotice(a)) - Number(!isNotice(b)) ||
-      orderOf(a[1][0]?.docType ?? null) - orderOf(b[1][0]?.docType ?? null),
-  );
-  // Only the notice is the original. Evidence embedded under that title is how
+  // One card per document that has fields: the one the case was opened from
+  // first — the link says which, and a remittance's doc type is no notice's —
+  // then the evidence by kind. A field whose document the list does not name
+  // (attached between the two reads) still gets its card.
+  const listed = new Map(documents.map((d) => [d.documentId, d] as const));
+  const cards = [...byDocument.entries()]
+    .map(([documentId, own]) => ({
+      documentId,
+      notice: listed.get(documentId)?.role === 'notice',
+      fields: own,
+    }))
+    .sort(
+      (a, b) =>
+        Number(!a.notice) - Number(!b.notice) ||
+        orderOf(a.fields[0]?.docType ?? null) - orderOf(b.fields[0]?.docType ?? null),
+    );
+  // Only the notice is the original, and it is the original whether or not a
+  // model read it: a ledger extract has no fields and is still the document the
+  // deduction arrived as (ADR 0029). Evidence embedded under that title is how
   // a carrier invoice came to be shown as a remittance case's deduction.
-  const primary = documents.find(isNotice);
+  const primary = documents.find((d) => d.role === 'notice');
   const line = reconciledLine(reconciliation);
   const due = deadline(summary.disputeDeadline, today);
   // The debtor when one matched, otherwise the name the notice printed, marked
   // as unmatched — and only "Retailer unknown" when nothing was read at all.
   const who = retailer(summary, 'Retailer unknown');
   const findings: readonly Finding[] = reconciliation?.findings ?? [];
-  // The packet lists document ids; the fields already carry what each document
-  // was called. Nothing is looked up for this — it is the same read.
-  const filenames = new Map(fields.map((f) => [f.documentId, f.filename]));
+  // The packet lists document ids; the case's documents say what each is
+  // called, the ones with no fields included. A name nobody recorded is left
+  // out rather than rendered as an empty link.
+  const filenames = new Map<string, string>();
+  for (const named of [...fields, ...documents]) {
+    if (named.filename !== '') filenames.set(named.documentId, named.filename);
+  }
   const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
@@ -359,22 +392,33 @@ export function CaseReview({
               {primary === undefined ? (
                 <p className="empty">
                   {documents.length === 0
-                    ? 'No document has been read for this case yet.'
-                    : 'The document this case was opened from has no reading to show here.'}
+                    ? 'No document is on this case yet.'
+                    : 'This case has no record of the document it was opened from.'}
                 </p>
-              ) : (
+              ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
                   {/* The bytes come back through the same policies as the rest of
                       the page, sandboxed so a document cannot do anything but be
                       looked at. The type is the document's own: a notice that
-                      arrived in an email body is text, not a PDF. */}
+                      arrived in an email body is text, not a PDF, and a ledger
+                      extract is JSON. */}
                   <embed
                     title="Original deduction document"
-                    src={`/api/document/${primary[0]}`}
-                    type={primary[1][0]?.mimeType ?? 'application/pdf'}
+                    src={`/api/document/${primary.documentId}`}
+                    type={primary.mimeType}
                     height={820}
                   />
                 </div>
+              ) : (
+                // A type the route will not show in place downloads instead, and
+                // an embed of it would start that download on opening the case.
+                <p className="empty">
+                  The original document cannot be shown here:{' '}
+                  <a href={`/api/document/${primary.documentId}`}>
+                    {primary.filename === '' ? 'download it' : primary.filename}
+                  </a>
+                  .
+                </p>
               )}
             </div>
 
@@ -413,8 +457,8 @@ export function CaseReview({
           </div>
 
           <div>
-            {documents.map(([documentId, documentFields]) => {
-              const { shown, otherLines } = isNotice([documentId, documentFields])
+            {cards.map(({ documentId, notice, fields: documentFields }) => {
+              const { shown, otherLines } = notice
                 ? fieldsOfThisLine(documentFields, summary)
                 : { shown: documentFields, otherLines: 0 };
               return (
@@ -566,13 +610,7 @@ export function CaseReview({
               only way this case moves.
               <br />
               <br />
-              {spendSentence({
-                costMicros,
-                documents: documents.map(([, documentFields]) => ({
-                  readForCase: documentFields[0]?.readForCase ?? false,
-                })),
-                fieldCount: fields.length,
-              })}
+              {spendSentence({ costMicros, documents, fieldCount: fields.length })}
             </div>
           </div>
         </div>

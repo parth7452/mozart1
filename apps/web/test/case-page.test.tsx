@@ -93,8 +93,6 @@ const fields: readonly StoredField[] = flattenExtraction(expectedExtraction(noti
     sourceQuote: field.sourceQuote,
     sourceBbox: null,
     quoteVerified: true,
-    role: 'notice' as const,
-    readForCase: true,
   }),
 );
 
@@ -114,6 +112,19 @@ const workflow: CaseWorkflow = { deductionId: CASE_ID, state: 'classified' };
 const store = {
   async listCases() {
     return [summary];
+  },
+  async caseDocuments() {
+    return [
+      {
+        documentId: DOCUMENT_ID,
+        filename: notice.filename,
+        mimeType: 'application/pdf',
+        docType: 'deduction_notice',
+        role: 'notice',
+        read: true,
+        readForCase: true,
+      },
+    ];
   },
   async fieldsForCase() {
     return fields;
@@ -223,6 +234,17 @@ describe('the review page for a case a remittance line opened', () => {
     async listCases() {
       return [remittanceSummary];
     },
+    async caseDocuments() {
+      return onCase.map((d) => ({
+        documentId: d.id,
+        filename: d.filename,
+        mimeType: 'application/pdf',
+        docType: d.reading.docType,
+        role: d.role,
+        read: true,
+        readForCase: d.paid,
+      }));
+    },
     async fieldsForCase() {
       return onCase.flatMap((d) =>
         flattenExtraction(d.reading.document).map((f) => ({
@@ -237,8 +259,6 @@ describe('the review page for a case a remittance line opened', () => {
           sourceQuote: f.sourceQuote,
           sourceBbox: null,
           quoteVerified: true,
-          role: d.role,
-          readForCase: d.paid,
         })),
       );
     },
@@ -290,7 +310,7 @@ describe('the review page for a case a remittance line opened', () => {
         'says $600.00 was deducted',
     );
     expect(html).toContain('>matches<');
-    expect(html).toContain('from 2 documents');
-    expect(html).toContain('not in that figure');
+    expect(html).toContain('from 2 documents on this case');
+    expect(html).toContain('so that read is not in the figure');
   });
 });

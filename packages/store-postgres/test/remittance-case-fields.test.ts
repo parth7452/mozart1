@@ -142,12 +142,22 @@ describeDb('the fields of a case a remittance line opened', () => {
     expect(rows[0]?.n).toBe('0');
   });
 
-  it('shows the remittance, first, as the document the case was opened from', async () => {
+  it('lists the remittance, first, as the document the case was opened from', async () => {
+    const documents = await store.caseDocuments(deductionId);
+    expect(documents[0]).toMatchObject({
+      documentId: remittanceId,
+      filename: REMITTANCE.filename,
+      mimeType: 'application/pdf',
+      docType: 'remittance_advice',
+      role: 'notice',
+    });
+  });
+
+  it('shows the remittance’s fields, first, with the quote each was read from', async () => {
     const fields = await store.fieldsForCase(deductionId);
     expect(fields[0]?.documentId).toBe(remittanceId);
 
     const remittance = fields.filter((f) => f.documentId === remittanceId);
-    expect(remittance.every((f) => f.role === 'notice')).toBe(true);
     expect(remittance.every((f) => f.docType === 'remittance_advice')).toBe(true);
     expect(remittance.every((f) => f.filename === REMITTANCE.filename)).toBe(true);
 
@@ -163,17 +173,25 @@ describeDb('the fields of a case a remittance line opened', () => {
     }
   });
 
-  it('shows every document on the case, in the order it was put there', async () => {
+  it('lists every document on the case, in the order it was put there, and so do its fields', async () => {
+    const documents = await store.caseDocuments(deductionId);
+    expect(documents.map((d) => [d.documentId, d.role])).toEqual([
+      [remittanceId, 'notice'],
+      [invoiceId, 'evidence'],
+      [correspondenceId, 'evidence'],
+    ]);
+    // The two reads agree on which documents the case has: the page draws a
+    // card for the one and the fields of the other.
     const fields = await store.fieldsForCase(deductionId);
-    const order = [...new Set(fields.map((f) => f.documentId))];
-    expect(order).toEqual([remittanceId, invoiceId, correspondenceId]);
-    expect(fields.filter((f) => f.documentId !== remittanceId).every((f) => f.role === 'evidence'))
-      .toBe(true);
+    expect([...new Set(fields.map((f) => f.documentId))]).toEqual(
+      documents.map((d) => d.documentId),
+    );
   });
 
   it('says which reads were paid for this case, and still counts only those', async () => {
-    const fields = await store.fieldsForCase(deductionId);
-    const paid = new Map(fields.map((f) => [f.documentId, f.readForCase]));
+    const documents = await store.caseDocuments(deductionId);
+    expect(documents.every((d) => d.read)).toBe(true);
+    const paid = new Map(documents.map((d) => [d.documentId, d.readForCase]));
     // The remittance's one read serves every case it opens (ADR 0028); the
     // correspondence was read before it was on any case. The invoice was read
     // for this one.

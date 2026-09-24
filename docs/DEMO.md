@@ -247,7 +247,8 @@ same page.
   work on next** puts them under *No deadline printed*, oldest short-pay first —
   a ledger prints no dispute window, and the page says age is standing in for
   one. Each reads **Decide: dispute or decline**, and its case page has both
-  cards.
+  cards, beside the original document: the ledger extract the sync stored — the
+  invoice, what was paid against it and the memos, as the JSON it is.
 
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect

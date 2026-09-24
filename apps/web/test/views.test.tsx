@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
-import type { CaseSummary, StoredField } from '@recouple/store-postgres';
+import type { CaseDocument, CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
 import type {
   CaseWorkflow,
@@ -28,6 +28,7 @@ import {
 } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { confidencePercent, deadline, fieldLabel, money } from '../lib/format';
+import { displaysInline } from '../lib/document-types';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
 /** An empty review queue, for the tests about the rest of the list. */
@@ -146,7 +147,22 @@ function field(overrides: Partial<StoredField> = {}): StoredField {
     sourceQuote: 'Claim ID: APDP-99812',
     sourceBbox: null,
     quoteVerified: true,
+    ...overrides,
+  };
+}
+
+/**
+ * A document on the case, as `caseDocuments` lists it. The defaults are the
+ * document `field()` names: the case's notice, read for this case.
+ */
+function document(overrides: Partial<CaseDocument> = {}): CaseDocument {
+  return {
+    documentId: NOTICE_DOC,
+    filename: 'walmart-apdp-notice.pdf',
+    mimeType: 'application/pdf',
+    docType: 'deduction_notice',
     role: 'notice',
+    read: true,
     readForCase: true,
     ...overrides,
   };
@@ -708,7 +724,7 @@ describe('documents that were read and that no case holds', () => {
 describe('the review page', () => {
   it('shows every field with the page and quote it came from', () => {
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field(), field({ fieldPath: 'lines[0].qty_received', value: 25, sourceQuote: 'Qty Received 25' })]}
@@ -725,7 +741,7 @@ describe('the review page', () => {
 
   it('heads the page with the printed retailer when no debtor matched', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview documents={[document()]}
         mayAct={false}
         viewer={viewer}
         summary={summary({
@@ -746,7 +762,7 @@ describe('the review page', () => {
 
   it('heads a remittance-originated case with its invoice and the code as printed', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview documents={[document()]}
         mayAct={false}
         viewer={viewer}
         summary={summary({
@@ -768,7 +784,7 @@ describe('the review page', () => {
 
   it('escapes an invoice number and a reason code the way it escapes every other printed string', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview documents={[document()]}
         mayAct={false}
         viewer={viewer}
         summary={summary({
@@ -790,7 +806,7 @@ describe('the review page', () => {
   it('still says "Retailer unknown" when the notice named nobody', () => {
     // The old behaviour, now reserved for the one case it was ever true of.
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview documents={[document()]}
         mayAct={false}
         viewer={viewer}
         summary={summary({ debtorName: undefined, retailerKey: undefined })}
@@ -806,7 +822,7 @@ describe('the review page', () => {
 
   it('tells a reviewer which kind of check each field got', () => {
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[
@@ -828,7 +844,7 @@ describe('the review page', () => {
 
   it('offers no approve button, because approving is not a thing this page can do', () => {
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field()]}
@@ -851,7 +867,7 @@ describe('the review page', () => {
     // hole the review prototype had: extracted text reaching a page as markup.
     const attack = '<img src=x onerror="alert(1)">';
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary({
           debtorName: undefined,
@@ -880,7 +896,11 @@ describe('the review page', () => {
     // A notice that arrived in an email body is text. Embedding it as a PDF
     // shows a broken-document icon where the notice should be.
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview
+        documents={[
+          document({ mimeType: 'text/plain', filename: 'Deduction APDP-99812 (email body).txt' }),
+        ]}
+        mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field({ mimeType: 'text/plain', filename: 'Deduction APDP-99812 (email body).txt' })]}
@@ -895,7 +915,7 @@ describe('the review page', () => {
 
   it('shows what the documents say together, when they disagree', () => {
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field()]}
@@ -927,7 +947,7 @@ describe('the review page', () => {
     // markup does not check keys, so this pins that both are rendered and the
     // key is the component's own business.
     const html = renderToStaticMarkup(
-      <CaseReview mayAct={false}
+      <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
         summary={summary()}
         fields={[field()]}
@@ -968,8 +988,6 @@ describe('the review page for a case a remittance line opened', () => {
       fieldPath,
       value,
       sourceQuote: value,
-      role: 'notice',
-      readForCase: false,
     });
   const fields: readonly StoredField[] = [
     // The store lists the notice first; the view must not depend on it.
@@ -979,8 +997,6 @@ describe('the review page for a case a remittance line opened', () => {
       docType: 'invoice',
       fieldPath: 'invoice_number',
       value: 'INV-AFS-260814',
-      role: 'evidence',
-      readForCase: true,
     }),
     remittanceField('payment_reference', 'ACH-91844'),
     remittanceField('lines[0].invoice_number', 'INV-AFS-260814'),
@@ -988,6 +1004,21 @@ describe('the review page for a case a remittance line opened', () => {
     remittanceField('lines[1].invoice_number', 'INV-AFS-260901'),
     remittanceField('lines[1].deduction_amount', '$75.00'),
     remittanceField('lines[2].invoice_number', 'INV-AFS-260902'),
+  ];
+  const documents: readonly CaseDocument[] = [
+    document({
+      documentId: REMITTANCE_DOC,
+      filename: '01_short_pay_remittance.pdf',
+      docType: 'remittance_advice',
+      // One read, many cases (ADR 0028): its spend is no one case's.
+      readForCase: false,
+    }),
+    document({
+      documentId: INVOICE_DOC,
+      filename: '02_carrier_invoice.pdf',
+      docType: 'invoice',
+      role: 'evidence',
+    }),
   ];
   const remittanceCase = summary({
     claimId: 'ACH-91844:INV-AFS-260814',
@@ -1022,6 +1053,7 @@ describe('the review page for a case a remittance line opened', () => {
         mayAct={false}
         viewer={viewer}
         summary={remittanceCase}
+        documents={documents}
         fields={fields}
         reconciliation={matches}
         costMicros={210_000}
@@ -1087,9 +1119,11 @@ describe('the review page for a case a remittance line opened', () => {
 
   it('counts the remittance among the documents, and not in the spend', () => {
     const html = render();
-    expect(html).toContain('from 2 documents');
-    expect(html).toContain('model spend on the 1 read for this case');
-    expect(html).toContain('not in that figure');
+    expect(html).toContain(
+      'Read so far: 7 fields from 2 documents on this case, and $0.21 of model spend recorded ' +
+        'against it. One of them was read before it was on this case, so that read is not in ' +
+        'the figure.',
+    );
   });
 
   it('names the remittance in the packet, not "document 1"', () => {
@@ -1111,7 +1145,7 @@ describe('the review page for a case a remittance line opened', () => {
 
   it('says the spend covers every document when every read was this case’s', () => {
     const html = renderToStaticMarkup(
-      <CaseReview
+      <CaseReview documents={[document()]}
         mayAct={false}
         viewer={viewer}
         summary={summary()}
@@ -1121,19 +1155,141 @@ describe('the review page for a case a remittance line opened', () => {
         today={today}
       />,
     );
-    expect(html).toContain('Read so far: 1 field from 1 document, and $0.14 of model spend on it.');
-    expect(html).not.toContain('not in that figure');
+    expect(html).toContain(
+      'Read so far: 1 field from 1 document on this case, and $0.14 of model spend recorded ' +
+        'against it.',
+    );
+    expect(html).not.toContain('not in the figure');
   });
 
-  it('does not show evidence as the original when the notice has no reading', () => {
-    const html = render({ fields: fields.filter((f) => f.documentId === INVOICE_DOC) });
+  it('never shows evidence as the original, even when no document on the case is the notice', () => {
+    const html = render({
+      documents: documents.filter((d) => d.documentId === INVOICE_DOC),
+      fields: fields.filter((f) => f.documentId === INVOICE_DOC),
+    });
     expect(html).not.toContain('<embed');
-    expect(html).toContain('The document this case was opened from has no reading to show here.');
+    expect(html).toContain('This case has no record of the document it was opened from.');
+  });
+});
+
+/**
+ * A case the ledger sync opened (ADR 0029): its notice is the ledger extract,
+ * canonical JSON of a short-paid invoice and the ledger rows behind it. No model
+ * reads it, so it has no fields — and a page that found its documents through
+ * their fields showed the case no original document, and named the extract
+ * "document 1" in the packet.
+ */
+describe('the review page for a case the ledger sync opened', () => {
+  const EXTRACT_DOC = 'ffffffff-1111-2222-3333-444444444444';
+  const extract = document({
+    documentId: EXTRACT_DOC,
+    filename: 'ledger-extract-INV-1001.json',
+    mimeType: 'application/json',
+    docType: null,
+    read: false,
+    readForCase: false,
+  });
+  const ledgerCase = summary({
+    claimId: undefined,
+    deductionAmountCents: 80_000,
+    retailerNameAsPrinted: 'Sysco Baltimore, LLC',
+    debtorName: undefined,
+    retailerKey: undefined,
+    disputeDeadline: undefined,
+    invoiceNumber: 'INV-1001',
+    documentCount: 1,
+  });
+
+  function render(props: Partial<Parameters<typeof CaseReview>[0]> = {}): string {
+    return renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={ledgerCase}
+        documents={[extract]}
+        fields={[]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+        {...props}
+      />,
+    );
+  }
+
+  it('embeds the extract as the original document, as the JSON it is', () => {
+    const html = render();
+    expect(html).toContain(`src="/api/document/${EXTRACT_DOC}"`);
+    expect(html).toContain('type="application/json"');
+    expect(html).not.toContain('No document is on this case');
+  });
+
+  it('still embeds the extract, not the evidence, once evidence is attached', () => {
+    const html = render({
+      documents: [
+        extract,
+        document({ documentId: NOTICE_DOC, role: 'evidence', docType: 'invoice' }),
+      ],
+      fields: [field({ docType: 'invoice', fieldPath: 'invoice_number', value: 'INV-1001' })],
+    });
+    expect(html).toContain(`src="/api/document/${EXTRACT_DOC}"`);
+    expect(html).not.toContain(`src="/api/document/${NOTICE_DOC}"`);
+  });
+
+  it('says the extract cost nothing to read, rather than that its read is missing', () => {
+    const html = render();
+    expect(html).toContain(
+      'Read so far: 0 fields from 1 document on this case, and $0.00 of model spend recorded ' +
+        'against it.',
+    );
+    expect(html).not.toContain('not in the figure');
+  });
+
+  it('names the extract in the packet, not "document 1"', () => {
+    const html = render({
+      mayAct: true,
+      summary: { ...ledgerCase, state: 'awaiting_approval' },
+      workflow: {
+        ...workflow({ state: 'awaiting_approval' }),
+        packet: {
+          ...workflow({ state: 'awaiting_approval' }).packet!,
+          fileDocumentIds: [EXTRACT_DOC],
+        },
+      },
+    });
+    expect(html).toContain('>ledger-extract-INV-1001.json</a>');
+    expect(html).not.toContain('document 1');
+  });
+
+  it('links an original it cannot show in place, instead of embedding a download', () => {
+    const html = render({
+      documents: [document({ mimeType: 'application/zip', filename: 'claims.zip' })],
+    });
+    expect(html).not.toContain('<embed');
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}">claims.zip</a>`);
+  });
+
+  it('says so when nothing is on the case at all', () => {
+    const html = render({ documents: [] });
+    expect(html).not.toContain('<embed');
+    expect(html).toContain('No document is on this case yet.');
+  });
+});
+
+describe('which documents a page may show in place', () => {
+  it('is the list the document route serves inline, JSON included', () => {
+    expect(displaysInline('application/json')).toBe(true);
+    expect(displaysInline('application/pdf')).toBe(true);
+    expect(displaysInline('text/plain')).toBe(true);
+    // Everything else downloads, and so is never embedded.
+    expect(displaysInline('text/html')).toBe(false);
+    expect(displaysInline('image/svg+xml')).toBe(false);
+    expect(displaysInline('application/octet-stream')).toBe(false);
   });
 });
 
 describe('what a reviewer can do with a case', () => {
   const props = {
+    documents: [document()],
     viewer,
     summary: summary(),
     fields: [field()],
@@ -1280,6 +1436,7 @@ describe('what a reviewer can do with a case', () => {
  */
 describe('the Phase 3 action cards', () => {
   const base = {
+    documents: [document()],
     viewer,
     fields: [field()],
     reconciliation: undefined,
@@ -1491,6 +1648,7 @@ describe('the Phase 3 action cards', () => {
 
 describe('the timeline', () => {
   const base = {
+    documents: [document()],
     viewer,
     fields: [field()],
     reconciliation: undefined,
@@ -1666,6 +1824,7 @@ describe('the pairs identity resolution would not merge', () => {
 
 describe('a case that may already be a case', () => {
   const base = {
+    documents: [document()],
     viewer,
     summary: summary({ deductionId: 'aaaaaaaa-1111-2222-3333-444444444444' }),
     fields: [field()],
@@ -1711,6 +1870,7 @@ describe('a merged pair, on either case (ADR 0042)', () => {
   const loser = 'bbbbbbbb-1111-2222-3333-444444444444';
   const survivor = 'aaaaaaaa-1111-2222-3333-444444444444';
   const base = {
+    documents: [document()],
     viewer,
     fields: [field()],
     reconciliation: undefined,
