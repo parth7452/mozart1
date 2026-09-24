@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CASE_STATES, MAX_RATIONALE_LENGTH, cents } from '@recouple/core-domain';
 import { DECLINE_REASONS } from '@recouple/store-postgres';
-import type { CaseDocument, CaseSummary, StoredField } from '@recouple/store-postgres';
+import type { AttachTargets, CaseDocument, CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
 import type {
   CaseWorkflow,
@@ -17,6 +17,7 @@ import {
   caseLabel,
   holdLine,
   mayOpenFrom,
+  offeredLine,
   UnattachedDocuments,
 } from '../components/unattached-documents';
 import { CaseReview } from '../components/case-review';
@@ -49,14 +50,12 @@ type CaseListProps = Parameters<typeof CaseList>[0];
  * reach past the rows render `CaseList`.
  */
 function EveryCaseList(
-  props: Omit<CaseListProps, 'tally' | 'ledger' | 'attachTo'> &
-    Partial<Pick<CaseListProps, 'ledger' | 'attachTo'>>,
+  props: Omit<CaseListProps, 'tally' | 'ledger'> & Partial<Pick<CaseListProps, 'ledger'>>,
 ) {
   return (
     <CaseList
       {...props}
       ledger={props.ledger ?? { filter: {}, matching: props.cases.length }}
-      attachTo={props.attachTo ?? props.cases}
       tally={tallyOf(props.cases, props.today)}
     />
   );
@@ -245,7 +244,6 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[summary(), summary({ deductionId: '99999999-8888-7777-6666-555555555555' })]}
         ledger={{ filter: {}, matching: 240 }}
-        attachTo={[]}
         tally={[
           { state: 'classified', cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
           { state: 'awaiting_approval', cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
@@ -415,7 +413,6 @@ describe('the case list', () => {
         viewer={viewer}
         cases={rows}
         ledger={{ filter: { query: 'walmart' }, matching: 1_204 }}
-        attachTo={rows}
         tally={[{ state: 'classified', cases: 5_000, deductedCents: 50_000_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
@@ -434,7 +431,6 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[]}
         ledger={{ filter: { query: 'no-such-claim' }, matching: 0 }}
-        attachTo={[]}
         tally={[{ state: 'classified', cases: 240, deductedCents: 2_400_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
@@ -656,6 +652,11 @@ describe('documents that were read and that no case holds', () => {
     };
   }
 
+  /** What `attachTargets` answers for a tenant whose every open case is in `rows`. */
+  function offered(rows: readonly CaseSummary[], total = rows.length): AttachTargets {
+    return { rows, total, limit: 250 };
+  }
+
   it('says what each one was read as, and offers the open cases to attach it to', () => {
     const open = summary({ claimId: 'LOG-202', debtorName: undefined, retailerNameAsPrinted: 'Westhaven Paper Supply' });
     const closed = summary({
@@ -664,7 +665,7 @@ describe('documents that were read and that no case holds', () => {
       state: 'won',
     });
     const html = renderToStaticMarkup(
-      <UnattachedDocuments documents={[loose()]} cases={[open, closed]} />,
+      <UnattachedDocuments documents={[loose()]} targets={offered([open, closed])} />,
     );
 
     expect(html).toContain('Read, not on a case');
@@ -706,17 +707,80 @@ describe('documents that were read and that no case holds', () => {
 
   it('says there is nowhere to attach it yet when no case is open', () => {
     const html = renderToStaticMarkup(
-      <UnattachedDocuments documents={[loose()]} cases={[summary({ state: 'lost' })]} />,
+      <UnattachedDocuments documents={[loose()]} targets={offered([summary({ state: 'lost' })])} />,
     );
     expect(html).toContain('No open case yet');
     expect(html).not.toContain('<form');
+    expect(html).not.toContain('Open cases are listed');
+  });
+
+  it('offers the open cases the store read for it, not the newest the ledger lists', () => {
+    // The control used to be handed the ledger's rows — the newest hundred — so
+    // an older open case was never offered, however urgent. Here the ledger
+    // lists one new case, and the store's read of open cases puts an old,
+    // overdue one first.
+    const newest = summary({ deductionId: '99999999-8888-7777-6666-555555555555', claimId: 'NEW-1' });
+    const oldUrgent = summary({
+      deductionId: '00000000-1111-2222-3333-444444444444',
+      claimId: 'OLD-7',
+      disputeDeadline: '2026-09-17',
+      createdAt: '2025-09-01T09:00:00Z',
+    });
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[newest]}
+        today={today}
+        unattached={[loose()]}
+        attachTargets={offered([oldUrgent])}
+      />,
+    );
+
+    expect(html).toContain(`<option value="${oldUrgent.deductionId}">${caseLabel(oldUrgent)}</option>`);
+    // A case is offered because the store's read holds it, not because the
+    // ledger lists it.
+    expect(html).not.toContain(`<option value="${newest.deductionId}"`);
+    expect(html).toContain('Open cases are listed most urgent first, as the review queue orders them.');
+  });
+
+  it('keeps the store’s order', () => {
+    const first = summary({ deductionId: '00000000-1111-2222-3333-444444444444', claimId: 'FIRST-1' });
+    const second = summary({ deductionId: '00000000-5555-2222-3333-444444444444', claimId: 'SECOND-2' });
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} targets={offered([second, first])} />,
+    );
+    expect(html.indexOf(caseLabel(second))).toBeGreaterThan(-1);
+    expect(html.indexOf(caseLabel(second))).toBeLessThan(html.indexOf(caseLabel(first)));
+  });
+
+  it('says how many open cases it is not listing when the store cut the list', () => {
+    const rows = Array.from({ length: 250 }, (_, i) =>
+      summary({ deductionId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`, claimId: `C-${i}` }),
+    );
+    expect(offeredLine(250, offered(rows, 1_612))).toBe(
+      'Open cases are listed most urgent first, as the review queue orders them. This workspace ' +
+        'has 1,612: the first 250 are listed, and the other 1,362 are not. Any open case can ' +
+        'take one of these from its own page.',
+    );
+    // Nothing about a cut when there was none.
+    expect(offeredLine(250, offered(rows))).toBe(
+      'Open cases are listed most urgent first, as the review queue orders them.',
+    );
+
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose()]} targets={offered(rows, 1_612)} />,
+    );
+    expect(html).toContain('This workspace has 1,612: the first 250 are listed, and the other 1,362 are not.');
+    expect(html.match(/<option value="0/g)).toHaveLength(250);
   });
 
   it('renders a filename as text, never as markup', () => {
     const html = renderToStaticMarkup(
       <UnattachedDocuments
         documents={[loose({ filename: '<img src=x onerror=alert(1)>.jpg' })]}
-        cases={[summary()]}
+        targets={offered([summary()])}
       />,
     );
     expect(html).not.toContain('<img');
@@ -725,7 +789,7 @@ describe('documents that were read and that no case holds', () => {
 
   it('says how sure the classifier was for a document nobody held', () => {
     const html = renderToStaticMarkup(
-      <UnattachedDocuments documents={[loose({ confidence: 0.98 })]} cases={[summary()]} />,
+      <UnattachedDocuments documents={[loose({ confidence: 0.98 })]} targets={offered([summary()])} />,
     );
     expect(html).toContain('read at 98%');
     expect(html).not.toContain('Held:');
@@ -749,7 +813,7 @@ describe('documents that were read and that no case holds', () => {
 
     it('says it was read below the floor, by how much, and offers to open the case', () => {
       const html = renderToStaticMarkup(
-        <UnattachedDocuments documents={[heldRow(hold())]} cases={[summary()]} />,
+        <UnattachedDocuments documents={[heldRow(hold())]} targets={offered([summary()])} />,
       );
 
       expect(html).toContain(
@@ -775,7 +839,7 @@ describe('documents that were read and that no case holds', () => {
         fields: ['deduction_date', 'lines[0].reason_code'],
       });
       const html = renderToStaticMarkup(
-        <UnattachedDocuments documents={[heldRow(h)]} cases={[summary()]} />,
+        <UnattachedDocuments documents={[heldRow(h)]} targets={offered([summary()])} />,
       );
 
       expect(html).toContain(
@@ -796,7 +860,7 @@ describe('documents that were read and that no case holds', () => {
           'evidence instead.',
       );
       const html = renderToStaticMarkup(
-        <UnattachedDocuments documents={[heldRow(noLines)]} cases={[summary()]} />,
+        <UnattachedDocuments documents={[heldRow(noLines)]} targets={offered([summary()])} />,
       );
       expect(html).not.toContain('/open-case');
       expect(html).toContain('/attach"');
@@ -860,7 +924,7 @@ describe('documents that were read and that no case holds', () => {
       const html = renderToStaticMarkup(
         <UnattachedDocuments
           documents={[heldRow(hold(), { filename: '<img src=x onerror=alert(1)>.pdf' })]}
-          cases={[summary()]}
+          targets={offered([summary()])}
         />,
       );
       expect(html).not.toContain('<img');
@@ -870,7 +934,7 @@ describe('documents that were read and that no case holds', () => {
   });
 
   it('draws nothing when there is nothing loose', () => {
-    expect(renderToStaticMarkup(<UnattachedDocuments documents={[]} cases={[summary()]} />)).toBe('');
+    expect(renderToStaticMarkup(<UnattachedDocuments documents={[]} targets={offered([summary()])} />)).toBe('');
   });
 
   it('is on the case list for a writer, and not for a reader', () => {
@@ -904,7 +968,7 @@ describe('documents that were read and that no case holds', () => {
         viewer={viewer}
         cases={[searched]}
         ledger={{ filter: { query: 'KS-40112' }, matching: 1 }}
-        attachTo={[searched, other]}
+        attachTargets={offered([searched, other])}
         today={today}
         unattached={[loose()]}
       />,

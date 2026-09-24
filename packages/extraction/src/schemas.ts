@@ -39,8 +39,15 @@ export const DeductionNoticeSchema = z.object({
         ),
         unit_cost: OptionalField(MoneyText(), 'Unit cost as printed.'),
         deduction_amount: Field(MoneyText(), 'The amount deducted on this line, as printed.'),
-        reason_code: Field(z.string(), 'The retailer’s own reason code, exactly as printed.'),
-        reason_description: OptionalField(z.string(), 'The retailer’s description of the reason.'),
+        reason_code: Field(
+          z.string(),
+          'The payer’s own code for why it deducted this line, exactly as printed. A reason code names a kind of reason and recurs across deductions (“31”, “CMP”, “MIS-SHIP”). Where the line also prints a number for the deduction itself — a chargeback, debit memo or deduction number, unique to this deduction — that number is the deduction_reference, not the reason code. If the line prints no code, give the reason as briefly as it is printed, never the deduction’s own number.',
+        ),
+        deduction_reference: OptionalField(
+          z.string(),
+          'The payer’s own number for this deducted line when it prints one beside the reason: a chargeback, debit memo or deduction number, exactly as printed. Not the reason code, and not the claim or notice number already captured as claim_id.',
+        ),
+        reason_description: OptionalField(z.string(), 'The payer’s description of the reason.'),
       }),
     )
     .describe('One entry per deducted line. If the notice has a single total with no line detail, return one entry.'),

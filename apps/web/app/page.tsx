@@ -3,7 +3,7 @@ import { mayWrite } from '../lib/pipeline';
 import { mayApprove } from '../lib/workflow';
 import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
-import { isFiltered, ledgerFilterFrom } from '../lib/case-presentation';
+import { ledgerFilterFrom } from '../lib/case-presentation';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,14 +45,15 @@ export default async function CaseListPage({
     // found by its claim, invoice or customer, and `matching` says how many
     // answered when the table cannot list them all.
     const ledger = await store.searchCases(filter);
+    // Read and on no case: evidence uploaded here opens nothing of its own,
+    // and until this list it appeared nowhere. Asked only for a member who
+    // could attach one, for the reason the unread documents are.
+    const unattached = mayUpload ? await store.unattachedDocuments() : undefined;
     return (
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
         cases={ledger.rows}
         ledger={{ filter, matching: ledger.total }}
-        // The attach control chooses from the newest cases whatever the ledger
-        // was searched for; unfiltered, those are the ledger's rows already.
-        attachTo={mayUpload && isFiltered(filter) ? await store.listCases() : ledger.rows}
         // The figures are over every case, not the newest hundred in `cases`:
         // the same RLS, counted by state, and the queue's today for deadlines.
         tally={await store.caseTally({ today })}
@@ -68,10 +69,17 @@ export default async function CaseListPage({
         // RLS-scoped like every other read here, so what comes back is this
         // tenant's documents because the policies say so.
         unread={mayUpload ? await store.unreadDocuments(UNREAD_AFTER_MINUTES) : undefined}
-        // Read and on no case: evidence uploaded here opens nothing of its own,
-        // and until this list it appeared nowhere. Asked only for a member who
-        // could attach one, for the reason the unread documents are.
-        unattached={mayUpload ? await store.unattachedDocuments() : undefined}
+        unattached={unattached}
+        // What each of those can be attached to: every open case, most urgent
+        // first — not the ledger's rows, which stop at the newest hundred and
+        // which a search narrows, so filing evidence does not depend on what was
+        // last typed into the search box. Asked only when there is something to
+        // attach, with the queue's today.
+        attachTargets={
+          unattached !== undefined && unattached.length > 0
+            ? await store.attachTargets({ today })
+            : undefined
+        }
         // The pairs identity resolution refused to merge and nobody has
         // answered (ADR 0032). Asked only for a member who could answer one,
         // for the reason the unread documents are: a list of things you may not

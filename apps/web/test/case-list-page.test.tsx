@@ -6,6 +6,7 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import type {
+  AttachTargets,
   CaseSearch,
   CaseSearchResult,
   CaseStateTally,
@@ -47,10 +48,13 @@ const harness = vi.hoisted(() => ({
   /** Every `caseTally` call: the figures, over every case, with the queue's today. */
   tallyCalls: [] as ({ today?: Date } | undefined)[],
   tally: [] as CaseStateTally[],
+  /** Every `attachTargets` call: the open cases a loose document can go on. */
+  attachCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
+  attachTargets: { rows: [], total: 0, limit: 250 } as AttachTargets,
   /** Every `searchCases` call: the ledger's rows, for whatever was searched. */
   searchCalls: [] as (CaseSearch | undefined)[],
   search: { rows: [], total: 0, limit: 100 } as CaseSearchResult,
-  /** Every `listCases` call: the attach control's cases, when a search narrowed the ledger. */
+  /** Every `listCases` call: the page should make none now that the ledger searches. */
   listCalls: 0,
   newest: [] as CaseSummary[],
 }));
@@ -91,6 +95,10 @@ vi.mock('../lib/session', () => ({
       async caseTally(options?: { today?: Date }) {
         harness.tallyCalls.push(options);
         return harness.tally;
+      },
+      async attachTargets(options?: { today?: Date; limit?: number }) {
+        harness.attachCalls.push(options);
+        return harness.attachTargets;
       },
       async close() {
         return undefined;
@@ -183,6 +191,8 @@ describe('the case list page', () => {
     };
     harness.tallyCalls = [];
     harness.tally = [];
+    harness.attachCalls = [];
+    harness.attachTargets = { rows: [], total: 0, limit: 250 };
     harness.searchCalls = [];
     harness.search = { rows: [], total: 0, limit: 100 };
     harness.listCalls = 0;
@@ -209,6 +219,38 @@ describe('the case list page', () => {
     expect(html).toContain('Read, not on a case');
     expect(html).toContain('08_log-202.jpg');
     expect(html).toContain('proof of delivery');
+  });
+
+  it('offers an open case the newest hundred does not hold, from its own read', async () => {
+    // `listCases` answers nothing here, as it answers only the newest hundred
+    // for a tenant with more. The attach control asks the store for the open
+    // cases instead, once, with the queue's today — and offers what it says.
+    const old: CaseSummary = {
+      deductionId: 'aaaaaaaa-9999-2222-3333-444444444444',
+      state: 'classified',
+      claimId: 'OLD-7',
+      deductionAmountCents: 12_345,
+      disputeDeadline: '2026-09-17',
+      discoveredVia: 'notice',
+      documentCount: 1,
+      createdAt: '2025-09-01T09:00:00Z',
+    };
+    harness.attachTargets = { rows: [old], total: 301, limit: 250 };
+    const html = await render();
+
+    expect(harness.attachCalls).toHaveLength(1);
+    expect(harness.attachCalls[0]?.today).toBeInstanceOf(Date);
+    expect(harness.attachCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+    expect(html).toContain(`<option value="${old.deductionId}">OLD-7 · retailer unknown · $123.45</option>`);
+    expect(html).toContain('This workspace has 301: the first 1 are listed, and the other 300 are not.');
+  });
+
+  it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
+    harness.unattached = [];
+    const html = await render();
+    expect(harness.unattachedCalls).toEqual([undefined]);
+    expect(harness.attachCalls).toEqual([]);
+    expect(html).not.toContain('Read, not on a case');
   });
 
   it('asks for the stuck documents once, at the threshold the notice explains', async () => {
@@ -252,6 +294,7 @@ describe('the case list page', () => {
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
+    expect(harness.attachCalls).toEqual([]);
     expect(html).not.toContain('Documents waiting to be read');
     expect(html).not.toContain('Possible duplicates');
     expect(html).not.toContain('Read, not on a case');
@@ -308,7 +351,7 @@ describe('the case list page', () => {
     const html = await render();
 
     expect(harness.searchCalls).toEqual([{}]);
-    // The attach control offers the ledger's own rows: they are the newest.
+    // No second list: the attach control has its own read of the open cases.
     expect(harness.listCalls).toBe(0);
     expect(html).toContain('APDP-99812');
     expect(html).toContain('the newest 1 listed below');
@@ -344,25 +387,30 @@ describe('the case list page', () => {
     expect(harness.searchCalls).toEqual([{ query: 'walmart' }, { state: 'won' }, {}, {}]);
   });
 
-  it('keeps the attach control on the newest cases while the ledger is searched', async () => {
+  it('keeps the attach control on the open cases whatever the ledger was searched for', async () => {
     harness.search = {
       rows: [listed('aaaaaaaa-0000-0000-0000-000000000009', 'OLD-4471')],
       total: 1,
       limit: 100,
     };
-    harness.newest = [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-77001')];
+    harness.attachTargets = {
+      rows: [listed('aaaaaaaa-0000-0000-0000-000000000001', 'APDP-77001')],
+      total: 1,
+      limit: 250,
+    };
     const html = await render({ q: 'OLD-4471' });
 
-    expect(harness.listCalls).toBe(1);
+    expect(harness.attachCalls).toHaveLength(1);
+    expect(harness.listCalls).toBe(0);
     const attach = html.slice(html.indexOf('Read, not on a case'));
     expect(attach).toContain('APDP-77001');
     expect(attach).not.toContain('OLD-4471');
 
     // A member who cannot attach is not shown the control, so nothing is read for it.
     harness.role = 'read_only';
-    harness.listCalls = 0;
+    harness.attachCalls = [];
     await render({ q: 'OLD-4471' });
-    expect(harness.listCalls).toBe(0);
+    expect(harness.attachCalls).toEqual([]);
   });
 
   it('does not ask the member who prepared a decision to approve it', async () => {
@@ -383,5 +431,6 @@ describe('the case list page', () => {
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
+    expect(harness.attachCalls).toEqual([]);
   });
 });

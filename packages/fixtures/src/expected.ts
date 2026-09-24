@@ -43,6 +43,7 @@ const NOTICE_WALMART = {
       unit_cost: f('$624.00', '$624.00'),
       deduction_amount: f('$3,120.00', '$3,120.00'),
       reason_code: f('24', 'Reason Code 24'),
+      deduction_reference: absent(),
       reason_description: f(
         'Merchandise billed not received (carton shortage)',
         'Merchandise billed not received (carton shortage)',
@@ -129,6 +130,7 @@ const NOTICE_KEHE = {
       unit_cost: absent(),
       deduction_amount: f('$1,847.50', '$1,847.50'),
       reason_code: f('UDR', 'UDR'),
+      deduction_reference: absent(),
       reason_description: f('Unsaleable / Damaged on Receipt', 'Unsaleable / Damaged on Receipt'),
     },
   ],
@@ -173,6 +175,7 @@ const NOTICE_TARGET = {
       unit_cost: f('$14.25', '$14.25'),
       deduction_amount: f('$1,710.00', '$1,710.00'),
       reason_code: f('PD', 'Code PD'),
+      deduction_reference: absent(),
       reason_description: f(
         'Price discrepancy - billed above agreed cost',
         'Price discrepancy - billed above agreed cost',
@@ -224,6 +227,7 @@ const NOTICE_OAKRIDGE_PREMIUM = {
       unit_cost: absent(),
       deduction_amount: f('$1,275.00', '$1,275.00'),
       reason_code: f('PREMIUM-NOAUTH', 'PREMIUM-NOAUTH'),
+      deduction_reference: absent(),
       reason_description: f(
         'Premium hours billed without prior written authorisation',
         'PREMIUM-NOAUTH: Premium hours billed without prior written authorisation',

@@ -11,7 +11,7 @@
   },
   "document": {
     "retailer_name": {
-      "value": "Northgate Foodservice Distribution",
+      "value": "NORTHGATE FOODSERVICE DISTRIBUTION",
       "confidence": 0.98,
       "source_page": 1,
       "source_quote": "NORTHGATE FOODSERVICE DISTRIBUTION"
@@ -42,7 +42,7 @@
     },
     "store_or_dc": {
       "value": "DC 14 - Harrisburg, PA",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Distribution Center: DC 14 - Harrisburg, PA"
     },
@@ -54,13 +54,13 @@
     },
     "deduction_date": {
       "value": "09/12/2026",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Chargeback Date: 09/12/2026"
     },
     "dispute_deadline": {
       "value": "11/11/2026",
-      "confidence": 0.95,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Disputes must be submitted through the supplier portal by 11/11/2026."
     },
@@ -68,25 +68,25 @@
       {
         "sku_upc": {
           "value": "44102",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44102 Chicken Breast 4oz IQF 40 $3.10 $124.00"
+          "source_quote": "44102"
         },
         "description": {
           "value": "Chicken Breast 4oz IQF",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Chicken Breast 4oz IQF"
         },
         "unit_cost": {
           "value": "$3.10",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$3.10"
         },
         "deduction_amount": {
           "value": "$124.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$124.00"
         },
@@ -98,7 +98,7 @@
         },
         "reason_description": {
           "value": "Deviated price billback",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Deviated price billback"
         },
@@ -113,36 +113,42 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44108",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44108 Chicken Tender Brd 5lb 25 $2.75 $68.75"
+          "source_quote": "44108"
         },
         "description": {
           "value": "Chicken Tender Brd 5lb",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Chicken Tender Brd 5lb"
         },
         "unit_cost": {
           "value": "$2.75",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$2.75"
         },
         "deduction_amount": {
           "value": "$68.75",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$68.75"
         },
         "reason_code": {
           "value": "DPB-0917",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "DPB-0917"
         },
@@ -163,36 +169,42 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44115",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44115 Wing Sections 10lb 60 $1.90 $114.00"
+          "source_quote": "44115"
         },
         "description": {
           "value": "Wing Sections 10lb",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Wing Sections 10lb"
         },
         "unit_cost": {
           "value": "$1.90",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$1.90"
         },
         "deduction_amount": {
           "value": "$114.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$114.00"
         },
         "reason_code": {
           "value": "DPB-0917",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "DPB-0917"
         },
@@ -213,42 +225,48 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44121",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44121 Chicken Thigh Bnls 5lb 32 $2.40 $76.80"
+          "source_quote": "44121"
         },
         "description": {
           "value": "Chicken Thigh Bnls 5lb",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Chicken Thigh Bnls 5lb"
         },
         "unit_cost": {
           "value": "$2.40",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$2.40"
         },
         "deduction_amount": {
           "value": "$76.80",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$76.80"
         },
         "reason_code": {
           "value": "DPB-0917",
-          "confidence": 0.9,
+          "confidence": 0.8,
           "source_page": 1,
           "source_quote": "DPB-0917"
         },
         "reason_description": {
           "value": "Contract NG-2231",
-          "confidence": 0.75,
+          "confidence": 0.7,
           "source_page": 1,
           "source_quote": "Contract NG-2231"
         },
@@ -263,36 +281,42 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44130",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44130 Popcorn Chicken 4lb 18 $2.20 $39.60"
+          "source_quote": "44130"
         },
         "description": {
           "value": "Popcorn Chicken 4lb",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Popcorn Chicken 4lb"
         },
         "unit_cost": {
           "value": "$2.20",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$2.20"
         },
         "deduction_amount": {
           "value": "$39.60",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$39.60"
         },
         "reason_code": {
           "value": "DPB-0917",
-          "confidence": 0.85,
+          "confidence": 0.75,
           "source_page": 1,
           "source_quote": "DPB-0917"
         },
@@ -303,6 +327,12 @@
           "source_quote": ""
         },
         "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "deduction_reference": {
           "value": null,
           "confidence": 0,
           "source_page": 1,
@@ -318,31 +348,31 @@
       {
         "sku_upc": {
           "value": "44137",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44137 Chicken Strips Hmstyl 22 $2.65 $58.30"
+          "source_quote": "44137"
         },
         "description": {
           "value": "Chicken Strips Hmstyl",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Chicken Strips Hmstyl"
         },
         "unit_cost": {
           "value": "$2.65",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$2.65"
         },
         "deduction_amount": {
           "value": "$58.30",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$58.30"
         },
         "reason_code": {
           "value": "DPB-0917",
-          "confidence": 0.85,
+          "confidence": 0.75,
           "source_page": 1,
           "source_quote": "DPB-0917"
         },
@@ -358,6 +388,12 @@
           "source_page": 1,
           "source_quote": ""
         },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
         "reason_description": {
           "value": null,
           "confidence": 0,
@@ -368,25 +404,25 @@
       {
         "sku_upc": {
           "value": "44210",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44210 Turkey Breast Sliced 14 $4.85 $67.90"
+          "source_quote": "44210"
         },
         "description": {
           "value": "Turkey Breast Sliced",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Turkey Breast Sliced"
         },
         "unit_cost": {
           "value": "$4.85",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$4.85"
         },
         "deduction_amount": {
           "value": "$67.90",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$67.90"
         },
@@ -398,7 +434,7 @@
         },
         "reason_description": {
           "value": "Shelf-life / swell allowance",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Shelf-life / swell allowance"
         },
@@ -413,36 +449,42 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44214",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44214 Turkey Breast Smoked 10 $5.10 $51.00"
+          "source_quote": "44214"
         },
         "description": {
           "value": "Turkey Breast Smoked",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Turkey Breast Smoked"
         },
         "unit_cost": {
           "value": "$5.10",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$5.10"
         },
         "deduction_amount": {
           "value": "$51.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$51.00"
         },
         "reason_code": {
           "value": "SWELL-Q3",
-          "confidence": 0.9,
+          "confidence": 0.85,
           "source_page": 1,
           "source_quote": "SWELL-Q3"
         },
@@ -463,30 +505,36 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44219",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44219 Ham Black Forest Sl 12 $4.40 $52.80"
+          "source_quote": "44219"
         },
         "description": {
           "value": "Ham Black Forest Sl",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Ham Black Forest Sl"
         },
         "unit_cost": {
           "value": "$4.40",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$4.40"
         },
         "deduction_amount": {
           "value": "$52.80",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$52.80"
         },
@@ -508,6 +556,12 @@
           "source_page": 1,
           "source_quote": ""
         },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
         "reason_description": {
           "value": null,
           "confidence": 0,
@@ -518,25 +572,25 @@
       {
         "sku_upc": {
           "value": "44225",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44225 Roast Beef Top Rnd Sl 8 $6.30 $50.40"
+          "source_quote": "44225"
         },
         "description": {
           "value": "Roast Beef Top Rnd Sl",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Roast Beef Top Rnd Sl"
         },
         "unit_cost": {
           "value": "$6.30",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$6.30"
         },
         "deduction_amount": {
           "value": "$50.40",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$50.40"
         },
@@ -558,6 +612,12 @@
           "source_page": 1,
           "source_quote": ""
         },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
         "reason_description": {
           "value": null,
           "confidence": 0,
@@ -568,25 +628,25 @@
       {
         "sku_upc": {
           "value": "44102",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44102 Chicken Breast 4oz IQF 5 $62.40 $312.00"
+          "source_quote": "44102"
         },
         "description": {
           "value": "Chicken Breast 4oz IQF",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Chicken Breast 4oz IQF"
         },
         "unit_cost": {
           "value": "$62.40",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$62.40"
         },
         "deduction_amount": {
           "value": "$312.00",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$312.00"
         },
@@ -598,7 +658,7 @@
         },
         "reason_description": {
           "value": "Shortage at receiving (OS&D)",
-          "confidence": 0.85,
+          "confidence": 0.9,
           "source_page": 1,
           "source_quote": "Shortage at receiving (OS&D)"
         },
@@ -613,30 +673,36 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       },
       {
         "sku_upc": {
           "value": "44310",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44310 Beef Patty 4:1 80/20 3 $71.25 $213.75"
+          "source_quote": "44310"
         },
         "description": {
           "value": "Beef Patty 4:1 80/20",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Beef Patty 4:1 80/20"
         },
         "unit_cost": {
           "value": "$71.25",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$71.25"
         },
         "deduction_amount": {
           "value": "$213.75",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$213.75"
         },
@@ -658,6 +724,12 @@
           "source_page": 1,
           "source_quote": ""
         },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
         "reason_description": {
           "value": null,
           "confidence": 0,
@@ -668,25 +740,25 @@
       {
         "sku_upc": {
           "value": "44318",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
-          "source_quote": "44318 Beef Patty 6:1 80/20 2 $68.90 $137.80"
+          "source_quote": "44318"
         },
         "description": {
           "value": "Beef Patty 6:1 80/20",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Beef Patty 6:1 80/20"
         },
         "unit_cost": {
           "value": "$68.90",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$68.90"
         },
         "deduction_amount": {
           "value": "$137.80",
-          "confidence": 0.9,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "$137.80"
         },
@@ -703,6 +775,12 @@
           "source_quote": ""
         },
         "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "deduction_reference": {
           "value": null,
           "confidence": 0,
           "source_page": 1,
@@ -736,12 +814,18 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-24T17:56:38.894Z",
+  "recordedAt": "2026-09-24T19:09:50.924Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5667,
-    "outputTokens": 5454,
-    "costMicros": 65874,
-    "latencyMs": 35884
+    "inputTokens": 5950,
+    "outputTokens": 5043,
+    "costMicros": 62330,
+    "latencyMs": 33523
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:09:50.924Z"
   }
 }
