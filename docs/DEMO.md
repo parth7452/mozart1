@@ -61,7 +61,10 @@ What happens, and why each step is worth naming out loud:
 You land on that case's review page. (A remittance that short-paid several
 lines would send you to the case list instead, told how many cases it opened —
 one advice names no single case.) Every field shows its value, a `quote found`
-badge, and the line it was read from. **Click one.** The point of this screen is
+badge, and the line it was read from — the advice's own fields and this case's
+line; a remittance that short-paid several invoices shows each case only its
+own. The remittance is embedded beside them as the original document.
+**Click one.** The point of this screen is
 that a reviewer checks the reading rather than trusting it.
 
 Two things the page does *not* have yet, and it is better to say so than be
@@ -116,9 +119,9 @@ charge_waived_in_writing     Brookfield Supply Co. stated in writing that a
 `appointment_superseded` appears twice because the recorded reading of `04`
 reports two commitments that each move the appointment — the request for the
 new slot and the revision it was given. That is the reading, not a bug; a scan
-of the same page reads it as one. Above the findings, the line itself: $4,800.00
-gross less $4,200.00 paid is the $600.00 the remittance says it withheld, and
-the arithmetic *matches*. The case is reconciled against the remittance line
+of the same page reads it as one. Above the findings, the line itself: "INV-AFS-260814:
+$4,800.00 gross less $4,200.00 paid is $600.00 withheld, and the line says
+$600.00 was deducted", marked *matches*. The case is reconciled against the remittance line
 that opened it (ADR 0040), not against a notice it never had.
 
 > **Say this:** none of that came from a model. It is deterministic code over
@@ -244,7 +247,8 @@ same page.
   work on next** puts them under *No deadline printed*, oldest short-pay first —
   a ledger prints no dispute window, and the page says age is standing in for
   one. Each reads **Decide: dispute or decline**, and its case page has both
-  cards.
+  cards, beside the original document: the ledger extract the sync stored — the
+  invoice, what was paid against it and the memos, as the JSON it is.
 
 > **Say this:** we never store a QuickBooks sign-in we can read. The token is
 > sealed with a key held in AWS before it reaches the database, and Disconnect

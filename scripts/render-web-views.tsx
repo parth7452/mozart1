@@ -141,10 +141,13 @@ const cases = await store.listCases();
 const summary = cases.find((row) => row.deductionId === deductionId);
 if (summary === undefined) throw new Error('the case did not come back through RLS');
 
+const documents = await store.caseDocuments(deductionId);
 const fields = await store.fieldsForCase(deductionId);
 const costMicros = await store.costForCase(deductionId);
 const reconciliation = await reconcileCase(deductionId, deps);
-const noticeDocument = await store.getDocument(fields[0]?.documentId ?? '');
+const noticeDocument = await store.getDocument(
+  documents.find((d) => d.role === 'notice')?.documentId ?? '',
+);
 
 const page = (title: string, body: string): string =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
@@ -171,6 +174,7 @@ writeFileSync(
     <CaseReview
       viewer={viewer}
       summary={summary}
+      documents={documents}
       fields={fields}
       reconciliation={reconciliation}
       costMicros={costMicros}

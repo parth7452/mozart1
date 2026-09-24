@@ -27,6 +27,8 @@ import { CassetteClassifier, CassetteExtractor, type Cassette } from '@recouple/
 import {
   LOG_001_DEDUCTION_CENTS,
   LOG_001_EXPECTED_FINDINGS,
+  LOG_001_GROSS_CENTS,
+  LOG_001_NET_CENTS,
   logisticsDocuments,
   scannedDocuments,
   type FixtureDocument,
@@ -179,6 +181,9 @@ describe('LOG-001, walked the way the demo walks it', () => {
         expectedShortageCents: LOG_001_DEDUCTION_CENTS,
         deltaCents: 0,
         verdict: 'matches',
+        // The working, so the page can show it rather than only the answer.
+        grossCents: LOG_001_GROSS_CENTS,
+        netCents: LOG_001_NET_CENTS,
       },
     ]);
     expect(reconciliation?.claimedTotalCents).toBe(LOG_001_DEDUCTION_CENTS);

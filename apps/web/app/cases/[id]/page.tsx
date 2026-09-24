@@ -53,46 +53,52 @@ export default async function CasePage({
     const summary = (await store.listCases()).find((row) => row.deductionId === id);
     if (summary === undefined) notFound();
 
-    const [fields, costMicros, reconciliation, workflow, duplicates, merges] = await Promise.all([
-      store.fieldsForCase(id),
-      store.costForCase(id),
-      reconcileCase(id, {
-        store,
-        scanner: {
-          name: 'none',
-          async scan() {
-            throw new Error('a review page does not scan');
+    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges] =
+      await Promise.all([
+        // The case's documents by their links, and their fields by the same
+        // links: a remittance's read and a held notice's belong to no case, and a
+        // ledger extract has no fields at all, but each is on this case.
+        store.caseDocuments(id),
+        store.fieldsForCase(id),
+        store.costForCase(id),
+        reconcileCase(id, {
+          store,
+          scanner: {
+            name: 'none',
+            async scan() {
+              throw new Error('a review page does not scan');
+            },
           },
-        },
-        classifier: {
-          async classify() {
-            throw new Error('a review page does not classify');
+          classifier: {
+            async classify() {
+              throw new Error('a review page does not classify');
+            },
           },
-        },
-        extractor: {
-          name: 'none',
-          async extract() {
-            throw new Error('a review page does not extract');
+          extractor: {
+            name: 'none',
+            async extract() {
+              throw new Error('a review page does not extract');
+            },
           },
-        },
-        now: () => new Date(),
-      }),
-      store.getWorkflow(id),
-      // Whether this case is one half of a pair identity resolution refused to
-      // merge (ADR 0032). Asked for every reader, not only for a member who may
-      // answer it: deciding what to do about a deduction is exactly where
-      // knowing that another case may be the same one matters, and a reader who
-      // cannot answer still should not assemble a packet for it twice.
-      store.possibleDuplicates({ deductionId: id }),
-      // What this case was merged into, or absorbed, and the confirmed pairs
-      // that could not be merged and why (ADR 0042).
-      store.mergesFor(id),
-    ]);
+          now: () => new Date(),
+        }),
+        store.getWorkflow(id),
+        // Whether this case is one half of a pair identity resolution refused to
+        // merge (ADR 0032). Asked for every reader, not only for a member who may
+        // answer it: deciding what to do about a deduction is exactly where
+        // knowing that another case may be the same one matters, and a reader who
+        // cannot answer still should not assemble a packet for it twice.
+        store.possibleDuplicates({ deductionId: id }),
+        // What this case was merged into, or absorbed, and the confirmed pairs
+        // that could not be merged and why (ADR 0042).
+        store.mergesFor(id),
+      ]);
 
     return (
       <CaseReview
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
         summary={summary}
+        documents={documents}
         fields={fields}
         reconciliation={reconciliation}
         costMicros={costMicros}

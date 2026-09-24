@@ -1,23 +1,6 @@
 import { NextResponse } from 'next/server';
+import { displaysInline } from '../../../../lib/document-types';
 import { requireSession, storeFor } from '../../../../lib/session';
-
-/**
- * The types a browser may render in place. Everything else downloads.
- *
- * These bytes came from a stranger — a retailer's portal, or an email attachment.
- * A PDF can carry script and an HTML file can claim to be anything, so the set of
- * things this route will let a browser execute is the set it can afford to.
- */
-const INLINE_TYPES = new Set([
-  'application/pdf',
-  // An email body, which arrives as text. Served with nosniff and a sandbox, so
-  // a body claiming to be markup is still shown as the characters it is.
-  'text/plain',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/tiff',
-]);
 
 /**
  * Serves a document's bytes to the reviewer looking at it.
@@ -44,7 +27,7 @@ export async function GET(
       return new NextResponse('not found', { status: 404 });
     }
 
-    const inline = INLINE_TYPES.has(document.mimeType);
+    const inline = displaysInline(document.mimeType);
     const safeName = document.filename.replace(/[^\w.\- ]/g, '_') || 'document';
     return new NextResponse(Buffer.from(document.bytes), {
       headers: {
