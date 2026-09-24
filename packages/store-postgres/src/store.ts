@@ -182,7 +182,7 @@ const pools = new Map<string, Pool>();
  * would queue for a connection that is never coming back. Not slower: stopped,
  * with `pool.connect()` waiting for ever by default.
  */
-type PoolPurpose = 'work' | 'locks';
+type PoolPurpose = 'work' | 'locks' | 'inbound';
 
 function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Pool {
   const key = `${config.connectionString}::${config.max ?? 4}::${purpose}`;
@@ -190,7 +190,13 @@ function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Po
   if (existing !== undefined) return existing;
   const pool = new Pool({
     connectionString: config.connectionString,
-    max: config.max ?? 4,
+    // An inbound email's claim is held for the length of a scan. Two, and its
+    // own: a burst of mail to one address must not hold the connections every
+    // document read and token refresh waits on (ADR 0047 §10).
+    max: purpose === 'inbound' ? 2 : (config.max ?? 4),
+    // A delivery that cannot get a connection at once answers 503 and Postmark
+    // comes back; waiting would spend Postmark's two minutes on a queue.
+    ...(purpose === 'inbound' ? { connectionTimeoutMillis: 1_000 } : {}),
     // Lock connections are held for the length of a read, so exhausting that
     // pool is a real possibility rather than a momentary one — and a
     // `connect()` that waits for ever turns it into a worker that never
@@ -218,6 +224,14 @@ export function sessionPool(config: PostgresStoreConfig): Pool {
  */
 export function sessionLockPool(config: PostgresStoreConfig): Pool {
   return poolFor(config, 'locks');
+}
+
+/**
+ * The inbound email claim's own pool (ADR 0047 §10): two connections, and a
+ * one-second wait before a delivery is answered 503 rather than queued.
+ */
+export function inboundClaimPool(config: PostgresStoreConfig): Pool {
+  return poolFor(config, 'inbound');
 }
 
 /**

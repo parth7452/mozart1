@@ -1224,6 +1224,23 @@ what a search matched and how many of those it lists. The attach control under
 "Read, not on a case" still offers only the open cases among the newest
 hundred, whatever the ledger was searched for.
 
+**Email-in has a database half and no door yet** (ADR 0047, migration 0034;
+part 1 of 3). A tenant's address will be `<token>@<INBOUND_DOMAIN>`, the token
+32 hex characters the database generates and never a slug; addresses are
+issued, adopted and retired by an owner as themselves, in three append-only
+tables, and a retired token is never reissued. `app.inbound_address_for()`
+turns a token into its tenant and the member a delivery acts as (latest
+adopter, else issuer; the retirer for a retired address) and refuses any caller
+carrying a claim. Every email and part is recorded through
+`app.record_inbound_message()`, definer and bounded by its caller, because
+app_rw holds SELECT only on those two tables. `PostgresInboundStore` is the
+tenant-scoped side, and its message claim (seed 3) runs on its own pool of two
+with a one-second wait. Separately, and on every door: a document stored
+without a clean-or-infected verdict is scanned again when its bytes arrive
+again, where it used to be answered from the missing verdict for ever. Suite 30
+and `packages/store-postgres/test/inbound.test.ts` read it back. The parser,
+the job and the route are parts 2 and 3.
+
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
 broadline distributor. A chargeback statement whose program cells are merged
