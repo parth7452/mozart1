@@ -8,7 +8,7 @@ verified there, not only against local Postgres.
 | Project ref | `hvheqbgkvwhlqutklwfh` |
 | Region | `us-east-1` |
 | Postgres | 17.6 (local tests run on 16 — see below) |
-| Applied | migrations 0001–0032, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply). 0033 (ADR 0045) is pending: `mozart-preview` first, then production, on the founder's go |
+| Applied | migrations 0001–0033, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply). 0033 (ADR 0045) was applied 2026-09-24, `mozart-preview` first |
 
 ## What was verified on the live project
 
