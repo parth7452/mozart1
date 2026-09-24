@@ -874,6 +874,20 @@ describe('documents that were read and that no case holds', () => {
       expect(mayOpenFrom(hold({ fields: ['lines'] }))).toBe(false);
     });
 
+    it('says an emailed notice is held because it came by email, and still offers to open it', () => {
+      // ADR 0047 §7: however sure the reading, no email opens a case by itself.
+      const byEmail = hold({ docType: 'deduction_notice', confidence: 0.99, reason: 'by_email' });
+      expect(holdLine(byEmail)).toBe(
+        'Held: read as a deduction notice, and it arrived by email. No email opens a case on its ' +
+          'own — a person decides each time.',
+      );
+      expect(mayOpenFrom(byEmail)).toBe(true);
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(byEmail)]} targets={offered([summary()])} />,
+      );
+      expect(html).toContain('/open-case"');
+    });
+
     it('offers open for every other hold, doubted, misfit or both', () => {
       expect(mayOpenFrom(hold())).toBe(true);
       expect(mayOpenFrom(hold({ fields: ['lines[0].invoice_number'] }))).toBe(true);

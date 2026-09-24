@@ -51,8 +51,13 @@ export function opensCaseOnItsOwn(docType: DocType): docType is CaseOpeningDocTy
  *    reading the classifier doubted is the more basic reason.
  *  - `type_did_not_fit` — the classifier was sure enough, and the reading does
  *    not satisfy the type it was read as.
+ *  - `by_email` — the document arrived by email, and no email opens a case by
+ *    itself (ADR 0047 §7): Postmark signs nothing and its sender headers can be
+ *    forged, so a person decides every time. Keyed on the document's recorded
+ *    arrival, never on a caller's flag. The confidence, the floor and any
+ *    fields that did not fit are still recorded beside it.
  */
-export const HOLD_REASONS = ['below_floor', 'type_did_not_fit'] as const;
+export const HOLD_REASONS = ['below_floor', 'type_did_not_fit', 'by_email'] as const;
 export type HoldReason = (typeof HOLD_REASONS)[number];
 
 export function isHoldReason(value: unknown): value is HoldReason {

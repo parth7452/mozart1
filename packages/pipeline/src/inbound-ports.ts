@@ -99,8 +99,23 @@ export interface RecordedInboundPart extends InboundPartRecord {
   readonly inboundMessageId: string;
 }
 
+/** Whether a message's claim was taken, and if not, why not (ADR 0047 §10). */
+export type InboundClaim<T> =
+  | { readonly claimed: true; readonly result: T }
+  | { readonly claimed: false; readonly reason: 'held' | 'no_connection' };
+
 /** The tenant-scoped half of email-in, acting as the address's member. */
 export interface InboundMessageStore {
+  /**
+   * Runs `work` while this delivery holds the message's claim, so two
+   * deliveries of one email never ingest it at once. A delivery that gets
+   * neither a connection nor the claim spends nothing.
+   */
+  withMessageClaim<T>(
+    provider: InboundProvider,
+    providerMessageId: string,
+    work: () => Promise<T>,
+  ): Promise<InboundClaim<T>>;
   /** The `received` row for this message, if one is recorded. */
   receivedMessage(
     provider: InboundProvider,

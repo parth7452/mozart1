@@ -203,7 +203,6 @@ export class InMemoryStore
   readonly cases = new Map<string, CaseRecord>();
   readonly links: Array<{ deductionId: string; documentId: string; role: string }> = [];
   readonly pages = new Map<string, string[]>();
-  readonly orgs = new Map<string, string>();
   /**
    * The tenant's debtors, as a test set them up. Nothing here ever adds to this
    * list: `openCase` resolves against it and never creates a debtor, which is
@@ -714,15 +713,6 @@ export class InMemoryStore
     return this.cases.get(deductionId);
   }
 
-  async findOrgBySlug(slug: string): Promise<{ orgId: string; slug: string } | undefined> {
-    const orgId = this.orgs.get(slug);
-    return orgId === undefined ? undefined : { orgId, slug };
-  }
-
-  /** Registers a tenant and the inbound address slug that routes to it. */
-  addOrg(slug: string, orgId: string): void {
-    this.orgs.set(slug, orgId);
-  }
 
   async memberMayWrite(actor: {
     readonly orgId: string;

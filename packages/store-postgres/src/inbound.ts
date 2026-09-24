@@ -18,6 +18,7 @@
 import type { Pool, PoolClient } from 'pg';
 import type {
   InboundAddressResolution,
+  InboundClaim,
   InboundMessageRecord,
   InboundMessageStore,
   InboundPartRecord,
@@ -128,11 +129,6 @@ export interface InboundAddressRow {
   readonly refusedSinceRetired: number;
   readonly lastRefusedAt?: Date;
 }
-
-/** Whether the message claim was taken, and if not, why not (§10). */
-export type InboundClaim<T> =
-  | { readonly claimed: true; readonly result: T }
-  | { readonly claimed: false; readonly reason: 'held' | 'no_connection' };
 
 export class PostgresInboundStore implements InboundMessageStore {
   private readonly pool: Pool;

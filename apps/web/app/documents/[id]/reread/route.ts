@@ -98,14 +98,13 @@ export async function POST(
     // having settled the question.
     //
     // Everything else falls back to the old rule: read once, no case. An email
-    // may open a case only when DKIM or DMARC passed, and whether they did is
-    // *not persisted anywhere* — `InboundEmail.authenticated` decides
-    // `allowCaseOpen` at ingest and is never written down, and there is no
-    // column for it short of a migration and an ADR. So an email-borne document
-    // gets the conservative answer, which is the one that cannot let a forged
-    // `From:` acquire a case by way of a button on our own case list. A
-    // document with no recorded channel — stored before any of this — gets the
-    // same answer for the same reason.
+    // never opens a case by itself (ADR 0047 §7), and that is not this route's
+    // flag to keep: `readDocument` asks the document's own arrival and holds an
+    // emailed notice or remittance for a person whatever `allowCaseOpen` says,
+    // including the never-read document this line would let through. A document
+    // with no recorded channel — stored before any of this — gets the
+    // conservative answer, which cannot let a forged `From:` acquire a case by
+    // way of a button on our own case list.
     const source = await store.uploadSourceFor(id);
     const allowCaseOpen =
       source === 'web_upload' || (await store.latestExtraction(id)) === undefined;

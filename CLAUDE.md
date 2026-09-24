@@ -135,7 +135,7 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
-| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
@@ -552,11 +552,10 @@ guess, because that column is the one a coverage number is sliced by and a wrong
 number there reads exactly like a right one. And the "Read again" button asks
 the document: `web_upload` may open a case, which closes the gap where an
 upload whose first read recorded fields and then failed could never get one.
-Anything else keeps the old conservative rule — read once, no case — because
-whether an inbound email authenticated is **not persisted anywhere**
-(`InboundEmail.authenticated` decides it at ingest and is never written down),
-and the answer that cannot let a forged `From:` acquire a case is the one to
-give when the database does not know.
+Anything else keeps the old conservative rule — read once, no case — and an
+emailed document is held for a person by `readDocument` itself whatever this
+button computes (ADR 0047 §7); the verdict Postmark reported is now recorded
+on `inbound_messages`, and gates nothing.
 
 **A field with no provenance is not a document with no lines.**
 `flattenExtraction` writes no `extraction_results` row for a value it cannot
@@ -1263,8 +1262,8 @@ word. That collision does not need the new field: any remittance that prints
 two deductions against one invoice as two lines meets it today, and fixing it is
 identity's job (ADR 0028's claim key), a follow-up.
 
-**Email-in has a database half and no door yet** (ADR 0047, migration 0034;
-part 1 of 3). A tenant's address will be `<token>@<INBOUND_DOMAIN>`, the token
+**Email-in has a database half, a parser and a job, and no door yet** (ADR
+0047, migration 0034; parts 1 and 2 of 3). A tenant's address will be `<token>@<INBOUND_DOMAIN>`, the token
 32 hex characters the database generates and never a slug; addresses are
 issued, adopted and retired by an owner as themselves, in three append-only
 tables, and a retired token is never reissued. `app.inbound_address_for()`
@@ -1277,8 +1276,27 @@ tenant-scoped side, and its message claim (seed 3) runs on its own pool of two
 with a one-second wait. Separately, and on every door: a document stored
 without a clean-or-infected verdict is scanned again when its bytes arrive
 again, where it used to be answered from the missing verdict for ever. Suite 30
-and `packages/store-postgres/test/inbound.test.ts` read it back. The parser,
-the job and the route are parts 2 and 3.
+and `packages/store-postgres/test/inbound.test.ts` read it back.
+
+Part 2 is the reading. `parsePostmarkInbound` takes the tenant from
+`OriginalRecipient` alone and only as a token on `INBOUND_DOMAIN`, reads
+aligned DKIM from exactly one `X-Spam-Tests` (`DKIM_VALID_AU`, with one each of
+the other two `X-Spam-*` headers and exactly one author address), never reads
+`Authentication-Results` (a sender could write it and Postmark never does), and
+plans every part: strict base64 only, a small inline-referenced image is a
+logo and not stored, ten stored parts at most, and the body is a part too.
+`receiveInboundEmail` is the request half — under the message's claim, as the
+address's acting member, it stores and scans each part through
+`ingestDocument` and records the email and every part's outcome in one call,
+reading nothing; a scanner with no verdict fails it loudly and the retry
+re-scans. `readInboundEmailJob` reads each stored part through
+`readDocumentJob`, and the body only when no attachment was a notice.
+`readDocument` holds an emailed notice or remittance with reason `by_email`
+whatever `allowCaseOpen` a caller computed, so the job, "Read again" and a
+re-upload of the same bytes all hold it; "Open a case from it" opens it.
+`INBOUND_READS_PER_DAY` (100, core-domain) bounds the parts read per tenant per
+day. `ingestInboundEmail`, `findOrgBySlug` (which in memory saw every tenant)
+and the slug addresses are gone. The route is part 3.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
