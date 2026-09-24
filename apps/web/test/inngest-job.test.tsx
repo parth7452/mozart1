@@ -251,6 +251,7 @@ describe('the read job', () => {
             deductionId: null,
             haltedBecause: null,
             alreadyRead: true,
+            filedFromRecord: false,
             beingRead: false,
             remittanceCases: [],
             // Required since ADR 0044; no hold on this document.

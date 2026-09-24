@@ -497,10 +497,16 @@ page lists a case's documents with `caseDocuments` rather than from their
 fields, so the original it embeds is the notice by its link — a ledger case's
 JSON extract included, which `/api/document` now shows in place, sandboxed —
 and the packet names every file it encloses.
-Uploading the same file on the case page still
-reads it again, because `recordedRead` sends an attachment to a case the
-document is not on through the read. `jobs.test.ts` pins that, and making it
-reuse the reading is a follow-up.
+Uploading the same file on the case page files it the same way: the bytes
+dedupe to the document already read, and `answerFromRecord` — asked first by
+the inline upload, by the request that would queue a read and by the job —
+files the recorded reading on the case with `attachEvidence` rather than
+reading it again (`evidence.attached`, `read_again: false`, no model call;
+`jobs.test.ts` and `upload-route.test.tsx`). What it cannot reach is an upload
+to a second case while the first read is still running: nothing is recorded
+yet, so it is queued, and the upload's `readKey` (the document id) is the
+first upload's, whose idempotency window swallows it. Keying an attachment's
+read on the case too is a follow-up.
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it

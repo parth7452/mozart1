@@ -2823,9 +2823,11 @@ export class PostgresStore
    * inserts and the other inserts nothing, and only the one that inserted
    * writes the event.
    *
-   * `evidence.attached` rather than `evidence.uploaded`: nothing was uploaded to
-   * this case and nothing was read for it, and the case's history should say
-   * which of the two happened.
+   * `evidence.attached` rather than `evidence.uploaded`: nothing was read for
+   * this case, and the case's history should say which of the two happened.
+   * The Attach button on the case list reaches this, and so does the same file
+   * uploaded to a case that does not hold it yet (`answerFromRecord`): the
+   * bytes were already read, and it is the recorded reading that is filed.
    */
   async attachEvidence(input: {
     readonly orgId: string;

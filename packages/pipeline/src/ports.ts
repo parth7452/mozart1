@@ -496,6 +496,23 @@ export interface PipelineStore {
     readonly detail?: string;
   }): Promise<DeclinedLine>;
   linkDocument(deductionId: string, documentId: string, role: 'notice' | 'evidence'): Promise<void>;
+  /**
+   * Files a document that was already read against a case as evidence, and
+   * records `evidence.attached` on the case — both, or neither, and neither
+   * when the case already holds the document in any role
+   * (`EvidenceAttachStore.attachEvidence`, which this is).
+   *
+   * On this port because an upload reaches it too: the same bytes uploaded to
+   * a case that does not hold them yet are a document this tenant has already
+   * read, and the recorded reading is what files them there
+   * (`answerFromRecord`). Reading the page again would pay for it twice.
+   */
+  attachEvidence(input: {
+    readonly orgId: string;
+    readonly deductionId: string;
+    readonly documentId: string;
+    readonly docType: DocType;
+  }): Promise<boolean>;
   transitionCase(deductionId: string, to: CaseState): Promise<CaseRecord>;
   appendEvent(input: {
     orgId: string;
@@ -667,11 +684,12 @@ export interface HeldDocumentStore extends PipelineStore, DocumentReadLock {
  * Files a document that was already read against a case, without reading it
  * again.
  *
- * A separate port from `PipelineStore` because nothing in the pipeline calls
- * it: a person does, from the case list. Everything it needs to know about the
- * document is already recorded, so there is no page to fetch and no model to
- * call — which is the difference between this and uploading the same file to
- * the case, where the bytes go through the read again.
+ * A separate, narrower port from `PipelineStore` because a person calls it,
+ * from the case list, with a document id and no bytes. Everything it needs to
+ * know about the document is already recorded, so there is no page to fetch
+ * and no model to call. Uploading the same file to the case ends in the same
+ * `attachEvidence` (`answerFromRecord`): the bytes dedupe to the document
+ * already read, and its reading is filed rather than read again.
  */
 export interface EvidenceAttachStore {
   getCase(deductionId: string): Promise<CaseRecord | undefined>;

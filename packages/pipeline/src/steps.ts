@@ -536,6 +536,12 @@ export interface DocumentRead {
 
 export interface ProcessedDocument extends DocumentRead {
   readonly ingest: IngestResult;
+  /**
+   * True when these bytes were a document already read, uploaded to a case
+   * that did not hold it, and its recorded reading was filed there instead of
+   * being read again (`answerFromRecord`). `case` is that case.
+   */
+  readonly filedFromRecord?: true;
 }
 
 export interface ReadOptions {
@@ -582,15 +588,20 @@ export function scanGateHalt(verdict: ScanVerdict): string {
  *
  * So the recorded extraction is the gate: a document that has one has been
  * read. `undefined` means reading it again would produce something the first
- * read did not, and there are exactly two ways that happens:
+ * read did not, and there is exactly one way that happens: it is a notice that
+ * has no case, and this read may open one. The earlier read was an
+ * unauthenticated email's (ADR 0016), which files the document and refuses to
+ * open a case from it, or it was one that failed on the way in.
  *
- * - it is being attached to a case it is not yet linked to. The read is how the
- *   link and the `evidence.uploaded` event get written — the same BOL is
- *   evidence for two deductions, and its second upload dedupes to the same
- *   document — so skipping it would lose a reviewer's attachment.
- * - it is a notice that has no case, and this read may open one. The earlier
- *   read was an unauthenticated email's (ADR 0016), which files the document
- *   and refuses to open a case from it, or it was one that failed on the way in.
+ * A document being attached to a case it is not on yet is *not* that. The same
+ * BOL is evidence for two deductions, and its second upload dedupes to the same
+ * document; what the second case needs is a link, and the reading that link
+ * files is already recorded. That used to go through the read — the read was
+ * where an upload's link and event were written — which paid for the page a
+ * second time to learn nothing new. Now the answer says which case to file it
+ * on (`fileOnCase`), and `answerFromRecord` files it there without a model
+ * call. Skipping the link would lose a reviewer's attachment, so an answer
+ * with `fileOnCase` is never one to report and stop at.
  *
  * Except when a read *held* it (ADR 0044). A held notice has no case on
  * purpose: the classifier doubted it, or the reading did not fit, and a person
@@ -607,6 +618,13 @@ export interface RecordedRead {
   readonly deductionId?: string;
   /** The hold an earlier read recorded, when it is still standing and no case holds the document. */
   readonly held?: DocumentHold;
+  /**
+   * The case the caller named, when that case does not hold the document yet.
+   * The recorded reading is what files it there — `answerFromRecord` does,
+   * with no model call — so this is work still to do, not a finished answer.
+   * `deductionId` is absent beside it: the case does not hold the document.
+   */
+  readonly fileOnCase?: string;
 }
 
 export async function recordedRead(
@@ -623,7 +641,9 @@ export async function recordedRead(
 
   if (options.attachToCase !== undefined) {
     const linked = await deps.store.documentsForCase(options.attachToCase);
-    if (!linked.some((d) => d.documentId === document.documentId)) return undefined;
+    if (!linked.some((d) => d.documentId === document.documentId)) {
+      return { docType: recorded.docType, fileOnCase: options.attachToCase };
+    }
     return { docType: recorded.docType, deductionId: options.attachToCase };
   }
 
@@ -649,6 +669,86 @@ export async function recordedRead(
   return {
     docType: recorded.docType,
     ...(deductionId !== undefined ? { deductionId } : {}),
+  };
+}
+
+/** What `answerFromRecord` settled without reading anything. */
+export interface AnsweredFromRecord {
+  readonly docType: DocType;
+  /** The case the document is on — the one this call filed it on, when it did. */
+  readonly deductionId?: string;
+  /** The hold an earlier read recorded (ADR 0044), as `recordedRead` says it. */
+  readonly held?: DocumentHold;
+  /**
+   * The case this call filed the recorded reading on, when it did: one
+   * `deduction_documents` link and one `evidence.attached` event, written
+   * together, and no model call. Absent for everything else — including a race
+   * another request won, where the case already holds the document and
+   * `deductionId` says so.
+   */
+  readonly filedOn?: CaseRecord;
+}
+
+/**
+ * `recordedRead`, acted on: what a previous read already settles, with the one
+ * write it can still owe.
+ *
+ * That write is an attachment. A reviewer uploading, on a case page, a file
+ * this tenant has already read — the BOL that is evidence for two deductions,
+ * the same receipt pressed twice from two cases — is asking for a link, and
+ * the reading the link files is recorded. So the case gets that reading
+ * through `attachEvidence`, the one transaction the case list's Attach button
+ * uses, and nothing is fetched, classified, extracted or paid for. The event
+ * is `evidence.attached` with `read_again: false`, because that is what
+ * happened: nothing was read for this case.
+ *
+ * Every path that would otherwise start a read asks this first — the inline
+ * upload, the request that would queue one, and the job — so the three cannot
+ * disagree about when a page is paid for twice. `undefined` is the same answer
+ * `recordedRead` gives: nothing recorded settles it, and the caller reads.
+ *
+ * The case is resolved again before the write, with the refusals every attach
+ * has (`resolveAttachTarget`): a case that has gone or was merged away while
+ * the upload was in flight is refused by name rather than linked, and the
+ * database would refuse a merged one anyway (`RCM01`).
+ */
+export async function answerFromRecord(
+  document: Pick<StoredDocument, 'documentId'>,
+  deps: PipelineDeps,
+  options: ReadOptions = {},
+): Promise<AnsweredFromRecord | undefined> {
+  const recorded = await recordedRead(document, deps, options);
+  if (recorded === undefined) return undefined;
+
+  if (recorded.fileOnCase === undefined) {
+    return {
+      docType: recorded.docType,
+      ...(recorded.deductionId !== undefined ? { deductionId: recorded.deductionId } : {}),
+      ...(recorded.held !== undefined ? { held: recorded.held } : {}),
+    };
+  }
+
+  const target = await resolveAttachTarget(recorded.fileOnCase, deps);
+  if (target === undefined) throw new CaseNotFoundError(recorded.fileOnCase);
+  const filed = await deps.store.attachEvidence({
+    // The case's tenant, as its row says — the org the claims name, since the
+    // case was found under them.
+    orgId: target.orgId,
+    deductionId: target.deductionId,
+    documentId: document.documentId,
+    docType: recorded.docType,
+  });
+  // Ids and a doc type: nothing off the page (invariant 4).
+  console.info(
+    `[recouple] read: document ${document.documentId} was already read as a ${recorded.docType}; ` +
+      (filed
+        ? `its recorded reading was filed on case ${target.deductionId} without reading it again`
+        : `case ${target.deductionId} already held it, so nothing was written`),
+  );
+  return {
+    docType: recorded.docType,
+    deductionId: target.deductionId,
+    ...(filed ? { filedOn: target } : {}),
   };
 }
 
@@ -688,9 +788,14 @@ export async function processUpload(
   // so this is the one path where the question is worth a query: if it has, the
   // upload is a re-upload and reading it again would open a second case and pay
   // for the page twice (`recordedRead`). The reviewer is sent to the case it
-  // already opened rather than told nothing happened.
+  // already opened rather than told nothing happened — or, uploading it to a
+  // case that does not hold it yet, to that case, where the recorded reading
+  // has just been filed (`answerFromRecord`).
   if (ingest.deduplicated) {
-    const already = await recordedRead(ingest.document, deps, options);
+    const already = await answerFromRecord(ingest.document, deps, options);
+    if (already?.filedOn !== undefined) {
+      return { ingest, case: already.filedOn, filedFromRecord: true };
+    }
     if (already?.held !== undefined) {
       // Held for a person by the first read (ADR 0044). The same bytes again are
       // not a reason to pay for a second opinion from the same classifier; the

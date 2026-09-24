@@ -22,9 +22,9 @@ import type {
   StoredDocument,
 } from './ports';
 import {
+  answerFromRecord,
   ingestDocument,
   readDocument,
-  recordedRead,
   resolveAttachTarget,
   scanGateHalt,
   type DocumentRead,
@@ -193,13 +193,21 @@ export interface ReadDocumentJobResult {
   /** Why it went no further, when it did not: null is a read that completed. */
   readonly haltedBecause: string | null;
   /**
-   * True when this delivery found the document already read and did nothing:
-   * no model call, no second case, no second row of anything.
+   * True when this delivery found the document already read and read nothing:
+   * no model call, no second case, no second reading. The one row it can
+   * still write is the attachment `filedFromRecord` reports.
    *
    * Reported rather than hidden, so a run whose output says a document was read
    * can be told apart from a run that only repeated what an earlier one said.
    */
   readonly alreadyRead: boolean;
+  /**
+   * True when the document was already read and this delivery filed that
+   * reading on the case it was asked to attach to — a link and an
+   * `evidence.attached` event, no model call (`answerFromRecord`).
+   * `alreadyRead` is true beside it and `deductionId` names the case.
+   */
+  readonly filedFromRecord: boolean;
   /**
    * True when another delivery was reading this document at that moment, and
    * this one stopped rather than reading it alongside.
@@ -313,9 +321,10 @@ export async function readDocumentJob(
     // Reading it again would classify, extract and — while `debtor_id` is null,
     // which is every tenant's starting state — open a second case, because the
     // unique constraint that catches a duplicate claim does not fire on a null
-    // debtor (ADR 0019). So the recorded result is reported and nothing is
-    // written.
-    const already = await recordedRead(document, deps, options);
+    // debtor (ADR 0019). So the recorded result is reported, and the only
+    // thing written is an attachment the event asked for and the case does
+    // not have yet — filed from the recorded reading, not read for.
+    const already = await answerFromRecord(document, deps, options);
     if (already !== undefined) {
       return {
         documentId: document.documentId,
@@ -325,6 +334,7 @@ export async function readDocumentJob(
         // case; it is said again rather than reported as a finished read.
         haltedBecause: already.held !== undefined ? HELD_FOR_REVIEW : null,
         alreadyRead: true,
+        filedFromRecord: already.filedOn !== undefined,
         beingRead: false,
         // A read that is answered from the record did not open anything. What
         // the earlier one opened is on the cases themselves.
@@ -341,6 +351,7 @@ export async function readDocumentJob(
       deductionId: read.case?.deductionId ?? null,
       haltedBecause: read.haltedBecause ?? null,
       alreadyRead: false,
+      filedFromRecord: false,
       beingRead: false,
       remittanceCases: [
         ...(read.remittance?.opened ?? []).map((c) => c.deductionId),
@@ -360,6 +371,7 @@ export async function readDocumentJob(
       deductionId: null,
       haltedBecause: null,
       alreadyRead: true,
+      filedFromRecord: false,
       beingRead: true,
       remittanceCases: [],
       held: null,

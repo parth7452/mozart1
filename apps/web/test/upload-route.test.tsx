@@ -257,6 +257,27 @@ describe('uploading a notice whose claim is already a case', () => {
     expect(said(response)).toBe('choose a file first');
   });
 
+  it('files an already-read document on a second case without reading it again', async () => {
+    // The inline runner, the same question: the notice opened its case, and
+    // the same file uploaded from another case's page is filed there from the
+    // recorded reading instead of classified and extracted a second time.
+    const store = harness.store as RouteTestStore;
+    await POST(uploadRequest(notice.bytes, notice.filename));
+    const opened = [...store.cases.values()][0];
+    const spent = store.totalCostMicros();
+    const other = await store.openCase({ orgId: ORG_ID, claimId: 'OTHER-CLAIM' });
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, other.deductionId));
+
+    expect(store.totalCostMicros()).toBe(spent);
+    expect(store.extractions).toHaveLength(1);
+    expect(store.links.filter((l) => l.deductionId === other.deductionId)).toHaveLength(1);
+    expect(store.links.filter((l) => l.deductionId === opened?.deductionId)).toHaveLength(1);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe(`/cases/${other.deductionId}`);
+    expect(to.searchParams.get('upload')).toBe('upload_filed_from_record');
+  });
+
   it('refuses a cross-site POST with a 403, before the session is resolved', async () => {
     // Reading a document costs money and stores bytes. Neither should be
     // reachable from another site's page. `SameSite=Lax` on the session cookie
@@ -521,6 +542,46 @@ describe('uploading where the read runs as a job', () => {
     expect(store.modelCalls).toHaveLength(0);
     expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
     expect(said(response)).toMatch(/already been read/);
+  });
+
+  it('files bytes it has already read on a second case from the record, and queues nothing', async () => {
+    // The same BOL is evidence for two deductions. Uploaded from the second
+    // case's page it dedupes to the document already read, so the recorded
+    // reading is filed there in this request — no event, no model call —
+    // rather than queued to be paid for a second time.
+    const store = harness.store as RouteTestStore;
+    const stored = await store.putDocument({
+      orgId: ORG_ID,
+      sha256: await sha256Of(notice.bytes),
+      filename: notice.filename,
+      mimeType: 'application/pdf',
+      byteSize: notice.bytes.byteLength,
+      bytes: notice.bytes,
+      requiresSplit: false,
+    });
+    await store.recordScan(stored.documentId, { status: 'clean', scanner: 'test' });
+    await store.recordExtraction({
+      documentId: stored.documentId,
+      docType: 'bol',
+      extractor: 'stub',
+      schemaVersion: 'v1',
+      fields: [],
+      document: {},
+    });
+    const second = await store.openCase({ orgId: ORG_ID });
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, second.deductionId));
+
+    expect(sent).toEqual([]);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(store.links).toEqual([
+      { deductionId: second.deductionId, documentId: stored.documentId, role: 'evidence' },
+    ]);
+    expect(store.events.map((e) => e.eventType)).toEqual(['evidence.attached']);
+    const to = new URL(response.headers.get('location') as string);
+    expect(to.pathname).toBe(`/cases/${second.deductionId}`);
+    expect(to.searchParams.get('upload')).toBe('upload_filed_from_record');
+    expect(said(response)).toMatch(/already been read.*attached to this case.*nothing was charged/);
   });
 
   it('refuses evidence for a case merged into another before storing or queueing anything', async () => {

@@ -396,6 +396,13 @@ export const NOTICES = {
     tone: 'bad',
     text: 'that document had already been read, so it was not read again and nothing was spent on it',
   },
+  upload_filed_from_record: {
+    // The same bytes, uploaded to a case that did not hold them: this tenant
+    // had already read the document, so its recorded reading was filed here
+    // rather than paid for a second time (`answerFromRecord`).
+    tone: 'good',
+    text: 'that document had already been read, so its reading was attached to this case as evidence. It was not read again, and nothing was charged.',
+  },
   upload_held: {
     // ADR 0044. Not "already read" and not "read as": the document was read,
     // and it would have opened a case on its own, but the classifier was less
