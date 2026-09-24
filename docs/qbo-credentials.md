@@ -216,11 +216,18 @@ turned off first — syncs stop — and then our access is revoked at Intuit, an
 both are recorded. If Intuit does not confirm the revoke, the page says so, and
 the owner can also remove the app inside QuickBooks (Settings → Apps).
 
-`pnpm unlink:qbo` is the operator's release, for a connection nobody will press
-Disconnect on: a workspace whose owner left, or an agency that stopped working
-for the manufacturer. Because a company can be connected to one workspace at a
-time, such a connection blocks every other workspace from that company until it
-is released:
+A connection whose sign-in Intuit has refused for good — the customer removed
+the app inside QuickBooks, or nothing synced it for the ~100 days a refresh
+token lasts — is released by the next sync on its own (ADR 0046): the run is
+recorded `failed`, the connection is turned off, and Settings → QuickBooks says
+why. The one it cannot release is a connection whose member is no longer an
+owner.
+
+`pnpm unlink:qbo` is the operator's release for that case, and for a connection
+nobody will press Disconnect on while its sign-in still works: a workspace whose
+owner left, or an agency that stopped working for the manufacturer. Because a
+company can be connected to one workspace at a time, such a connection blocks
+every other workspace from that company until it is released:
 
 ```
 pnpm unlink:qbo --org <holding slug> --as <an owner of it> --realm <company id> --dry-run

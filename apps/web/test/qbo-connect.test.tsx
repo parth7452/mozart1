@@ -254,6 +254,27 @@ describe('Settings → QuickBooks', () => {
     expect(html).not.toContain('Reconnect');
   });
 
+  it('says a connection the sync released was turned off because Intuit refused it (ADR 0046)', () => {
+    const released = connection({
+      enabled: false,
+      updatedAt: '2026-10-02T07:00:05.000Z',
+      releasedBySync: { at: '2026-10-02T07:00:05.000Z', reason: 'grant_refused' },
+    });
+    const html = page({ connections: [released] });
+    expect(html).toContain('<h2>Not connected</h2>');
+    expect(html).toContain(
+      'QuickBooks refused the stored sign-in for company 9341457960434078 on 2026-10-02, so it was ' +
+        'turned off automatically and nothing reads it now. Connect QuickBooks to sign in again.',
+    );
+    expect(html).toContain('2026-10-02, after QuickBooks refused its sign-in');
+    expect(html).toContain('Connect QuickBooks');
+
+    // A connection a person turned off says nothing about a release.
+    const byHand = page({ connections: [connection({ enabled: false })] });
+    expect(byHand).not.toContain('turned off automatically');
+    expect(byHand).not.toContain('refused its sign-in');
+  });
+
   it('offers Reconnect when the sign-in cannot be used, and says why', () => {
     const html = page({
       connections: [connection({ lastRun: { ...connection().lastRun!, outcome: 'failed', errorClass: 'QboAuthError' } })],

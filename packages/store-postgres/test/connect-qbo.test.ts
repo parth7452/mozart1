@@ -10,7 +10,12 @@ import {
   OwnerRequiredError,
   PostgresLedgerSyncStore,
 } from '../src/connections';
-import { connectQboCompany, disconnectLedger, planLedgerClaim } from '../src/connect-qbo';
+import {
+  connectQboCompany,
+  disconnectLedger,
+  planLedgerClaim,
+  releaseDeadLedger,
+} from '../src/connect-qbo';
 import { LedgerAccountBusyError, withLedgerAccountLock } from '../src/ledger-lock';
 import { PostgresQboTokenStore } from '../src/credentials';
 import { closeAllPools, PostgresStore } from '../src/store';
@@ -565,6 +570,142 @@ describeDb('connecting a QuickBooks company on Postgres', () => {
         await disconnectLedger(config, as(orgB, ownerB), {
           connectionId: made.connection.connectionId,
           via: 'web_consent',
+        }),
+      ).toBeUndefined();
+      expect((await rowsFor(realmId))[0]?.enabled).toBe(true);
+    });
+  });
+
+  describe('releasing a connection Intuit refused (ADR 0046)', () => {
+    /** Connects a fresh company as ownerA and names the stored sign-in a refresh would present. */
+    async function connectedWithCredential() {
+      const realmId = realm();
+      const made = await connectQboCompany(config, as(orgA, ownerA), {
+        realmId, tokens: tokens('refused'), cipher, via: 'web_consent',
+      });
+      const store = new PostgresQboTokenStore(
+        config,
+        as(orgA, ownerA),
+        { connectionId: made.connection.connectionId, realmId },
+        cipher,
+      );
+      expect(store.loadedCredential()).toBeUndefined();
+      await store.load(realmId);
+      const credentialId = store.loadedCredential();
+      expect(credentialId).toBeDefined();
+      return { realmId, connectionId: made.connection.connectionId, credentialId: credentialId as string };
+    }
+
+    it('turns it off and says so on the audit trail, as the member the sync acts as', async () => {
+      const { realmId, connectionId, credentialId } = await connectedWithCredential();
+      const before = await credentialCount(connectionId);
+      const runs = new PostgresLedgerSyncStore(config, as(orgA, ownerA), new PostgresStore(config, as(orgA, ownerA)));
+
+      expect(
+        await runs.releaseDeadConnection({ connectionId, credentialId, reason: 'grant_refused' }),
+      ).toBe('released');
+
+      expect((await rowsFor(realmId))[0]?.enabled).toBe(false);
+      // Nothing is deleted: the dead sign-in stays on its chain.
+      expect(await credentialCount(connectionId)).toBe(before);
+      const trail = await auditFor(connectionId);
+      expect(trail.slice(-2)).toEqual([
+        {
+          action: 'accounting_connection.disconnected',
+          actor_id: ownerA,
+          payload: {
+            provider: 'qbo',
+            provider_account_id: realmId,
+            via: 'ledger_sync',
+            reason: 'grant_refused',
+            credential_id: credentialId,
+          },
+        },
+        {
+          action: 'accounting_connection.revoke',
+          actor_id: ownerA,
+          payload: {
+            provider: 'qbo',
+            provider_account_id: realmId,
+            via: 'ledger_sync',
+            result: 'not_attempted',
+          },
+        },
+      ]);
+
+      // The settings page can say why it is off.
+      const overview = (await runs.ledgerConnectionOverview()).find(
+        (row) => row.connectionId === connectionId,
+      );
+      expect(overview?.enabled).toBe(false);
+      expect(overview?.releasedBySync?.reason).toBe('grant_refused');
+
+      // And the company is no longer held from anyone.
+      const taken = await connectQboCompany(config, as(orgB, ownerB), {
+        realmId, tokens: tokens('after-release'), cipher, via: 'web_consent',
+      });
+      expect(taken.outcome).toBe('connected');
+    });
+
+    it('lets the same owner connect again, after which the page no longer speaks of the release', async () => {
+      const { connectionId, credentialId, realmId } = await connectedWithCredential();
+      await releaseDeadLedger(config, as(orgA, ownerA), {
+        connectionId, credentialId, reason: 'refresh_expired',
+      });
+      const again = await connectQboCompany(config, as(orgA, ownerA), {
+        realmId, tokens: tokens('consented-again'), cipher, via: 'web_consent',
+      });
+      expect(again.outcome).toBe('reconnected');
+      expect(again.connection.connectionId).toBe(connectionId);
+
+      const runs = new PostgresLedgerSyncStore(config, as(orgA, ownerA), new PostgresStore(config, as(orgA, ownerA)));
+      const overview = (await runs.ledgerConnectionOverview()).find(
+        (row) => row.connectionId === connectionId,
+      );
+      expect(overview?.enabled).toBe(true);
+      expect(overview?.releasedBySync).toBeUndefined();
+    });
+
+    it('leaves it on when a newer sign-in was stored since — a reconnect is never undone', async () => {
+      const { realmId, connectionId, credentialId } = await connectedWithCredential();
+      await connectQboCompany(config, as(orgA, ownerA), {
+        realmId, tokens: tokens('reconnected-meanwhile'), cipher, via: 'web_consent',
+      });
+      const trailBefore = (await auditFor(connectionId)).length;
+
+      expect(
+        await releaseDeadLedger(config, as(orgA, ownerA), {
+          connectionId, credentialId, reason: 'grant_refused',
+        }),
+      ).toBe('newer_sign_in');
+      expect((await rowsFor(realmId))[0]?.enabled).toBe(true);
+      expect(await auditFor(connectionId)).toHaveLength(trailBefore);
+    });
+
+    it('writes nothing for a connection that is already off', async () => {
+      const { connectionId, credentialId } = await connectedWithCredential();
+      await disconnectLedger(config, as(orgA, ownerA), { connectionId, via: 'web_consent' });
+      const trailBefore = (await auditFor(connectionId)).length;
+
+      expect(
+        await releaseDeadLedger(config, as(orgA, ownerA), {
+          connectionId, credentialId, reason: 'grant_refused',
+        }),
+      ).toBe('already_off');
+      expect(await auditFor(connectionId)).toHaveLength(trailBefore);
+    });
+
+    it('refuses a member who is not an owner, and another tenant finds nothing', async () => {
+      const { realmId, connectionId, credentialId } = await connectedWithCredential();
+
+      await expect(
+        releaseDeadLedger(config, as(orgA, analystA), {
+          connectionId, credentialId, reason: 'grant_refused',
+        }),
+      ).rejects.toBeInstanceOf(OwnerRequiredError);
+      expect(
+        await releaseDeadLedger(config, as(orgB, ownerB), {
+          connectionId, credentialId, reason: 'grant_refused',
         }),
       ).toBeUndefined();
       expect((await rowsFor(realmId))[0]?.enabled).toBe(true);

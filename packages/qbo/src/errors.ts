@@ -29,6 +29,36 @@ export class QboError extends Error {
  */
 export class QboAuthError extends QboError {
   override name = 'QboAuthError';
+
+  /**
+   * Set only when the stored sign-in is dead for good (ADR 0046): Intuit
+   * refused a refresh with `invalid_grant`, or the refresh token's own expiry
+   * has passed. Absent for every other way this error is thrown — our app's
+   * credentials refused, a token response we could not read, no tokens stored
+   * — none of which a release would answer. Read it with `deadGrantOf`.
+   */
+  readonly refusal: DeadGrant | undefined;
+
+  constructor(message: string, refusal?: DeadGrant) {
+    super(message);
+    this.refusal = refusal;
+  }
+}
+
+/** The two ways a stored QuickBooks sign-in is dead for good (ADR 0046 §1). */
+export type DeadGrant = 'grant_refused' | 'refresh_expired';
+
+/**
+ * Whether `error` says the stored sign-in is dead for good, and which way.
+ *
+ * The one place that answers it (ADR 0046 §1): `grant_refused` is Intuit
+ * answering a refresh with `invalid_grant`, `refresh_expired` is the refresh
+ * token's own expiry having passed. Anything else — `invalid_client`, a rate
+ * limit, an outage, a 401 from the accounting API — is `undefined`, because
+ * none of them says the customer's grant is gone.
+ */
+export function deadGrantOf(error: unknown): DeadGrant | undefined {
+  return error instanceof QboAuthError ? error.refusal : undefined;
 }
 
 /**

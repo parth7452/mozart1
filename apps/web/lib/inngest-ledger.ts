@@ -8,6 +8,7 @@ import {
   type LedgerSyncJobDeps,
   type LedgerSyncJobResult,
 } from '@recouple/pipeline';
+import { deadGrantOf } from '@recouple/qbo';
 import { isUuid } from './request';
 
 /**
@@ -351,7 +352,9 @@ export function ledgerSyncFunctions(client: Inngest, context: LedgerSyncContext)
  * Nothing is swallowed: every one of these still fails the run. The question is
  * only whether repeating it could answer differently. A malformed payload and a
  * connection this tenant cannot see are settled facts — a connection does not
- * appear because we asked twice. Everything else — a timeout, a 500 from
+ * appear because we asked twice. So is a stored sign-in Intuit refused for good
+ * (ADR 0046): retrying it would only write two more failed runs, and the job
+ * has already released the connection. Everything else — a timeout, a 500 from
  * Intuit, a database that blinked — is left retriable, which is the default,
  * and the trailing window means the next day's run covers what a give-up
  * missed.
@@ -371,7 +374,9 @@ export function asLedgerSyncFailure(
   ids: { readonly connectionId: string; readonly orgId: string },
 ): unknown {
   const settled =
-    error instanceof LedgerSyncJobError || error instanceof LedgerConnectionNotFoundError;
+    error instanceof LedgerSyncJobError ||
+    error instanceof LedgerConnectionNotFoundError ||
+    deadGrantOf(error) !== undefined;
 
   const name = error instanceof Error ? error.name : typeof error;
   const message =

@@ -11,6 +11,8 @@ import {
   syncLedgerJob,
   type LedgerConnectionRecord,
   type LedgerSourceFactory,
+  type DeadLedgerGrant,
+  type LedgerReleaseOutcome,
   type LedgerSyncRunRecord,
   type LedgerSyncRunStore,
 } from '../src/ledger-job';
@@ -330,6 +332,107 @@ describe('syncing one connection on a schedule', () => {
     expect(runs.written).toHaveLength(1);
     expect(runs.written[0]?.outcome).toBe('failed');
     expect(runs.written[0]?.errorClass).toBe('TypeError');
+  });
+
+  describe('a stored sign-in the provider refused for good (ADR 0046)', () => {
+    class Refused extends Error {
+      override name = 'QboAuthError';
+    }
+    const refusing: LedgerSource = {
+      async listPayments() {
+        throw new Refused('Intuit refused the token refresh (400): invalid_grant');
+      },
+      async listCredits() {
+        return [];
+      },
+      async getInvoiceHistories() {
+        return { invoices: [], payments: [], credits: [] };
+      },
+    };
+    const DEAD: DeadLedgerGrant = { reason: 'grant_refused', credentialId: 'cred-7' };
+
+    class ReleasingRunStore extends RunStore {
+      readonly released: { connectionId: string; credentialId: string; reason: string }[] = [];
+      /** What each call to release sees already written, to pin the order. */
+      readonly runsWhenReleased: number[] = [];
+      constructor(private readonly answer: LedgerReleaseOutcome | Error = 'released') {
+        super(connectionRecord());
+      }
+      async releaseDeadConnection(input: {
+        connectionId: string;
+        credentialId: string;
+        reason: DeadLedgerGrant['reason'];
+      }): Promise<LedgerReleaseOutcome | undefined> {
+        this.released.push(input);
+        this.runsWhenReleased.push(this.written.length);
+        if (this.answer instanceof Error) throw this.answer;
+        return this.answer;
+      }
+    }
+
+    async function run(runs: RunStore, deadGrant?: (error: unknown) => DeadLedgerGrant | undefined) {
+      return syncLedgerJob(
+        {
+          runs,
+          discovery: new InMemoryDiscoveryStore(),
+          sources: {
+            resolve: () => ({
+              kind: 'ready',
+              source: refusing,
+              ...(deadGrant !== undefined ? { deadGrant } : {}),
+            }),
+          },
+          now: () => AT,
+        },
+        { connectionId: CONNECTION, orgId: ORG, actor: { userId: USER } },
+      ).catch((thrown: unknown) => thrown);
+    }
+
+    it('records the failed run, then releases the connection, then rethrows the refusal', async () => {
+      const runs = new ReleasingRunStore();
+      const thrown = await run(runs, (error) => (error instanceof Refused ? DEAD : undefined));
+
+      expect(thrown).toBeInstanceOf(Refused);
+      expect(runs.written).toHaveLength(1);
+      expect(runs.written[0]?.outcome).toBe('failed');
+      expect(runs.written[0]?.errorClass).toBe('QboAuthError');
+      expect(runs.released).toEqual([
+        { connectionId: CONNECTION, credentialId: 'cred-7', reason: 'grant_refused' },
+      ]);
+      // The run row first: it is the record that a walk was attempted.
+      expect(runs.runsWhenReleased).toEqual([1]);
+    });
+
+    it('releases nothing for a failure that is not a dead sign-in', async () => {
+      const runs = new ReleasingRunStore();
+      await run(runs, () => undefined);
+      expect(runs.released).toEqual([]);
+
+      // Nor when the source cannot say.
+      const silent = new ReleasingRunStore();
+      await run(silent);
+      expect(silent.released).toEqual([]);
+    });
+
+    it('never lets a release that fails or is refused hide the refusal it follows', async () => {
+      class OwnerRequiredError extends Error {
+        override name = 'OwnerRequiredError';
+      }
+      for (const answer of [new OwnerRequiredError('not an owner'), 'newer_sign_in', 'already_off'] as const) {
+        const runs = new ReleasingRunStore(answer);
+        const thrown = await run(runs, () => DEAD);
+        expect(thrown, String(answer)).toBeInstanceOf(Refused);
+        expect(runs.written.map((r) => r.outcome), String(answer)).toEqual(['failed']);
+        expect(runs.released, String(answer)).toHaveLength(1);
+      }
+    });
+
+    it('does nothing more with a store that cannot release', async () => {
+      const runs = new RunStore(connectionRecord());
+      const thrown = await run(runs, () => DEAD);
+      expect(thrown).toBeInstanceOf(Refused);
+      expect(runs.written.map((r) => r.outcome)).toEqual(['failed']);
+    });
   });
 
   it('throws on a connection this tenant cannot see, and records nothing', async () => {
