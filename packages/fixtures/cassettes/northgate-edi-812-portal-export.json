@@ -1,0 +1,247 @@
+{
+  "key": "northgate-edi-812-portal-export",
+  "docType": "deduction_notice",
+  "classifiedAs": "deduction_notice",
+  "classifierConfidence": 0.98,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
+    "temperature": 0,
+    "classifiedAt": "2026-09-24T17:56:54.923Z"
+  },
+  "document": {
+    "retailer_name": {
+      "value": "Northgate Foodservice Distribution",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Buyer (N1*BY): Northgate Foodservice Distribution"
+    },
+    "vendor_number": {
+      "value": "BWP-20417",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Vendor Number: BWP-20417"
+    },
+    "claim_id": {
+      "value": "NFD-812-44017",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Adjustment Number: NFD-812-44017"
+    },
+    "invoice_number": {
+      "value": "BWP-INV-87930",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Invoice Reference (REF*IV): BWP-INV-87930"
+    },
+    "po_number": {
+      "value": "NFD-PO-550816",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Purchase Order (REF*PO): NFD-PO-550816"
+    },
+    "deduction_total": {
+      "value": "$1,842.50",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Total Adjustment Amount                                                $1,842.50"
+    },
+    "deduction_date": {
+      "value": "09/11/2026",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Adjustment Date: 09/11/2026"
+    },
+    "dispute_deadline": {
+      "value": "60 days of the adjustment date",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Disputes must be submitted within 60 days of the adjustment date."
+    },
+    "remittance_or_check": {
+      "value": "ACH-NFD-771305",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Payment Reference: ACH-NFD-771305"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "44102",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "1     03    QUANTITY CONTESTED      44102   Chicken Breast 4oz IQF     $1,125.00"
+        },
+        "description": {
+          "value": "Chicken Breast 4oz IQF",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Chicken Breast 4oz IQF"
+        },
+        "qty_invoiced": {
+          "value": 120,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Qty invoiced: 120   Qty received: 105   Unit price: $75.00"
+        },
+        "qty_received": {
+          "value": 105,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Qty invoiced: 120   Qty received: 105   Unit price: $75.00"
+        },
+        "unit_cost": {
+          "value": "$75.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "Qty invoiced: 120   Qty received: 105   Unit price: $75.00"
+        },
+        "deduction_amount": {
+          "value": "$1,125.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$1,125.00"
+        },
+        "reason_code": {
+          "value": "03",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "1     03    QUANTITY CONTESTED"
+        },
+        "reason_description": {
+          "value": "QUANTITY CONTESTED",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "QUANTITY CONTESTED"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "44115",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "2     01    PRICING ERROR           44115   Wing Sections 10lb           $500.00"
+        },
+        "description": {
+          "value": "Wing Sections 10lb",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Wing Sections 10lb"
+        },
+        "deduction_amount": {
+          "value": "$500.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$500.00"
+        },
+        "reason_code": {
+          "value": "01",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "2     01    PRICING ERROR"
+        },
+        "reason_description": {
+          "value": "PRICING ERROR",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "PRICING ERROR"
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "44121",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "3     07    ALLOWANCE NOT RECEIVED  44121   Chicken Thigh Bnls 5lb       $217.50"
+        },
+        "description": {
+          "value": "Chicken Thigh Bnls 5lb",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "Chicken Thigh Bnls 5lb"
+        },
+        "deduction_amount": {
+          "value": "$217.50",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$217.50"
+        },
+        "reason_code": {
+          "value": "07",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "3     07    ALLOWANCE NOT RECEIVED"
+        },
+        "reason_description": {
+          "value": "ALLOWANCE NOT RECEIVED",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "ALLOWANCE NOT RECEIVED"
+        },
+        "qty_invoiced": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "qty_received": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-24T17:56:54.923Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5408,
+    "outputTokens": 1835,
+    "costMicros": 29166,
+    "latencyMs": 13462
+  }
+}
