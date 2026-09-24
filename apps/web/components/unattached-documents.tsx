@@ -50,70 +50,71 @@ export function UnattachedDocuments({
         person decides. A delivery receipt, an invoice or a rate confirmation is evidence for a
         case. Attaching files what was already read — it is not read again.
       </p>
-      <table className="cases">
-        <thead>
-          <tr>
-            <th>Document</th>
-            <th>Read as</th>
-            <th>Received</th>
-            <th>Attach to</th>
-          </tr>
-        </thead>
-        <tbody>
-          {documents.map((document) => (
-            <tr key={document.documentId}>
-              <td>{document.filename === '' ? '—' : document.filename}</td>
-              <td>
-                {docTypeLabel(document.docType)}
-                {document.hold === undefined ? (
-                  // How sure the classifier was, as the classification row
-                  // recorded it — shown, never decided with here.
-                  <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
-                ) : (
-                  <p className="hold">{holdLine(document.hold)}</p>
-                )}
-              </td>
-              <td>{document.createdAt.slice(0, 10)}</td>
-              <td>
-                {document.hold !== undefined && mayOpenFrom(document.hold) ? (
-                  // A POST, for the attach form's reason. It reads nothing:
-                  // the case is opened from the reading already recorded.
-                  <form
-                    action={`/documents/${document.documentId}/open-case`}
-                    method="post"
-                    className="open-held"
-                  >
-                    <button type="submit">Open a case from it</button>
-                  </form>
-                ) : null}
-                {open.length === 0 ? (
-                  <span className="empty">No open case yet</span>
-                ) : (
-                  // A POST, not a link: it writes to a case, and a thing that
-                  // writes is not something a crawler or a prefetch may do by
-                  // visiting a URL.
-                  <form action={`/documents/${document.documentId}/attach`} method="post">
-                    <label className="sr-only" htmlFor={`attach-${document.documentId}`}>
-                      Case for {document.filename === '' ? 'this document' : document.filename}
-                    </label>
-                    <select id={`attach-${document.documentId}`} name="caseId" required defaultValue="">
-                      <option value="" disabled>
-                        Choose a case
+      {/* A list on the review queue's grid (ADR 0043) rather than a table: on a
+          phone a row stacks, so its actions are never scrolled out of reach. */}
+      <div className="unattached-columns" aria-hidden="true">
+        <span>Document</span>
+        <span>Read as</span>
+        <span>Received</span>
+        <span>Attach to</span>
+      </div>
+      <ul className="unattached-list">
+        {documents.map((document) => (
+          <li key={document.documentId} className="unattached-row">
+            <span className="unattached-name">{document.filename === '' ? '—' : document.filename}</span>
+            <span className="unattached-read">
+              {docTypeLabel(document.docType)}
+              {document.hold === undefined ? (
+                // How sure the classifier was, as the classification row
+                // recorded it — shown, never decided with here.
+                <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
+              ) : (
+                <span className="hold">{holdLine(document.hold)}</span>
+              )}
+            </span>
+            <span className="unattached-received">
+              <span className="unattached-received-label">Received </span>
+              {document.createdAt.slice(0, 10)}
+            </span>
+            <div className="unattached-actions">
+              {document.hold !== undefined && mayOpenFrom(document.hold) ? (
+                // A POST, for the attach form's reason. It reads nothing:
+                // the case is opened from the reading already recorded.
+                <form
+                  action={`/documents/${document.documentId}/open-case`}
+                  method="post"
+                  className="open-held"
+                >
+                  <button type="submit">Open a case from it</button>
+                </form>
+              ) : null}
+              {open.length === 0 ? (
+                <span className="empty">No open case yet</span>
+              ) : (
+                // A POST, not a link: it writes to a case, and a thing that
+                // writes is not something a crawler or a prefetch may do by
+                // visiting a URL.
+                <form action={`/documents/${document.documentId}/attach`} method="post">
+                  <label className="sr-only" htmlFor={`attach-${document.documentId}`}>
+                    Case for {document.filename === '' ? 'this document' : document.filename}
+                  </label>
+                  <select id={`attach-${document.documentId}`} name="caseId" required defaultValue="">
+                    <option value="" disabled>
+                      Choose a case
+                    </option>
+                    {open.map((summary) => (
+                      <option key={summary.deductionId} value={summary.deductionId}>
+                        {caseLabel(summary)}
                       </option>
-                      {open.map((summary) => (
-                        <option key={summary.deductionId} value={summary.deductionId}>
-                          {caseLabel(summary)}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="submit">Attach</button>
-                  </form>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                    ))}
+                  </select>
+                  <button type="submit">Attach</button>
+                </form>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

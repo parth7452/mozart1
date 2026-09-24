@@ -206,6 +206,7 @@ form.upload button.primary { margin-top: 0; }
 /* A document a read held for a person (ADR 0044): why, under what it was read
    as, and the one button that opens a case from it without reading it again. */
 .card.unattached .hold {
+  display: block;
   margin: 6px 0 0;
   max-width: 420px;
   font-size: 12px;
@@ -478,7 +479,9 @@ dl.fields .quote { border-left: 2px solid #d9e2ce; padding-left: 9px; margin-top
 .gate { background: #edf1e7; border: 1px solid #d5deca; font-size: 11px; line-height: 1.8; }
 .card.approve { border-color: #a3bb6d; background: #f9fbf3; }
 .card.unread { margin-bottom: 24px; overflow: auto; }
-.card.unattached { margin-bottom: 24px; overflow: auto; }
+/* Positioned, so the per-row sr-only label (position: absolute) is contained
+   by the card rather than by the viewport, where it once widened the page. */
+.card.unattached { margin-bottom: 24px; overflow: auto; position: relative; container-type: inline-size; }
 .card.duplicates { margin-bottom: 24px; overflow: auto; }
 .notice { border: 1px solid transparent; padding: 13px 16px; font-size: 12px; }
 .notice.bad { border-color: #f0d7d3; }.notice.sent { border-color: #cfe3d4; }
@@ -585,6 +588,31 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .pill.step-decide, .pill.step-assemble, .pill.step-review { background: #edf1f6; color: #4c6480; }
 .pill.step-approve, .pill.step-file { background: #f8efd9; color: #855e16; }
 .queue-more { margin: 0; padding: 14px 24px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+/* Read, not on a case: the review queue's grid, so a row stacks on a phone
+   rather than scrolling its Attach and Open buttons out of reach. It stacks on
+   the card's width, not the viewport's, because the sidebar still takes 200px
+   down to 761px and the four columns do not fit beside it. */
+.unattached-columns, .unattached-row { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(180px, 1.6fr) 96px minmax(260px, 1.6fr); gap: 16px; align-items: start; }
+.unattached-columns { padding-block: 10px; font-size: 8px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); border-top: 1px solid var(--line); }
+.unattached-list { list-style: none; margin: 0; padding: 0; }
+.unattached-row { padding-block: 14px; border-top: 1px solid var(--line); font-size: 13px; }
+.unattached-row > * { min-width: 0; overflow-wrap: anywhere; }
+.unattached-received { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.unattached-received-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.card.unattached .unattached-actions button { flex: none; white-space: nowrap; }
+.card.unattached .unattached-actions .empty { padding: 0; }
+.card.unattached .unattached-actions select { min-width: 0; flex: 1 1 auto; margin-top: 0; }
+@container (max-width: 720px) {
+  .unattached-columns { display: none; }
+  .unattached-row { grid-template-columns: minmax(0,1fr) auto; gap: 6px 12px; }
+  .unattached-name { grid-row: 1; grid-column: 1; font-weight: 500; }
+  .unattached-received { grid-row: 1; grid-column: 2; font-size: 11px; color: var(--muted); }
+  .unattached-received-label { position: static; width: auto; height: auto; margin: 0; clip: auto; overflow: visible; }
+  .unattached-read { grid-row: 2; grid-column: 1 / -1; }
+  .unattached-actions { grid-row: 3; grid-column: 1 / -1; margin-top: 4px; }
+  .card.unattached .hold { max-width: none; }
+  .card.unattached .unattached-actions select { max-width: none; }
+}
 @media(max-width:760px) {
   .queue-columns { display: none; }
   .queue-row { grid-template-columns: minmax(0,1fr) auto; gap: 8px 12px; padding: 14px 16px; }
