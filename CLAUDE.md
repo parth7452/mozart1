@@ -194,7 +194,7 @@ with every invariant verified there, and the Postmark email-in parser and
 pipeline step — which nothing in the app calls yet: there is no inbound
 webhook route, so no email can reach it (`docs/VERIFY-CHECKLIST.md` §5).
 
-Eight recorded suites, every one of them scored
+Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -208,6 +208,7 @@ does):
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
 | customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 92.9% | 13/15 |
+| formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -222,8 +223,8 @@ the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
-($0.39, OCR through Reducto for the twelve photographs). `pendingSuites` names
-one suite: `formats` (below), which has fixtures and no cassettes.
+($0.39, OCR through Reducto for the twelve photographs), and `formats` on
+2026-09-24 ($0.10), so `pendingSuites` is empty.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -1177,7 +1178,11 @@ same item sits in two programs under two codes, and three subtotal rows are not
 lines. And a supplier portal's printout of an EDI 812, which states every amount
 twice: once as money and once in the raw segments with the decimal point
 implied (`184250`), which a reader must not copy. Both are generated from one
-table, and `formats.test.ts` holds them to it. Neither is recorded yet:
-`pnpm record:cassettes --suite formats` spends about $0.10, then
-`pnpm eval --record-baseline`. Phase 1 is done when that run is recorded. Real
-customer documents would still be worth more than all of them.
+table, and `formats.test.ts` holds them to it. Recorded 2026-09-24 ($0.1036):
+both read at 100% recall and precision — every line took its group's code, no
+subtotal was read as a line, and no EDI amount was copied as money. Grounding on
+the chargeback is 93.8%: the five reason descriptions a merged cell prints
+across two rows ("Deviated price" / "billback") come back joined, and a joined
+quote is not on the page. That is this format's real cost, measured. With it,
+Phase 1's fixture list is complete. Real customer documents would still be worth
+more than all of them.

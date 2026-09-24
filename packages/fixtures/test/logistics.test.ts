@@ -104,7 +104,7 @@ describe('every suite reaches the recorder and the eval gate', () => {
       'customer',
       'dense',
       'email_body',
-      // Merged cells and an 812 printout: no cassettes yet (`formats.ts`).
+      // Merged cells and an 812 printout (`formats.ts`).
       'formats',
       'held_out',
       'logistics',
