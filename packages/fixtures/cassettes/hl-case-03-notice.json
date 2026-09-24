@@ -12,7 +12,7 @@
     },
     "vendor_number": {
       "value": "NSP-1048",
-      "confidence": 0.9,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Supplier account: NSP-1048"
     },
@@ -34,27 +34,9 @@
       "source_page": 1,
       "source_quote": "Purchase order: PO-SBR-6631"
     },
-    "store_or_dc": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
     "deduction_total": {
       "value": "$2,000.00",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "$2,000.00"
     },
@@ -64,15 +46,9 @@
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-07"
     },
-    "dispute_deadline": {
-      "value": "null",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": ""
-    },
     "remittance_or_check": {
       "value": "RA-2609-003",
-      "confidence": 0.98,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-003"
     },
@@ -80,21 +56,15 @@
       {
         "sku_upc": {
           "value": "NS-300",
-          "confidence": 0.7,
+          "confidence": 0.6,
           "source_page": 1,
           "source_quote": "SKU family NS-300"
         },
         "description": {
           "value": "assorted snack bars",
-          "confidence": 0.8,
+          "confidence": 0.85,
           "source_page": 1,
-          "source_quote": "Products: assorted snack\nbars, SKU family NS-300."
-        },
-        "unit_cost": {
-          "value": "null",
-          "confidence": 0.9,
-          "source_page": 1,
-          "source_quote": ""
+          "source_quote": "assorted snack bars, SKU family NS-300"
         },
         "deduction_amount": {
           "value": "$2,000.00",
@@ -104,9 +74,15 @@
         },
         "reason_code": {
           "value": "PROMO",
-          "confidence": 0.97,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Reason code: PROMO"
+        },
+        "deduction_reference": {
+          "value": "DN-2609-003",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "Notice: DN-2609-003"
         },
         "reason_description": {
           "value": "Customer deducted an 8% promotional allowance from the full invoice for a summer feature event.",
@@ -125,23 +101,59 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       }
-    ]
+    ],
+    "store_or_dc": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "gln": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "dispute_deadline": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:54:47.367Z",
+  "recordedAt": "2026-09-24T19:08:08.378Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5099,
-    "outputTokens": 1090,
-    "costMicros": 21098,
-    "latencyMs": 8304
+    "inputTokens": 5382,
+    "outputTokens": 1003,
+    "costMicros": 20794,
+    "latencyMs": 7795
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:43:03.688Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:08:08.378Z"
   }
 }

@@ -141,6 +141,9 @@ const store = {
   async mergesFor() {
     return { absorbed: [], confirmedNotMerged: [] };
   },
+  async unattachedDocuments() {
+    return [];
+  },
   async documentsForCase() {
     return [document];
   },
@@ -389,5 +392,68 @@ describe('the review page for a case older than the newest hundred', () => {
       CasePage({ params: Promise.resolve({ id: THEIRS }), searchParams: Promise.resolve({}) }),
     ).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' });
     expect(reads).toEqual([]);
+  });
+});
+
+/**
+ * The case list's attach picker stops at `ATTACH_TARGETS_LIMIT`, so a case past
+ * it could not be chosen there. Its own page offers the documents read and on
+ * no case instead, each filed here through the same attach route.
+ */
+describe('the review page offers documents read and on no case', () => {
+  const LOOSE_ID = 'eeeeeeee-1111-2222-3333-444444444444';
+  let asked = 0;
+  const looseStore = {
+    ...(store as unknown as Record<string, unknown>),
+    async unattachedDocuments() {
+      asked += 1;
+      return [
+        {
+          documentId: LOOSE_ID,
+          filename: '08_log-202.jpg',
+          createdAt: '2026-09-23T15:56:16.000Z',
+          docType: 'pod',
+          confidence: 0.98,
+        },
+      ];
+    },
+  } as unknown as PostgresStore;
+
+  beforeAll(() => {
+    current = looseStore;
+  });
+  afterAll(() => {
+    current = store;
+  });
+
+  it('with a button that files each one on this case, through the attach route', async () => {
+    asked = 0;
+    const html = renderToStaticMarkup(
+      await CasePage({ params: Promise.resolve({ id: CASE_ID }), searchParams: Promise.resolve({}) }),
+    );
+    expect(asked).toBe(1);
+    expect(html).toContain('08_log-202.jpg');
+    expect(html).toContain(`action="/documents/${LOOSE_ID}/attach"`);
+    expect(html).toContain(`<input type="hidden" name="caseId" value="${CASE_ID}"/>`);
+  });
+
+  it('does not ask, or offer, on a closed case', async () => {
+    const closedStore = {
+      ...(looseStore as unknown as Record<string, unknown>),
+      async caseSummary(id: string) {
+        return id === CASE_ID ? ({ ...summary, state: 'won' } as unknown as CaseSummary) : undefined;
+      },
+    } as unknown as PostgresStore;
+    current = closedStore;
+    try {
+      asked = 0;
+      const html = renderToStaticMarkup(
+        await CasePage({ params: Promise.resolve({ id: CASE_ID }), searchParams: Promise.resolve({}) }),
+      );
+      expect(asked).toBe(0);
+      expect(html).not.toContain(`/documents/${LOOSE_ID}/attach`);
+    } finally {
+      current = looseStore;
+    }
   });
 });

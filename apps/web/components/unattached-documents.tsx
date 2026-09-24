@@ -1,6 +1,6 @@
 import { isClosed } from '@recouple/core-domain';
 import type { DocumentHold, UnattachedDocument } from '@recouple/pipeline';
-import type { CaseSummary } from '@recouple/store-postgres';
+import type { AttachTargets, CaseSummary } from '@recouple/store-postgres';
 import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/format';
 
 /**
@@ -30,14 +30,18 @@ import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/forma
  */
 export function UnattachedDocuments({
   documents,
-  cases,
+  targets,
 }: {
   documents: readonly UnattachedDocument[];
-  /** The tenant's cases, to choose from. A closed or merged-away case is not offered. */
-  cases: readonly CaseSummary[];
+  /**
+   * The cases to choose from: the store's own read of every open case, most
+   * urgent first (`attachTargets`) — not the case list's rows, which stop at
+   * the newest hundred. A closed or merged-away case is not offered.
+   */
+  targets: AttachTargets;
 }) {
   if (documents.length === 0) return null;
-  const open = cases.filter((summary) => !isClosed(summary.state));
+  const open = targets.rows.filter((summary) => !isClosed(summary.state));
 
   return (
     <div className="card unattached">
@@ -50,6 +54,7 @@ export function UnattachedDocuments({
         person decides. A delivery receipt, an invoice or a rate confirmation is evidence for a
         case. Attaching files what was already read — it is not read again.
       </p>
+      {open.length === 0 ? null : <p className="empty">{offeredLine(open.length, targets)}</p>}
       {/* A list on the review queue's grid (ADR 0043) rather than a table: on a
           phone a row stacks, so its actions are never scrolled out of reach. */}
       <div className="unattached-columns" aria-hidden="true">
@@ -112,6 +117,73 @@ export function UnattachedDocuments({
                 </form>
               )}
             </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Which cases the picker lists, and in what order — and, when the store cut
+ * the list at its limit, how many open cases it is not listing and where the
+ * rest are reached from. Every number is the store's or a count of what is
+ * drawn; none is estimated here.
+ */
+export function offeredLine(listed: number, targets: AttachTargets): string {
+  const order = 'Open cases are listed most urgent first, as the review queue orders them.';
+  if (targets.total <= targets.rows.length) return order;
+  const count = (n: number) => n.toLocaleString('en-US');
+  return (
+    `${order} This workspace has ${count(targets.total)}: the first ${count(listed)} are ` +
+    `listed, and the other ${count(targets.total - targets.rows.length)} are not. Any open ` +
+    'case can take one of these from its own page.'
+  );
+}
+
+/**
+ * The same documents, offered from the other end: on a case's own page, each
+ * one read and on no case, with a button that files it on *this* case.
+ *
+ * The case list's picker stops at `ATTACH_TARGETS_LIMIT`, so without this a
+ * case past it could only get a document by uploading the file again. Here the
+ * case is fixed and only the documents are listed, which the store already
+ * bounds (`unattachedDocuments`, the same read and the same limit as the
+ * list's section) — so no case is out of reach however many there are.
+ *
+ * It posts to the same `/documents/[id]/attach` route as the list's picker,
+ * with the case id the route would otherwise be chosen: one door, the same
+ * checks, nothing read again. A pure function of what the store returned.
+ */
+export function AttachReadDocuments({
+  deductionId,
+  documents,
+}: {
+  deductionId: string;
+  documents: readonly UnattachedDocument[];
+}) {
+  if (documents.length === 0) return null;
+  return (
+    <div className="attach-read">
+      <p className="hint">
+        Or file a document that was already read and is on no case. It is not read again.
+      </p>
+      <ul className="attach-read-list">
+        {documents.map((document) => (
+          <li key={document.documentId}>
+            <span className="mono">{document.filename === '' ? '—' : document.filename}</span>{' '}
+            · {docTypeLabel(document.docType)} · received {document.createdAt.slice(0, 10)}
+            {/* A POST, for the list's reason: it writes to a case. */}
+            <form action={`/documents/${document.documentId}/attach`} method="post">
+              <input type="hidden" name="caseId" value={deductionId} />
+              <button type="submit">
+                Attach
+                <span className="sr-only">
+                  {' '}
+                  {document.filename === '' ? 'this document' : document.filename}
+                </span>
+              </button>
+            </form>
           </li>
         ))}
       </ul>

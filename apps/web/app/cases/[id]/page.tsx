@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { isClosed } from '@recouple/core-domain';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession } from '../../../lib/session';
 import { mayWrite } from '../../../lib/pipeline';
@@ -56,7 +57,8 @@ export default async function CasePage({
     const summary = await store.caseSummary(id);
     if (summary === undefined) notFound();
 
-    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges] =
+    const mayAct = mayWrite(session.org.role);
+    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable] =
       await Promise.all([
         // The case's documents by their links, and their fields by the same
         // links: a remittance's read and a held notice's belong to no case, and a
@@ -95,6 +97,12 @@ export default async function CasePage({
         // What this case was merged into, or absorbed, and the confirmed pairs
         // that could not be merged and why (ADR 0042).
         store.mergesFor(id),
+        // The documents read and on no case, to file here without reading them
+        // again. From this end because the case list's picker stops at
+        // `ATTACH_TARGETS_LIMIT`: a case past it is reached from its own page.
+        // Asked only where the card that offers them is drawn — a member who
+        // may write, on a case still open (a merged-away one is closed).
+        mayAct && !isClosed(summary.state) ? store.unattachedDocuments() : undefined,
       ]);
 
     return (
@@ -106,12 +114,13 @@ export default async function CasePage({
         reconciliation={reconciliation}
         costMicros={costMicros}
         today={new Date()}
-        mayAct={mayWrite(session.org.role)}
+        mayAct={mayAct}
         mayApprove={mayApprove(session.org.role)}
         viewerUserId={session.userId}
         workflow={workflow}
         duplicates={duplicates}
         merges={merges}
+        attachable={attachable}
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
       />

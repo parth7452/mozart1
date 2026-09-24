@@ -176,6 +176,24 @@ export class ClaudeClassifier implements Classifier {
   }
 }
 
+/**
+ * What the extractor is told about a document type: its guidance and its field
+ * list. With `EXTRACTION_SYSTEM` it is everything a schema or wording change
+ * alters, which is why a cassette's extractor stamp hashes the two together.
+ */
+export function extractionInstruction(docType: DocType): string {
+  return [
+    `This document has been classified as: ${docType}.`,
+    EXTRACTION_GUIDANCE[docType],
+    '',
+    'Return one entry in `fields` for each of these that the document carries, using the path exactly as written. Leave out anything the document does not carry.',
+    '',
+    renderFieldList(describeFields(schemaFor(docType))),
+    '',
+    'Quotes verbatim, amounts exactly as printed, nothing invented.',
+  ].join('\n');
+}
+
 export class ClaudeExtractor implements Extractor {
   readonly name = 'claude-vision';
   private readonly client: Anthropic;
@@ -212,16 +230,7 @@ export class ClaudeExtractor implements Extractor {
             role: 'user',
             content: buildReadContent(
               document,
-              [
-                `This document has been classified as: ${docType}.`,
-                EXTRACTION_GUIDANCE[docType],
-                '',
-                'Return one entry in `fields` for each of these that the document carries, using the path exactly as written. Leave out anything the document does not carry.',
-                '',
-                renderFieldList(descriptors),
-                '',
-                'Quotes verbatim, amounts exactly as printed, nothing invented.',
-              ].join('\n'),
+              extractionInstruction(docType),
               // An OCR transcription is withheld here on purpose: the model
               // anchors on it and inherits its character errors. It still backs
               // the quote check and the boxes (ADR 0009).

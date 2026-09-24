@@ -66,7 +66,41 @@ export interface ReviewQueueRead {
 }
 
 /** The states the queue leaves out, from the one rule that says so. */
-const NOT_QUEUED: readonly CaseState[] = CASE_STATES.filter((state) => !isQueued(state));
+export const NOT_QUEUED: readonly CaseState[] = CASE_STATES.filter((state) => !isQueued(state));
+
+/*
+ * The queue's rule and order as SQL, shared with the attach control's read
+ * (`PostgresStore.attachTargets`), which lists the queued cases first and in
+ * this order. Every read that uses them binds `$1` to `NOT_QUEUED`, `$2` to
+ * today's UTC day and `$3` to `DUE_SOON_DAYS`, and names the case `d`.
+ */
+
+/** A case the queue holds: not closed, not filed, and no decline names it. */
+export const QUEUED_SQL = `(d.state <> all ($1::text[])
+          and not exists (select 1 from declined_candidates k where k.deduction_id = d.id))`;
+
+/** `queueBucket`'s four, in its order: 0 due soon, 1 past, 2 none printed, 3 due later. */
+export const URGENCY_BUCKET_SQL = `case
+                when d.dispute_deadline is null then 2
+                when d.dispute_deadline < $2::date then 1
+                when d.dispute_deadline <= $2::date + $3::int then 0
+                else 3
+              end`;
+
+/**
+ * `rankForReview`'s order, over a relation `q` that carries the columns of
+ * `deductions` plus `bucket` (`URGENCY_BUCKET_SQL`) and `created_on`, the UTC
+ * day the case opened.
+ */
+export const URGENCY_ORDER_SQL = `q.bucket,
+               -- due soon and due later: soonest deadline first
+               case when q.bucket in (0, 3) then q.dispute_deadline end asc,
+               -- past the deadline: most recently passed first
+               case when q.bucket = 1 then q.dispute_deadline end desc,
+               -- no deadline: oldest short-pay first
+               case when q.bucket = 2 then coalesce(q.deduction_date, q.created_on) end asc,
+               q.deduction_amount_cents desc,
+               q.id asc`;
 
 interface QueueDbRow {
   id: string;
@@ -103,16 +137,10 @@ export async function readReviewQueue(
   const { rows } = await client.query<QueueDbRow>(
     `with queued as (
        select d.*,
-              case
-                when d.dispute_deadline is null then 2
-                when d.dispute_deadline < $2::date then 1
-                when d.dispute_deadline <= $2::date + $3::int then 0
-                else 3
-              end as bucket,
+              ${URGENCY_BUCKET_SQL} as bucket,
               (d.created_at at time zone 'UTC')::date as created_on
          from deductions d
-        where d.state <> all ($1::text[])
-          and not exists (select 1 from declined_candidates k where k.deduction_id = d.id)
+        where ${QUEUED_SQL}
      )
      select q.id::text as id, q.state, q.claim_id,
             q.deduction_amount_cents::text as amount,
@@ -131,15 +159,7 @@ export async function readReviewQueue(
             count(*) over ()::text as total
        from queued q
        left join debtors b on b.id = q.debtor_id
-      order by q.bucket,
-               -- due soon and due later: soonest deadline first
-               case when q.bucket in (0, 3) then q.dispute_deadline end asc,
-               -- past the deadline: most recently passed first
-               case when q.bucket = 1 then q.dispute_deadline end desc,
-               -- no deadline: oldest short-pay first
-               case when q.bucket = 2 then coalesce(q.deduction_date, q.created_on) end asc,
-               q.deduction_amount_cents desc,
-               q.id asc
+      order by ${URGENCY_ORDER_SQL}
       limit $4`,
     [[...NOT_QUEUED], todayIso, DUE_SOON_DAYS, limit],
   );
