@@ -11,6 +11,7 @@ import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@
 import {
   CaseMergedAwayError,
   CaseNotFoundError,
+  ClassificationFloorError,
   ClassificationRefusedError,
   DocumentNotFoundError,
   DuplicateCaseError,
@@ -252,12 +253,53 @@ describe('the read job', () => {
             alreadyRead: true,
             beingRead: false,
             remittanceCases: [],
+            // Required since ADR 0044; no hold on this document.
+            held: null,
           }),
         },
       });
       expect(lines.map((line) => line.includes('step read-document'))).toEqual([false, false]);
     } finally {
       log.mockRestore();
+    }
+  });
+
+  it('says a held read’s reason in its step line, and nothing off the page (ADR 0044)', async () => {
+    // The stub answers 0.99; a floor above that holds the notice for a person.
+    const store = jobStore();
+    store.classificationFloorValue = 0.995;
+    const documentId = await storedNotice(store);
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      const result = await readDocumentSteps(context)({
+        event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
+        step: { run: async (_id, work) => work() },
+      });
+
+      expect(result).toMatchObject({
+        held: 'below_floor',
+        haltedBecause: 'held_for_review',
+        deductionId: null,
+        alreadyRead: false,
+      });
+      const step = lines.find((line) => line.includes('finished the read'));
+      expect(step).toContain('held below_floor');
+      expect(step).toContain('halted yes');
+      const all = lines.join('\n');
+      expect(all).not.toContain(notice.filename);
+      expect(all).not.toContain('APDP-99812');
+      expect(store.cases.size).toBe(0);
+    } finally {
+      log.mockRestore();
+      info.mockRestore();
     }
   });
 
@@ -414,6 +456,10 @@ describe('what a failed read says to Inngest', () => {
       new CaseMergedAwayError(ORG_ID, 'deduction_documents'),
       new UnscannedDocumentError('no clean verdict for this document'),
       new InvalidJobPayloadError('a read job needs documentId; this one has none'),
+      // A tenant with no readable classification floor has none next time
+      // either (ADR 0044); both reasons it can give are settled.
+      new ClassificationFloorError(ORG_ID, 'missing'),
+      new ClassificationFloorError(ORG_ID, 'unreadable'),
     ];
     for (const error of settled) {
       expect(asJobFailure(error, ids)).toBeInstanceOf(NonRetriableError);

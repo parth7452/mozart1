@@ -24,6 +24,7 @@ import {
   applyTransition,
   buildPacketNarrative,
   cents,
+  DEFAULT_MIN_CLASSIFICATION_CONFIDENCE,
   identifierMatchKey,
   isCanonicalReasonCode,
   MAX_RATIONALE_LENGTH,
@@ -69,6 +70,7 @@ import {
 import type {
   ApprovalRecord,
   EvidenceAttachStore,
+  HeldDocumentStore,
   CaseOutcome,
   CaseRecord,
   CaseWorkflow,
@@ -100,6 +102,15 @@ import {
   LineProvenanceUnknownError,
 } from '../ports';
 import { DuplicateCaseError } from '../steps';
+import {
+  DOCUMENT_HELD,
+  DOCUMENT_HOLD_RELEASED,
+  holdAuditPayload,
+  holdFromAuditPayload,
+  type DocumentHold,
+  type HoldReason,
+  type HoldRecord,
+} from '../hold';
 
 /** A membership role, as `memberships.role` spells it. */
 export type MembershipRole = 'owner' | 'approver' | 'analyst' | 'read_only' | 'accountant_guest';
@@ -146,13 +157,30 @@ export interface StoredEvent {
   readonly payload: Record<string, unknown>;
 }
 
+/**
+ * One `audit_log` row as this store keeps it: the hold and its release (ADR
+ * 0044), in the order they were written. `actorId` is absent where the store has
+ * no caller to name — the pipeline's own writes here are made by nobody in
+ * particular, where Postgres names the session's member.
+ */
+export interface StoredAuditRow {
+  readonly orgId: string;
+  readonly action: string;
+  readonly subjectTable: 'documents';
+  readonly subjectId: string;
+  readonly payload: Record<string, unknown>;
+  readonly actorId?: string;
+  readonly at: Date;
+}
+
 export class InMemoryStore
   implements
     PipelineStore,
     CaseWorkflowStore,
     UnreadDocumentsStore,
     DocumentReadLock,
-    EvidenceAttachStore
+    EvidenceAttachStore,
+    HeldDocumentStore
 {
   readonly documents = new Map<string, StoredDocument>();
   /** One row per arrival, keyed by id — the `uploads` table (migration 0003). */
@@ -287,6 +315,7 @@ export class InMemoryStore
       document: rebuilt.document,
       validated: rebuilt.validated,
       issues: rebuilt.issues,
+      schemaVersion: found.schemaVersion,
     };
   }
 
@@ -372,6 +401,78 @@ export class InMemoryStore
         dedupDays: 30,
       }
     );
+  }
+
+  /**
+   * The tenant's classification floor (ADR 0044): migration 0002's default
+   * unless a test says otherwise. One value, because this store is not scoped to
+   * a tenant and the tests that care about a floor use one tenant. A tenant with
+   * no `org_settings` row is the Postgres store's refusal to model
+   * (`ClassificationFloorError`); a test here that wants it overrides the method.
+   */
+  classificationFloorValue: number = DEFAULT_MIN_CLASSIFICATION_CONFIDENCE;
+
+  async classificationFloor(): Promise<number> {
+    return this.classificationFloorValue;
+  }
+
+  /** `audit_log`, as far as a hold and its release write to it. In the open, like the other tables. */
+  readonly auditLog: StoredAuditRow[] = [];
+
+  async recordHold(hold: HoldRecord): Promise<void> {
+    this.auditLog.push({
+      orgId: hold.orgId,
+      action: DOCUMENT_HELD,
+      subjectTable: 'documents',
+      subjectId: hold.documentId,
+      payload: holdAuditPayload(hold),
+      at: new Date(),
+    });
+  }
+
+  /**
+   * The latest hold not followed by a release, read back through the same
+   * parse the Postgres store uses, so the two answer alike for the same rows.
+   */
+  async documentHold(documentId: string): Promise<DocumentHold | undefined> {
+    const rows = this.auditLog.filter(
+      (row) => row.subjectTable === 'documents' && row.subjectId === documentId,
+    );
+    const lastHold = rows.map((row) => row.action).lastIndexOf(DOCUMENT_HELD);
+    if (lastHold === -1) return undefined;
+    if (rows.slice(lastHold + 1).some((row) => row.action === DOCUMENT_HOLD_RELEASED)) {
+      return undefined;
+    }
+    const row = rows[lastHold] as StoredAuditRow;
+    return holdFromAuditPayload(row.payload, {
+      documentId,
+      orgId: row.orgId,
+      heldAt: row.at.toISOString(),
+      ...(row.actorId !== undefined ? { heldBy: row.actorId } : {}),
+    });
+  }
+
+  async releaseHold(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly releasedBy: string;
+    readonly reason: HoldReason;
+    readonly deductionIds: readonly string[];
+  }): Promise<void> {
+    // The Postgres policy refuses an audit row from a member who may not write
+    // (migration 0030); the memberships here are the same question's answer.
+    if (!(await this.memberMayWrite({ orgId: input.orgId, userId: input.releasedBy }))) {
+      throw new WrongRoleError(input.releasedBy, 'release a hold', [...WRITER_ROLES]);
+    }
+    this.auditLog.push({
+      orgId: input.orgId,
+      action: DOCUMENT_HOLD_RELEASED,
+      subjectTable: 'documents',
+      subjectId: input.documentId,
+      payload: { reason: input.reason, deduction_ids: [...input.deductionIds] },
+      actorId: input.releasedBy,
+      at: new Date(),
+    });
   }
 
   /**
@@ -729,24 +830,40 @@ export class InMemoryStore
    */
   async unattachedDocuments(limit = 50): Promise<readonly UnattachedDocument[]> {
     assertUnattachedDocumentsQuery(limit);
-    return [...this.documents.values()]
+    const rows = [...this.documents.values()]
       .map((document) => ({
         document,
         createdAt: this.documentCreatedAt.get(document.documentId) ?? new Date(0),
         read: this.extractions.filter((e) => e.documentId === document.documentId).at(-1),
+        // The latest classification, which is the row Postgres takes both the
+        // type and the confidence from. Rounded to `numeric(5,4)`, as stored.
+        classified: this.classifications
+          .filter((c) => c.documentId === document.documentId)
+          .at(-1),
       }))
       .filter(
-        ({ document, read }) =>
-          read !== undefined && !this.links.some((l) => l.documentId === document.documentId),
+        ({ document, read, classified }) =>
+          read !== undefined &&
+          classified !== undefined &&
+          !this.links.some((l) => l.documentId === document.documentId),
       )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, limit)
-      .map(({ document, createdAt, read }) => ({
+      .slice(0, limit);
+
+    const out: UnattachedDocument[] = [];
+    for (const { document, createdAt, classified } of rows) {
+      const hold = await this.documentHold(document.documentId);
+      const latest = classified as { docType: DocType; confidence: number };
+      out.push({
         documentId: document.documentId,
         filename: document.filename,
         createdAt: createdAt.toISOString(),
-        docType: (read as { docType: DocType }).docType,
-      }));
+        docType: latest.docType,
+        confidence: Math.round(latest.confidence * 10_000) / 10_000,
+        ...(hold !== undefined ? { hold } : {}),
+      });
+    }
+    return out;
   }
 
   /**

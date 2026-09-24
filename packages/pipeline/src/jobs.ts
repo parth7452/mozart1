@@ -31,6 +31,7 @@ import {
   type IngestInput,
   type ReadOptions,
 } from './steps';
+import { HELD_FOR_REVIEW, type HoldReason } from './hold';
 
 /**
  * What a job needs from a store that a request does not: the document itself,
@@ -218,6 +219,14 @@ export interface ReadDocumentJobResult {
    * case would be a choice the document did not make (ADR 0028).
    */
   readonly remittanceCases: readonly string[];
+  /**
+   * Why the document is held for a person, when it is (ADR 0044): a reason
+   * from a closed set, never more. `haltedBecause` is `'held_for_review'`
+   * beside it. Set both when this delivery decided the hold and when it found
+   * one an earlier delivery recorded — in which case `alreadyRead` is true and
+   * nothing was spent.
+   */
+  readonly held: HoldReason | null;
 }
 
 /**
@@ -312,12 +321,15 @@ export async function readDocumentJob(
         documentId: document.documentId,
         docType: already.docType,
         deductionId: already.deductionId ?? null,
-        haltedBecause: null,
+        // A hold an earlier read recorded is still why this document has no
+        // case; it is said again rather than reported as a finished read.
+        haltedBecause: already.held !== undefined ? HELD_FOR_REVIEW : null,
         alreadyRead: true,
         beingRead: false,
         // A read that is answered from the record did not open anything. What
         // the earlier one opened is on the cases themselves.
         remittanceCases: [],
+        held: already.held?.reason ?? null,
       } satisfies ReadDocumentJobResult;
     }
 
@@ -334,6 +346,7 @@ export async function readDocumentJob(
         ...(read.remittance?.opened ?? []).map((c) => c.deductionId),
         ...(read.remittance?.mergedInto ?? []),
       ],
+      held: read.held?.reason ?? null,
     } satisfies ReadDocumentJobResult;
   });
 
@@ -349,6 +362,7 @@ export async function readDocumentJob(
       alreadyRead: true,
       beingRead: true,
       remittanceCases: [],
+      held: null,
     };
   }
 

@@ -47,6 +47,7 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
   upload_read_as: ['remittance advice'],
   upload_remittance_cases: ['3'],
   upload_duplicate_case: ['APDP-99812'],
+  open_held_cases: ['3'],
 };
 
 /**
@@ -75,6 +76,19 @@ const EVERY_KEY: readonly string[] = [
   'attach_failed',
   'attach_not_read',
   'attach_role',
+  // Opening a case from a held document (ADR 0044).
+  'open_held_already',
+  'open_held_busy',
+  'open_held_case_merged',
+  'open_held_cases',
+  'open_held_done',
+  'open_held_duplicate',
+  'open_held_failed',
+  'open_held_none',
+  'open_held_not_held',
+  'open_held_not_read',
+  'open_held_role',
+  'open_held_unusable',
   'decide_declined',
   'decide_rationale',
   'decide_rationale_too_long',
@@ -125,6 +139,7 @@ const EVERY_KEY: readonly string[] = [
   'reread_done',
   'reread_duplicate_case',
   'reread_failed',
+  'reread_held',
   'qbo_already_connected',
   'qbo_already_disconnected',
   'qbo_connect_failed',
@@ -165,6 +180,7 @@ const EVERY_KEY: readonly string[] = [
   'upload_case_merged',
   'upload_duplicate_case',
   'upload_duplicate_case_unsaid',
+  'upload_held',
   'upload_no_file',
   'upload_not_queued',
   'upload_not_scanned_clean',

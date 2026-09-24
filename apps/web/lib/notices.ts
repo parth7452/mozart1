@@ -367,11 +367,16 @@ export const NOTICES = {
     // the reviewer waited for a case that was never coming. So it says what
     // each kind of document will do, and where to find the ones that open
     // nothing.
+    //
+    // And since ADR 0044, a notice or remittance the classifier was not sure
+    // enough of is listed there too, held for a person — so "opens its case"
+    // is said of the ones it is sure of, and the list is named for the rest.
     tone: 'good',
     text:
       'that document is being read. A deduction notice, or a remittance with a short payment, ' +
-      'opens its case here within a couple of minutes; anything else — a delivery receipt, an ' +
-      'invoice, a rate confirmation — is listed under “Read, not on a case”, to attach to its case',
+      'opens its case here within a couple of minutes when the reading is sure; anything else — ' +
+      'a delivery receipt, an invoice, a rate confirmation, or a reading this workspace is not ' +
+      'sure of — is listed under “Read, not on a case”, to attach to its case or to open one from',
   },
   upload_not_queued: {
     // It used to say that uploading the same file again re-queues it. That was
@@ -390,6 +395,17 @@ export const NOTICES = {
   upload_already_read: {
     tone: 'bad',
     text: 'that document had already been read, so it was not read again and nothing was spent on it',
+  },
+  upload_held: {
+    // ADR 0044. Not "already read" and not "read as": the document was read,
+    // and it would have opened a case on its own, but the classifier was less
+    // sure than this workspace's floor or the reading does not fit what it was
+    // read as. A person decides, and this says where.
+    tone: 'bad',
+    text:
+      'that document was read, but the reading was doubtful, so no case was opened on its own. ' +
+      'It is under “Read, not on a case”, where you can open a case from it or attach it to one as ' +
+      'evidence. It will not be read again.',
   },
   upload_read_as: {
     tone: 'good',
@@ -436,6 +452,14 @@ export const NOTICES = {
   reread_already_read: {
     tone: 'good',
     text: 'that document had already been read, so it was not read again and nothing was spent on it',
+  },
+  reread_held: {
+    // ADR 0044: the reading was doubtful, so a person decides — reading it
+    // again would only draw another sample of the same doubt, and pay for it.
+    tone: 'bad',
+    text:
+      'that document was read, but the reading was doubtful, so it is held under “Read, not on a ' +
+      'case” for a person to decide rather than opening a case on its own',
   },
   reread_being_read: {
     // Not the same thing as "already read", and saying so would be a small lie
@@ -498,6 +522,63 @@ export const NOTICES = {
   attach_failed: {
     tone: 'bad',
     text: 'attaching that document failed, and nothing was attached. Try again.',
+  },
+
+  // --- opening a case from a held document (ADR 0044) -----------------------
+  //
+  // A held document was read and recorded; opening a case from it reads
+  // nothing and calls no model, so every one of these can say so.
+  open_held_role: {
+    tone: 'bad',
+    text: 'your role can review documents but not open a case from one',
+  },
+  open_held_done: {
+    tone: 'good',
+    text: 'opened from the held reading, on your say-so. Nothing was read again, and nothing was charged.',
+  },
+  open_held_cases: {
+    tone: 'good',
+    text: 'opened from the held reading, on your say-so: {0} short-paid lines opened or joined cases, listed below. Nothing was read again.',
+  },
+  open_held_none: {
+    tone: 'good',
+    text: 'no line on that remittance was short-paid over this workspace’s floor, so no case was opened. The hold is released and the lines are recorded.',
+  },
+  open_held_not_held: {
+    tone: 'bad',
+    text: 'that document is not held for review, so there is nothing to open a case from — nothing changed',
+  },
+  open_held_already: {
+    tone: 'good',
+    text: 'that document is already on this case; no second case was opened',
+  },
+  open_held_unusable: {
+    tone: 'bad',
+    // Only for a reading with nothing to open (ADR 0044): a remittance whose
+    // reading has no lines, or one that is no longer the type it was held as. A
+    // reading that merely lacks a field opens with that field empty.
+    text: 'there is nothing in the recorded reading of that document to open a case from — a remittance with no lines, or a reading that is no longer what it was held as — so no case was opened. Attach it to a case as evidence instead.',
+  },
+  open_held_busy: {
+    tone: 'bad',
+    text: 'that document is being read or opened by another request right now; nothing was done. Look again in a moment.',
+  },
+  open_held_duplicate: {
+    // Wordless about which claim, for `reread_duplicate_case`'s reason.
+    tone: 'bad',
+    text: 'the claim on that document is already this case, so no second case was opened — the document is still held, and can be attached here as evidence',
+  },
+  open_held_case_merged: {
+    tone: 'bad',
+    text: 'that document matches a case that was merged into another, so it was not filed there — open the case it was merged into and attach it as evidence',
+  },
+  open_held_not_read: {
+    tone: 'bad',
+    text: 'that document has no recorded reading, so there is nothing to open a case from — read it first',
+  },
+  open_held_failed: {
+    tone: 'bad',
+    text: 'opening a case from that document failed, and the reason is in this deployment’s logs. Nothing was read again.',
   },
 
   // --- QuickBooks (ADR 0039) ------------------------------------------------
@@ -675,6 +756,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   outcome_wrong_state: [oneOf(CASE_STATES)],
   upload_read_as: [oneOf(DOC_TYPES)],
   upload_remittance_cases: [COUNT],
+  open_held_cases: [COUNT],
   upload_duplicate_case: [CLAIM_ID],
 };
 

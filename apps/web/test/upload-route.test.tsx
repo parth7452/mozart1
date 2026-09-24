@@ -627,3 +627,65 @@ describe('uploading a remittance', () => {
     expect(said(response)).toMatch(/read as a remittance advice/);
   });
 });
+
+describe('uploading a notice the classifier was not sure enough of (ADR 0044)', () => {
+  // The stub classifier answers 0.99. Each test here raises this workspace's
+  // floor above that, so the notice is read, recorded and held for a person
+  // rather than opening a case on its own.
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.runner = undefined;
+    harness.store = new RouteTestStore();
+    harness.store.classificationFloorValue = 0.995;
+    harness.deps = stubbedDeps(harness.store);
+  });
+
+  it('says it is held and where, instead of sending the reviewer to a case', async () => {
+    const store = harness.store as RouteTestStore;
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/reading was doubtful, so no case was opened/);
+    expect(said(response)).toMatch(/Read, not on a case/);
+    expect(store.cases.size).toBe(0);
+    expect(store.auditLog.map((row) => row.action)).toEqual(['document.held']);
+    // A key in the URL, never a sentence and never a word off the page.
+    const location = response.headers.get('location') as string;
+    expect(location).not.toContain('APDP');
+    expect(location).not.toContain('doubtful');
+  });
+
+  it('says so again for the same file, and reads nothing', async () => {
+    const store = harness.store as RouteTestStore;
+    await POST(uploadRequest(notice.bytes, notice.filename));
+    const spent = store.modelCalls.length;
+
+    const again = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(said(again)).toMatch(/reading was doubtful/);
+    expect(store.modelCalls).toHaveLength(spent);
+    expect(store.auditLog).toHaveLength(1);
+  });
+
+  it('says so without queueing where the read runs as a job and the first read held it', async () => {
+    const store = harness.store as RouteTestStore;
+    await POST(uploadRequest(notice.bytes, notice.filename));
+    const sent: unknown[] = [];
+    harness.runner = new InngestRunner({
+      async send(event: unknown) {
+        sent.push(event);
+        return { ids: ['evt_1'] };
+      },
+    } as unknown as ConstructorParameters<typeof InngestRunner>[0]);
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(sent).toEqual([]);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/reading was doubtful/);
+    expect(store.cases.size).toBe(0);
+  });
+});

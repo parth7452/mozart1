@@ -124,6 +124,10 @@ export async function POST(
     // read right now" are told apart, because while the first read is still
     // running there is nothing recorded to show the reviewer yet.
     if (outcome.result.beingRead) return say('reread_being_read');
+    // Held for a person (ADR 0044), by this read or by the one before it: said
+    // as a hold rather than as "read" or "already read", because the document
+    // is waiting for somebody and this list is where they will find it.
+    if (outcome.result.held !== null) return say('reread_held');
     if (outcome.result.alreadyRead) return say('reread_already_read');
     return say('reread_done');
   } catch (cause) {

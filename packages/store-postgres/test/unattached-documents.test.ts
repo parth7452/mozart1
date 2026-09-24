@@ -7,6 +7,7 @@ import {
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UnreadDocumentsQueryError,
   type EvidenceAttachStore,
+  type PipelineStore,
   type UnreadDocumentsStore,
 } from '@recouple/pipeline';
 import { InMemoryStore } from '@recouple/pipeline/testing';
@@ -37,7 +38,9 @@ interface Given {
   readonly onCase?: 'notice' | 'evidence';
 }
 
-type ContractStore = UnreadDocumentsStore & EvidenceAttachStore;
+type ContractStore = UnreadDocumentsStore &
+  EvidenceAttachStore &
+  Pick<PipelineStore, 'recordHold' | 'documentHold'>;
 
 interface Harness {
   store(): ContractStore;
@@ -48,6 +51,8 @@ interface Harness {
   openCase(): Promise<{ deductionId: string; noticeId: string }>;
   /** Every `evidence.attached` event on a case, as the store recorded it. */
   attachedEvents(deductionId: string): Promise<readonly Record<string, unknown>[]>;
+  /** Holds a document of this tenant's for a person, below the default floor (ADR 0044). */
+  hold(documentId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -105,11 +110,46 @@ function unattachedContract(
     it('answers with the same shape from both stores', async () => {
       const rows = await h.store().unattachedDocuments();
       expect(Object.keys(rows[0] ?? {}).sort()).toEqual([
+        // The classification's confidence joined the row with ADR 0044, from
+        // the same classification row the type comes from — to show beside a
+        // hold, never to decide with. `hold` is absent on a row with none,
+        // which is every row here; the hold case below has one.
+        'confidence',
         'createdAt',
         'docType',
         'documentId',
         'filename',
       ]);
+      // As recorded (`add` classifies at 0.95), from both stores alike.
+      expect(rows.every((row) => row.confidence === 0.95)).toBe(true);
+    });
+
+    it('carries a standing hold, the same from both stores (ADR 0044)', async () => {
+      const held = await h.add({
+        filename: 'held-remittance.pdf',
+        ageMinutes: 1,
+        readAs: 'remittance_advice',
+      });
+      const before = (await h.store().unattachedDocuments()).find((r) => r.documentId === held);
+      expect(before).toBeDefined();
+      expect(before).not.toHaveProperty('hold');
+
+      await h.hold(held);
+
+      const row = (await h.store().unattachedDocuments()).find((r) => r.documentId === held);
+      expect(row?.hold).toMatchObject({
+        documentId: held,
+        docType: 'remittance_advice',
+        confidence: 0.92,
+        floor: 0.95,
+        reason: 'below_floor',
+      });
+      expect(Object.keys(row?.hold ?? {}).sort()).toEqual(
+        ['confidence', 'docType', 'documentId', 'floor', 'heldAt', 'orgId', 'reason'].concat(
+          row?.hold?.heldBy === undefined ? [] : ['heldBy'],
+        ).sort(),
+      );
+      expect(await h.store().documentHold(held)).toEqual(row?.hold);
     });
 
     it('honours a limit, and refuses one that is not one', async () => {
@@ -228,6 +268,15 @@ unattachedContract('in memory', describe, async () => {
         .filter((e) => e.deductionId === deductionId && e.eventType === 'evidence.attached')
         .map((e) => e.payload);
     },
+    hold: (documentId) =>
+      store.recordHold({
+        documentId,
+        orgId: ORG,
+        docType: 'remittance_advice',
+        confidence: 0.92,
+        floor: 0.95,
+        reason: 'below_floor',
+      }),
     close: async () => undefined,
   };
 });
@@ -336,6 +385,15 @@ unattachedContract('on postgres', describeDb, async () => {
       );
       return rows.map((row) => row.payload);
     },
+    hold: (documentId) =>
+      store.recordHold({
+        documentId,
+        orgId,
+        docType: 'remittance_advice',
+        confidence: 0.92,
+        floor: 0.95,
+        reason: 'below_floor',
+      }),
     close: async () => {
       await admin.end();
       await closeAllPools();

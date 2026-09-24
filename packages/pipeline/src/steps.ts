@@ -56,6 +56,14 @@ import type {
   StoredDocument,
 } from './ports';
 import { CaseMergedAwayError, LineProvenanceUnknownError } from './ports';
+import { fieldPathOf } from './field-path';
+import {
+  HELD_FOR_REVIEW,
+  holdFor,
+  opensCaseOnItsOwn,
+  type DocumentHold,
+  type HoldConfirmation,
+} from './hold';
 
 /**
  * The same claim, for the same debtor, is already a case.
@@ -445,23 +453,6 @@ export function fieldsLostOnStorage(result: ExtractionResult): readonly string[]
 }
 
 /**
- * A validation path as a field path: `lines.0.deduction_amount.value` is the
- * field `lines[0].deduction_amount`.
- *
- * One function, because the same field is named at the write (the event) and at
- * the read (the finding), and a reviewer comparing the two should not have to
- * work out that they mean the same thing.
- */
-function fieldPathOf(segments: readonly string[]): string {
-  const withoutLeaf = segments.at(-1) === 'value' ? segments.slice(0, -1) : [...segments];
-  return withoutLeaf.reduce(
-    (path, segment) =>
-      path === '' ? segment : /^\d+$/.test(segment) ? `${path}[${segment}]` : `${path}.${segment}`,
-    '',
-  );
-}
-
-/**
  * Says so when the rows just written will not rebuild into a typed document.
  *
  * Loudly, but not fatally: a scan whose one unquoted field is a date still has
@@ -528,8 +519,19 @@ export interface DocumentRead {
    * document did not make.
    */
   readonly remittance?: RemittanceRead;
-  /** Why the document stopped where it did, when it did not go all the way. */
+  /**
+   * Why the document stopped where it did, when it did not go all the way.
+   * `'held_for_review'` (`HELD_FOR_REVIEW`) for a held document, which `held`
+   * then describes — a caller branches on `held`, never on this sentence.
+   */
   readonly haltedBecause?: string;
+  /**
+   * The hold that stopped this document opening a case (ADR 0044): the read
+   * would have opened one, and the classifier was below the tenant's floor or
+   * the reading did not fit its type. Present for a hold this read decided and
+   * for one an earlier read recorded.
+   */
+  readonly held?: DocumentHold;
 }
 
 export interface ProcessedDocument extends DocumentRead {
@@ -590,12 +592,21 @@ export function scanGateHalt(verdict: ScanVerdict): string {
  *   read was an unauthenticated email's (ADR 0016), which files the document
  *   and refuses to open a case from it, or it was one that failed on the way in.
  *
+ * Except when a read *held* it (ADR 0044). A held notice has no case on
+ * purpose: the classifier doubted it, or the reading did not fit, and a person
+ * decides. Reading it again would pay for another sample of the same doubt, so
+ * a hold is answered from the record — on a redelivered job, a "Read again" and
+ * the same file uploaded twice alike. The person's way forward is "Open a case
+ * from it", which reads nothing (`openHeldDocument`).
+ *
  * Nothing here writes. It is a question, asked before the first model call.
  */
 export interface RecordedRead {
   readonly docType: DocType;
   /** The case the earlier read filed it against, when the store can say. */
   readonly deductionId?: string;
+  /** The hold an earlier read recorded, when it is still standing and no case holds the document. */
+  readonly held?: DocumentHold;
 }
 
 export async function recordedRead(
@@ -617,6 +628,16 @@ export async function recordedRead(
   }
 
   const deductionId = await deps.store.caseForDocument?.(document.documentId);
+
+  // A case first: a document on a case is on that case, whatever a hold row
+  // says. The one way both can stand is a release whose case opened and whose
+  // `document.hold_released` row was never written (`openHeldDocument`), and
+  // there the case is the truth.
+  if (deductionId === undefined) {
+    const held = await deps.store.documentHold(document.documentId);
+    if (held !== undefined) return { docType: recorded.docType, held };
+  }
+
   if (
     deductionId === undefined &&
     recorded.docType === 'deduction_notice' &&
@@ -670,6 +691,12 @@ export async function processUpload(
   // already opened rather than told nothing happened.
   if (ingest.deduplicated) {
     const already = await recordedRead(ingest.document, deps, options);
+    if (already?.held !== undefined) {
+      // Held for a person by the first read (ADR 0044). The same bytes again are
+      // not a reason to pay for a second opinion from the same classifier; the
+      // reviewer is told where the document is waiting instead.
+      return { ingest, held: already.held, haltedBecause: HELD_FOR_REVIEW };
+    }
     if (already !== undefined) {
       const existing =
         already.deductionId === undefined
@@ -709,6 +736,15 @@ export async function readDocument(
 ): Promise<DocumentRead> {
   const attachedCase = await resolveAttachTarget(options.attachToCase, deps);
   let caseRecord: CaseRecord | undefined = attachedCase;
+  const mayOpenCase = options.allowCaseOpen ?? true;
+
+  // The tenant's classification floor, when this read might open a case (ADR
+  // 0044). Asked before the page is fetched or a model is called: a tenant with
+  // no readable floor is refused loudly, and the refusal costs nothing. A read
+  // attached to a named case, or one that may not open a case at all, never
+  // opens one on the classifier's say-so, so it has no use for the floor.
+  const floor =
+    caseRecord === undefined && mayOpenCase ? await deps.store.classificationFloor() : undefined;
 
   // Read the document once. Classification and extraction both need the page
   // text, and on a scan that text costs money and carries the boxes a reviewer
@@ -745,6 +781,45 @@ export async function readDocument(
     await reportProvenanceGap(document, extraction, deps, deductionId);
   };
 
+  // The gate (ADR 0044). Only where a case would otherwise open by itself — a
+  // notice or a remittance, no case named, and a read that may open one — and
+  // only then does the classifier's confidence decide anything: at or above the
+  // tenant's floor, and a reading that fits the type it was read as, or nobody
+  // opens a case until a person says so.
+  //
+  // A held document is read exactly as any other: the spend, the classification
+  // and the extraction are recorded, against no case. Then the hold is written,
+  // naming the member whose read it was — after the read, because the read is
+  // what the hold is about and it is already paid for. Nothing else happens: no
+  // case, no identifier, no declined line.
+  if (floor !== undefined && opensCaseOnItsOwn(classification.docType)) {
+    const hold = holdFor({
+      docType: classification.docType,
+      confidence: classification.confidence,
+      floor,
+      reading: extraction,
+    });
+    if (hold !== undefined) {
+      await recordTheRead();
+      const held: DocumentHold = {
+        documentId: document.documentId,
+        orgId: document.orgId,
+        docType: classification.docType,
+        confidence: classification.confidence,
+        floor,
+        reason: hold.reason,
+        ...(hold.fields !== undefined ? { fields: hold.fields } : {}),
+      };
+      await deps.store.recordHold(held);
+      // Ids, a doc type and a reason: nothing off the page (invariant 4).
+      console.info(
+        `[recouple] read: document ${document.documentId} read as a ${classification.docType} ` +
+          `was held for review (${hold.reason}); no case was opened`,
+      );
+      return { classification, extraction, held, haltedBecause: HELD_FOR_REVIEW };
+    }
+  }
+
   // The case is opened before anything is recorded, because the notice that
   // opens a case is read before the case exists and every fact read from it —
   // and every micro-dollar spent reading it — belongs to that case. Opening
@@ -757,7 +832,6 @@ export async function readDocument(
   // losing the extraction would throw away a page we paid to read, so both are
   // written against no case before the failure is handed on. Nothing here
   // swallows it: the original error is what the caller sees.
-  const mayOpenCase = options.allowCaseOpen ?? true;
   if (classification.docType === 'deduction_notice' && caseRecord === undefined && mayOpenCase) {
     try {
       caseRecord = await openCaseFromNotice(document, extraction, deps);
@@ -938,14 +1012,72 @@ function fieldValue(document: unknown, path: readonly string[]): unknown {
 }
 
 /**
+ * What opening a case from a document needs of that document: its ids, not its
+ * bytes. A case opened from a held reading (ADR 0044) is opened from an id and a
+ * recorded reading, and fetching a scan's megabytes to learn its tenant would be
+ * a cost with nothing bought.
+ */
+export type CaseOpeningDocument = Pick<StoredDocument, 'documentId' | 'orgId'>;
+
+/**
+ * What opening a case needs of a reading: what it was read as and what it says.
+ * `ExtractionResult` from a read, or `RestoredExtraction` from the store — the
+ * same object except where `restoreDocument` says otherwise.
+ */
+export type CaseOpeningReading = Pick<ExtractionResult, 'docType' | 'document'> & {
+  readonly schemaVersion?: string;
+};
+
+/**
+ * What opening a case needs of the pipeline: the store and nothing else. No
+ * classifier and no extractor, so a caller that opens a case from a recorded
+ * reading cannot call a model by accident — there is none to call.
+ */
+export type CaseOpeningDeps = Pick<PipelineDeps, 'store'>;
+
+/** Options for opening a case from a reading. */
+export interface CaseOpeningOptions {
+  /**
+   * Set when a person opened this case from a held document (ADR 0044): each
+   * `case.discovered` then says the reading was doubted, by how much, and who
+   * decided to open it anyway.
+   */
+  readonly confirmation?: HoldConfirmation;
+}
+
+/**
+ * The fields a person's confirmation adds to `case.discovered` (and to a
+ * remittance line's merge event): ids, two numbers, a reason from a closed set
+ * and schema field paths — never a value off the page.
+ */
+function confirmationFields(confirmation: HoldConfirmation | undefined): Record<string, unknown> {
+  if (confirmation === undefined) return {};
+  return {
+    held: {
+      confidence: confirmation.held.confidence,
+      floor: confirmation.held.floor,
+      reason: confirmation.held.reason,
+      // Which fields the read could not fit, as the hold recorded them — so the
+      // case says what was missing when a person chose to open it anyway.
+      ...(confirmation.held.fields !== undefined ? { fields: [...confirmation.held.fields] } : {}),
+    },
+    confirmed_by: confirmation.confirmedBy,
+    ...(confirmation.missingOnOpen !== undefined
+      ? { fields_missing_on_open: [...confirmation.missingOnOpen] }
+      : {}),
+  };
+}
+
+/**
  * Opens a case from an extracted notice and walks it discovered → classified
  * through the state machine, so the transition table is what governs the case's
  * life rather than an ad-hoc string assignment.
  */
 export async function openCaseFromNotice(
-  document: StoredDocument,
-  extraction: ExtractionResult,
-  deps: PipelineDeps,
+  document: CaseOpeningDocument,
+  extraction: CaseOpeningReading,
+  deps: CaseOpeningDeps,
+  options: CaseOpeningOptions = {},
 ): Promise<CaseRecord> {
   const claimId = fieldValue(extraction.document, ['claim_id', 'value']);
   // The name the page printed, blank treated as absent and an impossible length
@@ -1038,6 +1170,7 @@ export async function openCaseFromNotice(
       ...(disputeDeadline.problem !== undefined
         ? { dispute_deadline_unread: disputeDeadline.problem }
         : {}),
+      ...confirmationFields(options.confirmation),
     },
   });
 
@@ -1050,7 +1183,7 @@ export async function openCaseFromNotice(
     orgId: document.orgId,
     deductionId: opened.deductionId,
     eventType: 'case.classified',
-    payload: { doc_type: extraction.docType, schema_version: extraction.schemaVersion },
+    payload: { doc_type: extraction.docType, schema_version: extraction.schemaVersion ?? null },
   });
 
   return classified;
@@ -1258,9 +1391,10 @@ export function clearsRemittanceTolerance(
  * landing on any one of these cases can see what the read as a whole concluded.
  */
 export async function openCasesFromRemittance(
-  document: StoredDocument,
-  extraction: ExtractionResult,
-  deps: PipelineDeps,
+  document: CaseOpeningDocument,
+  extraction: CaseOpeningReading,
+  deps: CaseOpeningDeps,
+  options: CaseOpeningOptions = {},
 ): Promise<RemittanceRead> {
   const settings = await deps.store.remittanceSettings(document.orgId);
   const advice = extraction.document;
@@ -1417,6 +1551,7 @@ export async function openCasesFromRemittance(
             amountCents: shortPay.cents,
             ...(reasonCode !== undefined ? { reasonCode } : {}),
             matchedOn: [resolution.matchedOn.kind],
+            ...(options.confirmation !== undefined ? { confirmation: options.confirmation } : {}),
           });
           return {
             index,
@@ -1446,6 +1581,7 @@ export async function openCasesFromRemittance(
             ...(probableDuplicateOf !== undefined && resolution.kind !== 'none'
               ? { probableDuplicateOf, probableBasis: resolution.basis }
               : {}),
+            ...(options.confirmation !== undefined ? { confirmation: options.confirmation } : {}),
           });
           return {
             index,
@@ -1470,6 +1606,7 @@ export async function openCasesFromRemittance(
             detail:
               'the claim this line builds is already open against this debtor; ' +
               'the unique constraint caught what the identifier matcher could not',
+            ...(options.confirmation !== undefined ? { confirmation: options.confirmation } : {}),
           });
           return {
             index,
@@ -1531,8 +1668,8 @@ function probableDuplicates(resolution: IdentityResolution): readonly string[] |
 
 /** Opens one case from one short-paid line, and walks it discovered → classified. */
 async function openCaseForLine(
-  document: StoredDocument,
-  deps: PipelineDeps,
+  document: CaseOpeningDocument,
+  deps: CaseOpeningDeps,
   line: {
     readonly invoiceNumber: string;
     readonly claimId: string;
@@ -1547,6 +1684,8 @@ async function openCaseForLine(
     readonly paymentDateProblem?: string;
     readonly probableDuplicateOf?: readonly string[];
     readonly probableBasis?: readonly string[];
+    /** A person opened this from a held remittance (ADR 0044). */
+    readonly confirmation?: HoldConfirmation;
   },
 ): Promise<CaseRecord> {
   const claimId = line.claimId;
@@ -1623,6 +1762,7 @@ async function openCaseForLine(
       ...(line.paymentDateProblem !== undefined
         ? { deduction_date_unread: line.paymentDateProblem }
         : {}),
+      ...confirmationFields(line.confirmation),
     },
   });
 
@@ -1651,9 +1791,9 @@ async function openCaseForLine(
  */
 async function mergeIntoCase(
   deductionId: string,
-  document: StoredDocument,
-  extraction: ExtractionResult,
-  deps: PipelineDeps,
+  document: CaseOpeningDocument,
+  extraction: CaseOpeningReading,
+  deps: CaseOpeningDeps,
   line: {
     readonly invoiceNumber: string;
     readonly amountCents: number;
@@ -1661,6 +1801,8 @@ async function mergeIntoCase(
     /** The identifier kinds that agreed exactly. Names, never values. */
     readonly matchedOn: readonly string[];
     readonly detail?: string;
+    /** A person filed this from a held remittance (ADR 0044). */
+    readonly confirmation?: HoldConfirmation;
   },
 ): Promise<void> {
   await deps.store.linkDocument(deductionId, document.documentId, 'evidence');
@@ -1679,6 +1821,7 @@ async function mergeIntoCase(
       reason_code_as_printed: line.reasonCode ?? null,
       matched_on: [...line.matchedOn],
       ...(line.detail !== undefined ? { detail: line.detail } : {}),
+      ...confirmationFields(line.confirmation),
     },
   });
 }
@@ -1695,9 +1838,9 @@ async function mergeIntoCase(
  * `declined_candidates` rows are the durable record of what it decided.
  */
 async function reportLinesProcessed(
-  document: StoredDocument,
-  extraction: ExtractionResult,
-  deps: PipelineDeps,
+  document: CaseOpeningDocument,
+  extraction: CaseOpeningReading,
+  deps: CaseOpeningDeps,
   read: RemittanceRead,
 ): Promise<void> {
   const counts: Record<string, number> = {};

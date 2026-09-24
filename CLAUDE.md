@@ -137,7 +137,7 @@ append-only tables.
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the address, never the sender; DKIM or DMARC must pass before an email may open a case. An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
-| `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
+| `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
 | `store-postgres` | Runs as `app_rw` with the tenant's claim set transaction-locally, so a pooled connection cannot carry one tenant's claims into another's query. The service role never appears here. `PostgresQboTokenStore` writes ciphertext only, one store per connection, and a rotation is a new row (ADR 0033). `connectQboCompany` is the only way a connection row is made — the button and `link:qbo` both call it — and it seals before it touches the database (ADR 0039). Every read of `deduction_identifiers` maps a merged-away case to its survivor through `deduction_merges_current`; a reader that forgets hits `RCM01` on its first write (ADR 0042) |
@@ -239,11 +239,16 @@ between runs of the same prompt; a notice read as a remittance opens cases per
 line instead of per claim, which makes that instability a product problem, not
 only an eval one.
 
-The review floor is the eval's word, not the product's: nothing in production
-reads `org_settings.min_classification_confidence` or calls
-`classificationIsActionable` (only `scripts/run-evals.ts` does), and the
-`classification_confidence_meets_tenant_minimum` guard has no evaluator, so a
-document opens a case on its type whatever the confidence. Two fields:
+The review floor is the product's as well as the eval's (ADR 0044). Wherever a
+notice or a remittance would open its case(s) on its own, `readDocument` reads
+the tenant's `org_settings.min_classification_confidence` and opens only when
+`classificationIsActionable` holds — inclusive, so LOG-001's remittance at 0.95
+still opens — and the reading fits its type. Anything else is held for a
+person, and in replay exactly two recorded documents are:
+`stf-203-short-payment-notice` (a notice read as a remittance at 0.75) and
+`stf-201-short-pay-remittance` (0.92). The `classification_confidence_meets_tenant_minimum`
+guard, on Phase 2's `classified → evidence_pending` edge, still has no
+evaluator because that edge is not taken yet. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
 rather than Westhaven Paper Supply, and
 `stf-203-short-payment-notice`'s reason code came back as the payer's own code
@@ -1056,6 +1061,45 @@ does not reach ADR 0029's crash window: a case `openCase` committed before the
 sync died short of linking it has no notice to say where it came from. Step B, a
 shadow-only model tier, is designed in the ADR and not built — it waits on Jev
 access, both cassettes and a triage eval.
+
+**A doubtful classification is held for a person** (ADR 0044, no migration).
+`min_classification_confidence` had been in every tenant's `org_settings` since
+0002, guarded by invariant 7, and nothing read it: a notice or a remittance
+opened its case(s) on its type alone, so a notice misread as a remittance
+opened one case per line. Now, where a read would open a case by itself — a
+`deduction_notice` or `remittance_advice`, no case named, `allowCaseOpen` — the
+floor is read first (`classificationFloor()`, as `app_rw`, before anything is
+spent; a missing row is `ClassificationFloorError`, never a default), and the
+case opens only at or above it with a reading that fits its type (`typeFits`:
+validated against the type it was read as, and a remittance with at least one
+line). Otherwise the document is **held**: read and recorded exactly as any
+other, against no case, then one `audit_log` row `document.held` naming the
+acting member (0030's policy) with `{doc_type, confidence, floor, reason,
+fields?}` — `below_floor` wins when both apply, and `fields` are schema paths
+filtered to the type's own, present exactly when the reading did not fit.
+Evidence, an attachment to a named case and an unauthenticated email are never
+held. `recordedRead` asks `documentHold` after `caseForDocument`, so a
+redelivery, a "Read again" and the same file uploaded again are answered from
+the record with no model call; the upload and reread routes say
+`upload_held`/`reread_held`, and the job carries `held` and logs its reason.
+"Read, not on a case" shows each document's confidence and its hold line, and
+**Open a case from it** on every held notice and every held remittance but one
+with no lines: `POST /documents/[id]/open-case` → `openHeldDocument`, under the
+document's read claim, which restores the recorded reading and **opens from
+whatever survived** — a notice that did not fit its type, or whose stored rows
+lost a required field to missing provenance, opens with those fields empty,
+exactly as the automatic path always has ("better a case with no deadline than
+no case"); the gate got stricter, what a person may open did not. It refuses
+only what has nothing to open (a remittance with no lines, or a reading no
+longer the type the hold named), runs the same
+`openCaseFromNotice`/`openCasesFromRemittance` with only the store in reach,
+stamps `held` (with the hold's `fields`), `confirmed_by` and, when the restored
+reading does not fit, `fields_missing_on_open` on `case.discovered`, and then
+writes `document.hold_released`. Not one transaction, by the store's shape; the
+release comes after the case, so a crash between leaves a case under a stale
+hold (which `caseForDocument` answers first) rather than an unheld notice a
+redelivery would pay to read again. `audit_log.subject_id` has no index, which
+the hold look-ups scan past; indexing it is a migration and a follow-up.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

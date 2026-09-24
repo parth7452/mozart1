@@ -136,12 +136,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // These bytes are a document this tenant already has and has already
       // read, so nothing was queued. The reviewer goes where the inline path
       // sends them — to the case that first read opened, when it opened one —
-      // rather than being told a read is coming that is not.
-      return outcome.case === undefined
-        ? say('upload_already_read')
-        : NextResponse.redirect(new URL(`/cases/${outcome.case.deductionId}`, request.url), {
-            status: 303,
-          });
+      // rather than being told a read is coming that is not. A document the
+      // first read held for a person (ADR 0044) is said to be held, and where.
+      if (outcome.case !== undefined) {
+        return NextResponse.redirect(new URL(`/cases/${outcome.case.deductionId}`, request.url), {
+          status: 303,
+        });
+      }
+      if (outcome.held !== undefined) {
+        back.pathname = '/';
+        return say('upload_held');
+      }
+      return say('upload_already_read');
     }
 
     if (outcome.kind === 'halted') {
@@ -156,6 +162,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(new URL(`/cases/${result.case.deductionId}`, request.url), {
         status: 303,
       });
+    }
+
+    // Held for a person (ADR 0044): read, recorded, and on no case, because the
+    // classifier was below this workspace's floor or the reading did not fit.
+    // Branched on the structured hold, never on `haltedBecause`'s word — and to
+    // the list, which is where the held document and its button are.
+    if (result.held !== undefined) {
+      back.pathname = '/';
+      return say('upload_held');
     }
 
     // A remittance names no one case — it opens one per short-paid line (ADR

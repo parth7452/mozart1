@@ -147,6 +147,8 @@ describe('the case list page', () => {
         filename: '08_log-202.jpg',
         createdAt: '2026-09-23T15:56:16.000Z',
         docType: 'pod',
+        // Required since ADR 0044: the classification's own confidence.
+        confidence: 0.98,
       },
     ];
   });

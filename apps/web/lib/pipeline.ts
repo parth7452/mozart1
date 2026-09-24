@@ -8,6 +8,7 @@ import {
   readDocumentJob,
   recordedRead,
   type CaseRecord,
+  type DocumentHold,
   type IngestInput,
   type JobDeps,
   type PipelineDeps,
@@ -112,6 +113,12 @@ export type UploadOutcome =
       readonly kind: 'already_read';
       readonly documentId: string;
       readonly case?: CaseRecord;
+      /**
+       * The first read held it for a person (ADR 0044) — the classifier was
+       * below the floor, or the reading did not fit — so there is no case, on
+       * purpose, and the reviewer is told where it is waiting.
+       */
+      readonly held?: DocumentHold;
     };
 
 /**
@@ -275,6 +282,7 @@ export class InngestRunner implements UploadRunner {
           kind: 'already_read',
           documentId: ingested.documentId,
           ...(existing !== undefined ? { case: existing } : {}),
+          ...(already.held !== undefined ? { held: already.held } : {}),
         };
       }
     }

@@ -203,6 +203,17 @@ form.upload button.primary { margin-top: 0; }
   cursor: pointer;
 }
 .card.unattached button:hover { background: var(--bg); }
+/* A document a read held for a person (ADR 0044): why, under what it was read
+   as, and the one button that opens a case from it without reading it again. */
+.card.unattached .hold {
+  margin: 6px 0 0;
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.card.unattached .confidence { font-size: 12px; color: var(--ink-soft); }
+.card.unattached form.open-held { margin-bottom: 8px; }
 
 /* Settings → QuickBooks (ADR 0039): what is connected, and the two buttons. */
 .card.connection { margin-bottom: 24px; }

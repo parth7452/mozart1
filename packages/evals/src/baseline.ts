@@ -16,8 +16,8 @@ export interface SuiteBaseline {
   readonly classificationAccuracy: number | null;
   /**
    * Wrong classifications the confidence gate would have let through. A wrong
-   * answer below the floor is routed to a human, which is the system working;
-   * a confident wrong answer is the one that costs money.
+   * notice or remittance below the floor is held for a person (ADR 0044), which
+   * is the system working; a confident wrong answer is the one that costs money.
    */
   readonly unsafeMisclassifications?: number;
   /**

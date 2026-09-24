@@ -23,6 +23,7 @@ import type {
   ReassemblyIssue,
 } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
+import type { DocumentHold, HoldReason, HoldRecord } from './hold';
 
 /**
  * Every channel a deduction can reach us through — the closed set behind both
@@ -80,6 +81,14 @@ export interface RestoredExtraction {
   readonly document: unknown;
   readonly validated: boolean;
   readonly issues: readonly ReassemblyIssue[];
+  /**
+   * The schema version the reading was stored under, when the store can say.
+   *
+   * Optional so a test double that builds one by hand still compiles; both
+   * stores fill it. A case opened from a held reading (ADR 0044) names it on
+   * `case.classified`, as a case opened by the read itself names the read's.
+   */
+  readonly schemaVersion?: string;
 }
 
 export interface StoredDocument {
@@ -403,6 +412,41 @@ export interface PipelineStore {
   remittanceSettings(orgId: string): Promise<RemittanceSettings>;
 
   /**
+   * This tenant's `org_settings.min_classification_confidence` (ADR 0044): the
+   * confidence below which a notice or a remittance is held for a person rather
+   * than opening its case(s) on its own.
+   *
+   * No argument: the store is the tenant's, and the floor is the tenant's. Read
+   * per document and not cached, so a tenant that raises its floor holds the
+   * next document at the new one.
+   *
+   * @throws {ClassificationFloorError} there is no settings row, or its value is
+   *   not a number in [0, 1]. Never a default: a threshold nobody set is not one
+   *   to decide with, and the read has spent nothing yet when this is asked.
+   */
+  classificationFloor(): Promise<number>;
+
+  /**
+   * Records that a read held this document for a person: one `document.held`
+   * `audit_log` row naming the acting member (migration 0030 requires the
+   * actor to be the caller and a writer). Written after the read itself is
+   * recorded — the spend and the reading are already on file, and this says why
+   * no case came of them.
+   */
+  recordHold(hold: HoldRecord): Promise<void>;
+
+  /**
+   * The hold standing on this document: the latest `document.held` row not
+   * followed by a `document.hold_released` one, or `undefined`.
+   *
+   * What `recordedRead` asks before a read is repeated, so a held document is
+   * answered from the record rather than paid for again.
+   *
+   * @throws {HoldRecordUnreadableError} a row that is not a shape this code writes
+   */
+  documentHold(documentId: string): Promise<DocumentHold | undefined>;
+
+  /**
    * Runs `work` while this (org, invoice) is claimed, so the resolve-then-open
    * above is one decision rather than two steps with a race between them.
    *
@@ -577,6 +621,46 @@ export interface UnattachedDocument {
   readonly createdAt: string;
   /** What the read classified it as: one of `DOC_TYPES`, never text off the page. */
   readonly docType: DocType;
+  /**
+   * How sure the classifier was, from the same classification row `docType`
+   * comes from — `numeric(5,4)`, so to four places. A number to show, never to
+   * decide with: the decision was the read's, and a hold says what it compared.
+   */
+  readonly confidence: number;
+  /**
+   * The hold standing on it, when a read held it for a person (ADR 0044).
+   * Absent for a document that was simply read and opened nothing.
+   */
+  readonly hold?: DocumentHold;
+}
+
+/**
+ * What a person needs to open a case from a held document (ADR 0044).
+ *
+ * A separate port from `PipelineStore` for `EvidenceAttachStore`'s reason:
+ * nothing in the unattended pipeline calls it. A person does, from the case
+ * list. It carries the document's read claim so a press cannot race a read or a
+ * second press, and the question of whether this member may write, asked of the
+ * database before anything is opened.
+ */
+export interface HeldDocumentStore extends PipelineStore, DocumentReadLock {
+  documentIsVisible(documentId: string): Promise<boolean>;
+  caseForDocument(documentId: string): Promise<string | undefined>;
+  memberMayWrite(actor: { readonly orgId: string; readonly userId: string }): Promise<boolean>;
+  /**
+   * Records a person's release of a hold: one `document.hold_released`
+   * `audit_log` row naming them and the cases the release opened or joined.
+   * Ids only.
+   *
+   * @throws {ActorIsNotTheSessionError} `releasedBy` is not the store's own caller
+   */
+  releaseHold(input: {
+    readonly orgId: string;
+    readonly documentId: string;
+    readonly releasedBy: string;
+    readonly reason: HoldReason;
+    readonly deductionIds: readonly string[];
+  }): Promise<void>;
 }
 
 /**

@@ -6,13 +6,19 @@ import type { CaseSummary, StoredField } from '@recouple/store-postgres';
 import { isCanonicalReasonCode } from '@recouple/core-domain';
 import type {
   CaseWorkflow,
+  DocumentHold,
   PossibleDuplicatePair,
   UnattachedDocument,
   UnreadDocument,
 } from '@recouple/pipeline';
 import { CaseList, type Viewer } from '../components/case-list';
 import { UnreadDocuments, waiting } from '../components/unread-documents';
-import { caseLabel, UnattachedDocuments } from '../components/unattached-documents';
+import {
+  caseLabel,
+  holdLine,
+  mayOpenFrom,
+  UnattachedDocuments,
+} from '../components/unattached-documents';
 import { CaseReview } from '../components/case-review';
 import {
   basisSentence,
@@ -21,7 +27,7 @@ import {
   PossibleDuplicates,
 } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
-import { deadline, fieldLabel, money } from '../lib/format';
+import { confidencePercent, deadline, fieldLabel, money } from '../lib/format';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
 /** An empty review queue, for the tests about the rest of the list. */
@@ -457,6 +463,8 @@ describe('documents that were read and that no case holds', () => {
       filename: '08_log-202.jpg',
       createdAt: '2026-09-23T15:56:16.000Z',
       docType: 'pod',
+      // Required since ADR 0044: the classification's own confidence.
+      confidence: 0.98,
       ...overrides,
     };
   }
@@ -526,6 +534,138 @@ describe('documents that were read and that no case holds', () => {
     );
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
+  });
+
+  it('says how sure the classifier was for a document nobody held', () => {
+    const html = renderToStaticMarkup(
+      <UnattachedDocuments documents={[loose({ confidence: 0.98 })]} cases={[summary()]} />,
+    );
+    expect(html).toContain('read at 98%');
+    expect(html).not.toContain('Held:');
+    expect(html).not.toContain('/open-case');
+  });
+
+  describe('a document a read held for a person (ADR 0044)', () => {
+    function hold(overrides: Partial<DocumentHold> = {}): DocumentHold {
+      return {
+        documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+        orgId: 'ffffffff-1111-2222-3333-444444444444',
+        docType: 'remittance_advice',
+        confidence: 0.75,
+        floor: 0.95,
+        reason: 'below_floor',
+        ...overrides,
+      };
+    }
+    const heldRow = (h: DocumentHold, extra: Partial<UnattachedDocument> = {}) =>
+      loose({ docType: h.docType, confidence: 0.75, hold: h, ...extra });
+
+    it('says it was read below the floor, by how much, and offers to open the case', () => {
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(hold())]} cases={[summary()]} />,
+      );
+
+      expect(html).toContain(
+        'Held: read as a remittance advice at 75% confidence; this workspace opens a case on its ' +
+          'own at 95% or above.',
+      );
+      // A POST to the document's own route, which reads nothing.
+      expect(html).toContain(
+        'action="/documents/eeeeeeee-1111-2222-3333-444444444444/open-case"',
+      );
+      expect(html).toContain('Open a case from it');
+      // And it can still be attached as evidence instead.
+      expect(html).toContain('/attach"');
+    });
+
+    it('names the fields a misfit notice is missing, and still offers to open it with them empty', () => {
+      // A notice one field short opens with that field empty, the way it always
+      // did on its own (ADR 0044); the line says so, and attaching stays offered.
+      const h = hold({
+        docType: 'deduction_notice',
+        confidence: 0.99,
+        reason: 'type_did_not_fit',
+        fields: ['deduction_date', 'lines[0].reason_code'],
+      });
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(h)]} cases={[summary()]} />,
+      );
+
+      expect(html).toContain(
+        'Held: read as a deduction notice, but the reading does not fit that type (missing: ' +
+          'deduction date, lines 1 · reason code). Opening a case from it opens one with what was ' +
+          'read, and the missing fields stay empty; or attach it to a case as evidence.',
+      );
+      expect(html).toContain('action="/documents/eeeeeeee-1111-2222-3333-444444444444/open-case"');
+      expect(html).toContain('/attach"');
+    });
+
+    it('offers no open for a remittance with no lines, and says why', () => {
+      const noLines = hold({ reason: 'type_did_not_fit', confidence: 0.99, fields: ['lines'] });
+      expect(mayOpenFrom(noLines)).toBe(false);
+      expect(holdLine(noLines)).toBe(
+        'Held: read as a remittance advice, but the reading does not fit that type (missing: ' +
+          'lines). With no lines there is nothing to open a case from — attach it to a case as ' +
+          'evidence instead.',
+      );
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(noLines)]} cases={[summary()]} />,
+      );
+      expect(html).not.toContain('/open-case');
+      expect(html).toContain('/attach"');
+
+      // Doubted *and* no lines: the same answer, after the doubt.
+      expect(holdLine(hold({ fields: ['lines'] }))).toBe(
+        'Held: read as a remittance advice at 75% confidence; this workspace opens a case on its ' +
+          'own at 95% or above. Also, the reading does not fit that type (missing: lines). With no ' +
+          'lines there is nothing to open a case from — attach it to a case as evidence instead.',
+      );
+      expect(mayOpenFrom(hold({ fields: ['lines'] }))).toBe(false);
+    });
+
+    it('offers open for every other hold, doubted, misfit or both', () => {
+      expect(mayOpenFrom(hold())).toBe(true);
+      expect(mayOpenFrom(hold({ fields: ['lines[0].invoice_number'] }))).toBe(true);
+      expect(mayOpenFrom(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(true);
+      expect(
+        mayOpenFrom(hold({ docType: 'deduction_notice', reason: 'type_did_not_fit', fields: ['lines'] })),
+      ).toBe(true);
+      expect(holdLine(hold({ docType: 'deduction_notice', fields: ['deduction_date'] }))).toBe(
+        'Held: read as a deduction notice at 75% confidence; this workspace opens a case on its ' +
+          'own at 95% or above. Also, the reading does not fit that type (missing: deduction date). ' +
+          'Opening a case from it opens one with what was read, and the missing fields stay ' +
+          'empty; or attach it to a case as evidence.',
+      );
+      // A misfit the schema could name no field of is still a misfit, and says so.
+      expect(holdLine(hold({ reason: 'type_did_not_fit', fields: [] }))).toBe(
+        'Held: read as a remittance advice, but the reading does not fit that type. Opening a ' +
+          'case from it opens one with what was read, and the missing fields stay empty; or ' +
+          'attach it to a case as evidence.',
+      );
+    });
+
+    it('never rounds a doubted reading up to the floor it missed', () => {
+      expect(confidencePercent(0.94995)).toBe('94.99%');
+      expect(confidencePercent(0.9499)).toBe('94.99%');
+      expect(confidencePercent(0.95)).toBe('95%');
+      expect(confidencePercent(0.92)).toBe('92%');
+      expect(confidencePercent(0.975)).toBe('97.5%');
+      expect(confidencePercent(1)).toBe('100%');
+      expect(confidencePercent(0)).toBe('0%');
+      expect(holdLine(hold({ confidence: 0.94995 }))).toContain('at 94.99% confidence');
+    });
+
+    it('renders a held document’s filename as text, never as markup', () => {
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments
+          documents={[heldRow(hold(), { filename: '<img src=x onerror=alert(1)>.pdf' })]}
+          cases={[summary()]}
+        />,
+      );
+      expect(html).not.toContain('<img');
+      expect(html).toContain('&lt;img');
+      expect(html).toContain('Held: read as a remittance advice');
+    });
   });
 
   it('draws nothing when there is nothing loose', () => {

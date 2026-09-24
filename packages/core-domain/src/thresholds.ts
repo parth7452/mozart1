@@ -62,13 +62,34 @@ export function assertMinDisputeCentsDirection(
 /**
  * Whether a classification may be acted on without a human looking at it.
  *
- * A wrong answer below the floor is routed to review, which is the system
- * working. A wrong answer above it is acted on, which is the failure that costs
- * money — so the two are counted separately in the evals.
+ * "Acted on" means one thing today: a `deduction_notice` or `remittance_advice`
+ * opening its case(s) by itself. `readDocument` asks this with the tenant's own
+ * `org_settings.min_classification_confidence`, and a document that fails it is
+ * held — read, recorded, on no case — for a person to open a case from or to
+ * attach as evidence (ADR 0044). The evals ask the same question, with the
+ * default floor, to count a wrong answer that would have been acted on
+ * separately from one that would have been held.
+ *
+ * Inclusive: a confidence exactly at the floor is actionable. 0.95 against the
+ * default 0.950 opens, which is what the recorded LOG-001 remittance needs.
+ *
+ * Fails closed on anything that is not a probability. A confidence that is
+ * `NaN` or outside [0, 1] is a number no classifier can have produced, and a
+ * floor that is not a finite number in [0, 1] is a floor nobody set — neither is
+ * a reason to act without a person, so both answer `false` rather than letting
+ * `NaN >= x` or a negative floor decide. The store refuses such a floor before
+ * it gets here (`PostgresStore.classificationFloor`); this is the second answer,
+ * not the only one.
  */
 export function classificationIsActionable(
   confidence: number,
   minimum = DEFAULT_MIN_CLASSIFICATION_CONFIDENCE,
 ): boolean {
+  if (!isProbability(confidence) || !isProbability(minimum)) return false;
   return confidence >= minimum;
+}
+
+/** A finite number in [0, 1]. `NaN` fails every comparison, so it is excluded by construction. */
+function isProbability(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 1;
 }

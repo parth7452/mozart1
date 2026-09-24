@@ -116,6 +116,24 @@ export function percent(ratio: number): string {
   return `${(Math.round(ratio * 1000) / 10).toFixed(1)}%`;
 }
 
+/**
+ * A classifier's confidence, or a tenant's floor, as a percentage: `0.75` →
+ * `75%`, `0.955` → `95.5%`, `0.9499` → `94.99%`. Display only — the number is
+ * the database's (or the hold's), and nothing here decides with it (ADR 0044).
+ *
+ * **Truncated, never rounded**, to hundredths of a percent: a hold at 0.94995
+ * against a floor of 0.950 must not read "95% … at 95% or above", which would
+ * say the reading met the floor it was held for missing. The digits are taken
+ * off a fixed-point string rather than by multiplying, because `0.95 * 10000`
+ * is 9499.999…, and flooring that would show a reading exactly at the floor as
+ * below it.
+ */
+export function confidencePercent(ratio: number): string {
+  const [whole = '0', fraction = ''] = ratio.toFixed(6).split('.');
+  const basisPoints = Number(whole) * 10_000 + Number(fraction.slice(0, 4).padEnd(4, '0'));
+  return `${basisPoints / 100}%`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
