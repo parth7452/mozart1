@@ -180,6 +180,9 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    copy to `merged`, coverage counts the pair once, and an undo puts it back.
    0032 applied to `mozart-preview` and then production on 2026-09-23 and read
    back on both. Not yet exercised on real data: no pair has been confirmed.
+   **Not everything is closed:** five ways one deduction still counts twice
+   or three times, silently, are written down with reproductions in
+   `docs/audits/duplicate-counting/` (2026-09-24).
 5. **Triage**, the rest of Phase 1.5.
    Step A is **built** — ADR 0043: a deterministic review queue in four
    buckets, and ledger cases that open `classified`. Step B, a shadow-only
