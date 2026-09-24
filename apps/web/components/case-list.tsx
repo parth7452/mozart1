@@ -9,6 +9,7 @@ import {
   type AttachTargets,
   type CaseStateTally,
   type CaseSummary,
+  type FiledNothingByAddress,
   type ReviewQueueRead,
 } from '@recouple/store-postgres';
 import { money } from '../lib/format';
@@ -24,6 +25,7 @@ import { resolveNotice } from '../lib/notices';
 import { UnreadDocuments } from './unread-documents';
 import { UnattachedDocuments } from './unattached-documents';
 import { PossibleDuplicates } from './possible-duplicates';
+import { EmailThatFiledNothing } from './inbound-email';
 import { WorkQueue, type QueueViewer } from './work-queue';
 
 export interface Viewer {
@@ -52,6 +54,8 @@ export function CaseList({
   unattached,
   attachTargets,
   duplicates,
+  filedNothing,
+  inboundDomain,
   notice,
   noticeAbout,
 }: {
@@ -116,6 +120,15 @@ export function CaseList({
    * section says so in its own words.
    */
   duplicates?: readonly PossibleDuplicatePair[] | undefined;
+  /**
+   * The emails that filed nothing over the last 30 days, per address (ADR
+   * 0047 §11). Shown, like the lists beside it, only to a member who may add
+   * documents: its rows name the address, and an address writes into this
+   * workspace.
+   */
+  filedNothing?: readonly FiledNothingByAddress[] | undefined;
+  /** This deployment's inbound domain, when it receives email. */
+  inboundDomain?: string | undefined;
   /**
    * What happened to the last upload, as a notice *key* — never the sentence
    * itself, which arrives in a query string anybody can write
@@ -259,6 +272,9 @@ export function CaseList({
             documents={unattached ?? []}
             targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
           />
+        ) : null}
+        {mayUpload ? (
+          <EmailThatFiledNothing groups={filedNothing ?? []} domain={inboundDomain} />
         ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">

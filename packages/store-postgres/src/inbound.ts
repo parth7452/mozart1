@@ -19,8 +19,11 @@ import type { Pool, PoolClient } from 'pg';
 import type {
   InboundAddressResolution,
   InboundClaim,
+  InboundMessageOutcome,
   InboundMessageRecord,
   InboundMessageStore,
+  InboundPartKind,
+  InboundPartOutcome,
   InboundPartRecord,
   InboundProvider,
   RecordedInboundPart,
@@ -121,13 +124,56 @@ export interface InboundAddressRow {
   readonly token: string;
   readonly createdBy: string;
   readonly createdAt: Date;
+  /** The latest adopter, else the issuer (§6). */
   readonly actingMember: string;
+  /** Their sign-in address, when this tenant can see the user row. */
+  readonly actingMemberEmail?: string;
+  /**
+   * Whether the member the address acts as may still write here — the rule
+   * `app.member_may_write()` applies to them at every delivery. When they may
+   * not, the address accepts nothing until an owner adopts it (§6).
+   */
+  readonly actingMemberMayWrite: boolean;
   readonly retiredAt?: Date;
   readonly retiredBy?: string;
   readonly lastReceivedAt?: Date;
   /** Emails refused at this address since it was retired. */
   readonly refusedSinceRetired: number;
   readonly lastRefusedAt?: Date;
+}
+
+/** How far back "Email that filed nothing" looks, and how much it lists (§11). */
+export const FILED_NOTHING_DAYS = 30;
+export const FILED_NOTHING_PER_ADDRESS = 20;
+
+/** One part of an email that filed nothing, as recorded. */
+export interface FiledNothingPart {
+  readonly ordinal: number;
+  readonly kind: InboundPartKind;
+  readonly outcome: InboundPartOutcome;
+  /** As the sender named it. Untrusted text: rendered escaped, never logged. */
+  readonly filename?: string;
+}
+
+/** An email that produced no document anyone can read (§11). */
+export interface FiledNothingEmail {
+  readonly inboundMessageId: string;
+  readonly outcome: InboundMessageOutcome;
+  /** Postmark's own date on a `not_received` row; ours otherwise. ISO-8601. */
+  readonly at: string;
+  /** The domain the email claims to be from, on a `received` row only. A claim. */
+  readonly senderDomain?: string;
+  readonly parts: readonly FiledNothingPart[];
+}
+
+/** One address's emails that filed nothing, newest first, and how many more. */
+export interface FiledNothingByAddress {
+  readonly addressId: string;
+  readonly token: string;
+  readonly retired: boolean;
+  readonly emails: readonly FiledNothingEmail[];
+  /** Emails in the window beyond the ones listed. */
+  readonly beyond: number;
 }
 
 export class PostgresInboundStore implements InboundMessageStore {
@@ -384,18 +430,31 @@ export class PostgresInboundStore implements InboundMessageStore {
         created_by: string;
         created_at: Date;
         acting_member: string;
+        acting_member_email: string | null;
+        acting_member_may_write: boolean;
         retired_at: Date | null;
         retired_by: string | null;
         last_received_at: Date | null;
         refused_since_retired: string;
         last_refused_at: Date | null;
       }>(
-        `select a.id, a.token, a.created_by, a.created_at,
-                coalesce(
-                  (select ad.adopted_by from inbound_address_adoptions ad
-                    where ad.address_id = a.id
-                    order by ad.adopted_at desc, ad.id desc limit 1),
-                  a.created_by) as acting_member,
+        `with addr as (
+           select a.*,
+                  coalesce(
+                    (select ad.adopted_by from inbound_address_adoptions ad
+                      where ad.address_id = a.id
+                      order by ad.adopted_at desc, ad.id desc limit 1),
+                    a.created_by) as acting_member
+             from inbound_addresses a
+            where a.org_id = $1)
+         select a.id, a.token, a.created_by, a.created_at, a.acting_member,
+                (select u.email from users u where u.id = a.acting_member) as acting_member_email,
+                -- app.member_may_write()'s rule, asked of the acting member
+                -- rather than the caller (§6).
+                exists (select 1 from memberships m
+                         where m.org_id = a.org_id and m.user_id = a.acting_member
+                           and m.role in ('owner', 'approver', 'analyst'))
+                  as acting_member_may_write,
                 r.retired_at, r.retired_by,
                 (select max(m.received_at) from inbound_messages m
                   where m.org_id = a.org_id and m.address_id = a.id
@@ -406,9 +465,8 @@ export class PostgresInboundStore implements InboundMessageStore {
                 (select max(m.received_at) from inbound_messages m
                   where m.org_id = a.org_id and m.address_id = a.id
                     and m.outcome = 'refused_retired') as last_refused_at
-           from inbound_addresses a
+           from addr a
            left join inbound_address_retirements r on r.address_id = a.id
-          where a.org_id = $1
           order by a.created_at desc, a.id`,
         [this.tenant.orgId],
       );
@@ -418,12 +476,123 @@ export class PostgresInboundStore implements InboundMessageStore {
         createdBy: row.created_by,
         createdAt: row.created_at,
         actingMember: row.acting_member,
+        ...(row.acting_member_email !== null ? { actingMemberEmail: row.acting_member_email } : {}),
+        actingMemberMayWrite: row.acting_member_may_write,
         refusedSinceRetired: Number(row.refused_since_retired),
         ...(row.retired_at !== null ? { retiredAt: row.retired_at } : {}),
         ...(row.retired_by !== null ? { retiredBy: row.retired_by } : {}),
         ...(row.last_received_at !== null ? { lastReceivedAt: row.last_received_at } : {}),
         ...(row.last_refused_at !== null ? { lastRefusedAt: row.last_refused_at } : {}),
       }));
+    });
+  }
+
+  /**
+   * The emails that filed nothing, per address, over the trailing
+   * `FILED_NOTHING_DAYS` (§11): a `received` email none of whose parts left a
+   * document anyone can read, an email Postmark accepted and never delivered
+   * (`not_received`, §12), and one refused at a retired address. The newest
+   * `FILED_NOTHING_PER_ADDRESS` of each address, and a count beyond.
+   *
+   * "Left a document" is a part `stored`, `already_held` or
+   * `over_daily_budget`: each is on another list already — read, held, or
+   * waiting to be read. An infected part is not. A `not_received` row whose
+   * message later arrived after all is not listed: the received one stands.
+   */
+  async emailsThatFiledNothing(now: Date): Promise<readonly FiledNothingByAddress[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        address_id: string;
+        token: string;
+        retired: boolean;
+        outcome: InboundMessageOutcome;
+        at: Date;
+        sender_domain: string | null;
+        total: string;
+      }>(
+        `with candidates as (
+           select m.id, m.address_id, m.outcome, m.sender_domain,
+                  coalesce(m.provider_received_at, m.received_at) as at
+             from inbound_messages m
+            where m.org_id = $1
+              and coalesce(m.provider_received_at, m.received_at)
+                    > $2::timestamptz - make_interval(days => $3)
+              and (m.outcome <> 'received'
+                   or not exists (
+                     select 1 from inbound_message_parts p
+                      where p.org_id = m.org_id and p.inbound_message_id = m.id
+                        and p.outcome in ('stored', 'already_held', 'over_daily_budget')))
+              and not (m.outcome = 'not_received' and exists (
+                     select 1 from inbound_messages r
+                      where r.org_id = m.org_id and r.provider = m.provider
+                        and r.provider_message_id = m.provider_message_id
+                        and r.outcome = 'received'))
+         ),
+         ranked as (
+           select c.*,
+                  row_number() over (partition by c.address_id order by c.at desc, c.id desc) as n,
+                  count(*) over (partition by c.address_id) as total
+             from candidates c
+         )
+         select r.id, r.address_id, a.token,
+                exists (select 1 from inbound_address_retirements x
+                         where x.org_id = a.org_id and x.address_id = a.id) as retired,
+                r.outcome, r.at, r.sender_domain, r.total
+           from ranked r
+           join inbound_addresses a on a.org_id = $1 and a.id = r.address_id
+          where r.n <= $4
+          order by r.at desc, r.id desc`,
+        [this.tenant.orgId, now.toISOString(), FILED_NOTHING_DAYS, FILED_NOTHING_PER_ADDRESS],
+      );
+      if (rows.length === 0) return [];
+
+      const { rows: partRows } = await client.query<{
+        inbound_message_id: string;
+        ordinal: number;
+        kind: InboundPartKind;
+        outcome: InboundPartOutcome;
+        filename: string | null;
+      }>(
+        `select inbound_message_id, ordinal, kind, outcome, filename
+           from inbound_message_parts
+          where org_id = $1 and inbound_message_id = any($2::uuid[])
+          order by inbound_message_id, ordinal`,
+        [this.tenant.orgId, rows.map((row) => row.id)],
+      );
+      const partsOf = new Map<string, FiledNothingPart[]>();
+      for (const part of partRows) {
+        const list = partsOf.get(part.inbound_message_id) ?? [];
+        list.push({
+          ordinal: part.ordinal,
+          kind: part.kind,
+          outcome: part.outcome,
+          ...(part.filename !== null ? { filename: part.filename } : {}),
+        });
+        partsOf.set(part.inbound_message_id, list);
+      }
+
+      const groups = new Map<string, { group: Omit<FiledNothingByAddress, 'emails'>; emails: FiledNothingEmail[] }>();
+      for (const row of rows) {
+        const entry = groups.get(row.address_id) ?? {
+          group: {
+            addressId: row.address_id,
+            token: row.token,
+            retired: row.retired,
+            beyond: Math.max(0, Number(row.total) - FILED_NOTHING_PER_ADDRESS),
+          },
+          emails: [],
+        };
+        entry.emails.push({
+          inboundMessageId: row.id,
+          outcome: row.outcome,
+          at: new Date(row.at).toISOString(),
+          ...(row.sender_domain !== null ? { senderDomain: row.sender_domain } : {}),
+          parts: partsOf.get(row.id) ?? [],
+        });
+        groups.set(row.address_id, entry);
+      }
+      return [...groups.values()].map(({ group, emails }) => ({ ...group, emails }));
     });
   }
 }

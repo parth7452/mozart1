@@ -4,6 +4,7 @@ import { mayApprove } from '../lib/workflow';
 import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
 import { ledgerFilterFrom } from '../lib/case-presentation';
+import { inboundEmailFromEnv, inboundStoreFor } from '../lib/inbound';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,12 @@ export default async function CaseListPage({
     // and until this list it appeared nowhere. Asked only for a member who
     // could attach one, for the reason the unread documents are.
     const unattached = mayUpload ? await store.unattachedDocuments() : undefined;
+    // Emails that left nothing to read (ADR 0047 §11), for the same members.
+    const inbound = inboundEmailFromEnv();
+    const filedNothing = mayUpload
+      ? await inboundStoreFor({ orgId: session.org.orgId, userId: session.userId })
+          .emailsThatFiledNothing(today)
+      : undefined;
     return (
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
@@ -86,6 +93,8 @@ export default async function CaseListPage({
         // act on is a query paid for on every page view and shown to nobody who
         // can do anything about it.
         duplicates={mayUpload ? await store.possibleDuplicates() : undefined}
+        filedNothing={filedNothing}
+        inboundDomain={inbound.kind === 'bound' ? inbound.domain : undefined}
         notice={upload ?? action ?? reread}
         noticeAbout={aboutFrom(about)}
       />

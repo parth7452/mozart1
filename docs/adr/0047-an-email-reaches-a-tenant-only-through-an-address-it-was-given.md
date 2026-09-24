@@ -426,6 +426,7 @@ What proves it:
 - How Postmark represents a message with two `From` headers or a `From` with two addresses.
 - That `OriginalRecipient` carries the envelope address in the plain form §3 parses.
 - Whether Vercel's logs show the 413 on this route.
+- That the inbound search's `fromdate` and `todate` select by when Postmark received a message, not by the sender's `Date` (added in the build, below).
 
 **Follow-ups, named rather than slipped in.**
 
@@ -488,3 +489,37 @@ Messages, parts, addresses, adoptions and retirements are append-only history of
     - Change the secret on Vercel without updating Postmark, send one email, confirm that Postmark retries the 401, then put the secret back.
 11. **Rotate the secret the same way whenever it is rotated**: set the new value on Vercel Production, redeploy, update the URL in Postmark, and watch for the 401s to stop.
 12. **Until a scheduled host exists, run `pnpm sweep:inbound` daily**, and read its counts of queued and scheduled messages.
+
+## Found in the build (2026-09-24)
+
+Nothing here changes a decision above. Each is a place where the build met
+something the ADR had said differently, and what it did.
+
+- **Postmark's search gives no receipt time.** §12 said the inbound search
+  returns `ReceivedAt`. Postmark's documentation lists no such field in the
+  search results or the message details. They carry only `Date`, which is the
+  sender's header, forgeable, and never stored (§9). So `pnpm sweep:inbound`
+  asks the search one Eastern-time day at a time (its `fromdate` and `todate`
+  are in that zone), and records the start of that day as
+  `provider_received_at`. That is Postmark's date to the day, with nothing the
+  sender wrote in it, and the page shows only the day. It is on the
+  Unverified list above: that those two filters select by when Postmark
+  received a message rather than by the sender's `Date`.
+- **An emailed notice was being called "doubtful".** "Read again" and an
+  upload of the same bytes both said a held document's reading was doubtful,
+  which is ADR 0044's reason. For an email it is the wrong reason. They now
+  say it is held because it came by email (`reread_held_by_email`,
+  `upload_held_by_email`).
+- **The same file attached twice is one document**, and its second part is
+  `already_held`. The job now reads each document once per email, and its
+  steps are keyed by document.
+- **A fleet ceiling for the job.** §8 named one read at a time per tenant. The
+  function also carries a keyless limit of two emails across all tenants
+  (`INBOUND_EMAILS_IN_FLIGHT`), inside the Inngest plan's five, as the read
+  function does.
+- **What "filed nothing" counts.** A `received` email is listed when no part
+  left a document on another list: nothing `stored`, `already_held` or
+  `over_daily_budget`, since each of those is read, held or waiting to be
+  read. An infected part left nothing to read, so it counts as filing
+  nothing. A `not_received` row whose message was later received is not
+  listed, because the received one stands (§12).

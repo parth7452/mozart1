@@ -315,6 +315,8 @@ What each environment gets on Vercel:
 | `ANTHROPIC_API_KEY`, `REDUCTO_API_KEY` | set | none: an upload on a preview is stored and scanned but not read. Add them to Preview deliberately if a preview needs to read, knowing it spends money |
 | `QBO_*`, `QBO_TOKEN_KMS_KEY_ID`, `AWS_*` | set | never |
 | `CLAMAV_SCAN_URL`, `CLAMAV_SCAN_TOKEN` | shared | shared (the scanner keeps nothing) |
+| `POSTMARK_INBOUND_SECRET`, `INBOUND_DOMAIN` | set | **never**: a preview's `/api/inbound/postmark` answers 503, so Postmark's one webhook URL reaches production only (ADR 0047 §14). A preview holding the inbound credential would be the 2026-09-23 Inngest incident with email in it |
+| `POSTMARK_SERVER_TOKEN` | **never** — the operator's own `.env`, for `pnpm sweep:inbound` | never |
 
 `sslmode=no-verify` is there because this driver treats `require` as
 `verify-full`, and the pooler's certificate is not signed by a public CA: the

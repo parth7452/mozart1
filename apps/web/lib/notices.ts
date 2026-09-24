@@ -86,6 +86,12 @@ export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
  * sentence that explains the answer must not be able to disagree.
  */
 export const UNREAD_AFTER_MINUTES = 5;
+/**
+ * How recently an address must have received mail for retiring it to ask
+ * first (ADR 0047 §4). Retiring is final — a retired token is never issued
+ * again — so an address still in use is not retired on one press.
+ */
+export const RETIRE_CONFIRM_DAYS = 14;
 
 export const NOTICES = {
   // --- deciding to dispute -------------------------------------------------
@@ -419,6 +425,15 @@ export const NOTICES = {
       'It is under “Read, not on a case”, where you can open a case from it or attach it to one as ' +
       'evidence. It will not be read again.',
   },
+  upload_held_by_email: {
+    // ADR 0047 §7: these bytes are a document that already arrived by email,
+    // and the upload dedupes to it and is answered from its hold.
+    tone: 'bad',
+    text:
+      'that document already arrived by email, and no email opens a case on its own, so it is ' +
+      'held under “Read, not on a case”, where you can open a case from it or attach it to one ' +
+      'as evidence. It will not be read again.',
+  },
   upload_read_as: {
     tone: 'good',
     text: 'read as a {0}; attach it to a case from that case’s page',
@@ -472,6 +487,13 @@ export const NOTICES = {
     text:
       'that document was read, but the reading was doubtful, so it is held under “Read, not on a ' +
       'case” for a person to decide rather than opening a case on its own',
+  },
+  reread_held_by_email: {
+    // ADR 0047 §7: however sure the reading, no email opens a case by itself.
+    tone: 'bad',
+    text:
+      'that document arrived by email, and no email opens a case on its own, so it is held under ' +
+      '“Read, not on a case” for a person to decide',
   },
   reread_being_read: {
     // Not the same thing as "already read", and saying so would be a small lie
@@ -671,6 +693,38 @@ export const NOTICES = {
     tone: 'bad',
     text: 'disconnecting failed, and nothing changed. Try again.',
   },
+
+  // --- Email (ADR 0047) ------------------------------------------------------
+  email_role: { tone: 'bad', text: 'only an owner can issue, adopt or retire an address' },
+  email_issued: {
+    tone: 'good',
+    text:
+      'a new address is issued. Give it to the suppliers and payers who should reach this ' +
+      'workspace; nothing has been sent to anyone.',
+  },
+  email_adopted: {
+    tone: 'good',
+    text: 'that address now acts as you: what arrives at it is filed on your authority',
+  },
+  email_already_yours: { tone: 'good', text: 'that address already acts as you; nothing changed' },
+  email_retired: {
+    tone: 'good',
+    text:
+      'that address is retired. Mail to it is refused from now on, and it will never be ' +
+      'issued again.',
+  },
+  email_already_retired: { tone: 'good', text: 'that address was already retired; nothing changed' },
+  email_retire_confirm: {
+    tone: 'bad',
+    text:
+      `that address received mail in the last ${RETIRE_CONFIRM_DAYS} days, so nothing was ` +
+      'retired yet. Confirm below if you still want to.',
+  },
+  email_unknown_address: {
+    tone: 'bad',
+    text: 'that is not a live address of this workspace; nothing changed',
+  },
+  email_failed: { tone: 'bad', text: 'that did not go through, and nothing changed. Try again.' },
 
   // One per `RejectionCode`, because the door's refusal is a closed set and its
   // message is a sentence built around a filename somebody else chose.

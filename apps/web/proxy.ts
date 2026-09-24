@@ -43,6 +43,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   // Everything but the static assets and the document route, which is already
-  // behind `requireSession()` and does not want a token refresh per page image.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/document).*)'],
+  // behind `requireSession()` and does not want a token refresh per page image
+  // — and the inbound email webhook, which has no session to refresh and whose
+  // body is the size of an email (ADR 0047 §1).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/document|api/inbound).*)'],
 };

@@ -190,9 +190,9 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
-with every invariant verified there, and the Postmark email-in parser and
-pipeline step — which nothing in the app calls yet: there is no inbound
-webhook route, so no email can reach it (`docs/VERIFY-CHECKLIST.md` §5).
+with every invariant verified there, and email-in through Postmark (ADR 0047),
+built and waiting on the founder's Postmark setup and migration 0034 in
+production (`docs/VERIFY-CHECKLIST.md` §5).
 
 Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
@@ -1262,8 +1262,8 @@ word. That collision does not need the new field: any remittance that prints
 two deductions against one invoice as two lines meets it today, and fixing it is
 identity's job (ADR 0028's claim key), a follow-up.
 
-**Email-in has a database half, a parser and a job, and no door yet** (ADR
-0047, migration 0034; parts 1 and 2 of 3). A tenant's address will be `<token>@<INBOUND_DOMAIN>`, the token
+**An email reaches a tenant only through an address it was given** (ADR
+0047, migration 0034). A tenant's address is `<token>@<INBOUND_DOMAIN>`, the token
 32 hex characters the database generates and never a slug; addresses are
 issued, adopted and retired by an owner as themselves, in three append-only
 tables, and a retired token is never reissued. `app.inbound_address_for()`
@@ -1296,7 +1296,36 @@ whatever `allowCaseOpen` a caller computed, so the job, "Read again" and a
 re-upload of the same bytes all hold it; "Open a case from it" opens it.
 `INBOUND_READS_PER_DAY` (100, core-domain) bounds the parts read per tenant per
 day. `ingestInboundEmail`, `findOrgBySlug` (which in memory saw every tenant)
-and the slug addresses are gone. The route is part 3.
+and the slug addresses are gone.
+
+Part 3 is the door. `POST /api/inbound/postmark` (production only, outside the
+session proxy) takes Postmark's Basic credential — `postmark:` plus
+`POSTMARK_INBOUND_SECRET`, compared as SHA-256 hashes in constant time, before
+the body is read — and answers §11's table: 401 with a challenge for a wrong
+credential, 503 wherever a retry or a deploy could change the answer (no
+binding, a payload our schema refuses, a recipient on another domain, an acting
+member who may not write, a busy claim, a scanner with no verdict, an event
+that did not send), 403 only for what no retry could (not a token, an unknown
+one, a retired address — recorded as its retirer), and 200 only once the
+message, its parts and the event are all durable. `inboundEmailFromEnv` is
+`runnerFromEnv`'s shape and refuses to bind without Inngest, without a scanner
+or with a secret under 64 characters. The job is `read-inbound-email`, keyed on
+the message, one step per document, one email per tenant and two across the
+fleet. **Settings → Email** issues, adopts and retires addresses (owner only;
+retiring one that had mail in the last 14 days asks first); a `read_only`
+member is told how many there are and shown none. The case list's **Email that
+filed nothing** lists, per address over 30 days, every email that left no
+document to read, with each part's outcome worded as a fact; a held emailed
+document shows the domain its author claims and Postmark's aligned-DKIM
+report, which decide nothing, and "Read again" and an upload of the same bytes
+say it is held because it came by email, not because the reading was
+doubtful. `pnpm sweep:inbound` is the operator's: it lists Postmark's failed
+inbound messages one Eastern-time day at a time — the search returns no receipt
+time, and the `Date` it does return is the sender's — and records each one sent
+to a live address as `not_received` on that tenant, as the address's member,
+with `POSTMARK_SERVER_TOKEN` from the operator's `.env` and never Vercel's.
+Nothing here has met a live Postmark message yet: the founder's setup, the
+migration in production and ADR 0047's unverified list come first.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

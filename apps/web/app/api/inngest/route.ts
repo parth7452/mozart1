@@ -8,6 +8,7 @@ import {
   type JobStoreHandle,
 } from '../../../lib/inngest';
 import { ledgerSyncFunctions } from '../../../lib/inngest-ledger';
+import { inboundStoreFor, readInboundEmailFunction } from '../../../lib/inbound';
 import { pipelineDepsFor, storeForActor } from '../../../lib/pipeline';
 import { connectionsToSync, ledgerSyncDepsFor } from '../../../lib/ledger-sync';
 
@@ -106,6 +107,14 @@ function handlers(): Served | undefined {
         // see: `app_rw` with those claims, the same store a request builds.
         storeFor: (identity) => storeForActor(identity),
         depsFor: (store: JobStoreHandle): JobDeps => pipelineDepsFor(store),
+      }),
+      // An email's documents, read one step each after the webhook stored and
+      // scanned them (ADR 0047 §8). The same stores as a read, as the member
+      // the address acts as, which is the `userId` the event names.
+      readInboundEmailFunction(client, {
+        storeFor: (identity) => storeForActor(identity),
+        depsFor: (store: JobStoreHandle): JobDeps => pipelineDepsFor(store),
+        inboundFor: (identity) => inboundStoreFor(identity),
       }),
       // The schedule, and the per-connection sync it fans out to (ADR 0031).
       // The fan-out lists connections with no tenant claims, because it is the
