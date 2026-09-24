@@ -98,6 +98,32 @@ the log. Uploads still store, scan and queue; nothing reads them until the
 variable is unset. A visible stop is the right failure here — the alternative is
 an endpoint on the public internet accepting unsigned work.
 
+### Email-in: Production only
+
+Suppliers email documents to `<token>@<INBOUND_DOMAIN>`; Postmark receives them
+and posts each one to `/api/inbound/postmark` (ADR 0047). Both variables go on
+**Production only** — never Preview — so Postmark's single webhook URL can only
+reach production:
+
+| Variable | Why |
+| --- | --- |
+| `POSTMARK_INBOUND_SECRET` | The password in the webhook URL Postmark is given, `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`. Postmark signs nothing, so this is the webhook's whole authentication, and it reaches every tenant. `openssl rand -hex 32`; under 64 characters is refused |
+| `INBOUND_DOMAIN` | The subdomain whose MX points at `inbound.postmarkapp.com` (priority 10), used for nothing else — `in.mozart.financial`, say. An email to any other domain is refused |
+
+Set both or neither. With neither, the route answers 503 and logs nothing — what
+a preview answers. One without the other, a short secret, no Inngest keys (an
+email's read must not run inside Postmark's two-minute wait) or no scanner is a
+misconfiguration: 503, logged with the reason, and Postmark retries for about
+ten hours while it is fixed. `POSTMARK_SERVER_TOKEN` is **not** set here: it
+reads every tenant's mail and can repoint the webhook, so it stays in the
+operator's own `.env` for `pnpm sweep:inbound`.
+
+After the next production deploy, an owner issues an address under
+**Settings → Email**. To rotate the secret: set the new value here, redeploy,
+update the URL in Postmark, and watch the 401s stop — Postmark retries the mail
+that met the old one. The founder's full setup is ADR 0047's "What the founder
+does"; the click-through is `docs/VERIFY-CHECKLIST.md` §5.
+
 ## Supabase, after the first deploy
 
 Add the deployment origin to **Authentication → URL Configuration**:

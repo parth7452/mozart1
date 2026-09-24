@@ -24,7 +24,8 @@
     "build:web": "pnpm --filter @recouple/web build",
     "render:web": "./scripts/render-web.sh",
     "link:qbo": "tsx scripts/link-qbo.ts",
-    "unlink:qbo": "tsx scripts/unlink-qbo.ts"
+    "unlink:qbo": "tsx scripts/unlink-qbo.ts",
+    "sweep:inbound": "tsx scripts/sweep-inbound.ts"
   },
   "devDependencies": {
     "@recouple/adapters": "workspace:*",

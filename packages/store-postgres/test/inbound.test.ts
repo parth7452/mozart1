@@ -313,6 +313,111 @@ describeDb('email-in on Postgres', () => {
     // The cover note was not read, and is not presented as a stalled read.
     const waiting = await store.unreadDocuments(0, 50);
     expect(waiting.map((w) => w.documentId)).not.toContain(parts[1]?.documentId);
+
+    // The held notice says what its email claimed about its sender (§7): no
+    // scan headers here, so Postmark's DKIM report is unknown.
+    const loose = (await store.unattachedDocuments()).find((d) => d.documentId === parts[0]?.documentId);
+    expect(loose?.hold?.reason).toBe('by_email');
+    expect(loose?.email).toEqual({ dkim: 'unknown', senderDomain: 'walmart.example' });
+  });
+
+  it('says who an address acts as, and when that member may no longer write', async () => {
+    const adopterId = randomUUID();
+    await admin.query(`insert into users (id, email) values ($1, $2)`, [adopterId, `inb-ad-${suffix}@example.test`]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'owner')`, [orgId, adopterId]);
+    const adopter = new PostgresInboundStore(config, { orgId, userId: adopterId });
+    const { addressId } = await owner.issueAddress();
+    await adopter.adoptAddress(addressId);
+
+    const before = (await owner.addresses()).find((a) => a.addressId === addressId);
+    expect(before).toMatchObject({
+      actingMember: adopterId,
+      actingMemberEmail: `inb-ad-${suffix}@example.test`,
+      actingMemberMayWrite: true,
+    });
+
+    await admin.query(`update memberships set role = 'read_only' where org_id = $1 and user_id = $2`, [orgId, adopterId]);
+    const after = (await owner.addresses()).find((a) => a.addressId === addressId);
+    expect(after?.actingMemberMayWrite).toBe(false);
+  });
+
+  it('lists the emails that filed nothing, per address, and not one that filed something (§11)', async () => {
+    const now = new Date();
+    const verdict = {
+      authenticated: false, dkim: 'none' as const, dmarc: 'unknown' as const, spf: 'none' as const,
+      verdictSource: 'postmark_spamassassin' as const, senderDomain: 'payer.example',
+    };
+    const { addressId: live } = await owner.issueAddress();
+    const received = (messageId: string, parts: Parameters<PostgresInboundStore['recordInboundMessage']>[1]) =>
+      owner.recordInboundMessage(
+        { addressId: live, provider: 'postmark', providerMessageId: messageId, outcome: 'received', verdict },
+        parts,
+      );
+    const notReceived = (messageId: string, at: Date) =>
+      owner.recordInboundMessage(
+        { addressId: live, provider: 'postmark', providerMessageId: messageId, outcome: 'not_received',
+          providerReceivedAt: at },
+        [],
+      );
+
+    const refused = await received(randomUUID(), [
+      { ordinal: 0, kind: 'attachment', filename: 'deductions.xlsx', outcome: 'type_not_allowed' },
+      { ordinal: 1, kind: 'body', outcome: 'body_too_short' },
+    ]);
+    const documentId = await emailedDocument(ownerId, new TextEncoder().encode(`%PDF-1.4 ${randomUUID()}`));
+    await received(randomUUID(), [{ ordinal: 0, kind: 'attachment', filename: 'n.pdf', outcome: 'stored', documentId }]);
+    const twoDaysAgo = new Date(now.getTime() - 2 * 86_400_000);
+    const lost = await notReceived(randomUUID(), twoDaysAgo);
+    await notReceived(randomUUID(), new Date(now.getTime() - 40 * 86_400_000));
+    // Lost, and then re-driven and received after all: the received one stands.
+    const redriven = randomUUID();
+    await notReceived(redriven, twoDaysAgo);
+    await received(redriven, [{ ordinal: 0, kind: 'attachment', filename: 'n.pdf', outcome: 'already_held', documentId }]);
+
+    const { addressId: old } = await owner.issueAddress();
+    await owner.retireAddress(old);
+    const bounced = await owner.recordInboundMessage(
+      { addressId: old, provider: 'postmark', providerMessageId: randomUUID(), outcome: 'refused_retired' },
+      [],
+    );
+
+    const groups = await owner.emailsThatFiledNothing(now);
+    const forLive = groups.find((g) => g.addressId === live);
+    expect(forLive?.retired).toBe(false);
+    expect(forLive?.emails.map((e) => e.inboundMessageId)).toEqual([refused, lost]);
+    expect(forLive?.emails[0]).toMatchObject({
+      outcome: 'received',
+      senderDomain: 'payer.example',
+      parts: [
+        { ordinal: 0, kind: 'attachment', filename: 'deductions.xlsx', outcome: 'type_not_allowed' },
+        { ordinal: 1, kind: 'body', outcome: 'body_too_short' },
+      ],
+    });
+    // Postmark's day on a message it could not deliver, not ours.
+    expect(forLive?.emails[1]).toMatchObject({ outcome: 'not_received', at: twoDaysAgo.toISOString(), parts: [] });
+    expect(forLive?.beyond).toBe(0);
+    expect(groups.find((g) => g.addressId === old)).toMatchObject({
+      retired: true,
+      emails: [expect.objectContaining({ inboundMessageId: bounced, outcome: 'refused_retired' })],
+    });
+
+    // Another tenant sees none of it.
+    const theirs = await other.emailsThatFiledNothing(now);
+    expect(theirs.find((g) => g.addressId === live || g.addressId === old)).toBeUndefined();
+  });
+
+  it('lists twenty per address and counts the rest', async () => {
+    const { addressId } = await owner.issueAddress();
+    for (let n = 0; n < 22; n += 1) {
+      await owner.recordInboundMessage(
+        { addressId, provider: 'postmark', providerMessageId: randomUUID(), outcome: 'not_received',
+          providerReceivedAt: new Date(Date.now() - n * 60_000) },
+        [],
+      );
+    }
+    const group = (await owner.emailsThatFiledNothing(new Date())).find((g) => g.addressId === addressId);
+    expect(group?.emails).toHaveLength(20);
+    expect(group?.beyond).toBe(2);
   });
 
   it('scans a stored document again when its first scan gave no verdict (ADR 0047 §10)', async () => {

@@ -6,6 +6,7 @@
  * Inngest binding in Phase 1b is a thin adapter rather than a rewrite.
  */
 
+import type { DkimVerdict } from './inbound-ports';
 import type {
   CanonicalReasonCode,
   CaseState,
@@ -647,6 +648,17 @@ export interface UnattachedDocument {
    * Absent for a document that was simply read and opened nothing.
    */
   readonly hold?: DocumentHold;
+  /**
+   * What the email that brought it said about its sender, for a document
+   * whose own arrival was an email (ADR 0047 §7): the domain its author
+   * claims, and Postmark's aligned-DKIM report. Shown to the person deciding,
+   * and decides nothing — anyone holding the webhook's credential can write
+   * either one.
+   */
+  readonly email?: {
+    readonly senderDomain?: string;
+    readonly dkim: DkimVerdict;
+  };
 }
 
 /**

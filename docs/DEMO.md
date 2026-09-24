@@ -285,3 +285,25 @@ open and the pair appears under **Possible duplicates** on the case list.
 
 > **Say this:** a merge deletes nothing. It is one recorded row with a name on
 > it, the database moves the state from it, and the undo is one more row.
+
+## Extra · A notice by email (2 min, optional)
+
+Needs email-in set up on the deployment (`docs/VERIFY-CHECKLIST.md` §5) and an
+address issued under **Settings → Email**. Email any notice PDF to that address
+from your own mail, and wait a minute or two.
+
+- **It is held, not opened.** The notice appears under **Read, not on a case**
+  as "Held: … it arrived by email", with the domain the email claims to be from
+  and Postmark's DKIM report beside it. However trustworthy the sender looks, no
+  email opens a case on its own: anyone who has the address can send to it.
+- **One click opens it.** **Open a case from it** opens the case from what was
+  already read. Nothing is read again and nothing is charged.
+- **The address is the workspace's, not a person's.** It files as the owner
+  who issued or last adopted it, and it can be retired and replaced without
+  anything else changing. A retired address is never issued again.
+- **Email that filed nothing says so.** An email whose every attachment was
+  refused, or one Postmark could not deliver to us, is listed with why.
+
+> **Say this:** the address is a door into the workspace, so every email that
+> comes through it waits for a person. We record what arrived and who opened
+> the door, and a person decides what becomes a case.

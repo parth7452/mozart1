@@ -126,6 +126,9 @@ export async function POST(
     // Held for a person (ADR 0044), by this read or by the one before it: said
     // as a hold rather than as "read" or "already read", because the document
     // is waiting for somebody and this list is where they will find it.
+    // An emailed notice is held because it came by email (ADR 0047 §7), not
+    // because the reading was doubtful, and the reviewer is told which.
+    if (outcome.result.held === 'by_email') return say('reread_held_by_email');
     if (outcome.result.held !== null) return say('reread_held');
     if (outcome.result.alreadyRead) return say('reread_already_read');
     return say('reread_done');

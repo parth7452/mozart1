@@ -11,7 +11,7 @@ export function Wordmark() {
 }
 
 /** Which part of the workspace a page belongs to, for the nav and the breadcrumb. */
-export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks';
+export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks' | 'email';
 
 /** Shared presentation only. Session resolution stays in the route. */
 export function WorkspaceShell({
@@ -73,6 +73,16 @@ export function WorkspaceShell({
             </span>
             QuickBooks<span aria-hidden="true">↗</span>
           </Link>
+          <Link
+            className={section === 'email' ? 'nav-item active' : 'nav-item'}
+            href="/settings/email"
+            aria-current={section === 'email' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ✉
+            </span>
+            Email<span aria-hidden="true">↗</span>
+          </Link>
         </nav>
         <div className="sidebar-bottom">
           <div className="control-note">
@@ -108,6 +118,12 @@ export function WorkspaceShell({
                 <span>Settings</span>
                 <span className="breadcrumb-divider">/</span>
                 <Link href="/settings/quickbooks">QuickBooks</Link>
+              </>
+            ) : section === 'email' ? (
+              <>
+                <span>Settings</span>
+                <span className="breadcrumb-divider">/</span>
+                <Link href="/settings/email">Email</Link>
               </>
             ) : section === 'coverage' ? (
               <Link href="/coverage">Coverage</Link>

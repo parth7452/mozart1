@@ -11,6 +11,7 @@ import type {
   CaseSearchResult,
   CaseStateTally,
   CaseSummary,
+  FiledNothingByAddress,
   PostgresStore,
   ReviewQueueRead,
   ReviewQueueRow,
@@ -57,6 +58,19 @@ const harness = vi.hoisted(() => ({
   /** Every `listCases` call: the page should make none now that the ledger searches. */
   listCalls: 0,
   newest: [] as CaseSummary[],
+  /** Every `emailsThatFiledNothing` call (ADR 0047 §11), and who it acted as. */
+  filedNothingCalls: [] as { identity: { orgId: string; userId: string }; now: Date }[],
+  filedNothing: [] as FiledNothingByAddress[],
+}));
+
+vi.mock('../lib/inbound', () => ({
+  inboundEmailFromEnv: () => ({ kind: 'bound', secret: 'x'.repeat(64), domain: 'in.mozart.example' }),
+  inboundStoreFor: (identity: { orgId: string; userId: string }) => ({
+    async emailsThatFiledNothing(now: Date) {
+      harness.filedNothingCalls.push({ identity, now });
+      return harness.filedNothing;
+    },
+  }),
 }));
 
 vi.mock('../lib/session', () => ({
@@ -197,6 +211,27 @@ describe('the case list page', () => {
     harness.search = { rows: [], total: 0, limit: 100 };
     harness.listCalls = 0;
     harness.newest = [];
+    harness.filedNothingCalls = [];
+    harness.filedNothing = [
+      {
+        addressId: 'cccccccc-1111-2222-3333-444444444444',
+        token: '0123456789abcdef0123456789abcdef',
+        retired: false,
+        beyond: 3,
+        emails: [
+          {
+            inboundMessageId: 'cccccccc-9999-2222-3333-444444444444',
+            outcome: 'received',
+            at: '2026-09-23T15:00:00.000Z',
+            senderDomain: 'harborlane.example',
+            parts: [
+              { ordinal: 0, kind: 'attachment', outcome: 'type_not_allowed', filename: 'deductions.xlsx' },
+              { ordinal: 1, kind: 'body', outcome: 'body_too_short', filename: 'email-body.txt' },
+            ],
+          },
+        ],
+      },
+    ];
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -243,6 +278,28 @@ describe('the case list page', () => {
     expect(harness.attachCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
     expect(html).toContain(`<option value="${old.deductionId}">OLD-7 · retailer unknown · $123.45</option>`);
     expect(html).toContain('This workspace has 301: the first 1 are listed, and the other 300 are not.');
+  });
+
+  it('says which emails filed nothing and why, asked once as the member with the queue’s today', async () => {
+    const html = await render();
+
+    expect(harness.filedNothingCalls).toHaveLength(1);
+    expect(harness.filedNothingCalls[0]?.identity).toEqual({ orgId: ORG_ID, userId: USER_ID });
+    expect(harness.filedNothingCalls[0]?.now).toBe(harness.queueCalls[0]?.today);
+    expect(html).toContain('Email that filed nothing');
+    expect(html).toContain('0123456789abcdef0123456789abcdef@in.mozart.example');
+    expect(html).toContain('An email to this address on 2026-09-23 filed nothing.');
+    expect(html).toContain('From harborlane.example — as the email claims, unverified.');
+    expect(html).toContain('attachment “deductions.xlsx”: not a kind of file this app reads');
+    expect(html).toContain('the message itself: too short to be a notice');
+    expect(html).toContain('And 3 more to this address in the last 30 days.');
+  });
+
+  it('draws no email section when every email filed something', async () => {
+    harness.filedNothing = [];
+    const html = await render();
+    expect(harness.filedNothingCalls).toHaveLength(1);
+    expect(html).not.toContain('Email that filed nothing');
   });
 
   it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
@@ -295,9 +352,12 @@ describe('the case list page', () => {
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
     expect(harness.attachCalls).toEqual([]);
+    // Its rows name an address, and an address writes into this workspace.
+    expect(harness.filedNothingCalls).toEqual([]);
     expect(html).not.toContain('Documents waiting to be read');
     expect(html).not.toContain('Possible duplicates');
     expect(html).not.toContain('Read, not on a case');
+    expect(html).not.toContain('Email that filed nothing');
   });
 
   it('shows every member what to work on next, read with one today', async () => {
