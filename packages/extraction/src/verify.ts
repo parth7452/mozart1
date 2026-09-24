@@ -7,6 +7,7 @@
  * value, and it is caught before a human ever sees the field.
  */
 
+import { withoutInlineMarkup } from './markup';
 import type { ExtractedField } from './ports';
 
 /** Whitespace and case are presentation; everything else must match. */
@@ -18,6 +19,7 @@ function normalise(text: string): string {
 function alphanumeric(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
+
 
 /**
  * Collapses the glyph pairs OCR confuses, so a value read correctly from the
@@ -62,11 +64,20 @@ export function checkQuote(
   if (page === undefined) {
     return { verified: false, reason: `cited page ${sourcePage} does not exist` };
   }
-  if (normalise(page).includes(normalise(quote))) return { verified: true, matchedBy: 'exact' };
-  if (alphanumeric(page).includes(alphanumeric(quote))) {
+  // Bold is presentation too, and so is `&amp;`. The Reducto adapter already
+  // removes both from every text layer it writes; the check does it again
+  // because a page stored before it did is read back by any later read of that
+  // document, and because a tag's letters are not neutral here: the glyph fold
+  // reads the `b` of `<b>` as an `8`, which verified an invented "$84,800.00"
+  // against a bold "$4,800.00". Removing markup tightens the check; it is the
+  // only thing this adds, and every tier below is unchanged.
+  const onPage = withoutInlineMarkup(page);
+  const quoted = withoutInlineMarkup(quote);
+  if (normalise(onPage).includes(normalise(quoted))) return { verified: true, matchedBy: 'exact' };
+  if (alphanumeric(onPage).includes(alphanumeric(quoted))) {
     return { verified: true, matchedBy: 'punctuation', reason: 'matched ignoring punctuation' };
   }
-  if (glyphFolded(page).includes(glyphFolded(quote))) {
+  if (glyphFolded(onPage).includes(glyphFolded(quoted))) {
     return {
       verified: true,
       matchedBy: 'ocr_confusion',

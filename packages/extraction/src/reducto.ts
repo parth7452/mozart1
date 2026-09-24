@@ -7,6 +7,7 @@
  * verified and pointed at.
  */
 
+import { withoutInlineMarkup } from './markup';
 import { costMicros } from './models';
 import { OcrError, type OcrBlock, type OcrPage, type OcrProvider, type OcrResult } from './ocr';
 import type { DocumentPayload, ModelCallRecord } from './ports';
@@ -110,7 +111,9 @@ export class ReductoOcr implements OcrProvider {
         for (const block of chunk.blocks ?? []) {
           const bbox = toBbox(block.bbox);
           const page = block.bbox?.page ?? 1;
-          const text = (block.content ?? '').trim();
+          // Stored as the text layer, located by boxes and checked by quotes:
+          // all three read the words, never the bold Reducto drew them in.
+          const text = withoutInlineMarkup(block.content ?? '').trim();
           if (text === '') continue;
           if (bbox !== undefined) {
             blocks.push({
