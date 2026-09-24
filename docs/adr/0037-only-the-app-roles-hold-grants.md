@@ -304,17 +304,28 @@ holds whatever ran before it.
 
 **Not closed here, and named so it is not forgotten:**
 
+*(Status, 2026-09-23: all four are closed. The first two by
+[ADR 0045](./0045-sign-in-and-the-fan-out-refuse-callers-they-were-not-written-for.md),
+the third in CLAUDE.md, the fourth by the apply. The items are kept as they
+were written.)*
+
 - Sign-ups are open. Closing them means invitations create auth users first.
+  **Closed by ADR 0045 §1 and §4**: the login form sends
+  `shouldCreateUser: false`, and an invitation creates the auth user from the
+  dashboard.
 - `app.ledger_connections_to_sync()` refuses a caller with an `org_id` but not
   one with a `sub`. After 0028 no request role can reach it; refusing a `sub`
   too, as `app.member_for_link` does, is defence in depth and a function-body
-  change with its own `set search_path`.
+  change with its own `set search_path`. **Closed by ADR 0045 §3** (migration
+  0033), which also gives `app.link_auth_user()` the same guard.
 - CLAUDE.md says `app.link_auth_user()` takes the identity "from the claims
   rather than an argument". It takes `auth_id` as an argument
   (`packages/store-postgres/src/session.ts` passes the verified one).
+  **Closed**: CLAUDE.md now says it takes the subject and email as arguments.
 - Production does not carry 0028. Until it is applied, the Context above is
   still production's state. Migrations are applied in order, so no later table
-  can reach production ahead of it.
+  can reach production ahead of it. **Closed**: production carries 0028 since
+  2026-09-23, and the Data API has been off since the same afternoon.
 
 ## Invariants touched
 

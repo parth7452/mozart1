@@ -8,7 +8,7 @@ verified there, not only against local Postgres.
 | Project ref | `hvheqbgkvwhlqutklwfh` |
 | Region | `us-east-1` |
 | Postgres | 17.6 (local tests run on 16 — see below) |
-| Applied | migrations 0001–0030, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply) |
+| Applied | migrations 0001–0032, as named migrations matching the filenames in `supabase/migrations/` (CLAUDE.md, "Current state", records each apply). 0033 (ADR 0045) is pending: `mozart-preview` first, then production, on the founder's go |
 
 ## What was verified on the live project
 
@@ -265,9 +265,34 @@ like `recouple_app` and runs each command as it.
   magic link comes back to the wrong place.
 - **Email confirmations** are what a magic link is; the built-in SMTP is
   rate-limited and fine for a handful of testers, not for customers.
-- A person can only sign in if they were invited: a `users` row with their
-  address and a `memberships` row for their tenant. Seed those as the owner —
-  `app.link_auth_user()` refuses an address with no invitation, on purpose.
+- A person can only sign in if they were invited, and an invitation has two
+  halves (ADR 0045):
+  1. A `users` row with their address and a `memberships` row for their
+     tenant. Seed those as the owner. `app.link_auth_user()` refuses an
+     address with no invitation, on purpose.
+  2. **Authentication → Users → Add user → Send invitation**, with the same
+     address. The login form creates no auth user (`shouldCreateUser: false`),
+     so without this the form answers "sent" and no mail ever goes out.
+  The person follows the invitation link once, which confirms the address,
+  and then signs in from the login form. The invitation link does not sign
+  them in by itself: it lands on the Site URL with the session in the URL
+  fragment, and this app only takes a session from `/auth/callback`.
+- **An invited address that gets no mail** leaves its trace in the app's log,
+  not on the page. The form answers every address alike, and logs why a link
+  was not sent: `otp_disabled` (no auth user, so step 2 above was missed),
+  `signup_disabled` (sign-ups are off and the invitation has not been
+  followed; re-send it), or `NOT SENT` with the provider's reason (a cooldown,
+  the mail quota, the mailer).
+
+**The sign-up switch is the founder's, and comes after.** "Allow new users to
+sign up" (Authentication → Sign In / Providers) off is a second lock no code
+can set: nothing but an invitation can then create a user, whatever a client
+sends. Flip it after the ADR 0045 web change is deployed and both members have
+signed in through it, so that anything that depended on sign-up being open has
+shown itself while that change is the only one. Its one cost: an invited person
+who has not yet followed their invitation cannot get a link from the form until
+they do, so re-send the invitation rather than telling them to try the form
+again. Invitations keep working, because the dashboard invite is not a sign-up.
 
 ## Preview deployments have their own project
 

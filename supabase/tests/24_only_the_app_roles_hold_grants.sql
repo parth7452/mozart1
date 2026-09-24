@@ -196,7 +196,7 @@ begin
   -- Membership: the one grant 0006 made on purpose, and the reason it goes.
   -- =========================================================================
   -- `grant app_rw to authenticated` (0006) made every signed-in stranger — and
-  -- sign-ups are open — a member of the application role. MEMBER here is any
+  -- sign-ups were open until ADR 0045 — a member of the application role. MEMBER here is any
   -- path, whatever its inherit and set options.
   foreach t in array targets loop
     perform test.ok(

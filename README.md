@@ -272,11 +272,15 @@ root `.env` the scripts use.
    the gate failing closed, not a bug.
 4. `pnpm --filter @recouple/web dev`, then open `http://localhost:3000`.
 
-Signing in needs two things on `mozart-preview`: `http://localhost:3000/auth/callback`
-in **Authentication → URL Configuration → Redirect URLs**, and a `users` plus a
-`memberships` row for your address (see *Who can sign in* in
-`apps/web/DEPLOY.md`). Without the first the magic link lands on the Site URL
-and signs nobody in; without the second `app.link_auth_user()` refuses you.
+Signing in needs three things on `mozart-preview`: `http://localhost:3000/auth/callback`
+in **Authentication → URL Configuration → Redirect URLs**; a `users` plus a
+`memberships` row for your address; and an auth user for that address, made
+with **Authentication → Users → Add user → Send invitation** and its link
+followed once (see *Who can sign in* in `apps/web/DEPLOY.md`). Without the
+first the magic link lands on the Site URL and signs nobody in. Without the
+second `app.link_auth_user()` refuses you. Without the third the form creates
+nobody (ADR 0045): it says a link is on its way, as it does for every address,
+and none is sent.
 Walking a case through approval needs a second member with the `owner` or
 `approver` role, because the preparer cannot approve their own packet.
 

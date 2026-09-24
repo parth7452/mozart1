@@ -61,7 +61,8 @@ The gap between *it worked once* and *it works*:
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in** | Postmark is built. Has a real email ever opened a case? |
-| **The review queue** (ADR 0043) | The first 07:00 sync after it deploys moves production's two ledger cases ($450.00 and $239.00) to `classified`, each with a `case.classified` event naming the sync, and their case pages offer decide and decline |
+| **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
+| **Closed sign-ups, and the claims guard** (ADR 0045, migration 0033) | 0033 is **not yet applied**: `mozart-preview` first, then production, on the founder's go, read back like every earlier migration (md5, both functions still definer and pinned, same results and grants). The web half deploys on merge. What would prove it: both members sign in through the new form; an address with no auth user gets the same "sent" page and no mail, with `otp_disabled` in the log; a person invited from the dashboard follows the invitation once and then signs in from the form; then the founder switches off "Allow new users to sign up" |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
 
 ## Blocked, and on whom

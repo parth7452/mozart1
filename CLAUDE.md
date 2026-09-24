@@ -281,10 +281,11 @@ governs.
 link, a case list and a review route, reading through the same RLS policies as
 everything else (ADR 0015). Signing in resolves a tenant rather than creating
 one — `app.link_auth_user()` and `app.my_orgs()`, both security definer
-(migration 0012, ADR 0012). `my_orgs()` takes the subject from the claims rather
+(migration 0012, ADR 0015). `my_orgs()` takes the subject from the claims rather
 than an argument; `link_auth_user()` takes the subject and email as arguments,
 which `resolveSession` passes from the session the server verified — 0012's own
-header says both read the claims, and it is wrong about that one. Document bytes
+header says both read the claims, and it is wrong about that one — and since
+migration 0033 it refuses any caller that carries a claim (ADR 0045). Document bytes
 are durable and served through a route under the same policies, not a signed URL
 (migration 0013, ADR 0014). The case page carries Phase 3's five actions —
 decide, assemble, approve, record the filing, record the outcome — each shown
@@ -800,6 +801,32 @@ in through `app.mozart.financial/auth/callback` at 16:35 and 16:36. **The Data
 API has been off since 2026-09-23**, and the app's logs showed no error after
 the switch.
 
+**Sign-in and the fan-out refuse callers they were not written for** (ADR 0045,
+migration 0033). The two items ADR 0037 left open, closed as defence in depth,
+since neither was reachable once 0028 was applied and the Data API was off.
+The login form sends `shouldCreateUser: false`, so it creates no Supabase Auth
+user, and an invitation is now the `users` and `memberships` rows **plus**
+Authentication → Users → Add user → Send invitation in the dashboard
+(`apps/web/DEPLOY.md`). The form answers every address alike. An unknown
+address comes back `otp_disabled` (or `signup_disabled` once the project's
+sign-ups are off), and every failure only an existing account can meet (the
+per-address cooldown, the mail quota, the mailer) is answered as sent and
+logged. Only what the provider refuses before it looks at the address is
+shown: its request limit, or no answer at all. `requireSession` signs an
+identity out at the provider (global scope) when the database answers **no
+invitation** (SQLSTATE 42501 and that exact opening) or **no membership**, and
+on nothing else, so a fault never costs a member their session. 0033 restates
+`app.ledger_connections_to_sync()` and `app.link_auth_user()` in full: definer,
+pinned, same results and grants. Each now refuses a caller carrying an `org_id`
+**or** a `sub` (a Data API request always carries `sub`). `link_auth_user()`
+also refuses, as `cardinality_violation`, an address two `users` rows answer to
+case-insensitively, rather than linking one at random. `resolveSession` and
+`listConnectionsToSync` clear the claims transaction-locally first. Suite 29
+reads it back. **0033 is not applied**: `mozart-preview` first, then
+production, on the founder's go. Turning off "Allow new users to sign up" in the
+dashboard is the founder's switch, after the web change is deployed and both
+members have signed in through it.
+
 **Coverage counts each deduction once** (ADR 0038, migration 0029).
 `coverage_by_period_by_source` added `opened + declined`, and `declineCase`
 writes a declined row naming the case with its full amount while the case stays
@@ -1021,8 +1048,10 @@ true of the store and false of the product. `recordLedgerCase` now crosses the
 existing `discovered → classified` edge (`doc_type_known`, which a ledger
 extract is by construction) in the transaction that links the extract, with a
 `case.classified` event naming the sync, and every sync first sweeps the
-tenant's `discovered` cases whose notice arrived through `erp_sync`, so
-production's two move at the next 07:00 run with no operator step. The sweep
+tenant's `discovered` cases whose notice arrived through `erp_sync`. Production's
+two moved on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from
+the Inngest dashboard: the run logged `classified 2`, and each case carries one
+`case.classified` event. The sweep
 does not reach ADR 0029's crash window: a case `openCase` committed before the
 sync died short of linking it has no notice to say where it came from. Step B, a
 shadow-only model tier, is designed in the ADR and not built — it waits on Jev

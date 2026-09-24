@@ -6,7 +6,7 @@ import {
   UnknownAccountingProviderError,
   listConnectionsToSync,
 } from '../src/connections';
-import { closeAllPools, PostgresStore } from '../src/store';
+import { closeAllPools, PostgresStore, sessionPool } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
@@ -117,7 +117,7 @@ describeDb('the accounting-connection registry on Postgres', () => {
     // reachable by whoever can become it — which included every signed-in
     // Supabase user until migration 0028 revoked `authenticated`'s membership
     // (ADR 0037); the guard stays as defence in depth. `listConnectionsToSync`
-    // sets a role and no claims, which is why it works and this does not.
+    // sets a role and clears the claims, which is why it works and this does not.
     const client = await admin.connect();
     try {
       await client.query('begin');
@@ -132,6 +132,64 @@ describeDb('the accounting-connection registry on Postgres', () => {
     } finally {
       await client.query('rollback').catch(() => undefined);
       client.release();
+    }
+  });
+
+  it('is refused to a caller that carries only a subject, the shape of a Data API request', async () => {
+    // Before migration 0033 the guard asked about the org claim alone, and a
+    // Supabase token carries a `sub` and no `org_id` (ADR 0045). Refused now,
+    // and so is an org claim with no subject.
+    for (const claims of [{ sub: analystId }, { org_id: orgId }]) {
+      const client = await admin.connect();
+      try {
+        await client.query('begin');
+        await client.query('set local role app_rw');
+        await client.query('select set_config($1, $2, true)', [
+          'request.jwt.claims',
+          JSON.stringify(claims),
+        ]);
+        await expect(
+          client.query('select * from app.ledger_connections_to_sync()'),
+        ).rejects.toThrow(/untenanted/);
+      } finally {
+        await client.query('rollback').catch(() => undefined);
+        client.release();
+      }
+    }
+  });
+
+  it('still lists on a pooled connection that was last left carrying a claim', async () => {
+    // Every claim in the store is set transaction-locally, so this should not
+    // happen; `listConnectionsToSync` clears the setting itself rather than
+    // depend on that (ADR 0045). A shared pool of one connection makes the
+    // connection it borrows the one dirtied here.
+    const single = { connectionString: connectionString as string, max: 1 };
+    const pool = sessionPool(single);
+    await pool.query('select set_config($1, $2, false)', [
+      'request.jwt.claims',
+      JSON.stringify({ sub: analystId }),
+    ]);
+    try {
+      // The dirt is real: the function itself would refuse this connection.
+      // Probed on a checked-out client and released without an error, because
+      // `pool.query` destroys a connection whose query failed — which would
+      // hand `listConnectionsToSync` a clean one and prove nothing.
+      const probe = await pool.connect();
+      try {
+        await probe.query('begin');
+        await probe.query('set local role app_rw');
+        await expect(
+          probe.query('select * from app.ledger_connections_to_sync()'),
+        ).rejects.toThrow(/untenanted/);
+      } finally {
+        await probe.query('rollback');
+        probe.release();
+      }
+
+      const listed = await listConnectionsToSync(single);
+      expect(listed.map((row) => row.connectionId)).toContain(connectionId);
+    } finally {
+      await pool.query(`select set_config('request.jwt.claims', '', false)`);
     }
   });
 
