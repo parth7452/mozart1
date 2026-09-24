@@ -761,7 +761,8 @@ describe('documents that were read and that no case holds', () => {
     );
     expect(offeredLine(250, offered(rows, 1_612))).toBe(
       'Open cases are listed most urgent first, as the review queue orders them. This workspace ' +
-        'has 1,612: the first 250 are listed, and the other 1,362 are not.',
+        'has 1,612: the first 250 are listed, and the other 1,362 are not. Any open case can ' +
+        'take one of these from its own page.',
     );
     // Nothing about a cut when there was none.
     expect(offeredLine(250, offered(rows))).toBe(

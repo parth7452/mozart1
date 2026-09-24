@@ -200,8 +200,12 @@ begin
     'append-only', 'the trigger rejects DELETE even for the table owner');
   perform test.expect_error('truncate deduction_identifiers', 'append-only',
     'TRUNCATE is blocked even for the table owner');
+  -- As the owner RLS does not apply, so the count names this suite's two
+  -- tenants: a database another suite or `pnpm test` has written to holds
+  -- identifiers of its own.
   perform test.ok(
-    (select count(*) from deduction_identifiers) = 6,
+    (select count(*) from deduction_identifiers
+      where org_id in (org, other_org)) = 6,
     'every blocked mutation left the identifiers intact');
 end
 $test$;

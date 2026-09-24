@@ -159,8 +159,11 @@ begin
     'select count(*) from app.ledger_connections_to_sync()',
     'untenanted', 'the fan-out query is refused to a caller acting for a tenant');
 
+  -- It lists every tenant's connections, so the count names this suite's two:
+  -- a database another suite or `pnpm test` has written to holds its own.
   perform test.as_nobody();
-  select count(*) into n from app.ledger_connections_to_sync();
+  select count(*) into n from app.ledger_connections_to_sync() c
+   where c.org_id in (org_a, org_b);
   perform test.ok(n = 2,
     format('app.ledger_connections_to_sync() lists both orgs'' enabled connections (saw %s)', n));
 
@@ -186,7 +189,8 @@ begin
     values (org_a, 'qbo', 'realm-a-disabled', owner_a, false) returning id into conn_a2;
 
   perform test.as_nobody();
-  select count(*) into n from app.ledger_connections_to_sync();
+  select count(*) into n from app.ledger_connections_to_sync() c
+   where c.org_id in (org_a, org_b);
   perform test.ok(n = 2, format('a disabled connection is not listed (saw %s)', n));
   perform test.ok(
     not exists (select 1 from app.ledger_connections_to_sync() where connection_id = conn_a2),

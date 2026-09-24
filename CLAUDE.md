@@ -1228,7 +1228,10 @@ its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
 `URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
 searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
 list once per waiting document) and the page says how many it is not listing;
-it is asked only when a document is waiting.
+it is asked only when a document is waiting. A case past the limit is reached
+from the other end: an open case's own page lists the documents read and on no
+case (`unattachedDocuments`) and files one there through the same
+`/documents/[id]/attach` route, nothing read again.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
