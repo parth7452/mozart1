@@ -1101,6 +1101,23 @@ hold (which `caseForDocument` answers first) rather than an unheld notice a
 redelivery would pay to read again. `audit_log.subject_id` has no index, which
 the hold look-ups scan past; indexing it is a migration and a follow-up.
 
+**Bold is not a word on the page** (no ADR, no migration). Reducto began
+wrapping bold runs in text PDFs in `<b>…</b>` (seen 2026-09-23: LOG-001 through
+the app verified 66 of 77 quotes, and every miss was a bolded value). The model
+quotes the page without markup, so each one read as "quote not found" — and the
+glyph fold read the tag's `b` as an `8`, so a bold "$4,800.00" verified an
+invented "$84,800.00". `withoutInlineMarkup` (`packages/extraction/src/markup.ts`)
+removes named inline formatting tags (`b`, `strong`, `i`, `em`, `u`, `s`, `sup`,
+`span` and the like), turns `<br>` into a newline and decodes the escapes a
+serialiser writes (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;`,
+numeric), and nothing else: table markup and `<dispatch@carrier.example>` stay.
+`ReductoOcr` applies it to every block, so the stored text layer, the boxes and
+the verifier read the same words; `checkQuote` applies it again to page and
+quote, because a text layer stored before the fix keeps its tags (invariant 2)
+and is what a later read of that document checks against. That is the only
+thing the check gained. No recorded string changes under it, so `pnpm eval` is
+byte-identical.
+
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real
 customer documents would be worth more than all of them.
