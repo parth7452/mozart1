@@ -4,7 +4,13 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
-import type { CaseStateTally, CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
+import {
+  ATTACH_TARGETS_LIMIT,
+  type AttachTargets,
+  type CaseStateTally,
+  type CaseSummary,
+  type ReviewQueueRead,
+} from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import { caseMetrics } from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
@@ -38,6 +44,7 @@ export function CaseList({
   mayUpload,
   unread,
   unattached,
+  attachTargets,
   duplicates,
   notice,
   noticeAbout,
@@ -78,6 +85,12 @@ export function CaseList({
    * list of things they are not allowed to file.
    */
   unattached?: readonly UnattachedDocument[] | undefined;
+  /**
+   * The open cases a document in `unattached` can be attached to, most urgent
+   * first — the store's own read of every open case, not `cases`, which stops
+   * at the newest hundred and so could never offer an older one.
+   */
+  attachTargets?: AttachTargets | undefined;
   /**
    * The pairs the matcher called possible duplicates and nobody has answered
    * (ADR 0032).
@@ -220,7 +233,12 @@ export function CaseList({
           </form>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
-        {mayUpload ? <UnattachedDocuments documents={unattached ?? []} cases={cases} /> : null}
+        {mayUpload ? (
+          <UnattachedDocuments
+            documents={unattached ?? []}
+            targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
+          />
+        ) : null}
         {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>

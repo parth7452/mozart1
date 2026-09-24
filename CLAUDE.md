@@ -1149,8 +1149,15 @@ case this tenant cannot see. The case list's four figures had the same limit
 and summed the newest hundred; they now fold `caseTally`, a per-state count,
 sum and due-soon-or-past count over every case, with what a state means left
 to `isClosed` in the app, and the ledger says when its table lists only the
-newest. The attach control under "Read, not on a case" still offers only the
-open cases among the newest hundred.
+newest. The attach control under "Read, not on a case" offered the open cases
+among the newest hundred; it now has its own read, `attachTargets`: every case
+not in `CLOSED_STATES`, through RLS with the list's SELECT and mapping, the
+review queue's cases first and in its order (the queue's rule and order are
+one copy of SQL, `QUEUED_SQL` and `URGENCY_ORDER_SQL`), then the filed and
+declined ones. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws
+the list once per waiting document) and the page says how many it is not
+listing; it is asked only when a document is waiting. The ledger table's
+search still filters only the newest hundred, in the browser.
 
 Still to do before Phase 1 is done: fixtures for the formats still missing —
 dense retailer tables with merged cells, and EDI-derived portal exports. Real

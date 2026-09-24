@@ -35,6 +35,10 @@ export default async function CaseListPage({
   // side of midnight from the read could put a case in a different one.
   const today = new Date();
   try {
+    // Read and on no case: evidence uploaded here opens nothing of its own,
+    // and until this list it appeared nowhere. Asked only for a member who
+    // could attach one, for the reason the unread documents are.
+    const unattached = mayUpload ? await store.unattachedDocuments() : undefined;
     return (
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
@@ -54,10 +58,16 @@ export default async function CaseListPage({
         // RLS-scoped like every other read here, so what comes back is this
         // tenant's documents because the policies say so.
         unread={mayUpload ? await store.unreadDocuments(UNREAD_AFTER_MINUTES) : undefined}
-        // Read and on no case: evidence uploaded here opens nothing of its own,
-        // and until this list it appeared nowhere. Asked only for a member who
-        // could attach one, for the reason the unread documents are.
-        unattached={mayUpload ? await store.unattachedDocuments() : undefined}
+        unattached={unattached}
+        // What each of those can be attached to: every open case, most urgent
+        // first, and not `cases` — the newest hundred, which past a hundred
+        // could never offer an older one. Asked only when there is something
+        // to attach, with the queue's today.
+        attachTargets={
+          unattached !== undefined && unattached.length > 0
+            ? await store.attachTargets({ today })
+            : undefined
+        }
         // The pairs identity resolution refused to merge and nobody has
         // answered (ADR 0032). Asked only for a member who could answer one,
         // for the reason the unread documents are: a list of things you may not

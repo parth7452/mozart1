@@ -6,7 +6,9 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import type {
+  AttachTargets,
   CaseStateTally,
+  CaseSummary,
   PostgresStore,
   ReviewQueueRead,
   ReviewQueueRow,
@@ -44,6 +46,9 @@ const harness = vi.hoisted(() => ({
   /** Every `caseTally` call: the figures, over every case, with the queue's today. */
   tallyCalls: [] as ({ today?: Date } | undefined)[],
   tally: [] as CaseStateTally[],
+  /** Every `attachTargets` call: the open cases a loose document can go on. */
+  attachCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
+  attachTargets: { rows: [], total: 0, limit: 250 } as AttachTargets,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -77,6 +82,10 @@ vi.mock('../lib/session', () => ({
       async caseTally(options?: { today?: Date }) {
         harness.tallyCalls.push(options);
         return harness.tally;
+      },
+      async attachTargets(options?: { today?: Date; limit?: number }) {
+        harness.attachCalls.push(options);
+        return harness.attachTargets;
       },
       async close() {
         return undefined;
@@ -154,6 +163,8 @@ describe('the case list page', () => {
     };
     harness.tallyCalls = [];
     harness.tally = [];
+    harness.attachCalls = [];
+    harness.attachTargets = { rows: [], total: 0, limit: 250 };
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -176,6 +187,38 @@ describe('the case list page', () => {
     expect(html).toContain('Read, not on a case');
     expect(html).toContain('08_log-202.jpg');
     expect(html).toContain('proof of delivery');
+  });
+
+  it('offers an open case the newest hundred does not hold, from its own read', async () => {
+    // `listCases` answers nothing here, as it answers only the newest hundred
+    // for a tenant with more. The attach control asks the store for the open
+    // cases instead, once, with the queue's today — and offers what it says.
+    const old: CaseSummary = {
+      deductionId: 'aaaaaaaa-9999-2222-3333-444444444444',
+      state: 'classified',
+      claimId: 'OLD-7',
+      deductionAmountCents: 12_345,
+      disputeDeadline: '2026-09-17',
+      discoveredVia: 'notice',
+      documentCount: 1,
+      createdAt: '2025-09-01T09:00:00Z',
+    };
+    harness.attachTargets = { rows: [old], total: 301, limit: 250 };
+    const html = await render();
+
+    expect(harness.attachCalls).toHaveLength(1);
+    expect(harness.attachCalls[0]?.today).toBeInstanceOf(Date);
+    expect(harness.attachCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+    expect(html).toContain(`<option value="${old.deductionId}">OLD-7 · retailer unknown · $123.45</option>`);
+    expect(html).toContain('This workspace has 301: the first 1 are listed, and the other 300 are not.');
+  });
+
+  it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
+    harness.unattached = [];
+    const html = await render();
+    expect(harness.unattachedCalls).toEqual([undefined]);
+    expect(harness.attachCalls).toEqual([]);
+    expect(html).not.toContain('Read, not on a case');
   });
 
   it('asks for the stuck documents once, at the threshold the notice explains', async () => {
@@ -219,6 +262,7 @@ describe('the case list page', () => {
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
+    expect(harness.attachCalls).toEqual([]);
     expect(html).not.toContain('Documents waiting to be read');
     expect(html).not.toContain('Possible duplicates');
     expect(html).not.toContain('Read, not on a case');
@@ -283,5 +327,6 @@ describe('the case list page', () => {
     expect(harness.unreadCalls).toEqual([]);
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
+    expect(harness.attachCalls).toEqual([]);
   });
 });
