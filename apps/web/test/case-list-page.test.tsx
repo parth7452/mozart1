@@ -5,7 +5,12 @@ import type {
   UnattachedDocument,
   UnreadDocument,
 } from '@recouple/pipeline';
-import type { PostgresStore, ReviewQueueRead, ReviewQueueRow } from '@recouple/store-postgres';
+import type {
+  CaseStateTally,
+  PostgresStore,
+  ReviewQueueRead,
+  ReviewQueueRow,
+} from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
 
 /**
@@ -36,6 +41,9 @@ const harness = vi.hoisted(() => ({
   /** Every `reviewQueue` call: asked for every member, with one `today`. */
   queueCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
   queue: { rows: [], total: 0, waitingOnRetailer: 0, limit: 500 } as ReviewQueueRead,
+  /** Every `caseTally` call: the figures, over every case, with the queue's today. */
+  tallyCalls: [] as ({ today?: Date } | undefined)[],
+  tally: [] as CaseStateTally[],
 }));
 
 vi.mock('../lib/session', () => ({
@@ -65,6 +73,10 @@ vi.mock('../lib/session', () => ({
       async reviewQueue(options?: { today?: Date; limit?: number }) {
         harness.queueCalls.push(options);
         return harness.queue;
+      },
+      async caseTally(options?: { today?: Date }) {
+        harness.tallyCalls.push(options);
+        return harness.tally;
       },
       async close() {
         return undefined;
@@ -140,6 +152,8 @@ describe('the case list page', () => {
       waitingOnRetailer: 2,
       limit: 500,
     };
+    harness.tallyCalls = [];
+    harness.tally = [];
     harness.unattachedCalls = [];
     harness.unattached = [
       {
@@ -226,6 +240,28 @@ describe('the case list page', () => {
       expect(html).toContain('What to work on next');
       expect(html).toContain('KS-40112');
       expect(html).toContain('1 case needs a person · 2 filed, waiting on the retailer');
+    }
+  });
+
+  it('counts every case in its figures, asked once with the queue’s today', async () => {
+    // The list is the newest hundred; the figures are not. A tenant whose list
+    // came back empty here still has the tally's 240 cases, and every member
+    // sees them, `read_only` included, as they see the list.
+    harness.tally = [
+      { state: 'classified', cases: 200, deductedCents: 2_000_000, dueSoonOrPast: 9 },
+      { state: 'lost', cases: 40, deductedCents: 400_000, dueSoonOrPast: 0 },
+    ];
+    for (const role of ['analyst', 'read_only']) {
+      harness.role = role;
+      harness.tallyCalls = [];
+      harness.queueCalls = [];
+      const html = await render();
+
+      expect(harness.tallyCalls).toHaveLength(1);
+      expect(harness.tallyCalls[0]?.today).toBeInstanceOf(Date);
+      expect(harness.tallyCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+      expect(html).toContain('Across 240 recorded cases');
+      expect(html).toContain('$24,000.00');
     }
   });
 

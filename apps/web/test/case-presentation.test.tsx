@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CaseSummary } from '@recouple/store-postgres';
 import { caseMetrics, filterCases } from '../lib/case-presentation';
+import { tallyOf } from './case-tally';
 
 const row = (overrides: Partial<CaseSummary> = {}): CaseSummary => ({
   discoveredVia: 'notice',
@@ -27,13 +28,15 @@ describe('ledger presentation', () => {
       ),
       row(),
     ];
-    expect(caseMetrics(cases, today)).toEqual({
+    expect(caseMetrics(tallyOf(cases, today))).toEqual({
+      caseCount: 9,
       totalCents: 111105,
       openCount: 5,
       approvalStageCount: 1,
       deadlineCount: 2,
     });
-    expect(caseMetrics([], today)).toEqual({
+    expect(caseMetrics([])).toEqual({
+      caseCount: 0,
       totalCents: 0,
       openCount: 0,
       approvalStageCount: 0,
@@ -44,7 +47,12 @@ describe('ledger presentation', () => {
     const today = new Date('2026-09-23T00:00:00Z');
     const survivor = row({ deductionId: 'survivor', deductionAmountCents: 42_150 });
     const copy = row({ deductionId: 'copy', deductionAmountCents: 42_150, state: 'merged' });
-    expect(caseMetrics([survivor, copy], today)).toMatchObject({ totalCents: 42_150, openCount: 1 });
+    // Still a recorded case, as the list shows it; not a deduction of its own.
+    expect(caseMetrics(tallyOf([survivor, copy], today))).toMatchObject({
+      caseCount: 2,
+      totalCents: 42_150,
+      openCount: 1,
+    });
   });
 
   it('searches the displayed customer, including unmatched printed names, with the state filter', () => {

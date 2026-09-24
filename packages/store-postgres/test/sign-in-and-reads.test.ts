@@ -323,6 +323,10 @@ describeDb('signing in, and the reads the web app makes', () => {
     expect(found?.disputeDeadline).toBe('2026-12-07');
     expect(found?.deductionDate).toBe('2026-09-08');
     expect(typeof found?.createdAt).toBe('string');
+    // The case page's read hands back the same row: the same strings, and the
+    // same documents, debtor and invoice.
+    expect(found).toBeDefined();
+    expect(await store.caseSummary(deductionId)).toEqual(found);
   });
 
   it('shows another tenant no cases at all', async () => {
@@ -332,6 +336,7 @@ describeDb('signing in, and the reads the web app makes', () => {
     );
     try {
       expect(await otherStore.listCases()).toEqual([]);
+      expect(await otherStore.caseSummary(deductionId)).toBeUndefined();
       expect(await otherStore.fieldsForCase(deductionId)).toEqual([]);
       expect(await otherStore.costForCase(deductionId)).toBe(0);
     } finally {

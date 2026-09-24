@@ -21,6 +21,11 @@ import { DOC_TYPES } from '@recouple/extraction';
  * fragment per `{0}`, `{1}` in the text. Validated, not escaped-and-trusted: a
  * fragment that is not the shape it claims to be renders no notice at all,
  * which is why every pattern below is a closed set or a narrow charset.
+ *
+ * The sign-in page has its own table, `SIGN_IN_NOTICES`, under the same rules:
+ * it is the page where people type their address, so it is the last page that
+ * should say what a link tells it to, and it has no business saying a case was
+ * approved either.
  */
 
 /** Which tone a notice is shown in: `.notice.sent` or `.notice.bad`. */
@@ -761,23 +766,25 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
 };
 
 /**
- * The notice a key and its fragments mean, or nothing at all.
+ * The notice a key and its fragments mean in `table`, or nothing at all.
  *
  * Nothing at all for an unknown key, for the wrong number of fragments, and for
  * a fragment that is not the shape its key declares. There is deliberately no
  * halfway answer: a notice rendered with a fragment left out would be this app
  * saying a sentence it does not mean.
  */
-export function resolveNotice(
+function resolveFrom<K extends string>(
+  table: Readonly<Record<K, Notice>>,
+  aboutPatterns: Readonly<Partial<Record<K, readonly RegExp[]>>>,
   key: unknown,
-  about: readonly string[] = [],
+  about: readonly string[],
 ): Notice | undefined {
   if (typeof key !== 'string') return undefined;
   // `Object.hasOwn`, not `in`: `constructor` and `toString` are not notices.
-  if (!Object.hasOwn(NOTICES, key)) return undefined;
-  const copy: Notice = NOTICES[key as NoticeKey];
+  if (!Object.hasOwn(table, key)) return undefined;
+  const copy: Notice = table[key as K];
 
-  const patterns = NOTICE_ABOUT[key as NoticeKey] ?? [];
+  const patterns = aboutPatterns[key as K] ?? [];
   if (about.length !== patterns.length) return undefined;
 
   for (const [index, pattern] of patterns.entries()) {
@@ -787,6 +794,90 @@ export function resolveNotice(
   // time would let an earlier fragment introduce a later placeholder.
   const text = copy.text.replace(/\{(\d)\}/g, (_, index: string) => about[Number(index)] as string);
   return { text, tone: copy.tone };
+}
+
+/** The notice a key and its fragments mean (`resolveFrom`), or nothing at all. */
+export function resolveNotice(
+  key: unknown,
+  about: readonly string[] = [],
+): Notice | undefined {
+  return resolveFrom(NOTICES, NOTICE_ABOUT, key, about);
+}
+
+/**
+ * Why a sign-in did not go through, as the login page may say it.
+ *
+ * Its own table rather than more rows in `NOTICES`, so that neither page can be
+ * made to show the other's words: `/login?denied=approved` says nothing, and
+ * neither does a case page handed `not_invited`.
+ *
+ * ADR 0045 decides *which* failures reach this page — the provider's request
+ * limit and a request that got no answer, never one only an existing account
+ * can meet — and nothing here changes that. This only decides how the ones that
+ * do are carried: as a key, with the reference a person can quote as the one
+ * fragment any of them takes.
+ */
+export const SIGN_IN_NOTICES = {
+  // --- the form (`app/login/actions.ts`) -------------------------------------
+  no_address: { tone: 'bad', text: 'enter an email address' },
+  request_limit: {
+    tone: 'bad',
+    text:
+      'too many sign-in requests have been made from here recently. ' +
+      'Wait a few minutes and try again (reference {0}).',
+  },
+  unreachable: {
+    tone: 'bad',
+    text: 'the sign-in service could not be reached. Try again shortly (reference {0}).',
+  },
+
+  // --- after the link, asking the database who this is (`lib/session.ts`) ---
+  not_invited: { tone: 'bad', text: 'that address has not been invited to a workspace' },
+  linked_elsewhere: { tone: 'bad', text: 'that address is already linked to another sign-in' },
+  no_membership: { tone: 'bad', text: 'no membership for this account' },
+  not_completed: { tone: 'bad', text: 'sign-in could not be completed (reference {0})' },
+
+  // --- where the link lands (`app/auth/callback/route.ts`) ------------------
+  link_expired: { tone: 'bad', text: 'that link has expired' },
+  link_incomplete: { tone: 'bad', text: 'that link is incomplete' },
+} as const satisfies Readonly<Record<string, Notice>>;
+
+export type SignInNoticeKey = keyof typeof SIGN_IN_NOTICES;
+
+/**
+ * The reference a failed sign-in is logged under: `Date.prototype.toISOString`,
+ * exactly as it writes one, and nothing else.
+ *
+ * Digits in fixed places, so the most a forged link can do is pick which
+ * timestamp our own sentence quotes.
+ */
+const REFERENCE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/;
+
+const SIGN_IN_ABOUT: Readonly<Partial<Record<SignInNoticeKey, readonly RegExp[]>>> = {
+  request_limit: [REFERENCE],
+  unreachable: [REFERENCE],
+  not_completed: [REFERENCE],
+};
+
+/** The login page's notice for `?denied=` and its `about`, or nothing at all. */
+export function resolveSignInNotice(
+  key: unknown,
+  about: readonly string[] = [],
+): Notice | undefined {
+  return resolveFrom(SIGN_IN_NOTICES, SIGN_IN_ABOUT, key, about);
+}
+
+/** The query parameter the login page reads a `SignInNoticeKey` from. */
+export const SIGN_IN_DENIED_PARAM = 'denied';
+
+/**
+ * Where to send someone whose sign-in did not go through: `/login` with the key
+ * and its fragments, relative so each caller resolves it the way it redirects.
+ */
+export function signInDenied(key: SignInNoticeKey, ...about: readonly string[]): string {
+  const query = new URLSearchParams({ [SIGN_IN_DENIED_PARAM]: key });
+  for (const fragment of about) query.append(NOTICE_ABOUT_PARAM, fragment);
+  return `/login?${query.toString()}`;
 }
 
 /**

@@ -22,6 +22,7 @@ import { Pool, type PoolClient } from 'pg';
 import {
   cents,
   CLOSED_STATES,
+  DUE_SOON_DAYS,
   identifierMatchKey,
   resolveDebtorId,
   resolveIdentity,
@@ -306,6 +307,23 @@ export interface CaseSummary {
   readonly reasonCodeAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
+}
+
+/**
+ * How many of a tenant's cases are in one state, and what they add up to: the
+ * case list's figures before anything decides what a state means.
+ */
+export interface CaseStateTally {
+  readonly state: CaseState;
+  readonly cases: number;
+  /** Deducted across them, integer cents (invariant 3). */
+  readonly deductedCents: number;
+  /**
+   * How many have a dispute deadline at most `DUE_SOON_DAYS` after the day the
+   * tally was asked for: due soon, due that day, or past it — every deadline
+   * the list's label does not call ok.
+   */
+  readonly dueSoonOrPast: number;
 }
 
 /**
@@ -677,6 +695,58 @@ interface CaseSummaryRow {
   invoice_number: string | null;
   reason_code_as_printed: string | null;
   document_count: number;
+}
+
+/**
+ * A case as the list and the case page show it, in SQL, with no `where`, order
+ * or limit of its own.
+ *
+ * Written out once and shared by `listCases` and `caseSummary`, for
+ * `CASE_DOCUMENTS_CTE`'s reason: the one way a case can read one way in the
+ * list and another on its own page is these two reads disagreeing. There is no
+ * `org_id` in it on purpose — RLS decides whose cases these are.
+ */
+const CASE_SUMMARY_SELECT = `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
+        d.deduction_date, d.dispute_deadline, d.created_at,
+        d.retailer_name_as_printed, d.discovered_via, d.reason_code_as_printed,
+        b.display_name as debtor_name, b.retailer_key,
+        -- The invoice, from the table that holds a deduction's names
+        -- (ADR 0025). Earliest first with id breaking the tie, for
+        -- declineCase's reason: first_seen_at defaults to the
+        -- transaction's start time, so two rows written in one
+        -- transaction carry the identical timestamp and limit 1 over a
+        -- tie is whichever row the plan reached first.
+        (select i.identifier from deduction_identifiers i
+          where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
+          order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
+        (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
+          ::int as document_count
+   from deductions d
+   left join debtors b on b.id = d.debtor_id`;
+
+function toCaseSummary(row: CaseSummaryRow): CaseSummary {
+  const deductionDate = isoDate(row.deduction_date);
+  const disputeDeadline = isoDate(row.dispute_deadline);
+  return {
+    deductionId: row.id,
+    state: row.state,
+    ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
+    deductionAmountCents: Number(row.amount),
+    ...(deductionDate !== undefined ? { deductionDate } : {}),
+    ...(disputeDeadline !== undefined ? { disputeDeadline } : {}),
+    ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
+    ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
+    ...(row.retailer_name_as_printed !== null
+      ? { retailerNameAsPrinted: row.retailer_name_as_printed }
+      : {}),
+    discoveredVia: row.discovered_via,
+    ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+    ...(row.reason_code_as_printed !== null
+      ? { reasonCodeAsPrinted: row.reason_code_as_printed }
+      : {}),
+    documentCount: row.document_count,
+    createdAt: isoDate(row.created_at) ?? '',
+  };
 }
 
 interface StoredFieldRow {
@@ -3329,51 +3399,74 @@ export class PostgresStore
   async listCases(limit = 100): Promise<readonly CaseSummary[]> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<CaseSummaryRow>(
-        `select d.id, d.state, d.claim_id, d.deduction_amount_cents::text as amount,
-                d.deduction_date, d.dispute_deadline, d.created_at,
-                d.retailer_name_as_printed, d.discovered_via, d.reason_code_as_printed,
-                b.display_name as debtor_name, b.retailer_key,
-                -- The invoice, from the table that holds a deduction's names
-                -- (ADR 0025). Earliest first with id breaking the tie, for
-                -- declineCase's reason: first_seen_at defaults to the
-                -- transaction's start time, so two rows written in one
-                -- transaction carry the identical timestamp and limit 1 over a
-                -- tie is whichever row the plan reached first.
-                (select i.identifier from deduction_identifiers i
-                  where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
-                  order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
-                (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
-                  ::int as document_count
-           from deductions d
-           left join debtors b on b.id = d.debtor_id
+        `${CASE_SUMMARY_SELECT}
           order by d.created_at desc
           limit $1`,
         [limit],
       );
-      return rows.map((row) => {
-        const deductionDate = isoDate(row.deduction_date);
-        const disputeDeadline = isoDate(row.dispute_deadline);
-        return {
-          deductionId: row.id,
-          state: row.state,
-          ...(row.claim_id !== null ? { claimId: row.claim_id } : {}),
-          deductionAmountCents: Number(row.amount),
-          ...(deductionDate !== undefined ? { deductionDate } : {}),
-          ...(disputeDeadline !== undefined ? { disputeDeadline } : {}),
-          ...(row.debtor_name !== null ? { debtorName: row.debtor_name } : {}),
-          ...(row.retailer_key !== null ? { retailerKey: row.retailer_key } : {}),
-          ...(row.retailer_name_as_printed !== null
-            ? { retailerNameAsPrinted: row.retailer_name_as_printed }
-            : {}),
-          discoveredVia: row.discovered_via,
-          ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
-          ...(row.reason_code_as_printed !== null
-            ? { reasonCodeAsPrinted: row.reason_code_as_printed }
-            : {}),
-          documentCount: row.document_count,
-          createdAt: isoDate(row.created_at) ?? '',
-        };
-      });
+      return rows.map(toCaseSummary);
+    });
+  }
+
+  /**
+   * One case, as `listCases` would show it, whenever it was opened.
+   *
+   * The case page's read. It used to find its case in `listCases`, whose limit
+   * made every case older than the newest hundred a 404 on its own page — the
+   * old, urgent ones the review queue exists to surface among them (ADR 0043).
+   * `undefined` means RLS showed this tenant no such case, which is also what
+   * another tenant's case looks like, and the page 404s both alike.
+   */
+  async caseSummary(deductionId: string): Promise<CaseSummary | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<CaseSummaryRow>(
+        `${CASE_SUMMARY_SELECT}
+          where d.id = $1`,
+        [deductionId],
+      );
+      const row = rows[0];
+      return row === undefined ? undefined : toCaseSummary(row);
+    });
+  }
+
+  /**
+   * The case list's figures, per state, over every case this tenant has.
+   *
+   * Not over `listCases`, which is the newest hundred: past a hundred cases the
+   * list's total, its open cases and its deadlines to watch undercounted and
+   * said nothing. Here the SQL counts, sums and compares one date per state;
+   * what a state means — open, filed, merged away — is decided by the page with
+   * `isClosed`, the rule every other list uses. `today` is read as its UTC day,
+   * as the review queue and the deadline label read it, and the page passes
+   * the one it reads the queue with. One tenant transaction as `app_rw`; RLS
+   * decides whose cases these are.
+   */
+  async caseTally(options: { readonly today?: Date } = {}): Promise<readonly CaseStateTally[]> {
+    const today = options.today ?? new Date();
+    if (Number.isNaN(today.getTime())) {
+      throw new RangeError('a case tally needs a real date for today');
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        state: CaseState;
+        cases: string;
+        deducted: string;
+        due: string;
+      }>(
+        `select d.state, count(*)::text as cases,
+                sum(d.deduction_amount_cents)::text as deducted,
+                count(*) filter (where d.dispute_deadline <= $1::date + $2::int)::text as due
+           from deductions d
+          group by d.state
+          order by d.state`,
+        [today.toISOString().slice(0, 10), DUE_SOON_DAYS],
+      );
+      return rows.map((row) => ({
+        state: row.state,
+        cases: exactCents(row.cases, 'cases'),
+        deductedCents: exactCents(row.deducted, 'deduction_amount_cents'),
+        dueSoonOrPast: exactCents(row.due, 'due'),
+      }));
     });
   }
 
