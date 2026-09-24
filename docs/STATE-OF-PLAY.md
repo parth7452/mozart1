@@ -178,6 +178,14 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
    case" for a person to open or attach, so `stf-203-short-payment-notice` — a
    notice read as a remittance at 0.75 — no longer opens a case per line. A
    misread *evidence* type still opens nothing either way and is not gated.
+   **2026-09-24:** every classification re-asked at temperature 0 (the same two
+   misses, so they were the prompt, not the draw), then the classifier's
+   definitions sharpened — a short payment notice is a notice, "advice" alone
+   decides nothing, and a note written for one's own file is not
+   correspondence. 57/57 classified, `customer` 15/15, and no recorded notice
+   or remittance is below the floor any more. The column-rule fix took
+   `customer` grounding to 98.2%. Left: `stf-203-short-payment-notice`'s reason
+   code and `log-202-rate-confirmation`'s counterparty.
 4. ~~**Decide how a confirmed duplicate merges.**~~ **built** — ADR 0042,
    migration 0032: "Same deduction" merges in one click, the database moves the
    copy to `merged`, coverage counts the pair once, and an undo puts it back.

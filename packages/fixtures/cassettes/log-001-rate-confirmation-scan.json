@@ -301,8 +301,8 @@
   },
   "classifier": {
     "model": "claude-haiku-4-5",
-    "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
-    "classifiedAt": "2026-09-24T18:14:16.468Z"
+    "classifiedAt": "2026-09-24T18:43:35.279Z"
   }
 }
