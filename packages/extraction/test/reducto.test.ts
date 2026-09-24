@@ -106,6 +106,56 @@ describe('a text layer stored before the adapter removed markup', () => {
     expect(checkQuote('$84,800.00', 1, stored).verified).toBe(false);
     expect(checkQuote('Gross invoice $4,900.00', 1, stored).verified).toBe(false);
   });
+
+  describe('as production stored LOG-001’s remittance (2026-09-23)', () => {
+    // Verbatim from document_pages, and the nine quotes extraction_results holds
+    // against it, three of which verified. Reducto's own output, not a mock.
+    const page = [
+      [
+        'SHORT-PAY REMITTANCE',
+        'Brookfield Supply Co. | Accounts Payable',
+        'PAYMENT DETAILS',
+        'Remittance: REM-BSC-0918-44',
+        'Payment date: September 18, 2026 | Method: ACH',
+        'Payee: Alder Freight Services LLC | Carrier account: AFS-208',
+        'Payment reference: ACH-91844',
+        'SETTLEMENT',
+        'Invoice: <b>INV-AFS-260814</b>',
+        'Load / purchase order: <b>LD-260812-77 / PO-BSC-8841</b>',
+        'Gross invoice: <b>$4,800.00</b>',
+        'Deduction: LATE-DEL: <b>$600.00</b>',
+        'Net payment: <b>$4,200.00</b>',
+        'CUSTOMER DEDUCTION NARRATIVE',
+        'Chargeback CB-BSC-441: delivery recorded August 13, 2026, after original appointment of August 12, 2026 at 10:00 AM Eastern. Flat late-delivery fee of $600.00 withheld.',
+        'System comparison used original appointment AP-BSC-771 revision 1.',
+        'CLAIM HANDLING',
+        'Status: Deducted; supplier review pending.',
+        'Send a dispute response referencing CB-BSC-441, the invoice and load number. Dispute deadline: October 18, 2026.',
+        'This payment does not establish carrier acceptance of the deduction.',
+        'Case LOG-001 | Load LD-260812-77 | Page 1 of 1',
+      ].join('\n'),
+    ];
+
+    it('verifies all nine quotes, the six it could not included', () => {
+      for (const quote of [
+        'Deduction: LATE-DEL $600.00',
+        'Gross invoice $4,800.00',
+        'Invoice INV-AFS-260814',
+        'Net payment $4,200.00',
+        'Brookfield Supply Co. | Accounts Payable',
+        'Payment date: September 18, 2026 | Method: ACH',
+        'Payment reference: ACH-91844',
+      ]) {
+        expect(checkQuote(quote, 1, page).verified, quote).toBe(true);
+      }
+    });
+
+    it('refuses what it used to wave through', () => {
+      expect(checkQuote('Gross invoice $84,800.00', 1, page).verified).toBe(false);
+      expect(checkQuote('Net payment $4,300.00', 1, page).verified).toBe(false);
+      expect(checkQuote('Invoice INV-AFS-260815', 1, page).verified).toBe(false);
+    });
+  });
 });
 
 describe('what counts as markup', () => {
