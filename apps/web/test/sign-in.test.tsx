@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { NextRequest } from 'next/server';
+import { NOTICE_ABOUT_PARAM, SIGN_IN_DENIED_PARAM, resolveSignInNotice } from '../lib/notices';
 
 /**
  * The two halves of signing in that ADR 0045 changed: the login form's action,
@@ -10,6 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * stubbed. What is asserted is what the provider was asked, where the person
  * was sent, and whether a sign-out happened. A test that called Supabase would
  * be a test that sends mail.
+ *
+ * Where a person is sent is a notice *key* and its fragments, never a sentence
+ * (`SIGN_IN_NOTICES`), and the login page shows nothing for anything else.
  */
 
 const ADDRESS = 'someone@customer.example';
@@ -33,6 +39,9 @@ const { Redirected, harness } = vi.hoisted(() => {
       signOutError: null as SendError | null,
       signOutThrows: false,
       resolve: (async () => ({ userId: 'user-1', orgs: [] })) as () => Promise<unknown>,
+      /** What the magic link's landing hears back from the provider. */
+      exchangeError: null as SendError | null,
+      verifyError: null as SendError | null,
     },
   };
 });
@@ -66,6 +75,12 @@ vi.mock('../lib/supabase', () => ({
         if (harness.signOutThrows) throw new TypeError('fetch failed');
         return { error: harness.signOutError };
       },
+      async exchangeCodeForSession() {
+        return { data: { user: null, session: null }, error: harness.exchangeError };
+      },
+      async verifyOtp() {
+        return { data: { user: null, session: null }, error: harness.verifyError };
+      },
     },
   }),
 }));
@@ -78,6 +93,8 @@ vi.mock('@recouple/store-postgres', () => ({
 
 const { sendSignInLink } = await import('../app/login/actions');
 const { requireSession } = await import('../lib/session');
+const LoginPage = (await import('../app/login/page')).default;
+const { GET: landLink } = await import('../app/auth/callback/route');
 
 /** Where a call was sent. Fails the test if it returned instead. */
 async function destination(call: Promise<unknown>): Promise<string> {
@@ -96,6 +113,23 @@ function form(email: string): FormData {
   return data;
 }
 
+/** What a redirect to the login page says: its key, its fragments, and the words they resolve to. */
+function denial(location: string): { key: string | null; about: string[]; text: string | undefined } {
+  const at = new URL(location, SITE);
+  expect(at.pathname).toBe('/login');
+  const key = at.searchParams.get(SIGN_IN_DENIED_PARAM);
+  const about = at.searchParams.getAll(NOTICE_ABOUT_PARAM);
+  return { key, about, text: resolveSignInNotice(key, about)?.text };
+}
+
+/** `Date.prototype.toISOString`'s shape: the reference a failure is logged under. */
+const ISO_REFERENCE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** The login page as the server renders it, for these query parameters. */
+async function loginPage(params: Record<string, string | string[]>): Promise<string> {
+  return renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve(params) }));
+}
+
 /** A Postgres error as `pg` raises it: a message and a SQLSTATE. */
 function pgError(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
@@ -110,6 +144,8 @@ beforeEach(() => {
   harness.signOuts = [];
   harness.signOutError = null;
   harness.signOutThrows = false;
+  harness.exchangeError = null;
+  harness.verifyError = null;
   harness.resolve = async () => ({
     userId: 'user-1',
     orgs: [{ orgId: 'org-1', slug: 'acme', name: 'Acme', role: 'analyst' }],
@@ -187,26 +223,32 @@ describe('the login form', () => {
       status: 429,
       code: 'over_request_rate_limit',
     };
-    const limited = await destination(sendSignInLink(form(ADDRESS)));
-    const limitedNotice = new URL(limited, SITE).searchParams.get('denied') ?? '';
-    expect(limited.startsWith('/login?denied=')).toBe(true);
-    expect(limitedNotice).toMatch(/too many sign-in requests/);
-    expect(limitedNotice).toMatch(/reference /);
-    expect(limitedNotice).not.toContain('Request rate limit reached');
+    const limited = denial(await destination(sendSignInLink(form(ADDRESS))));
+    expect(limited.key).toBe('request_limit');
+    expect(limited.about).toHaveLength(1);
+    expect(limited.about[0]).toMatch(ISO_REFERENCE);
+    expect(limited.text).toMatch(/too many sign-in requests/);
+    expect(limited.text).toContain(`(reference ${limited.about[0]})`);
+    expect(limited.text).not.toContain('Request rate limit reached');
+    // The reference is the one the log line was written under.
+    expect(logged.join('\n')).toContain(`[sign-in link] ${limited.about[0]} — not sent`);
 
     harness.otpError = { name: 'AuthRetryableFetchError', message: 'fetch failed: ECONNRESET', status: 0 };
-    const unreachable = await destination(sendSignInLink(form(ADDRESS)));
-    const unreachableNotice = new URL(unreachable, SITE).searchParams.get('denied') ?? '';
-    expect(unreachableNotice).toMatch(/could not be reached/);
-    expect(unreachableNotice).not.toContain('ECONNRESET');
+    const unreachable = denial(await destination(sendSignInLink(form(ADDRESS))));
+    expect(unreachable.key).toBe('unreachable');
+    expect(unreachable.about).toHaveLength(1);
+    expect(unreachable.about[0]).toMatch(ISO_REFERENCE);
+    expect(unreachable.text).toMatch(/could not be reached/);
+    expect(unreachable.text).not.toContain('ECONNRESET');
     // The provider's words are in the log, where an operator reads them.
     expect(logged.join('\n')).toContain('ECONNRESET');
+    expect(logged.join('\n')).toContain(`[sign-in link] ${unreachable.about[0]} — not sent`);
   });
 
   it('refuses a blank address without asking the provider', async () => {
-    expect(await destination(sendSignInLink(form('   ')))).toBe(
-      '/login?denied=enter+an+email+address',
-    );
+    const to = await destination(sendSignInLink(form('   ')));
+    expect(to).toBe('/login?denied=no_address');
+    expect(denial(to).text).toBe('enter an email address');
     expect(harness.otpCalls).toEqual([]);
   });
 });
@@ -224,16 +266,17 @@ describe('a session the database refuses', () => {
       throw pgError('no invitation for stranger@example.test', '42501');
     };
     const to = await destination(requireSession());
-    expect(new URL(to, SITE).searchParams.get('denied')).toBe(
-      'that address has not been invited to a workspace',
-    );
+    expect(to).toBe('/login?denied=not_invited');
+    expect(denial(to).text).toBe('that address has not been invited to a workspace');
     // The default scope, global: every refresh token this identity holds.
     expect(harness.signOuts).toEqual([undefined]);
   });
 
   it('signs out an identity that is a member nowhere', async () => {
     harness.resolve = async () => ({ userId: 'user-9', orgs: [] });
-    expect(await destination(requireSession())).toBe('/login?denied=no+membership+for+this+account');
+    const to = await destination(requireSession());
+    expect(to).toBe('/login?denied=no_membership');
+    expect(denial(to).text).toBe('no membership for this account');
     expect(harness.signOuts).toEqual([undefined]);
   });
 
@@ -261,10 +304,13 @@ describe('a session the database refuses', () => {
         throw fault;
       };
       logged = [];
-      const to = await destination(requireSession());
-      expect(new URL(to, SITE).searchParams.get('denied')).toMatch(
-        /^sign-in could not be completed \(reference /,
-      );
+      const said = denial(await destination(requireSession()));
+      expect(said.key).toBe('not_completed');
+      expect(said.about).toHaveLength(1);
+      expect(said.about[0]).toMatch(ISO_REFERENCE);
+      expect(said.text).toBe(`sign-in could not be completed (reference ${said.about[0]})`);
+      // Logged under the reference the person is shown, with the real message.
+      expect(logged.join('\n')).toContain(`[sign-in failed] ${said.about[0]} — `);
       expect(logged.join('\n')).toContain(fault.message);
     }
     expect(harness.signOuts).toEqual([]);
@@ -275,9 +321,8 @@ describe('a session the database refuses', () => {
       throw pgError('account for member@example.test is already linked to another identity', '42501');
     };
     const to = await destination(requireSession());
-    expect(new URL(to, SITE).searchParams.get('denied')).toBe(
-      'that address is already linked to another sign-in',
-    );
+    expect(to).toBe('/login?denied=linked_elsewhere');
+    expect(denial(to).text).toBe('that address is already linked to another sign-in');
     expect(harness.signOuts).toEqual([]);
   });
 
@@ -285,11 +330,11 @@ describe('a session the database refuses', () => {
     harness.resolve = async () => ({ userId: 'user-9', orgs: [] });
 
     harness.signOutError = { name: 'AuthRetryableFetchError', message: 'fetch failed', status: 0 };
-    expect(await destination(requireSession())).toBe('/login?denied=no+membership+for+this+account');
+    expect(await destination(requireSession())).toBe('/login?denied=no_membership');
 
     harness.signOutError = null;
     harness.signOutThrows = true;
-    expect(await destination(requireSession())).toBe('/login?denied=no+membership+for+this+account');
+    expect(await destination(requireSession())).toBe('/login?denied=no_membership');
 
     expect(harness.signOuts).toHaveLength(2);
     expect(logged.join('\n')).toMatch(/signing the session out failed \(AuthRetryableFetchError/);
@@ -303,5 +348,72 @@ describe('a session the database refuses', () => {
     };
     expect(await destination(requireSession())).toBe('/login');
     expect(harness.signOuts).toEqual([]);
+  });
+});
+
+describe('where the magic link lands', () => {
+  async function land(query: string): Promise<string> {
+    const response = await landLink(new NextRequest(`${SITE}/auth/callback${query}`));
+    return response.headers.get('location') ?? '';
+  }
+
+  it('sends a link the provider will not honour to the login page, by key', async () => {
+    harness.exchangeError = { name: 'AuthApiError', message: 'invalid flow state, no valid flow state found', status: 404 };
+    expect(await land('?code=spent')).toBe(`${SITE}/login?denied=link_expired`);
+
+    harness.verifyError = { name: 'AuthApiError', message: 'Email link is invalid or has expired', status: 403 };
+    expect(await land('?token_hash=spent')).toBe(`${SITE}/login?denied=link_expired`);
+
+    expect(await land('')).toBe(`${SITE}/login?denied=link_incomplete`);
+    expect(denial(await land('')).text).toBe('that link is incomplete');
+  });
+
+  it('sends a link that worked to the case list', async () => {
+    expect(await land('?code=fresh')).toBe(`${SITE}/`);
+  });
+});
+
+describe('the login page', () => {
+  it('shows a sign-in notice by its key, and a reference only in the shape one is written', async () => {
+    const html = await loginPage({ denied: 'not_invited' });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('that address has not been invited to a workspace');
+
+    const reference = '2026-09-24T17:24:28.123Z';
+    expect(await loginPage({ denied: 'not_completed', about: reference })).toContain(
+      `sign-in could not be completed (reference ${reference})`,
+    );
+  });
+
+  it('says nothing for a denied text that is not one of its keys', async () => {
+    const forged = 'Your workspace has moved. Sign in at evil.example';
+    for (const params of [
+      { denied: forged },
+      // The sentences it used to carry are not keys either.
+      { denied: 'that address has not been invited to a workspace' },
+      // Another page's notice is not this page's to say.
+      { denied: 'approved' },
+      { denied: '__proto__' },
+      { denied: 'toString' },
+      { denied: ['not_invited', 'no_membership'] },
+      // A key with a fragment it does not take, or without one it does, or with
+      // one that is not a reference.
+      { denied: 'not_invited', about: forged },
+      { denied: 'not_completed' },
+      { denied: 'not_completed', about: forged },
+      { denied: 'request_limit', about: '2026-09-24T17:24:28Z. Sign in at evil.example' },
+      { denied: 'unreachable', about: ['2026-09-24T17:24:28.123Z', '2026-09-24T17:24:28.123Z'] },
+    ]) {
+      const html = await loginPage(params);
+      expect(html, JSON.stringify(params)).not.toContain('role="alert"');
+      expect(html, JSON.stringify(params)).not.toContain('evil.example');
+      expect(html, JSON.stringify(params)).not.toContain('not been invited');
+    }
+  });
+
+  it('still tells every address the same thing once a link is asked for', async () => {
+    const html = await loginPage({ sent: '1' });
+    expect(html).toContain('If that address belongs to a workspace, a sign-in link is on its way.');
+    expect(html).not.toContain('role="alert"');
   });
 });

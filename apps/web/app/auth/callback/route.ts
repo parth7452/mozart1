@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { signInDenied } from '../../../lib/notices';
 import { supabaseForRequest } from '../../../lib/supabase';
 
 /**
@@ -19,15 +20,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (code !== null) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error !== null) {
-      return NextResponse.redirect(new URL('/login?denied=that+link+has+expired', url));
+      return NextResponse.redirect(new URL(signInDenied('link_expired'), url));
     }
   } else if (tokenHash !== null) {
     const { error } = await supabase.auth.verifyOtp({ type: 'email', token_hash: tokenHash });
     if (error !== null) {
-      return NextResponse.redirect(new URL('/login?denied=that+link+has+expired', url));
+      return NextResponse.redirect(new URL(signInDenied('link_expired'), url));
     }
   } else {
-    return NextResponse.redirect(new URL('/login?denied=that+link+is+incomplete', url));
+    return NextResponse.redirect(new URL(signInDenied('link_incomplete'), url));
   }
 
   return NextResponse.redirect(new URL('/', url));
