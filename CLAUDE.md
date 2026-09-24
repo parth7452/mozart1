@@ -1140,6 +1140,18 @@ and is what a later read of that document checks against. That is the only
 thing the check gained. No recorded string changes under it, so `pnpm eval` is
 byte-identical.
 
+**A case's page opens however old the case is** (no ADR, no migration). The
+case page found its case in `listCases()`, the newest 100, so past a hundred
+cases every older one was a 404 on its own page — the old, urgent cases the
+review queue links to among them. It now reads `caseSummary(id)`: one row
+through RLS, the list's own SELECT and mapping, `undefined` (and a 404) for a
+case this tenant cannot see. The case list's four figures had the same limit
+and summed the newest hundred; they now fold `caseTally`, a per-state count,
+sum and due-soon-or-past count over every case, with what a state means left
+to `isClosed` in the app, and the ledger says when its table lists only the
+newest. The attach control under "Read, not on a case" still offers only the
+open cases among the newest hundred.
+
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
 broadline distributor. A chargeback statement whose program cells are merged

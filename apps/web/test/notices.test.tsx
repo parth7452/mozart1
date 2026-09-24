@@ -5,11 +5,15 @@ import {
   CONFIRMATION_MAX_LENGTH,
   NOTE_MAX_LENGTH,
   NOTICES,
+  SIGN_IN_NOTICES,
   noticeClaimId,
   noticeSentence,
   resolveNotice,
+  resolveSignInNotice,
+  signInDenied,
   uploadRejectionNotice,
   type NoticeKey,
+  type SignInNoticeKey,
 } from '../lib/notices';
 
 /**
@@ -344,5 +348,96 @@ describe('the notice table', () => {
     for (const forged of ['<script>alert(1)</script>', ' leading', 'x'.repeat(65), '', undefined]) {
       expect(noticeClaimId(forged), String(forged)).toBeUndefined();
     }
+  });
+});
+
+describe('the sign-in notice table', () => {
+  const reference = '2026-09-24T17:24:28.123Z';
+  /**
+   * Every key the login page may be sent, with a valid `about` for each —
+   * pinned twice, as `EVERY_KEY` is: the type insists on every key, and the
+   * first test insists on no others.
+   */
+  const SIGN_IN_ABOUT: Readonly<Record<SignInNoticeKey, readonly string[]>> = {
+    no_address: [],
+    request_limit: [reference],
+    unreachable: [reference],
+    not_invited: [],
+    linked_elsewhere: [],
+    no_membership: [],
+    not_completed: [reference],
+    link_expired: [],
+    link_incomplete: [],
+  };
+
+  it('is exactly this set of keys', () => {
+    expect(Object.keys(SIGN_IN_NOTICES).sort()).toEqual(Object.keys(SIGN_IN_ABOUT).sort());
+  });
+
+  it('resolves every key to its own words, as a refusal, and only with its own fragments', () => {
+    for (const [key, about] of Object.entries(SIGN_IN_ABOUT)) {
+      const said = resolveSignInNotice(key, about);
+      // Every one arrives under `denied` and is shown as an alert.
+      expect(said?.tone, key).toBe('bad');
+      expect(said?.text, key).toBe(
+        SIGN_IN_NOTICES[key as SignInNoticeKey].text.replace(/\{(\d)\}/g, (_, i: string) =>
+          about[Number(i)] as string,
+        ),
+      );
+      expect(said?.text, key).not.toMatch(/\{\d\}/);
+      expect(resolveSignInNotice(key, [...about, reference]), key).toBeUndefined();
+      if (about.length > 0) expect(resolveSignInNotice(key, []), key).toBeUndefined();
+    }
+  });
+
+  it('keeps the sign-in page and the workspace pages from saying each other’s words', () => {
+    for (const key of Object.keys(SIGN_IN_NOTICES)) {
+      expect(resolveNotice(key, SIGN_IN_ABOUT[key as SignInNoticeKey]), key).toBeUndefined();
+    }
+    for (const key of Object.keys(NOTICES)) {
+      expect(resolveSignInNotice(key, ABOUT[key as NoticeKey] ?? []), key).toBeUndefined();
+    }
+  });
+
+  it('says nothing for a key that is not one of its own', () => {
+    for (const forged of [
+      'Your workspace has moved. Sign in at evil.example',
+      'that address has not been invited to a workspace',
+      'NOT_INVITED',
+      '__proto__',
+      'constructor',
+      'toString',
+      '',
+      undefined,
+      null,
+      ['not_invited'],
+    ]) {
+      expect(resolveSignInNotice(forged), String(forged)).toBeUndefined();
+    }
+  });
+
+  it('takes a reference only in the shape toISOString writes it', () => {
+    expect(resolveSignInNotice('not_completed', [new Date().toISOString()])).toBeDefined();
+    for (const forged of [
+      '2026-09-24',
+      '2026-09-24T17:24:28Z',
+      '2026-09-24T17:24:28.123+00:00',
+      ' 2026-09-24T17:24:28.123Z',
+      '2026-09-24T17:24:28.123Z ',
+      '2026-09-24T17:24:28.123Z\n',
+      '+012026-09-24T17:24:28.123Z',
+      '２０２６-09-24T17:24:28.123Z',
+      'ask support at evil.example',
+    ]) {
+      expect(resolveSignInNotice('not_completed', [forged]), forged).toBeUndefined();
+    }
+  });
+
+  it('sends a key and its fragments to the login page, and nothing else', () => {
+    expect(signInDenied('no_membership')).toBe('/login?denied=no_membership');
+    const to = new URL(signInDenied('not_completed', reference), 'https://app.example.test');
+    expect(to.pathname).toBe('/login');
+    expect(to.searchParams.get('denied')).toBe('not_completed');
+    expect(to.searchParams.getAll('about')).toEqual([reference]);
   });
 });

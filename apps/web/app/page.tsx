@@ -39,6 +39,9 @@ export default async function CaseListPage({
       <CaseList
         viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
         cases={await store.listCases()}
+        // The figures are over every case, not the newest hundred in `cases`:
+        // the same RLS, counted by state, and the queue's today for deadlines.
+        tally={await store.caseTally({ today })}
         // Every member, `read_only` included: the queue is a reading of cases
         // they can already see, and it offers no action of its own.
         queue={{

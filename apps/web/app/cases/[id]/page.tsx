@@ -49,8 +49,11 @@ export default async function CasePage({
   const session = await requireSession();
   const store = workflowStoreFor(session);
   try {
-    // Through listCases, so the case is one RLS already agreed this tenant has.
-    const summary = (await store.listCases()).find((row) => row.deductionId === id);
+    // By id, through RLS, so the case is one the database agreed this tenant
+    // has — and the 404 for one it did not, another tenant's included, is the
+    // same as for a case that does not exist (ADR 0014, ADR 0015). Not found in
+    // `listCases`, whose newest hundred left every older case a 404 here.
+    const summary = await store.caseSummary(id);
     if (summary === undefined) notFound();
 
     const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges] =

@@ -140,6 +140,7 @@ const viewer = {
 const today = new Date();
 
 const cases = await store.listCases();
+const tally = await store.caseTally({ today });
 // The viewer is an analyst, who prepares and may not approve — the same answer
 // `mayApprove` in `apps/web/lib/workflow.ts` gives for that role. Not imported:
 // that module pulls in `next/server` and the session, which a file on disk has
@@ -148,7 +149,8 @@ const queue = {
   read: await store.reviewQueue({ today }),
   viewer: { userId: analystId, mayApprove: false },
 };
-const summary = cases.find((row) => row.deductionId === deductionId);
+// By id, as the case page reads it.
+const summary = await store.caseSummary(deductionId);
 if (summary === undefined) throw new Error('the case did not come back through RLS');
 
 const documents = await store.caseDocuments(deductionId);
@@ -167,7 +169,7 @@ const page = (title: string, body: string): string =>
 writeFileSync(
   path.join(outDir, 'case-list.html'),
   page('Recouple — cases', renderToStaticMarkup(
-    <CaseList viewer={viewer} cases={cases} queue={queue} today={today} mayUpload />,
+    <CaseList viewer={viewer} cases={cases} tally={tally} queue={queue} today={today} mayUpload />,
   )),
 );
 

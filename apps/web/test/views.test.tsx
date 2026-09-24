@@ -29,6 +29,7 @@ import {
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { confidencePercent, deadline, fieldLabel, money } from '../lib/format';
 import { displaysInline } from '../lib/document-types';
+import { tallyOf } from './case-tally';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
 /** An empty review queue, for the tests about the rest of the list. */
@@ -37,6 +38,15 @@ const NO_QUEUE = {
   viewer: { userId: 'aaaaaaaa-1111-2222-3333-444444444444', mayApprove: false },
 } as const;
 const today = new Date('2026-09-18T12:00:00Z');
+
+/**
+ * The list for a tenant whose every case is in `cases`, with the figures the
+ * store would tally for them, so a test's rows and its figures describe one
+ * tenant. The test about figures that reach past the rows renders `CaseList`.
+ */
+function EveryCaseList(props: Omit<Parameters<typeof CaseList>[0], 'tally'>) {
+  return <CaseList {...props} tally={tallyOf(props.cases, props.today)} />;
+}
 
 /**
  * A case summary for a test. An override of `undefined` drops the key rather
@@ -195,7 +205,7 @@ describe('money and deadlines', () => {
 describe('the case list', () => {
   it('totals the deductions and links each case', () => {
     const html = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary(), summary({
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary(), summary({
         deductionId: '99999999-8888-7777-6666-555555555555',
         claimId: 'KS-40112',
         deductionAmountCents: 88_450,
@@ -211,12 +221,51 @@ describe('the case list', () => {
     expect(html).toContain('4 docs');
   });
 
+  it('takes its figures from every case, and says the table holds only the newest', () => {
+    // A tenant with 240 cases, of which the store listed the newest two. The
+    // figures are the tally's; before, they were summed from the two rows.
+    const html = renderToStaticMarkup(
+      <CaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[summary(), summary({ deductionId: '99999999-8888-7777-6666-555555555555' })]}
+        tally={[
+          { state: 'classified', cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
+          { state: 'awaiting_approval', cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
+          { state: 'submitted', cases: 6, deductedCents: 600_000, dueSoonOrPast: 6 },
+          { state: 'won', cases: 79, deductedCents: 7_900_000, dueSoonOrPast: 79 },
+          { state: 'merged', cases: 1, deductedCents: 100_000, dueSoonOrPast: 1 },
+        ]}
+        today={today}
+      />,
+    );
+    expect(html).toContain('Across 240 recorded cases');
+    expect(html).toContain('$239,000.00');
+    expect(html).toContain('240 cases · $239,000.00 deducted · the newest 2 listed below');
+    const figure = (label: string) =>
+      new RegExp(`${label}</span><strong>(\\d+)`).exec(html)?.[1];
+    expect(figure('OPEN CASES')).toBe('160');
+    expect(figure('APPROVAL STAGE')).toBe('4');
+    expect(figure('DEADLINES TO WATCH')).toBe('15');
+    // The table is still the rows the store listed.
+    expect(html).toContain('2 of 2 cases');
+  });
+
+  it('says nothing about the newest when the table holds every case', () => {
+    const html = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(html).toContain('Across 1 recorded case<');
+    expect(html).not.toContain('listed below');
+  });
+
   it('shows the name a notice printed when no debtor answers to it, and says so', () => {
     // The whole point of ADR 0019: a case whose retailer did not resolve is not
     // a case with no retailer. It reads as printed, marked unmatched, because an
     // unmatched retailer has no playbook and no routing behind it.
     const html = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -236,7 +285,7 @@ describe('the case list', () => {
 
   it('shows a dash when nothing was read, not an invented retailer', () => {
     const html = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -250,7 +299,7 @@ describe('the case list', () => {
 
   it('prefers the debtor over the printed name once one has matched', () => {
     const html = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -268,7 +317,7 @@ describe('the case list', () => {
     // is the advice's own payment reference and invoice number (ADR 0028 §7),
     // which is not what a person looks a case up by. The invoice is.
     const html = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -288,14 +337,14 @@ describe('the case list', () => {
 
   it('says nothing about an invoice for a case that has none', () => {
     const html = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
     );
     expect(html).not.toContain('invoice');
   });
 
   it('offers the upload to a member who may write, and not to one who may not', () => {
     const writer = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
     );
     expect(writer).toContain('action="/upload"');
     expect(writer).toContain('Add a document');
@@ -303,7 +352,7 @@ describe('the case list', () => {
     // The database refuses a read_only member's insert whatever the page shows;
     // hiding the form is the difference between a refusal and a dead end.
     const reader = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload={false}
         viewer={{ ...viewer, role: 'read_only' }}
@@ -316,7 +365,7 @@ describe('the case list', () => {
 
   it('says what came of the last upload, including a refusal', () => {
     const html = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -334,7 +383,7 @@ describe('the case list', () => {
 
   it('shows a notice in the tone it carries, and nothing for a key it does not know', () => {
     const good = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
     );
     expect(good).toContain('class="notice sent"');
     expect(good).toContain('that document is being read');
@@ -343,7 +392,7 @@ describe('the case list', () => {
     // it finds there is an app a link can put words into.
     for (const forged of ['your session expired, sign in at evil.test', 'constructor', '']) {
       const html = renderToStaticMarkup(
-        <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice={forged} />,
+        <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice={forged} />,
       );
       expect(html, forged).not.toContain('class="notice');
       expect(html, forged).not.toContain('sign in at');
@@ -352,7 +401,7 @@ describe('the case list', () => {
 
   it('says what will happen rather than showing an empty table', () => {
     const html = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
     );
     expect(html).toContain('No cases yet');
     expect(html).not.toContain('<table');
@@ -449,12 +498,12 @@ describe('documents waiting to be read', () => {
     // A reader cannot ask for a read, so a list of documents they are not
     // allowed to fix is worse than no list.
     const writer = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} unread={[unread()]} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} unread={[unread()]} />,
     );
     expect(writer).toContain('Documents waiting to be read');
 
     const reader = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload={false}
         viewer={{ ...viewer, role: 'read_only' }}
@@ -468,7 +517,7 @@ describe('documents waiting to be read', () => {
 
   it('is absent from a case list with nothing waiting', () => {
     const html = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} />,
     );
     expect(html).not.toContain('Documents waiting to be read');
   });
@@ -692,12 +741,12 @@ describe('documents that were read and that no case holds', () => {
 
   it('is on the case list for a writer, and not for a reader', () => {
     const writer = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} unattached={[loose()]} />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} unattached={[loose()]} />,
     );
     expect(writer).toContain('Read, not on a case');
 
     const reader = renderToStaticMarkup(
-      <CaseList
+      <EveryCaseList
         queue={NO_QUEUE}
         mayUpload={false}
         viewer={{ ...viewer, role: 'read_only' }}
@@ -714,7 +763,7 @@ describe('documents that were read and that no case holds', () => {
     // the document turned out to be. A delivery receipt read that way opened
     // nothing, and the reviewer waited for a case that was never coming.
     const html = renderToStaticMarkup(
-      <CaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[]} today={today} notice="upload_queued_list" />,
     );
     expect(html).toContain('Read, not on a case');
     expect(html).not.toContain('the case will appear here when it is');

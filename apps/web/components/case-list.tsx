@@ -4,7 +4,7 @@ import type {
   UnreadDocument,
 } from '@recouple/pipeline';
 import { DUE_SOON_DAYS } from '@recouple/core-domain';
-import type { CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
+import type { CaseStateTally, CaseSummary, ReviewQueueRead } from '@recouple/store-postgres';
 import { money } from '../lib/format';
 import { caseMetrics } from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
@@ -32,6 +32,7 @@ export interface Viewer {
 export function CaseList({
   viewer,
   cases,
+  tally,
   queue,
   today,
   mayUpload,
@@ -42,7 +43,14 @@ export function CaseList({
   noticeAbout,
 }: {
   viewer: Viewer;
+  /** The ledger's rows: the newest cases, as many as the store was asked for. */
   cases: readonly CaseSummary[];
+  /**
+   * Every case the tenant has, counted by state, which is what the figures
+   * are over. `cases` stops at the newest hundred; a figure summed from it
+   * undercounted past that and did not say so.
+   */
+  tally: readonly CaseStateTally[];
   /**
    * What to work on next (ADR 0043): every case a person can act on now, most
    * urgent first, with who is asking so an approval the viewer may not give
@@ -89,8 +97,10 @@ export function CaseList({
   /** The validated fragments the key's text names, in order. */
   noticeAbout?: readonly string[] | undefined;
 }) {
-  const metrics = caseMetrics(cases, today);
+  const metrics = caseMetrics(tally);
   const total = metrics.totalCents;
+  const caseCount = metrics.caseCount.toLocaleString('en-US');
+  const plural = metrics.caseCount === 1 ? '' : 's';
   const said = resolveNotice(notice, noticeAbout ?? []);
 
   return (
@@ -118,7 +128,7 @@ export function CaseList({
             <span className="metric-label">TOTAL DEDUCTED</span>
             <strong>{money(total)}</strong>
             <span className="metric-note">
-              Across {cases.length} recorded case{cases.length === 1 ? '' : 's'}
+              Across {caseCount} recorded case{plural}
             </span>
             <span className="metric-bars" aria-hidden="true">
               <i />
@@ -159,9 +169,13 @@ export function CaseList({
             <div>
               <h2>Deduction ledger</h2>
               <p className="ledger-summary">
-                {cases.length === 0
+                {metrics.caseCount === 0
                   ? 'No cases yet'
-                  : `${cases.length} case${cases.length === 1 ? '' : 's'} · ${money(total)} deducted`}
+                  : `${caseCount} case${plural} · ${money(total)} deducted` +
+                    // The figures are over every case; the table stops at the newest.
+                    (cases.length < metrics.caseCount
+                      ? ` · the newest ${cases.length.toLocaleString('en-US')} listed below`
+                      : '')}
               </p>
             </div>
             <span className="ledger-tag">ALL DEDUCTIONS</span>
