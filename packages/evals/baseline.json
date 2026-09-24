@@ -63,5 +63,8 @@
       "classificationAccuracy": 0.8666666666666667,
       "documents": 15
     }
+  },
+  "pendingSuites": {
+    "formats": "not yet recorded: 2 fixture documents, no cassettes. `pnpm record:cassettes --suite formats` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }
