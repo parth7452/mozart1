@@ -148,7 +148,8 @@ const queue = {
   read: await store.reviewQueue({ today }),
   viewer: { userId: analystId, mayApprove: false },
 };
-const summary = cases.find((row) => row.deductionId === deductionId);
+// By id, as the case page reads it.
+const summary = await store.caseSummary(deductionId);
 if (summary === undefined) throw new Error('the case did not come back through RLS');
 
 const documents = await store.caseDocuments(deductionId);

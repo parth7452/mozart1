@@ -110,8 +110,8 @@ const document: StoredDocument = {
 const workflow: CaseWorkflow = { deductionId: CASE_ID, state: 'classified' };
 
 const store = {
-  async listCases() {
-    return [summary];
+  async caseSummary(id: string) {
+    return id === CASE_ID ? summary : undefined;
   },
   async caseDocuments() {
     return [
@@ -231,8 +231,8 @@ describe('the review page for a case a remittance line opened', () => {
 
   const remittanceStore = {
     ...(store as unknown as Record<string, unknown>),
-    async listCases() {
-      return [remittanceSummary];
+    async caseSummary(id: string) {
+      return id === CASE_ID ? remittanceSummary : undefined;
     },
     async caseDocuments() {
       return onCase.map((d) => ({
@@ -312,5 +312,82 @@ describe('the review page for a case a remittance line opened', () => {
     expect(html).toContain('>matches<');
     expect(html).toContain('from 2 documents on this case');
     expect(html).toContain('so that read is not in the figure');
+  });
+});
+
+/**
+ * The page for a case older than the newest hundred (ADR 0043).
+ *
+ * The review queue exists to surface an old, urgent case that a newest-first
+ * list of a hundred drops, and links it here. The page used to find its case in
+ * `listCases()` — that same newest hundred — so the case the queue put first
+ * was a 404. This tenant's `listCases()` is modelled as the store answers it:
+ * newest first, a hundred at most.
+ */
+describe('the review page for a case older than the newest hundred', () => {
+  const OLD_ID = '77777777-7777-7777-7777-777777777777';
+  const THEIRS = '99999999-9999-9999-9999-999999999999';
+  const old = {
+    ...summary,
+    deductionId: OLD_ID,
+    claimId: 'SP-0001',
+    createdAt: '2025-09-01T09:00:00.000Z',
+  } as unknown as CaseSummary;
+  const newer = Array.from(
+    { length: 100 },
+    (_, i) =>
+      ({
+        ...summary,
+        deductionId: `88888888-8888-8888-8888-${String(i).padStart(12, '0')}`,
+        claimId: `SP-${5000 + i}`,
+        createdAt: '2026-09-22T09:00:00.000Z',
+      }) as unknown as CaseSummary,
+  );
+  const tenant = [...newer, old];
+  /** Every case id a read past the summary was asked for. */
+  const reads: string[] = [];
+
+  const busyStore = {
+    ...(store as unknown as Record<string, unknown>),
+    async listCases(limit = 100) {
+      return [...tenant].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+    },
+    // RLS's answer: this tenant's case by its id, and nothing for another's.
+    async caseSummary(id: string) {
+      return tenant.find((row) => row.deductionId === id);
+    },
+    async caseDocuments(id: string) {
+      reads.push(id);
+      return (store as unknown as { caseDocuments(): Promise<unknown> }).caseDocuments();
+    },
+  } as unknown as PostgresStore;
+
+  beforeAll(() => {
+    current = busyStore;
+  });
+  afterAll(() => {
+    current = store;
+  });
+
+  it('renders it, though the newest hundred does not hold it', async () => {
+    expect((await busyStore.listCases()).some((row) => row.deductionId === OLD_ID)).toBe(false);
+
+    const html = renderToStaticMarkup(
+      await CasePage({
+        params: Promise.resolve({ id: OLD_ID }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+
+    expect(html).toContain('SP-0001');
+    expect(html).toContain('$1,275.00');
+  });
+
+  it('404s a case this tenant cannot see, and reads nothing else for it', async () => {
+    reads.length = 0;
+    await expect(
+      CasePage({ params: Promise.resolve({ id: THEIRS }), searchParams: Promise.resolve({}) }),
+    ).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' });
+    expect(reads).toEqual([]);
   });
 });
