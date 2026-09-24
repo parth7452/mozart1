@@ -135,9 +135,19 @@ const viewer = {
   orgName: 'Harborline Foods',
   role: 'analyst',
 };
+// One "today" for the read and the render, as `apps/web/app/page.tsx` does: the
+// queue's SQL cuts at its limit by the same buckets the render draws.
 const today = new Date();
 
 const cases = await store.listCases();
+// The viewer is an analyst, who prepares and may not approve — the same answer
+// `mayApprove` in `apps/web/lib/workflow.ts` gives for that role. Not imported:
+// that module pulls in `next/server` and the session, which a file on disk has
+// no use for.
+const queue = {
+  read: await store.reviewQueue({ today }),
+  viewer: { userId: analystId, mayApprove: false },
+};
 const summary = cases.find((row) => row.deductionId === deductionId);
 if (summary === undefined) throw new Error('the case did not come back through RLS');
 
@@ -157,7 +167,7 @@ const page = (title: string, body: string): string =>
 writeFileSync(
   path.join(outDir, 'case-list.html'),
   page('Recouple — cases', renderToStaticMarkup(
-    <CaseList viewer={viewer} cases={cases} today={today} mayUpload />,
+    <CaseList viewer={viewer} cases={cases} queue={queue} today={today} mayUpload />,
   )),
 );
 
@@ -179,6 +189,8 @@ writeFileSync(
       reconciliation={reconciliation}
       costMicros={costMicros}
       today={today}
+      // An analyst may write, so the case's actions render as the page shows them.
+      mayAct
     />,
   )).replace(`/api/document/${noticeDocument?.documentId ?? ''}`, dataUrl),
 );
