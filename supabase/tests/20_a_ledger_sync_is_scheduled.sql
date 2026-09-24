@@ -159,8 +159,11 @@ begin
     'select count(*) from app.ledger_connections_to_sync()',
     'untenanted', 'the fan-out query is refused to a caller acting for a tenant');
 
+  -- Counted for this suite's two orgs: the fan-out answers for the whole
+  -- deployment by design, and a database other suites or the Vitest tests have
+  -- used holds other orgs' connections.
   perform test.as_nobody();
-  select count(*) into n from app.ledger_connections_to_sync();
+  select count(*) into n from app.ledger_connections_to_sync() where org_id in (org_a, org_b);
   perform test.ok(n = 2,
     format('app.ledger_connections_to_sync() lists both orgs'' enabled connections (saw %s)', n));
 
@@ -186,7 +189,7 @@ begin
     values (org_a, 'qbo', 'realm-a-disabled', owner_a, false) returning id into conn_a2;
 
   perform test.as_nobody();
-  select count(*) into n from app.ledger_connections_to_sync();
+  select count(*) into n from app.ledger_connections_to_sync() where org_id in (org_a, org_b);
   perform test.ok(n = 2, format('a disabled connection is not listed (saw %s)', n));
   perform test.ok(
     not exists (select 1 from app.ledger_connections_to_sync() where connection_id = conn_a2),
