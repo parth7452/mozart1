@@ -1,6 +1,6 @@
 # 0047 — An email reaches a tenant only through an address that tenant was given
 
-- Status: proposed
+- Status: accepted (2026-09-24, by the founder)
 - Date: 2026-09-24
 - Amends: ADR 0016 (every accepted body is stored; only its read depends on the attachments, and that is decided in the read job), ADR 0021 (what "Read again" answers for a document that came by email), ADR 0024 (each document an email carried is its own arrival, and the message groups them), ADR 0044 (an email's notice or remittance is held for a person instead of halted), and ingest's dedupe branch for every door (a document stored without a clean-or-infected verdict is scanned again)
 - Closes: the follow-up ADR 0021 named ("Persisting the authentication verdict is the change that would close the remainder"), the open question of how a person opens a case from an unauthenticated email's notice, and `docs/VERIFY-CHECKLIST.md` §5
