@@ -207,7 +207,7 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 13/15 |
+| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -232,9 +232,9 @@ and orders no quantities — read as `po` at 0.95, so its agreed rates were neve
 extracted as an agreement. The classifier's definitions now say that setting
 prices is not ordering, and re-asked (2026-09-23, `--classify-only`) it reads
 `price_agreement` five times in five, where the old prompt read `po` five in
-five. The two classification misses now are `stf-203-dispatch-note`
+five. The two classification misses that remained were `stf-203-dispatch-note`
 (`correspondence`, expected `other`, 0.85) and `stf-203-short-payment-notice`,
-which reads `remittance_advice` at 0.70–0.75 three times in five **under the old
+which read `remittance_advice` at 0.70–0.75 three times in five **under the old
 prompt too** — its correct answer in the first recording was a lucky draw.
 Every classification number here was recorded with no pinned temperature, so
 each is one sample, and a suite's classification rate could move by a document
@@ -254,15 +254,26 @@ their confidence moved by a point or three. So the two misses were never the
 sampling — they are what this prompt says — and the one-sample caveat above no
 longer applies to any recorded classification.
 
+The same day the definitions were sharpened for both, and re-asked in full
+($0.2258, then $0.0114 on three documents and $0.2289 in full again): a
+deduction notice is a payer's, not a retailer's; the printed title decides
+notice against remittance by what it names, and "advice" alone decides
+nothing — a remittance advice is a remittance and a deduction advice is a
+notice, which the first wording got wrong for LOG-202's remittance; and
+correspondence is a message one organisation sent another, while a note
+written for one's own file is `other`. 57 of 57, and every notice and
+remittance at or above 0.95.
+
 The review floor is the product's as well as the eval's (ADR 0044). Wherever a
 notice or a remittance would open its case(s) on its own, `readDocument` reads
 the tenant's `org_settings.min_classification_confidence` and opens only when
 `classificationIsActionable` holds — inclusive, so LOG-001's remittance at 0.95
 still opens — and the reading fits its type. Anything else is held for a
-person, and in replay exactly one recorded document is:
-`stf-203-short-payment-notice` (a notice read as a remittance at 0.75).
-`stf-201-short-pay-remittance` was held too while its classification was one
-unpinned sample at 0.92; asked at temperature 0 it reads 0.95 and opens. The `classification_confidence_meets_tenant_minimum`
+person. In replay no recorded document is held any more: two were —
+`stf-203-short-payment-notice`, a notice read as a remittance at 0.75, and
+`stf-201-short-pay-remittance`, one unpinned sample at 0.92 — and both read
+0.95 today and open; the hold is exercised by readings built to fall below the
+floor. The `classification_confidence_meets_tenant_minimum`
 guard, on Phase 2's `classified → evidence_pending` edge, still has no
 evaluator because that edge is not taken yet. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
@@ -277,7 +288,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 55/57, both misses in `customer` (the service order is no longer one of them). Before it, the two field
+Classification is 57/57. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
