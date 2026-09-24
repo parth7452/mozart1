@@ -219,9 +219,14 @@ export async function readInboundEmailJob(
 
   const parts = await deps.inbound.inboundMessageParts(input.inboundMessageId);
   const reads: ReadDocumentJobResult[] = [];
+  // One read per document: the same file attached twice is one document, its
+  // second part `already_held`, and the job's steps are keyed by the document.
+  const asked = new Set<string>();
 
   for (const part of parts) {
     if (part.kind === 'body' || part.documentId === undefined || !READABLE.has(part.outcome)) continue;
+    if (asked.has(part.documentId)) continue;
+    asked.add(part.documentId);
     reads.push(await readOne(part.documentId));
   }
 
@@ -233,7 +238,7 @@ export async function readInboundEmailJob(
     (part) => part.kind === 'body' && part.documentId !== undefined && READABLE.has(part.outcome),
   );
   let bodyRead = false;
-  if (body?.documentId !== undefined && !noticeAttached) {
+  if (body?.documentId !== undefined && !noticeAttached && !asked.has(body.documentId)) {
     reads.push(await readOne(body.documentId));
     bodyRead = true;
   }

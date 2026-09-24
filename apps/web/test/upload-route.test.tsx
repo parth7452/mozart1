@@ -8,7 +8,14 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction, type FixtureDocument } from '@recouple/fixtures';
-import { processUpload, type PipelineDeps, type StoredDocument } from '@recouple/pipeline';
+import {
+  ingestForJob,
+  processUpload,
+  readDocumentJob,
+  type JobDeps,
+  type PipelineDeps,
+  type StoredDocument,
+} from '@recouple/pipeline';
 import { InngestRunner, type UploadRunner } from '../lib/pipeline';
 import { NextRequest } from 'next/server';
 import {
@@ -747,6 +754,43 @@ describe('uploading a notice the classifier was not sure enough of (ADR 0044)', 
     expect(sent).toEqual([]);
     expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
     expect(said(response)).toMatch(/reading was doubtful/);
+    expect(store.cases.size).toBe(0);
+  });
+});
+
+describe('uploading the same file as a notice that arrived by email (ADR 0047 §7)', () => {
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.runner = undefined;
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+  });
+
+  it('answers from the email’s hold: no second read, no case, and says why', async () => {
+    const store = harness.store as RouteTestStore;
+    store.addMember(ORG_ID, '22222222-2222-2222-2222-222222222222', 'owner');
+    const deps = harness.deps as unknown as JobDeps;
+    const emailed = await ingestForJob(deps, {
+      orgId: ORG_ID,
+      filename: notice.filename,
+      bytes: notice.bytes,
+      source: 'email_in',
+      pageText: notice.pageText,
+    });
+    const read = await readDocumentJob(deps, {
+      documentId: emailed.documentId,
+      orgId: ORG_ID,
+      actor: { userId: '22222222-2222-2222-2222-222222222222' },
+    });
+    expect(read.held).toBe('by_email');
+    const spent = store.modelCalls.length;
+
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+
+    expect(new URL(response.headers.get('location') as string).pathname).toBe('/');
+    expect(said(response)).toMatch(/already arrived by email, and no email opens a case on its own/);
+    expect(store.modelCalls).toHaveLength(spent);
     expect(store.cases.size).toBe(0);
   });
 });

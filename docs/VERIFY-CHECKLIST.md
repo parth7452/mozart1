@@ -67,7 +67,8 @@ Nothing else is needed.
 ### Suggested order
 
 Do **2** first (sign-in), then **4** (make the test workspace), then **3**,
-**1**, **6**, **7** and **8**. **5** is blocked; see below.
+**1**, **6**, **7** and **8**. **5** waits for your Postmark setup; see its
+first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
 one from GitHub while you are signed in: open the link, then click **Download
@@ -673,48 +674,152 @@ Then, in the Supabase dashboard: Authentication → Users → **Add user** →
 
 ---
 
-## 5. Email-in — **blocked: not built yet**
+## 5. Email-in: an emailed notice is held, and a person opens it
 
-**What I found while writing this:** a real email cannot open a case today,
-because **there is no address for Postmark to deliver to.**
+**What it proves:** a supplier can email a notice to your workspace, and it
+arrives as a held document that a person opens with one click (ADR 0047).
+**No email opens a case on its own**, however trustworthy it looks. It also
+proves that an email which filed nothing says why, and that the sweep
+records email Postmark could not deliver.
 
-- The code that understands an inbound email exists and is tested.
-- But the web app has no inbound-email route, so nothing in production calls
-  that code.
-- The Postmark settings named in `.env.example` are read by nothing.
+**Before you start** (ADR 0047, "What the founder does", steps 1–4):
 
-`docs/adr/0024` says so in passing ("`ingestInboundEmail` has never had a
-production caller"). The status docs listed email-in as "built", which
-overstated it.
+- the inbound domain's MX record points at `inbound.postmarkapp.com`;
+- the Postmark server's inbound webhook is
+  `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`;
+- `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` are set on Vercel
+  **Production only**, and production has been redeployed since;
+- migration 0034 is applied to production. Done: 2026-09-24, and read back.
 
-**What building it needs** (an engineering task, and an ADR first):
+**Where:** your own workspace, as its owner. The test adds one real case
+(DN-2609-003, $2,000.00), so if you would rather keep your workspace clean,
+do it in the test workspace (tester B must then be its owner).
 
-- **An inbound web address**, and a way for Postmark to prove to us that it
-  sent the email.
-- **Working out which workspace an email belongs to**, from the address it
-  was sent *to*. Today's lookup can only see the workspace the database
-  already knows it is acting for, so it cannot answer the question for an
-  email that arrives from outside. Fixing that needs a small database change,
-  and so an ADR.
-- **A member to act as** when an email writes records. Every write is made
-  as a person, and an email has none.
-- **Confirming, on a real message, that Postmark passes the sender checks**
-  (DKIM/DMARC) the code relies on to open a case. If it does not pass them,
-  every email would be filed but open nothing.
-- **Your Postmark setup:** an inbound server, the webhook address, and
-  ideally your own inbound domain.
+**5.1 Issue an address.**
 
-I have not built this, because it was not on the list and it needs your OK
-and an ADR. It is the first item in the PR's "found while writing" list.
+- **Do:** **Settings → Email** → **Issue a new address**.
+- **You should see:**
+  - "a new address is issued. Give it to the suppliers and payers who
+    should reach this workspace; nothing has been sent to anyone.";
+  - one address, 32 letters and digits `@` your inbound domain;
+  - "Acts as" your email, and "Last received mail: never".
+- **If it says "This deployment does not receive email":** the two Vercel
+  variables are not on Production, or production was not redeployed.
 
-Once it is built, the click-through will be:
+**5.2 Check the test file is new to this workspace.**
 
-1. From Gmail (which passes the sender checks), send an email with
-   `hl-case-03-notice.pdf` attached to your workspace's inbound address.
-2. Within a couple of minutes a case **DN-2609-003**, $2,000.00, "Summit
-   Basket Retail" appears.
-3. The proof is an `uploads` row with source `email_in` and no person in
-   `created_by`.
+The test needs a notice this workspace has never stored.
+
+```sql
+select d.id, d.org_id, u.source from documents d join uploads u on u.id = d.upload_id
+ where encode(d.sha256, 'hex') = '977d45f3605cdf66829a01e33146b143099efc95c9fbc208067c01c2e78070e6';
+```
+
+If this shows a row for your workspace, use a notice the workspace has never
+seen instead. Tell me, and I'll name one.
+
+**5.3 Send it from Gmail.**
+
+- **Do:** from a Gmail account, email [`hl-case-03-notice.pdf`](https://github.com/parth7452/mozart1/blob/main/packages/fixtures/corpus/hl-case-03-notice.pdf)
+  as an attachment to the address from 5.1. Any subject; the body can say
+  "see attached". Note the time.
+- **You should see**, on the case list within a couple of minutes, under
+  **Read, not on a case**:
+  - the file, read as a deduction notice;
+  - "Held: read as a deduction notice, and it arrived by email. No email
+    opens a case on its own — a person decides each time.";
+  - "By email · from gmail.com (as the email claims) · aligned DKIM per
+    Postmark: yes".
+- **Vercel logs:** search `inbound email`. One line ending
+  `recorded as <id>, org <id>, parts stored,body_too_short`: the attachment
+  was stored, and a one-line cover note is too short to be a notice, which
+  is expected. The line must not show your address, the sender or the
+  subject.
+- **Inngest:** one run of **Read an email’s documents**, completed.
+
+**5.4 Open the case.**
+
+- **Do:** **Open a case from it** on that row.
+- **You should see:** case **DN-2609-003**, **$2,000.00**, Summit Basket
+  Retail.
+
+**Proof.**
+
+```sql
+-- the email, as Postmark reported it: authenticated, DKIM pass
+select id, outcome, authenticated, dkim, dmarc, spf, verdict_source, sender_domain, received_at
+  from inbound_messages order by received_at desc limit 1;
+
+-- its parts: the attachment stored, and a short cover note too short to read
+select p.ordinal, p.kind, p.outcome, p.document_id
+  from inbound_message_parts p
+ where p.inbound_message_id = (select id from inbound_messages order by received_at desc limit 1)
+ order by p.ordinal;
+
+-- the notice's arrival: source email_in, and no person as its creator
+select u.source, u.created_by from documents d join uploads u on u.id = d.upload_id
+ where encode(d.sha256, 'hex') = '977d45f3605cdf66829a01e33146b143099efc95c9fbc208067c01c2e78070e6';
+
+-- the case says a person opened it from a hold
+select event_type, payload->'held'->>'reason' as held, payload->>'confirmed_by' as confirmed_by
+  from deduction_events
+ where event_type = 'case.discovered'
+ order by id desc limit 1;
+```
+
+Expect `authenticated` **true**, `dkim` **pass**, `dmarc` **unknown** (Postmark
+reports none), `verdict_source` **postmark_spamassassin** and `sender_domain`
+**gmail.com**; the parts `attachment stored` and `body body_too_short`; source
+**email_in** with `created_by` empty; and a `held` of `by_email` with your
+member id as `confirmed_by`.
+
+**5.5 Check what Postmark saw.** In Postmark → the server → the inbound
+stream → **Activity**, open that message:
+
+- exactly one each of `X-Spam-Status`, `X-Spam-Score` and `X-Spam-Tests`;
+- `X-Spam-Tests` includes `DKIM_VALID_AU`;
+- the webhook was answered **200** the first time, with no **401** before it.
+
+If any of these is different, stop and send me a screenshot: the hold line's
+DKIM report depends on them. Nothing would have opened a case either way.
+
+**5.6 Before any customer gets an address** (ADR 0047, steps 7–10). These
+check what the hold line may be trusted to say, and the failure paths:
+
+- **A forged header.** From a mailbox that does not sign for its `From:`
+  domain, send a message with hand-written `X-Spam-Tests: DKIM_VALID_AU` and
+  `Authentication-Results: x; dkim=pass` headers, once small and once with a
+  1–3 MB attachment. Each must be held with DKIM "no" or "unknown". Note
+  what Postmark did with the headers.
+- **An unaligned sender**, such as a Microsoft 365 domain without custom
+  DKIM, or a forwarding rule: held with DKIM "no" or "unknown", and **Open a
+  case from it** works.
+- **An iPhone photo**, attached normally: it is read, not listed as a small
+  inline image.
+- **Too large.** Email about 5 MB of attachments. The next day, run
+  `pnpm sweep:inbound` (5.8). It should appear under **Email that filed
+  nothing** as "An email to this address on <date> did not reach us."
+- **Not an address.** Email `support@` your inbound domain. Note the status
+  Postmark leaves it in.
+- **A wrong secret.** Change the secret on Vercel without updating Postmark,
+  redeploy, send one email, and check in Postmark that it is retried after a
+  **401**. Then put the secret back and redeploy.
+
+**5.7 Retire and adopt** (optional). **Issue a new address**, then **Retire**
+the new one. It moves under **Retired**. Mail sent to it afterwards is
+refused (Postmark shows a 403) and is counted there.
+
+**5.8 Run the sweep, daily.** On your machine, with `POSTMARK_SERVER_TOKEN`,
+`INBOUND_DOMAIN` and `DATABASE_URL` in `.env`:
+
+```
+pnpm sweep:inbound
+```
+
+It prints how many messages Postmark failed to deliver over the last six
+days, records each one sent to a live address, and counts what has waited on
+Postmark for more than two hours. It only reads Postmark; it retries nothing
+and sends nothing. Run it again and it records nothing new.
 
 ---
 
@@ -992,7 +1097,9 @@ not change the money; it is in the list below.
 None of these is fixed in this PR. Each needs a decision or its own change;
 2 and 3 were fixed by another change the same day.
 
-1. **Email-in is not wired** (§5). This is the largest one.
+1. ~~**Email-in is not wired** (§5).~~ **Built** under ADR 0047: an address,
+   the webhook, the job, Settings → Email and the sweep. Migration 0034 is in
+   production; it waits for your Postmark setup.
 2. ~~**A case page opens as "404" once there are more than 100 newer
    cases.**~~ **Fixed** by
    [parth7452/mozart1#71](https://github.com/parth7452/mozart1/pull/71): a

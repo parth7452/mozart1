@@ -151,7 +151,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       if (outcome.held !== undefined) {
         back.pathname = '/';
-        return say('upload_held');
+        return say(outcome.held.reason === 'by_email' ? 'upload_held_by_email' : 'upload_held');
       }
       return say('upload_already_read');
     }
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // the list, which is where the held document and its button are.
     if (result.held !== undefined) {
       back.pathname = '/';
-      return say('upload_held');
+      return say(result.held.reason === 'by_email' ? 'upload_held_by_email' : 'upload_held');
     }
 
     // A remittance names no one case — it opens one per short-paid line (ADR

@@ -674,6 +674,29 @@ describe('asking for a stored document to be read again', () => {
     }
   });
 
+  it('holds a never-read emailed notice for a person, and opens no case (ADR 0047 §7)', async () => {
+    // The hole Context 7 named: a document never read is re-driven with
+    // allowCaseOpen true whatever its channel. The read asks the document's own
+    // arrival instead, and an email's notice is held however sure the reading.
+    const store = harness.store as RouteTestStore;
+    const documentId = await storedNotice(store, 'email_in');
+
+    const response = await POST(rereadRequest(documentId), params(documentId));
+
+    expect(location(response).pathname).toBe('/');
+    expect(said(response)).toMatch(/arrived by email, and no email opens a case on its own/);
+    expect(store.cases.size).toBe(0);
+    expect(store.auditLog.map((row) => row.action)).toEqual(['document.held']);
+    expect(store.auditLog[0]?.payload).toMatchObject({ reason: 'by_email' });
+
+    // A second press is answered from the hold, and reads nothing.
+    const spent = store.modelCalls.length;
+    const again = await POST(rereadRequest(documentId), params(documentId));
+    expect(said(again)).toMatch(/arrived by email/);
+    expect(store.modelCalls).toHaveLength(spent);
+    expect(store.cases.size).toBe(0);
+  });
+
   it('says a doubtful reading is held, and a second press reads nothing (ADR 0044)', async () => {
     // The stub classifier answers 0.99; this workspace has raised its floor
     // above that, so the notice is read and held for a person rather than

@@ -311,6 +311,26 @@ describe('the job half: read, and hold what an email says is a deduction', () =>
     expect(result.bodyRead).toBe(true);
   });
 
+  it('reads a file attached twice once, as one document', async () => {
+    const { deps } = harness();
+    const id = await received(deps, { Attachments: [attach(PO), attach(PO)], TextBody: '' });
+    expect((await deps.inbound.inboundMessageParts(id)).map((p) => p.outcome)).toEqual([
+      'stored',
+      'already_held',
+    ]);
+    const asked: string[] = [];
+    const result = await readInboundEmailJob(
+      deps,
+      { orgId: ORG, userId: OWNER, inboundMessageId: id },
+      async (documentId) => {
+        asked.push(documentId);
+        return readDocumentJob(deps, { documentId, orgId: ORG, actor: { userId: OWNER } });
+      },
+    );
+    expect(asked).toHaveLength(1);
+    expect(result.reads.map((r) => r.docType)).toEqual(['po']);
+  });
+
   it('does not read the body when the attached notice was answered from the record', async () => {
     const { deps, reader } = harness();
     const id = await received(deps, { TextBody: BODY_NOTICE });

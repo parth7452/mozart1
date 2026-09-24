@@ -2,6 +2,7 @@ import { isClosed } from '@recouple/core-domain';
 import type { DocumentHold, UnattachedDocument } from '@recouple/pipeline';
 import type { AttachTargets, CaseSummary } from '@recouple/store-postgres';
 import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/format';
+import { emailLine } from './inbound-email';
 
 /**
  * The documents that were read and that no case holds, and a way to file each
@@ -75,6 +76,11 @@ export function UnattachedDocuments({
                 <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
               ) : (
                 <span className="hold">{holdLine(document.hold)}</span>
+              )}
+              {document.email === undefined ? null : (
+                // What the email claimed about its sender (ADR 0047 §7): shown
+                // to the person deciding, and it decides nothing.
+                <span className="hold">{emailLine(document.email)}</span>
               )}
             </span>
             <span className="unattached-received">

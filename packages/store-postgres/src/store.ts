@@ -913,6 +913,9 @@ interface UnattachedDocumentRow {
   hold_payload: unknown;
   held_at: Date | null;
   held_by: string | null;
+  /** The arrival email's claims, when the document came by email (ADR 0047 §7). */
+  email_dkim: 'pass' | 'fail' | 'none' | 'unknown' | null;
+  email_sender_domain: string | null;
 }
 
 /**
@@ -2970,13 +2973,31 @@ export class PostgresStore
                 h.org_id as hold_org_id,
                 h.payload as hold_payload,
                 h.observed_at as held_at,
-                h.actor_id as held_by
+                h.actor_id as held_by,
+                em.dkim as email_dkim,
+                em.sender_domain as email_sender_domain
            from documents d
            join lateral (
              select doc_type, confidence from document_classifications dc
               where dc.document_id = d.id order by dc.id desc limit 1
            ) c on true
            left join lateral (${standingHoldSql('d.id::text')}) h on true
+           -- The email this document arrived in, when its own arrival was one:
+           -- the message whose part stored it, else the first that named it
+           -- (a retry after a death between the bytes and the record, ADR 0047
+           -- §10). A later email carrying the same bytes is not its arrival.
+           left join lateral (
+             select m.dkim, m.sender_domain
+               from uploads u
+               join inbound_message_parts p
+                 on p.org_id = d.org_id and p.document_id = d.id
+               join inbound_messages m
+                 on m.org_id = p.org_id and m.id = p.inbound_message_id
+                and m.outcome = 'received'
+              where u.id = d.upload_id and u.source in ('email_in', 'email_body')
+              order by (p.outcome = 'stored') desc, m.received_at, m.id
+              limit 1
+           ) em on true
           where exists (select 1 from extraction_results e where e.document_id = d.id)
             and not exists (select 1 from deduction_documents dd where dd.document_id = d.id)
           order by d.created_at desc, d.id desc
@@ -2997,6 +3018,16 @@ export class PostgresStore
                 ...(row.held_at !== null ? { heldAt: new Date(row.held_at).toISOString() } : {}),
                 ...(row.held_by !== null ? { heldBy: row.held_by } : {}),
               }),
+            }
+          : {}),
+        ...(row.email_dkim !== null
+          ? {
+              email: {
+                dkim: row.email_dkim,
+                ...(row.email_sender_domain !== null
+                  ? { senderDomain: row.email_sender_domain }
+                  : {}),
+              },
             }
           : {}),
       }));

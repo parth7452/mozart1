@@ -10,6 +10,7 @@ import {
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
 import { InlineRunner, InngestRunner, pipelineDepsFor, runnerFromEnv } from '../lib/pipeline';
+import { INBOUND_SECRET_MIN_LENGTH, inboundEmailFromEnv } from '../lib/inbound';
 
 /**
  * What the app does when it is not fully configured.
@@ -179,5 +180,75 @@ describe('which runner an environment gets', () => {
     process.env.INNGEST_EVENT_KEY = '';
     process.env.INNGEST_SIGNING_KEY = '';
     expect(runnerFromEnv().name).toBe('inline');
+  });
+});
+
+describe('whether an environment receives email (ADR 0047 §14)', () => {
+  const SECRET = 'f'.repeat(INBOUND_SECRET_MIN_LENGTH);
+  /** An environment of exactly these variables. */
+  const only = (values: Record<string, string>): NodeJS.ProcessEnv =>
+    ({ NODE_ENV: 'test', ...values }) as NodeJS.ProcessEnv;
+  const ready = {
+    POSTMARK_INBOUND_SECRET: SECRET,
+    INBOUND_DOMAIN: 'In.Mozart.Example',
+    INNGEST_EVENT_KEY: 'event-key',
+    INNGEST_SIGNING_KEY: 'signing-key',
+    CLAMAV_SCAN_URL: 'https://scan.example/scan',
+    CLAMAV_SCAN_TOKEN: 'token',
+  };
+  const without = (...names: (keyof typeof ready)[]) =>
+    only(Object.fromEntries(Object.entries(ready).filter(([name]) => !names.includes(name as keyof typeof ready))));
+
+  it('has no binding with neither variable, which is what a preview is', () => {
+    expect(inboundEmailFromEnv(without('POSTMARK_INBOUND_SECRET', 'INBOUND_DOMAIN'))).toEqual({ kind: 'none' });
+    expect(inboundEmailFromEnv(only({}))).toEqual({ kind: 'none' });
+  });
+
+  it('is bound with both, a queue and a scanner, and lowercases the domain', () => {
+    expect(inboundEmailFromEnv(only(ready))).toEqual({ kind: 'bound', secret: SECRET, domain: 'in.mozart.example' });
+  });
+
+  it('calls half a configuration an error, both ways round', () => {
+    expect(inboundEmailFromEnv(without('INBOUND_DOMAIN'))).toMatchObject({
+      kind: 'misconfigured',
+      reason: expect.stringContaining('INBOUND_DOMAIN'),
+    });
+    expect(inboundEmailFromEnv(without('POSTMARK_INBOUND_SECRET'))).toMatchObject({
+      kind: 'misconfigured',
+      reason: expect.stringContaining('POSTMARK_INBOUND_SECRET'),
+    });
+  });
+
+  it('refuses a secret shorter than 64 characters', () => {
+    expect(
+      inboundEmailFromEnv(only({ ...ready, POSTMARK_INBOUND_SECRET: 'f'.repeat(INBOUND_SECRET_MIN_LENGTH - 1) })),
+    ).toMatchObject({ kind: 'misconfigured', reason: expect.stringContaining('shorter than 64') });
+  });
+
+  it('refuses to receive where reads are not queued', () => {
+    expect(inboundEmailFromEnv(without('INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'))).toMatchObject({
+      kind: 'misconfigured',
+      reason: expect.stringContaining('no Inngest keys'),
+    });
+    expect(inboundEmailFromEnv(without('INNGEST_SIGNING_KEY'))).toMatchObject({
+      kind: 'misconfigured',
+      reason: expect.stringContaining('half-configured'),
+    });
+  });
+
+  it('refuses to receive where nothing could scan what arrives', () => {
+    expect(inboundEmailFromEnv(without('CLAMAV_SCAN_URL', 'CLAMAV_SCAN_TOKEN'))).toMatchObject({
+      kind: 'misconfigured',
+      reason: expect.stringContaining('no virus scanner'),
+    });
+    // A URL with no token is NullScanner too (ADR 0018).
+    expect(inboundEmailFromEnv(without('CLAMAV_SCAN_TOKEN'))).toMatchObject({ kind: 'misconfigured' });
+  });
+
+  it('never puts the secret in a reason', () => {
+    for (const environment of [without('INBOUND_DOMAIN'), without('CLAMAV_SCAN_URL'), without('INNGEST_EVENT_KEY')]) {
+      const binding = inboundEmailFromEnv(environment);
+      expect(JSON.stringify(binding.kind === 'misconfigured' ? binding.reason : '')).not.toContain(SECRET);
+    }
   });
 });

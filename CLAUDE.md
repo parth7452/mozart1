@@ -190,9 +190,9 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
-with every invariant verified there, and the Postmark email-in parser and
-pipeline step — which nothing in the app calls yet: there is no inbound
-webhook route, so no email can reach it (`docs/VERIFY-CHECKLIST.md` §5).
+with every invariant verified there, and email-in through Postmark (ADR 0047),
+built, with migration 0034 in production, and waiting on the founder's Postmark
+setup (`docs/VERIFY-CHECKLIST.md` §5).
 
 Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
@@ -400,14 +400,15 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0033 as
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0034 as
 of 2026-09-24 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
 morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
 project; 0032 at 20:26 and then 0031 at 20:31, each after the preview
 project — 0031 merged after 0032, and 0032 does not touch `approvals`, so the
 order does not matter; 0033 on 2026-09-24 at 05:20, a minute after the preview
-project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+project; 0034 on 2026-09-24 at 21:37, half an hour after the preview project,
+on the founder's go). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -1262,8 +1263,8 @@ word. That collision does not need the new field: any remittance that prints
 two deductions against one invoice as two lines meets it today, and fixing it is
 identity's job (ADR 0028's claim key), a follow-up.
 
-**Email-in has a database half, a parser and a job, and no door yet** (ADR
-0047, migration 0034; parts 1 and 2 of 3). A tenant's address will be `<token>@<INBOUND_DOMAIN>`, the token
+**An email reaches a tenant only through an address it was given** (ADR
+0047, migration 0034). A tenant's address is `<token>@<INBOUND_DOMAIN>`, the token
 32 hex characters the database generates and never a slug; addresses are
 issued, adopted and retired by an owner as themselves, in three append-only
 tables, and a retired token is never reissued. `app.inbound_address_for()`
@@ -1296,7 +1297,46 @@ whatever `allowCaseOpen` a caller computed, so the job, "Read again" and a
 re-upload of the same bytes all hold it; "Open a case from it" opens it.
 `INBOUND_READS_PER_DAY` (100, core-domain) bounds the parts read per tenant per
 day. `ingestInboundEmail`, `findOrgBySlug` (which in memory saw every tenant)
-and the slug addresses are gone. The route is part 3.
+and the slug addresses are gone.
+
+Part 3 is the door. `POST /api/inbound/postmark` (production only, outside the
+session proxy) takes Postmark's Basic credential — `postmark:` plus
+`POSTMARK_INBOUND_SECRET`, compared as SHA-256 hashes in constant time, before
+the body is read — and answers §11's table: 401 with a challenge for a wrong
+credential, 503 wherever a retry or a deploy could change the answer (no
+binding, a payload our schema refuses, a recipient on another domain, an acting
+member who may not write, a busy claim, a scanner with no verdict, an event
+that did not send), 403 only for what no retry could (not a token, an unknown
+one, a retired address — recorded as its retirer), and 200 only once the
+message, its parts and the event are all durable. `inboundEmailFromEnv` is
+`runnerFromEnv`'s shape and refuses to bind without Inngest, without a scanner
+or with a secret under 64 characters. The job is `read-inbound-email`, keyed on
+the message, one step per document, one email per tenant and two across the
+fleet. **Settings → Email** issues, adopts and retires addresses (owner only;
+retiring one that had mail in the last 14 days asks first); a `read_only`
+member is told how many there are and shown none. The case list's **Email that
+filed nothing** lists, per address over 30 days, every email that left no
+document to read, with each part's outcome worded as a fact; a held emailed
+document shows the domain its author claims and Postmark's aligned-DKIM
+report, which decide nothing, and "Read again" and an upload of the same bytes
+say it is held because it came by email, not because the reading was
+doubtful. `pnpm sweep:inbound` is the operator's: it lists Postmark's failed
+inbound messages one Eastern-time day at a time — the search returns no receipt
+time, and the `Date` it does return is the sender's — and records each one sent
+to a live address as `not_received` on that tenant, as the address's member,
+with `POSTMARK_SERVER_TOKEN` from the operator's `.env` and never Vercel's.
+Migration 0034 is on `mozart-preview` (21:03) and production (21:37) since
+2026-09-24, and was read back on both: the stored statement's md5 equals the
+file's; all five tables have RLS, `no_update_delete` and `no_truncate`;
+`app_rw` holds SELECT and INSERT on the three address tables and SELECT only on
+the two message tables, `app_ro` SELECT; both functions are definer, pinned
+and executable by `app_rw` and the owner alone; the request roles hold nothing
+and have no usage on `app`; no `app` function is unpinned; and the lookup
+refuses a caller carrying only a `sub`, only an `org_id`, or both, while a
+caller with neither gets an empty answer (tested in a block that writes
+nothing). The security advisor shows only its old leaked-password notice.
+Nothing here has met a live Postmark message yet: the founder's setup and ADR
+0047's unverified list come first.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a
