@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deflateSync } from 'node:zlib';
-import { allFixtureDocuments, renderTextPdf } from '@recouple/fixtures';
+import { allFixtureDocuments, formatsDocuments, renderTextPdf } from '@recouple/fixtures';
 import {
   ALLOWED_MIME_TYPES,
   MAX_UPLOAD_BYTES,
@@ -142,7 +142,9 @@ describe('content hashing', () => {
 
 describe('the fixture corpus', () => {
   it('passes the same front door as a customer upload', () => {
-    for (const document of allFixtureDocuments()) {
+    // The `formats` suite too: a distributor's merged-cell table and an 812
+    // printout are PDFs a customer would upload through this same door.
+    for (const document of [...allFixtureDocuments(), ...formatsDocuments()]) {
       const accepted = acceptUpload(document.bytes, document.filename);
       expect(accepted.mimeType, document.key).toBe('application/pdf');
       expect(accepted.pageCount, document.key).toBe(document.pageText.length);

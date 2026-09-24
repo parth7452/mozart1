@@ -220,8 +220,8 @@ the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
-($0.39, OCR through Reducto for the twelve photographs), so `pendingSuites` is
-empty.
+($0.39, OCR through Reducto for the twelve photographs). `pendingSuites` names
+one suite: `formats` (below), which has fixtures and no cassettes.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -1140,6 +1140,15 @@ and is what a later read of that document checks against. That is the only
 thing the check gained. No recorded string changes under it, so `pnpm eval` is
 byte-identical.
 
-Still to do before Phase 1 is done: fixtures for the formats still missing —
-dense retailer tables with merged cells, and EDI-derived portal exports. Real
-customer documents would be worth more than all of them.
+The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
+suite `formats`), both from the beachhead — a foodservice manufacturer and a
+broadline distributor. A chargeback statement whose program cells are merged
+down their groups, so each reason code is printed once for several lines, the
+same item sits in two programs under two codes, and three subtotal rows are not
+lines. And a supplier portal's printout of an EDI 812, which states every amount
+twice: once as money and once in the raw segments with the decimal point
+implied (`184250`), which a reader must not copy. Both are generated from one
+table, and `formats.test.ts` holds them to it. Neither is recorded yet:
+`pnpm record:cassettes --suite formats` spends about $0.10, then
+`pnpm eval --record-baseline`. Phase 1 is done when that run is recorded. Real
+customer documents would still be worth more than all of them.

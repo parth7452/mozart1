@@ -48,7 +48,13 @@ export interface FixtureDocument {
     | 'dense'
     | 'email_body'
     | 'logistics'
-    | 'customer';
+    | 'customer'
+    /**
+     * Formats no other suite has: a distributor's table with merged cells and
+     * a supplier portal's printout of an EDI 812 (`formats.ts`). No cassettes
+     * yet, so the eval reports it as pending rather than scoring it.
+     */
+    | 'formats';
 }
 
 export interface FixtureCase {

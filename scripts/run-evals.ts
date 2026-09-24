@@ -215,6 +215,7 @@ const SUITE_LABELS: Record<string, string> = {
   email_body: 'no page at all — a notice pasted into a message',
   logistics: 'one freight case across five documents — does the argument hold',
   customer: 'simulated camera pages — does a staffing or freight case survive one',
+  formats: 'merged cells and an EDI 812 printout — the distributor formats nothing else covers',
 };
 
 /**
@@ -231,6 +232,7 @@ const SUITE_ORDER = [
   'email_body',
   'logistics',
   'customer',
+  'formats',
 ];
 const scoredSuites = [...new Set(scores.map((s) => suiteOf.get(s.key) ?? 'unknown'))].sort(
   (a, b) => {
