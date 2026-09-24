@@ -366,13 +366,14 @@ are null, never overwrites what the pipeline or a person put there, records a
 `case.backfilled_from_extraction` event for each row it changes, and reports an
 unreadable date instead of guessing. Running it twice is a no-op.
 
-Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0032 as
-of 2026-09-23 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
+Production (Supabase project `hvheqbgkvwhlqutklwfh`) carries migration 0033 as
+of 2026-09-24 (0019–0021 applied 2026-09-21; 0022–0027 applied 2026-09-22;
 0028–0029 applied 2026-09-23, after being staged on the preview project that
 morning; 0030 applied 2026-09-23 at 17:08, a minute after the preview
 project; 0032 at 20:26 and then 0031 at 20:31, each after the preview
 project — 0031 merged after 0032, and 0032 does not touch `approvals`, so the
-order does not matter). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
+order does not matter; 0033 on 2026-09-24 at 05:20, a minute after the preview
+project). Each was read back — for 0027, `ledger_sync_anomalies` has RLS on,
 `no_update_delete` and `no_truncate`, `app_rw` and `app_ro` hold SELECT only,
 and `app.record_ledger_sync_anomalies` is security definer with EXECUTE held by
 the owner and `app_rw` alone. For 0028 and 0029: the stored statements' md5s
@@ -831,8 +832,13 @@ pinned, same results and grants. Each now refuses a caller carrying an `org_id`
 also refuses, as `cardinality_violation`, an address two `users` rows answer to
 case-insensitively, rather than linking one at random. `resolveSession` and
 `listConnectionsToSync` clear the claims transaction-locally first. Suite 29
-reads it back. **0033 is not applied**: `mozart-preview` first, then
-production, on the founder's go. Turning off "Allow new users to sign up" in the
+reads it back. Production carries 0033 since 2026-09-24, applied to
+`mozart-preview` first and read back on both: the stored statement's md5 equals
+the file's, both functions are still definer, pinned and of the same result
+type, EXECUTE is held by `app_rw` and the owner alone, no `app` function is
+unpinned, neither project has two users whose addresses differ only in case,
+and a `sub`-only caller is refused by both while a caller with no claims still
+lists the connections (tested in a block that writes nothing). Turning off "Allow new users to sign up" in the
 dashboard is the founder's switch, after the web change is deployed and both
 members have signed in through it.
 
