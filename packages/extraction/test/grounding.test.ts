@@ -115,6 +115,72 @@ describe('quote verification', () => {
   });
 });
 
+describe('column rules and numbers on a camera page', () => {
+  /**
+   * The STF-201 camera pages print their columns separated by a rule, and the
+   * OCR layer and the model each draw it as `|`, `I` or nothing. Every case
+   * below is a (quote, page) pair: the ones that verify are right values whose
+   * rule was drawn differently, and the ones that must not are invented or
+   * wrong values that a looser check would have let through.
+   */
+  const check = (quote: string, page: string) => checkQuote(quote, 1, [page]);
+
+  it('verifies a right value whose column rule was drawn as I on the page or in the quote', () => {
+    expect(
+      check('Deduction $600.00 | Paid $6,600.00', 'Gross $7,200.00 | Deduction $600.00 I Paid $6,600.00'),
+    ).toMatchObject({ verified: true, matchedBy: 'separator' });
+    expect(
+      check('ES-260901 I September 1, 2026 I Net 30', 'INVOICE ES-260901 | September 1, 2026 | Net 30 | USD'),
+    ).toMatchObject({ verified: true, matchedBy: 'separator' });
+    expect(check('STF-201 I ES-260901 I Page 1 of 1', 'STF-201 I ES-260901 | Page 1 of 1')).toMatchObject({
+      verified: true,
+    });
+  });
+
+  it('never lets a rule drawn as I become a digit', () => {
+    // It used to: the glyph fold read the lone `I` as a `1`.
+    expect(check('Qty 201 Unit', 'Qty 20 I Unit').verified).toBe(false);
+    expect(check('$1,800.00 I Period', '$1,800.001 Period').verified).toBe(false);
+    expect(check('PO l 2345', 'PO 1 2345').verified).toBe(false);
+    expect(check('Qty 201 Unit', 'Qty 20 | Unit').verified).toBe(false);
+  });
+
+  it('keeps refusing a rule glued onto a number, because the text layer disagrees with the value', () => {
+    expect(check('Total 20.00 | Net', 'Total 20.001 Net').verified).toBe(false);
+    expect(check('STF-201 | ES-260901', 'STF-2011 ES-260901').verified).toBe(false);
+  });
+
+  it('refuses a wrong amount or a wrong id however the rule was drawn', () => {
+    expect(
+      check('Deduction $600.00 | Paid $6,600.00', 'Deduction $600.00 I Paid $6,660.00').verified,
+    ).toBe(false);
+    expect(check('ES-260901 | Gross', 'ES-260907 I Gross').verified).toBe(false);
+  });
+
+  it('keeps a decimal point and a thousands separator inside a number', () => {
+    // Dropping them verified a quote a hundred times the printed amount.
+    expect(check('Deduction $60,000', 'Deduction $600.00').verified).toBe(false);
+    expect(check('$66,000.0', 'Paid $6,600.00').verified).toBe(false);
+    expect(check('$6,600', 'Paid $6,600.00 in full').verified).toBe(true);
+    // Punctuation that is not inside a number is still noise.
+    expect(check('ES-260901 Gross $7,200.00', 'ES-260901 | Gross $7,200.00')).toMatchObject({
+      verified: true,
+    });
+    expect(check('SP-203 September 18', 'SP-203 — September 18')).toMatchObject({
+      verified: true,
+      matchedBy: 'punctuation',
+    });
+  });
+
+  it('still reads an amount OCR spelled with the letter O', () => {
+    expect(check('$600.00', 'Deduction $6OO.OO')).toMatchObject({
+      verified: true,
+      matchedBy: 'ocr_confusion',
+    });
+    expect(check('$84,800.00', '<b>$4,800.00</b>').verified).toBe(false);
+  });
+});
+
 describe('what the reader is given', () => {
   const payload = {
     documentId: 'd1',

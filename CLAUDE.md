@@ -207,7 +207,7 @@ does):
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
-| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 92.9% | 13/15 |
+| customer | simulated camera pages, on staffing and freight | 97.6% / 97.6% | 98.2% | 13/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
@@ -263,9 +263,14 @@ evaluator because that edge is not taken yet. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
 rather than Westhaven Paper Supply, and
 `stf-203-short-payment-notice`'s reason code came back as the payer's own code
-(`CB-203`) rather than `PREMIUM-NOAUTH`. Grounding on the four STF-201 camera
-pages is 64–83%: values right, quotes that do not survive being checked against
-the OCR text layer.
+(`CB-203`) rather than `PREMIUM-NOAUTH`. Both of those codes are printed on
+the page, and the model took the chargeback reference rather than the reason;
+`PREMIUM-NOAUTH` is the payer's own code, not a canonical one. Grounding on the
+four STF-201 camera pages was 64–83% until the verifier learned column rules
+(*A column rule is one glyph*, below); it is now 100% on the remittance and the
+invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
+still refused are ones where OCR glued a rule onto a number (`STF-2011`,
+`0.001`), and refusing them is right: the text layer disagrees with the value.
 
 Classification is 53/55, both misses in `customer` (the service order is no longer one of them). Before it, the two field
 misses in the corpus were both the same field
@@ -1157,6 +1162,27 @@ quote, because a text layer stored before the fix keeps its tags (invariant 2)
 and is what a later read of that document checks against. That is the only
 thing the check gained. No recorded string changes under it, so `pnpm eval` is
 byte-identical.
+
+**A column rule is one glyph, and a number keeps its point** (no ADR, no
+migration). A camera page prints its columns separated by a vertical rule, and
+neither reader draws it the same way twice: Reducto writes `|`, `I` or nothing,
+and the model — reading the pixels, since a JPEG's text layer is withheld from
+it (ADR 0009) — writes `|` or `I`. Twelve right quotes on the STF-201 pages
+failed on nothing but that. `withColumnRules` (`markup.ts`) turns a
+whitespace-bounded token that is only a rule glyph (`|`, `I`, `l`, `!`, `¦`,
+`│`) into `|`; it never touches a character inside a longer token and never a
+digit. `checkQuote` gains a `separator` tier after `exact`, and every later tier
+reads the rule-normalised text, and `locateQuote` normalises the same way (416 →
+428 boxes). Two holes closed with it. The glyph fold read a rule drawn as a lone
+`I` as a `1`, so an invented "Qty 201" verified against a page reading "Qty 20
+I"; on normalised text that `I` is punctuation and nothing folds. And the
+punctuation tier dropped every `.` and `,`, so "$60,000" verified against
+"$600.00"; a decimal point or thousands separator between two digits is now
+kept, by that tier and by the fold (which folds letters to digits first, so an
+OCR'd "$6OO.OO" still reads). Every one of the 53 matches the old punctuation
+tier made still verifies. `customer` grounding rose 92.9% → 98.2%, overall
+98.0% → 99.4%, and the baseline was re-recorded for those two numbers only;
+`grounding.test.ts` and `ocr.test.ts` pin both holes shut.
 
 **A case's page opens however old the case is** (no ADR, no migration). The
 case page found its case in `listCases()`, the newest 100, so past a hundred
