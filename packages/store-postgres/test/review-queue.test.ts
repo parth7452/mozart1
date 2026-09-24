@@ -205,6 +205,30 @@ describeDb('the review queue, on Postgres', () => {
     ]);
   });
 
+  it('opens that case on its own page, by id, and no other tenant’s', async () => {
+    // The queue links every row to `/cases/<id>`, and the page reads its case
+    // with `caseSummary`. Before, it looked in `listCases()`, which is the
+    // newest hundred — so the case the queue put first was a 404.
+    const oldUrgent = ids['old-urgent'] as string;
+    const theirs = ids.theirs as string;
+    const every = await store.listCases(1_000);
+    expect(every.length).toBeGreaterThan(100);
+    const oldest = every.at(-1);
+    expect(oldest?.deductionId).toBe(oldUrgent);
+
+    // The same row the list shows, mapped the same way.
+    expect(await store.caseSummary(oldUrgent)).toEqual(oldest);
+    // A uuid is not a string: the page accepts either case, and so does this.
+    expect(await store.caseSummary(oldUrgent.toUpperCase())).toEqual(oldest);
+    expect(await readOnlyStore.caseSummary(oldUrgent)).toEqual(oldest);
+
+    // Another tenant's case is not there, either way round, which is the page's 404.
+    expect(await store.caseSummary(theirs)).toBeUndefined();
+    expect(await otherStore.caseSummary(oldUrgent)).toBeUndefined();
+    expect(await otherStore.caseSummary(theirs)).toMatchObject({ deductionId: theirs });
+    expect(await store.caseSummary(randomUUID())).toBeUndefined();
+  });
+
   it('cuts at a limit exactly where rankForReview would', async () => {
     const all = rankForReview((await store.reviewQueue({ today })).rows, today).map(
       (r) => r.case.deductionId,
