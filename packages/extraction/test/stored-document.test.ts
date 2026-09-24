@@ -34,6 +34,7 @@ const INVOICE_LEVEL_NOTICE = {
       unit_cost: absent(),
       deduction_amount: f('$1,275.00', '$1,275.00'),
       reason_code: f('PREMIUM-NOAUTH', 'PREMIUM-NOAUTH'),
+      deduction_reference: absent(),
       reason_description: absent(),
     },
   ],

@@ -3,9 +3,13 @@ import {
   CassetteClassifier,
   classificationIsCurrent,
   classifierPromptSha256,
+  extractionIsCurrent,
+  extractorPromptSha256,
   withClassification,
   type Cassette,
 } from '../src/cassette';
+import { extractionInstruction } from '../src/claude';
+import { SCHEMA_VERSION } from '../src/field';
 import { CLASSIFY_SYSTEM } from '../src/prompt';
 import { CLASSIFY_TEMPERATURE, classifyTemperatureFor } from '../src/models';
 
@@ -73,6 +77,44 @@ describe('what answered a recorded classification', () => {
     expect(classificationIsCurrent(unpinned, 'claude-haiku-4-5')).toBe(false);
     const other = { ...recorded, classifier: stamp('claude-haiku-4-5', CLASSIFY_SYSTEM, 0.7) };
     expect(classificationIsCurrent(other, 'claude-haiku-4-5')).toBe(false);
+  });
+});
+
+describe('what read a recorded extraction', () => {
+  const extractor = (docType: Cassette['docType'], overrides: Record<string, string> = {}) => ({
+    model: 'claude-sonnet-5',
+    promptSha256: extractorPromptSha256(docType),
+    schemaVersion: SCHEMA_VERSION,
+    extractedAt: '2026-09-24T00:00:00.000Z',
+    ...overrides,
+  });
+
+  it('hashes the instruction per type, so one type’s change leaves the others current', () => {
+    // A field added to the notice schema moves the notice's field list, and
+    // nothing in any other type's instruction.
+    expect(extractorPromptSha256('deduction_notice')).toMatch(/^[0-9a-f]{64}$/);
+    expect(extractorPromptSha256('deduction_notice')).not.toBe(
+      extractorPromptSha256('remittance_advice'),
+    );
+    expect(extractionInstruction('deduction_notice')).toContain('lines[N].deduction_reference');
+    expect(extractionInstruction('invoice')).not.toContain('deduction_reference');
+  });
+
+  it('does not call an extraction current when nothing recorded what read it', () => {
+    expect(extractionIsCurrent(recorded, 'claude-sonnet-5')).toBe(false);
+  });
+
+  it('calls it current only for the same model, schema version and instruction', () => {
+    const stamped = { ...recorded, extractor: extractor('price_agreement') };
+    expect(extractionIsCurrent(stamped, 'claude-sonnet-5')).toBe(true);
+    expect(extractionIsCurrent(stamped, 'claude-opus-5-5')).toBe(false);
+    expect(
+      extractionIsCurrent({ ...recorded, extractor: extractor('price_agreement', { schemaVersion: '1.1.0' }) }, 'claude-sonnet-5'),
+    ).toBe(false);
+    // Read as another type's instruction: the stamp is for the type it was read as.
+    expect(
+      extractionIsCurrent({ ...recorded, extractor: extractor('invoice') }, 'claude-sonnet-5'),
+    ).toBe(false);
   });
 });
 

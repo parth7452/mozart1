@@ -18,7 +18,7 @@
 
 import { z } from 'zod';
 
-export const SCHEMA_VERSION = '1.1.0';
+export const SCHEMA_VERSION = '1.2.0';
 
 const ABSENT = 'If this is not on the document, return null — never a guess.';
 

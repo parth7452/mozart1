@@ -6,15 +6,9 @@
   "document": {
     "retailer_name": {
       "value": "Maple Gate Stores",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Maple Gate Stores"
-    },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.9,
-      "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
     },
     "claim_id": {
       "value": "DN-2609-005",
@@ -24,19 +18,19 @@
     },
     "invoice_number": {
       "value": "INV-260805",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260805"
     },
     "po_number": {
       "value": "PO-MGS-2084",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-MGS-2084"
     },
     "deduction_total": {
       "value": "$450.00",
-      "confidence": 0.97,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "$450.00"
     },
@@ -54,23 +48,23 @@
     },
     "lines": [
       {
-        "deduction_amount": {
-          "value": "$450.00",
-          "confidence": 0.97,
-          "source_page": 1,
-          "source_quote": "$450.00"
-        },
         "reason_code": {
           "value": "OTIF",
-          "confidence": 0.97,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Reason code: OTIF"
         },
+        "deduction_amount": {
+          "value": "$450.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$450.00"
+        },
         "reason_description": {
           "value": "Customer assessed a 3% late-delivery charge. Requested delivery was August 10, 2026; customer receiving record shows August 12, 2026.",
-          "confidence": 0.95,
+          "confidence": 0.9,
           "source_page": 1,
-          "source_quote": "Customer assessed a 3% late-delivery charge. Requested delivery was August 10, 2026; customer receiving record shows\nAugust 12, 2026."
+          "source_quote": "Customer assessed a 3% late-delivery charge. Requested delivery was August 10, 2026; customer receiving record shows August 12, 2026."
         },
         "sku_upc": {
           "value": null,
@@ -101,9 +95,21 @@
           "confidence": 0,
           "source_page": 1,
           "source_quote": ""
+        },
+        "deduction_reference": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
         }
       }
     ],
+    "vendor_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "store_or_dc": {
       "value": null,
       "confidence": 0,
@@ -130,18 +136,24 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:55:17.253Z",
+  "recordedAt": "2026-09-24T19:08:23.634Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5097,
-    "outputTokens": 1057,
-    "costMicros": 20764,
-    "latencyMs": 8159
+    "inputTokens": 5380,
+    "outputTokens": 917,
+    "costMicros": 19930,
+    "latencyMs": 7313
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:43:11.390Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:08:23.634Z"
   }
 }

@@ -76,7 +76,7 @@ Report calibrated confidence. If the document is ambiguous or unreadable, say so
 
 export const EXTRACTION_GUIDANCE: Record<DocType, string> = {
   deduction_notice:
-    'Extract every deducted line separately. If the notice shows only a total with no line detail, return a single line using that total. Keep the retailer’s own reason code verbatim.',
+    'Extract every deducted line separately. If the notice shows only a total with no line detail, return a single line using that total. Keep the payer’s own reason code verbatim, and keep it apart from the deduction’s own number: a chargeback or debit memo number printed beside the code is the deduction_reference.',
   remittance_advice:
     'One entry per invoice on the advice. Short-paid lines are the ones that matter: capture the gross, the deduction and the net exactly as printed, with the reason code.',
   invoice: 'Capture every line with its quantity and unit price as printed.',

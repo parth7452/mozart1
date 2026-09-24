@@ -6,33 +6,45 @@
   "document": {
     "retailer_name": {
       "value": "Harbor Lane Markets",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Harbor Lane Markets"
     },
     "claim_id": {
       "value": "DN-2609-001",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Notice: DN-2609-001"
     },
     "invoice_number": {
       "value": "INV-260801",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Invoice: INV-260801"
     },
     "po_number": {
       "value": "PO-HLM-8042",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "source_page": 1,
       "source_quote": "Purchase order: PO-HLM-8042"
     },
-    "vendor_number": {
-      "value": "NSP-1048",
-      "confidence": 0.95,
+    "store_or_dc": {
+      "value": "null",
+      "confidence": 0.9,
       "source_page": 1,
-      "source_quote": "Supplier account: NSP-1048"
+      "source_quote": ""
+    },
+    "gln": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "asn_number": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
     },
     "deduction_total": {
       "value": "$600.00",
@@ -46,9 +58,15 @@
       "source_page": 1,
       "source_quote": "Notice date: 2026-09-03"
     },
+    "dispute_deadline": {
+      "value": "null",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": ""
+    },
     "remittance_or_check": {
       "value": "RA-2609-001",
-      "confidence": 0.97,
+      "confidence": 0.95,
       "source_page": 1,
       "source_quote": "Remittance: RA-2609-001"
     },
@@ -92,37 +110,25 @@
         },
         "reason_code": {
           "value": "SHORT",
-          "confidence": 0.98,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Reason code: SHORT"
         },
-        "reason_description": {
-          "value": "Twenty cases were deducted.",
-          "confidence": 0.7,
+        "deduction_reference": {
+          "value": "null",
+          "confidence": 0.85,
           "source_page": 1,
-          "source_quote": "Twenty cases\nwere deducted."
+          "source_quote": ""
+        },
+        "reason_description": {
+          "value": "null",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": ""
         }
       }
     ],
-    "store_or_dc": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "gln": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "asn_number": {
-      "value": null,
-      "confidence": 0,
-      "source_page": 1,
-      "source_quote": ""
-    },
-    "dispute_deadline": {
+    "vendor_number": {
       "value": null,
       "confidence": 0,
       "source_page": 1,
@@ -130,18 +136,24 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:54:17.199Z",
+  "recordedAt": "2026-09-24T19:07:52.162Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5103,
-    "outputTokens": 912,
-    "costMicros": 19326,
-    "latencyMs": 7702
+    "inputTokens": 5386,
+    "outputTokens": 1031,
+    "costMicros": 21082,
+    "latencyMs": 8827
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:42:56.019Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:07:52.162Z"
   }
 }
