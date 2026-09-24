@@ -19,6 +19,8 @@ import {
   CassetteClassifier,
   CassetteExtractor,
   classificationIsCurrent,
+  extractionIsCurrent,
+  SCHEMA_VERSION,
   classifierPromptSha256,
   locateQuote,
   modelFor,
@@ -329,6 +331,36 @@ if (unstamped.length > 0 || stale.length > 0) {
       'no OCR, no extraction), then `pnpm eval`.',
   );
   for (const d of stale) console.log(`  ${d.key}`);
+}
+
+/**
+ * Extractions this checkout's extractor did not give — the same question one
+ * step later. A field added to a type, or a description sharpened, leaves that
+ * type's cassettes replaying readings nobody asked the new question of; the
+ * field scores above are theirs. Reported, not gated, for the same reason as
+ * classifications. Unstamped readings are counted rather than listed: every
+ * cassette recorded before the stamp is one, and what matters is the ones a
+ * stamp says are out of date.
+ */
+const extractModel = modelFor('extract');
+const extractionUnstamped = documents.filter(
+  (d) => cassettes.has(d.key) && cassettes.get(d.key)?.extractor === undefined,
+);
+const extractionStale = documents.filter((d) => {
+  const cassette = cassettes.get(d.key);
+  return cassette?.extractor !== undefined && !extractionIsCurrent(cassette, extractModel);
+});
+if (extractionUnstamped.length > 0 || extractionStale.length > 0) {
+  console.log(
+    `\nnote: ${extractionUnstamped.length} of ${documents.length} extractions record nothing about ` +
+      `what read them, and ${extractionStale.length} were read by another model, schema or prompt ` +
+      `than this checkout's (${extractModel}, schema ${SCHEMA_VERSION}).` +
+      (extractionStale.length > 0
+        ? '\nTheir field scores are the old reading\'s. Re-read them with\n' +
+          '`pnpm record:cassettes --extract-only` (spends money; `--doc-type` narrows it), then `pnpm eval`.'
+        : ''),
+  );
+  for (const d of extractionStale) console.log(`  ${d.key}`);
 }
 
 console.log();

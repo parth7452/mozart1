@@ -355,7 +355,10 @@ const SPECS: Readonly<Record<string, DocumentSpec>> = {
       invoice_number: text('OW-260903'),
       po_number: text('FC-203'),
       'lines[0].deduction_amount': money(45_000),
+      // The line prints "CB-203 / PREMIUM-NOAUTH": a chargeback number and the
+      // reason. The number is this deduction's own; the code is why.
       'lines[0].reason_code': text('PREMIUM-NOAUTH'),
+      'lines[0].deduction_reference': text('CB-203'),
       deduction_total: money(45_000),
       deduction_date: text('September 18, 2026'),
       dispute_deadline: text('October 18, 2026'),

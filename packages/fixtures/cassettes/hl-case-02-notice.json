@@ -18,31 +18,31 @@
     },
     "invoice_number": {
       "value": "INV-260802",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Invoice: INV-260802"
     },
     "po_number": {
       "value": "PO-CPG-5170",
-      "confidence": 0.98,
+      "confidence": 0.97,
       "source_page": 1,
       "source_quote": "Purchase order: PO-CPG-5170"
     },
     "store_or_dc": {
       "value": "null",
-      "confidence": 0,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": ""
     },
     "gln": {
       "value": "null",
-      "confidence": 0,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": ""
     },
     "asn_number": {
       "value": "null",
-      "confidence": 0,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": ""
     },
@@ -60,7 +60,7 @@
     },
     "dispute_deadline": {
       "value": "null",
-      "confidence": 0,
+      "confidence": 0.9,
       "source_page": 1,
       "source_quote": ""
     },
@@ -98,15 +98,21 @@
         },
         "deduction_amount": {
           "value": "$900.00",
-          "confidence": 0.98,
+          "confidence": 0.97,
           "source_page": 1,
           "source_quote": "$900.00"
         },
         "reason_code": {
           "value": "PRICE",
-          "confidence": 0.98,
+          "confidence": 0.95,
           "source_page": 1,
           "source_quote": "Reason code: PRICE"
+        },
+        "deduction_reference": {
+          "value": "DN-2609-002",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Notice: DN-2609-002"
         },
         "reason_description": {
           "value": "Customer applied a purchase-order price of $28.50 per case to 600 cases of Oat Beverage, SKU NS-210. Supplier invoiced $30.00 per case.",
@@ -130,18 +136,24 @@
     }
   },
   "recordedWith": "claude-sonnet-5",
-  "recordedAt": "2026-09-20T17:54:31.831Z",
+  "recordedAt": "2026-09-24T19:08:00.579Z",
   "call": {
     "modelVersion": "claude-sonnet-5",
-    "inputTokens": 5091,
-    "outputTokens": 1071,
-    "costMicros": 20892,
-    "latencyMs": 7711
+    "inputTokens": 5374,
+    "outputTokens": 1134,
+    "costMicros": 22088,
+    "latencyMs": 8413
   },
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
     "temperature": 0,
     "classifiedAt": "2026-09-24T18:42:59.289Z"
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "1bf90fe9c37615c8c2aea95cd9be601832125ab443f8dd6cea217ef83f21d313",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-24T19:08:00.579Z"
   }
 }
