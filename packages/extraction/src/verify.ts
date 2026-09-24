@@ -7,7 +7,7 @@
  * value, and it is caught before a human ever sees the field.
  */
 
-import { withoutInlineMarkup } from './markup';
+import { withColumnRules, withoutInlineMarkup } from './markup';
 import type { ExtractedField } from './ports';
 
 /** Whitespace and case are presentation; everything else must match. */
@@ -15,11 +15,27 @@ function normalise(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Compare only letters and digits, for punctuation and spacing noise. */
+/**
+ * Compare letters and digits, for punctuation and spacing noise — keeping a
+ * `.` or `,` that sits between two digits.
+ *
+ * Dropping every separator made "$60,000" verify against "$600.00" and
+ * "$66,000.0" against "$6,600.00": a quote a hundred times the printed amount
+ * checked out. A decimal point or a thousands separator inside a number is the
+ * number, not punctuation, so it stays (spaces around it collapse); every
+ * other mark still goes.
+ */
 function alphanumeric(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return numeric(text.toLowerCase());
 }
 
+/** Keeps `.`/`,` between digits and drops everything else that is not a letter or a digit. */
+function numeric(lowered: string): string {
+  return lowered
+    .replace(/(\d)\s*([.,])\s*(?=\d)/g, '$1$2')
+    .replace(/[^a-z0-9.,]/g, '')
+    .replace(/(?<!\d)[.,]|[.,](?!\d)/g, '');
+}
 
 /**
  * Collapses the glyph pairs OCR confuses, so a value read correctly from the
@@ -29,20 +45,29 @@ function alphanumeric(text: string): string {
  * hallucinated value differs in far more than one glyph class, so this loosens
  * the check against OCR noise without loosening it against invention. Matches
  * found this way are reported as `ocr_confusion`, never as an exact match.
+ *
+ * Folded before the number's punctuation is judged, so an amount OCR read as
+ * "6OO.OO" keeps its decimal point once its letters are digits. And it runs on
+ * text whose column rules are already `|` (`withColumnRules`), so a rule read
+ * as a lone `I` is dropped as punctuation rather than folded into a `1` — which
+ * had verified an invented "Qty 201" against a page reading "Qty 20 I".
  */
 function glyphFolded(text: string): string {
-  return alphanumeric(text)
-    .replace(/[o]/g, '0')
-    .replace(/[il]/g, '1')
-    .replace(/[s]/g, '5')
-    .replace(/[b]/g, '8')
-    .replace(/[z]/g, '2')
-    .replace(/[g]/g, '6');
+  return numeric(
+    text
+      .toLowerCase()
+      .replace(/[o]/g, '0')
+      .replace(/[il]/g, '1')
+      .replace(/[s]/g, '5')
+      .replace(/[b]/g, '8')
+      .replace(/[z]/g, '2')
+      .replace(/[g]/g, '6'),
+  );
 }
 
 export interface QuoteCheck {
   readonly verified: boolean | null;
-  readonly matchedBy?: 'exact' | 'punctuation' | 'ocr_confusion';
+  readonly matchedBy?: 'exact' | 'separator' | 'punctuation' | 'ocr_confusion';
   readonly reason?: string;
 }
 
@@ -71,9 +96,23 @@ export function checkQuote(
   // reads the `b` of `<b>` as an `8`, which verified an invented "$84,800.00"
   // against a bold "$4,800.00". Removing markup tightens the check; it is the
   // only thing this adds, and every tier below is unchanged.
-  const onPage = withoutInlineMarkup(page);
-  const quoted = withoutInlineMarkup(quote);
-  if (normalise(onPage).includes(normalise(quoted))) return { verified: true, matchedBy: 'exact' };
+  const unmarked = withoutInlineMarkup(page);
+  const quotedUnmarked = withoutInlineMarkup(quote);
+  if (normalise(unmarked).includes(normalise(quotedUnmarked))) {
+    return { verified: true, matchedBy: 'exact' };
+  }
+  // Column rules next, and every tier after this one reads the text with its
+  // rules made one glyph: a rule drawn as `I` is neither a letter to match nor
+  // a `1` to fold (`withColumnRules`).
+  const onPage = withColumnRules(unmarked);
+  const quoted = withColumnRules(quotedUnmarked);
+  if (normalise(onPage).includes(normalise(quoted))) {
+    return {
+      verified: true,
+      matchedBy: 'separator',
+      reason: 'matched once each column rule was read as one glyph (|, I, l)',
+    };
+  }
   if (alphanumeric(onPage).includes(alphanumeric(quoted))) {
     return { verified: true, matchedBy: 'punctuation', reason: 'matched ignoring punctuation' };
   }

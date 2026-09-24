@@ -85,7 +85,7 @@ export interface ExtractedField {
    * only after allowing for glyphs OCR routinely confuses (O/0, I/1, S/5), which
    * a reviewer should be told rather than shown as a plain tick.
    */
-  readonly quoteMatch?: 'exact' | 'punctuation' | 'ocr_confusion';
+  readonly quoteMatch?: 'exact' | 'separator' | 'punctuation' | 'ocr_confusion';
   /**
    * Whether the quote was found in the page's own text. Null when the page has
    * no text layer to check against (a scan), which is not the same as false.

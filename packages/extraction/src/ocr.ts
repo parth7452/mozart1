@@ -12,6 +12,7 @@
  */
 
 import type { DocumentPayload, ModelCallRecord } from './ports';
+import { withColumnRules } from './markup';
 
 /** A laid-out region of a page. Boxes are normalised [x0, y0, x1, y1] in 0..1. */
 export interface OcrBlock {
@@ -50,8 +51,13 @@ export class OcrError extends Error {
 }
 
 /** Whitespace and case are presentation; everything else has to match. */
+/**
+ * As `checkQuote` reads a page: case and spacing folded, and a column rule one
+ * glyph whichever way it was drawn (`withColumnRules`), so a quote that
+ * verifies by its rules can still be boxed.
+ */
 function normalise(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return withColumnRules(text).toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**
