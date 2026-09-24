@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { resolveSession, type OrgMembership, type PostgresStore } from '@recouple/store-postgres';
 import { env } from './env';
+import { signInDenied, type SignInNoticeKey } from './notices';
 import { tenantStore } from './store';
 import { supabaseForRequest } from './supabase';
 
@@ -50,27 +51,31 @@ export async function requireSession(): Promise<Session> {
     });
   } catch (cause) {
     // A refusal the person can act on, or a fault somebody has to fix.
-    // `refusalOf` decides which, and `messageFor` records the ones that are ours.
+    // `refusalOf` decides which, and `noticeFor` records the ones that are ours.
     const refusal = refusalOf(cause);
     if (refusal === 'not_invited') await signOutRefused(supabase, 'no invitation');
-    redirect(`/login?denied=${encodeURIComponent(messageFor(cause, refusal))}`);
+    const notice = noticeFor(cause, refusal);
+    redirect(signInDenied(notice.key, ...notice.about));
   }
 
   if (resolved.orgs.length === 0) {
     await signOutRefused(supabase, 'no membership');
-    redirect('/login?denied=no+membership+for+this+account');
+    redirect(signInDenied('no_membership'));
   }
 
   const wanted = (await cookies()).get(ORG_COOKIE)?.value;
   const org =
     resolved.orgs.find((candidate) => candidate.orgId === wanted) ?? resolved.orgs[0];
-  if (org === undefined) redirect('/login?denied=no+membership+for+this+account');
+  if (org === undefined) redirect(signInDenied('no_membership'));
 
   return { userId: resolved.userId, email: user.email, org, orgs: resolved.orgs };
 }
 
-/** The two answers from the database that are refusals of this identity. */
-type Refusal = 'not_invited' | 'linked_elsewhere';
+/**
+ * The two answers from the database that are refusals of this identity. Each is
+ * also the login page's key for saying so.
+ */
+type Refusal = Extract<SignInNoticeKey, 'not_invited' | 'linked_elsewhere'>;
 
 /**
  * Whether what `resolveSession` threw is one of `app.link_auth_user()`'s two
@@ -125,7 +130,8 @@ async function signOutRefused(
 }
 
 /**
- * What to show someone whose sign-in failed, and what to record about it.
+ * What to show someone whose sign-in failed, as a login notice key and its
+ * fragments, and what to record about it.
  *
  * Two of these are answers: the address was never invited, or it belongs to a
  * different sign-in. Both are refusals the person can act on, and both are safe
@@ -142,13 +148,11 @@ async function signOutRefused(
  * person can quote. The code is the timestamp, which is enough to find the log
  * line and costs nothing to say out loud.
  */
-function messageFor(cause: unknown, refusal: Refusal | undefined): string {
-  if (refusal === 'not_invited') {
-    return 'that address has not been invited to a workspace';
-  }
-  if (refusal === 'linked_elsewhere') {
-    return 'that address is already linked to another sign-in';
-  }
+function noticeFor(
+  cause: unknown,
+  refusal: Refusal | undefined,
+): { readonly key: SignInNoticeKey; readonly about: readonly string[] } {
+  if (refusal !== undefined) return { key: refusal, about: [] };
 
   const message = cause instanceof Error ? cause.message : String(cause);
   const reference = new Date().toISOString();
@@ -157,7 +161,7 @@ function messageFor(cause: unknown, refusal: Refusal | undefined): string {
       `This is a configuration or connectivity fault, not a refusal. ${message}`,
     cause,
   );
-  return `sign-in could not be completed (reference ${reference})`;
+  return { key: 'not_completed', about: [reference] };
 }
 
 /**

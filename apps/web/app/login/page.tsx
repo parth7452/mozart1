@@ -1,5 +1,6 @@
 import { Wordmark } from '../../components/workspace-shell';
 import { SignInButton } from '../../components/sign-in-button';
+import { aboutFrom, resolveSignInNotice } from '../../lib/notices';
 import { sendSignInLink } from './actions';
 
 /**
@@ -21,13 +22,23 @@ import { sendSignInLink } from './actions';
  *
  * Whether an address is *invited* is still answered only after sign-in, to the
  * person who holds that mailbox (`requireSession`).
+ *
+ * `denied` is a notice key, never a sentence, and `about` its validated
+ * fragments (`SIGN_IN_NOTICES` in `lib/notices.ts`). This is the page where
+ * people type their address, so it is the one page a link must not be able to
+ * put words on: a key this page does not know shows nothing at all.
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sent?: string; denied?: string }>;
+  searchParams: Promise<{
+    sent?: string | string[];
+    denied?: string | string[];
+    about?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
+  const denied = resolveSignInNotice(params.denied, aboutFrom(params.about));
 
   return (
     <main className="login-page">
@@ -95,9 +106,9 @@ export default async function LoginPage({
               try again, or ask whoever invited you.
             </p>
           ) : null}
-          {params.denied !== undefined ? (
+          {denied !== undefined ? (
             <p className="notice bad" role="alert">
-              {params.denied}
+              {denied.text}
             </p>
           ) : null}
           <p className="login-fineprint">

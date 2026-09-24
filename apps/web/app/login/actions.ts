@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { env } from '../../lib/env';
+import { signInDenied, type SignInNoticeKey } from '../../lib/notices';
 import { supabaseForRequest } from '../../lib/supabase';
 
 /**
@@ -21,7 +22,7 @@ import { supabaseForRequest } from '../../lib/supabase';
  */
 export async function sendSignInLink(formData: FormData): Promise<void> {
   const email = String(formData.get('email') ?? '').trim();
-  if (email === '') redirect('/login?denied=enter+an+email+address');
+  if (email === '') redirect(signInDenied('no_address'));
 
   const supabase = await supabaseForRequest();
   const { error } = await supabase.auth.signInWithOtp({
@@ -34,7 +35,7 @@ export async function sendSignInLink(formData: FormData): Promise<void> {
 
   if (error !== null) {
     const shown = failureToShow(error);
-    if (shown !== undefined) redirect(`/login?denied=${encodeURIComponent(shown)}`);
+    if (shown !== undefined) redirect(signInDenied(shown.key, shown.reference));
   }
   redirect('/login?sent=1');
 }
@@ -60,8 +61,14 @@ interface SendError {
  */
 const REFUSED_ADDRESS = new Set(['otp_disabled', 'signup_disabled']);
 
+/** A failure the form shows: which notice, and the reference it was logged under. */
+interface ShownFailure {
+  readonly key: SignInNoticeKey;
+  readonly reference: string;
+}
+
 /**
- * The message to show for a send that failed, or `undefined` to answer "sent".
+ * The notice to show for a send that failed, or `undefined` to answer "sent".
  *
  * Before ADR 0045 the provider created an account for any address and then
  * mailed it, so every address reached the mail step. A send error then said
@@ -75,15 +82,15 @@ const REFUSED_ADDRESS = new Set(['otp_disabled', 'signup_disabled']);
  *
  * Shown are only the failures the provider raises before it looks at the
  * address: its per-client request limit, and a request that never got an HTTP
- * answer at all. Each is put in our own words with a reference, never the
- * provider's message.
+ * answer at all. Each is a notice key in our own words (`SIGN_IN_NOTICES`) and
+ * a reference, never the provider's message.
  *
  * Nothing is swallowed. Every failure is logged with the same reference, the
  * code, the status and the provider's message. The log is where an operator
  * looks for "I was invited and no mail came". The sent notice tells the person
  * what to do if nothing arrives, and every address gets that notice.
  */
-function failureToShow(error: SendError): string | undefined {
+function failureToShow(error: SendError): ShownFailure | undefined {
   const reference = new Date().toISOString();
   const detail = `${error.name} ${error.code ?? '(no code)'}, HTTP ${error.status ?? '(none)'}`;
 
@@ -102,10 +109,7 @@ function failureToShow(error: SendError): string | undefined {
       `[sign-in link] ${reference} — not sent: the provider's request limit (${detail}). ` +
         `Shown, because it is reached before the address is looked at. ${error.message}`,
     );
-    return (
-      'too many sign-in requests have been made from here recently. ' +
-      `Wait a few minutes and try again (reference ${reference}).`
-    );
+    return { key: 'request_limit', reference };
   }
 
   if (error.status === 0) {
@@ -113,7 +117,7 @@ function failureToShow(error: SendError): string | undefined {
       `[sign-in link] ${reference} — not sent: the sign-in service could not be reached ` +
         `(${detail}). Shown, because no address was looked at. ${error.message}`,
     );
-    return `the sign-in service could not be reached. Try again shortly (reference ${reference}).`;
+    return { key: 'unreachable', reference };
   }
 
   console.error(
