@@ -2,7 +2,7 @@
   "key": "unsigned-pod",
   "docType": "pod",
   "classifiedAs": "pod",
-  "classifierConfidence": 0.95,
+  "classifierConfidence": 0.92,
   "document": {
     "document_number": {
       "value": "RL-DEL-88214",
@@ -96,6 +96,7 @@
   "classifier": {
     "model": "claude-haiku-4-5",
     "promptSha256": "b7cc99c16abf59dfcaf527c30e43f0e67d89fe314b546892e859c4b04c60c831",
-    "classifiedAt": "2026-09-23T15:25:40.180Z"
+    "temperature": 0,
+    "classifiedAt": "2026-09-24T18:13:29.781Z"
   }
 }

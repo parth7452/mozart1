@@ -21,10 +21,12 @@ describe('classificationIsActionable', () => {
     expect(classificationIsActionable(0.95, Number('0.950'))).toBe(true);
   });
 
-  it('holds the two recorded readings the corpus has below the floor', () => {
+  it('holds the readings the corpus has recorded below the floor', () => {
     // stf-203-short-payment-notice, a notice read as a remittance.
     expect(classificationIsActionable(0.75)).toBe(false);
-    // stf-201-short-pay-remittance, a remittance read correctly but unsurely.
+    // stf-201-short-pay-remittance, a remittance read correctly but unsurely —
+    // as it was recorded before the classifier's temperature was pinned. Asked
+    // at 0 it reads 0.95 and opens; 0.92 is still the shape of a doubtful read.
     expect(classificationIsActionable(0.92)).toBe(false);
     expect(classificationIsActionable(0.9499999)).toBe(false);
     expect(classificationIsActionable(0.99)).toBe(true);

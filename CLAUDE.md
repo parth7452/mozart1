@@ -247,17 +247,22 @@ Fable and Mythos would answer a 400), so `RECOUPLE_CLASSIFY_MODEL` cannot turn
 every read into an error. A cassette's classifier stamp records the temperature,
 and `classificationIsCurrent` requires it, so every classification recorded
 before the pin replays as stale until `pnpm record:cassettes --classify-only`
-re-asks it; the eval says so rather than gating on it. The re-ask is pending an
-Anthropic key in the environment.
+re-asks it; the eval says so rather than gating on it. That re-ask ran on
+2026-09-24 ($0.2046, all 57 documents, prompt unchanged): 55 of 57, the same
+two misses at the same confidences, and eight answers whose type held while
+their confidence moved by a point or three. So the two misses were never the
+sampling — they are what this prompt says — and the one-sample caveat above no
+longer applies to any recorded classification.
 
 The review floor is the product's as well as the eval's (ADR 0044). Wherever a
 notice or a remittance would open its case(s) on its own, `readDocument` reads
 the tenant's `org_settings.min_classification_confidence` and opens only when
 `classificationIsActionable` holds — inclusive, so LOG-001's remittance at 0.95
 still opens — and the reading fits its type. Anything else is held for a
-person, and in replay exactly two recorded documents are:
-`stf-203-short-payment-notice` (a notice read as a remittance at 0.75) and
-`stf-201-short-pay-remittance` (0.92). The `classification_confidence_meets_tenant_minimum`
+person, and in replay exactly one recorded document is:
+`stf-203-short-payment-notice` (a notice read as a remittance at 0.75).
+`stf-201-short-pay-remittance` was held too while its classification was one
+unpinned sample at 0.92; asked at temperature 0 it reads 0.95 and opens. The `classification_confidence_meets_tenant_minimum`
 guard, on Phase 2's `classified → evidence_pending` edge, still has no
 evaluator because that edge is not taken yet. Two fields:
 `log-202-rate-confirmation`'s counterparty came back as Crestline Dispatch
@@ -272,7 +277,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 53/55, both misses in `customer` (the service order is no longer one of them). Before it, the two field
+Classification is 55/57, both misses in `customer` (the service order is no longer one of them). Before it, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -287,7 +292,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0232 per document across 55 of them, and 416 of 1,025 fields carry a
+About $0.0241 per document across 57 of them, and 428 of 1,133 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
