@@ -1230,9 +1230,12 @@ its order (the queue's rule and order are one copy of SQL, `QUEUED_SQL` and
 `URGENCY_ORDER_SQL`), then the filed and declined ones, whatever the ledger was
 searched for. It stops at `ATTACH_TARGETS_LIMIT` (250, since the page draws the
 list once per waiting document) and the page says how many it is not listing;
-it is asked only when a document is waiting. Suites 17 and 20 counted rows
+it is asked only when a document is waiting. A case past the limit is reached
+from the other end: an open case's own page lists the documents read and on no
+case (`unattachedDocuments`) and files one there through the same
+`/documents/[id]/attach` route, nothing read again. Suites 17 and 20 counted rows
 table-wide as the owner, so `pnpm db:test` failed when re-run on a database
-the Vitest suites had used; each now counts its own orgs' rows. A case past the limit is reached from the other end: an open case's own page lists the documents read and on no case (`unattachedDocuments`) and files one there through the same `/documents/[id]/attach` route, nothing read again.
+the Vitest suites had used; each now counts its own orgs' rows.
 
 **A deduction's own number is not its reason** (no ADR, no migration). A
 deduction notice's lines now carry `deduction_reference` — a chargeback, debit
