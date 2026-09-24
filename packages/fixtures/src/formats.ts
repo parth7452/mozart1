@@ -28,10 +28,10 @@
  * its page, its totals and its ground truth cannot disagree, and the amounts
  * are built in integer cents.
  *
- * Neither has a cassette yet: recording one spends money. The suite is
- * `formats`, reported by `pnpm eval` as not yet recorded and named in
- * `baseline.json`'s `pendingSuites`. Record it with
- * `pnpm record:cassettes --suite formats`, then `pnpm eval --record-baseline`.
+ * The suite is `formats`, recorded 2026-09-24: both read in full, and the one
+ * cost the format carries is grounding — a reason description a merged cell
+ * prints across two rows comes back joined, and a joined quote is not on the
+ * page.
  */
 
 import { renderTextPdf } from './pdf';
@@ -349,7 +349,7 @@ export function northgate812Segments(): readonly string[] {
 
 let cache: readonly FixtureDocument[] | undefined;
 
-/** The `formats` suite: two documents, no cassettes yet. */
+/** The `formats` suite: two documents. */
 export function formatsDocuments(): readonly FixtureDocument[] {
   cache ??= [buildMergedCellChargeback(), buildEdi812PortalExport()];
   return cache;
