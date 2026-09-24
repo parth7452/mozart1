@@ -1,6 +1,11 @@
 import Link from 'next/link';
 import type { Finding, Reconciliation } from '@recouple/extraction';
-import type { CaseMerges, CaseWorkflow, PossibleDuplicatePair } from '@recouple/pipeline';
+import type {
+  CaseMerges,
+  CaseWorkflow,
+  PossibleDuplicatePair,
+  UnattachedDocument,
+} from '@recouple/pipeline';
 import {
   DECLINE_REASONS,
   MISSING_EVIDENCE_TYPES,
@@ -16,6 +21,7 @@ import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
 import type { Viewer } from './case-list';
+import { AttachReadDocuments } from './unattached-documents';
 import { WorkspaceShell } from './workspace-shell';
 
 /**
@@ -224,6 +230,12 @@ export interface CaseReviewProps {
    */
   readonly merges?: CaseMerges | undefined;
   /**
+   * The documents that were read and are on no case, offered to be filed on
+   * this one (`unattachedDocuments`). The page asks only for a member who may
+   * write and a case still open; absent or empty, nothing is offered.
+   */
+  readonly attachable?: readonly UnattachedDocument[] | undefined;
+  /**
    * The outcome of the action just taken, carried back on the redirect as a
    * notice *key* out of `lib/notices.ts` — never as the sentence, which arrives
    * in a query string anybody can write. A key this app does not know shows
@@ -294,6 +306,7 @@ export function CaseReview({
   workflow,
   duplicates,
   merges,
+  attachable,
   notice,
   noticeAbout,
 }: CaseReviewProps) {
@@ -531,6 +544,7 @@ export function CaseReview({
                     Attach to this case
                   </button>
                 </form>
+                <AttachReadDocuments deductionId={summary.deductionId} documents={attachable ?? []} />
               </div>
             ) : null}
 
