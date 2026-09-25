@@ -194,7 +194,7 @@ with every invariant verified there, and email-in through Postmark (ADR 0047),
 live since 2026-09-25 on `in.mozart.financial`: its first message, from Gmail,
 was held by email and opened by a person (`docs/VERIFY-CHECKLIST.md` §5).
 
-Ten recorded suites, every one of them scored
+Eleven recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -210,6 +210,7 @@ does):
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 | public | real public records nobody wrote for us | 97.9% / 97.9% | 98.9% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 79.7% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -225,8 +226,8 @@ measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
 ($0.39, OCR through Reducto for the twelve photographs), `formats` on
-2026-09-24 ($0.10) and `public` on 2026-09-25 ($0.54). `pendingSuites` names
-one suite, `public_scanned`, which needs `REDUCTO_API_KEY`.
+2026-09-24 ($0.10), and `public` and `public_scanned` on 2026-09-25 ($0.54,
+and $0.31 with OCR through Reducto), so `pendingSuites` is empty.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -292,7 +293,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 67/67. Before `customer`, the two field
+Classification is 77/77. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -307,7 +308,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0275 per document across 67 of them, and 428 of 1,508 fields carry a
+About $0.0272 per document across 77 of them, and 597 of 1,722 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1380,8 +1381,13 @@ out. Recorded for $0.54: 97.9% recall and precision, 98.9% grounding, 10 of 10
 classified. Three misses are arguable names (two payers, one buyer), and their
 answers stand. The fourth is a product gap: a unit price printed `$6,721.8000`,
 which `parseMoneyToCents` will not read. `public_scanned` holds four scanned
-invoices and ExtractBench's degraded copies of six `public` documents. It waits
-on `REDUCTO_API_KEY`.
+invoices and ExtractBench's degraded copies of six `public` documents, read
+through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
+79.7% grounding. Three things cost the grounding, and none is a wrong value.
+Grainger's one-page scan cites page 2 for every field, and its quotes failed
+again in two of three re-asks. Quotes of whole table rows do not match, because Reducto writes
+a table as HTML cells. And OCR misread a dash and a degraded price, which the
+check is right to refuse.
 
 Recording `public` found the upload door refusing three of the fourteen
 distinct documents as "active content (/AA)". The `/AA` was the start of their

@@ -1,0 +1,1122 @@
+{
+  "key": "eb-utah-fleet-rates-degraded",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:11:30.397Z"
+  },
+  "document": {
+    "agreement_type": {
+      "value": "Fiscal Year 2024 Approved Rates",
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "Fiscal Year 2024 Approved Rates"
+    },
+    "counterparty": {
+      "value": "Department of Government Operations Rate Committee",
+      "confidence": 0.55,
+      "source_page": 1,
+      "source_quote": "approved by the Department of Government Operations Rate Committee on September 22, 2022"
+    },
+    "effective_from": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "effective_to": {
+      "value": "null",
+      "confidence": 0.3,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "approved_by": {
+      "value": "Department of Government Operations Rate Committee; Utah State Legislature",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "The rates are were approved by the Department of Government Operations Rate Committee on September 22, 2022.  The rates are were approved by the Utah State Legislature on March 3, 2023 in S.B. 8"
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "State-Owned Sites Markup on Fuel (per gallon)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "State-Owned Sites Markup on Fuel (per gallon)"
+        },
+        "amount": {
+          "value": "0.28",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "0.28"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Retail Sites Markup on Fuel (per gallon)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Retail Sites Markup on Fuel (per gallon)"
+        },
+        "amount": {
+          "value": "0.18",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "0.18"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Percentage of Transaction Value on Non-fuel Purchases",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Percentage of Transaction Value on Non-fuel Purchases"
+        },
+        "amount": {
+          "value": "3.0%",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "3.0%"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "EPA Compliance Monitoring (per month)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "EPA Compliance Monitoring (per month)"
+        },
+        "amount": {
+          "value": "$100.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$100.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Service Rate (per hour)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Service Rate (per hour)"
+        },
+        "amount": {
+          "value": "$70.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$70.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Materials Rate",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Materials Rate"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Petroleum Storage Tank Trust Fund Rate",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Petroleum Storage Tank Trust Fund Rate"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fees Past 30 days",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Past 30 days"
+        },
+        "amount": {
+          "value": "5% of balance",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "5% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fees Past 60 days",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Past 60 days"
+        },
+        "amount": {
+          "value": "10% of balance",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "10% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fees Past 90 days",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Past 90 days"
+        },
+        "amount": {
+          "value": "15% of balance",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "15% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Lease Rate (per month, per vehicle)",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Lease Rate (per month, per vehicle)"
+        },
+        "amount": {
+          "value": "See formula",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "See formula"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Mileage (see grid below for actual rate)",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Mileage (see grid below for actual rate)"
+        },
+        "amount": {
+          "value": "See formula",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "See formula"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Heavy Duty On Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Heavy Duty On Road"
+        },
+        "amount": {
+          "value": "$0.50",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.50"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Heavy Duty Off Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Heavy Duty Off Road"
+        },
+        "amount": {
+          "value": "$0.80",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.80"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Motorcycle",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Motorcycle"
+        },
+        "amount": {
+          "value": "$0.45",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.45"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Police Pursuit",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Police Pursuit"
+        },
+        "amount": {
+          "value": "$0.13",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.13"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Bus",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Bus"
+        },
+        "amount": {
+          "value": "$0.16",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.16"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Light Duty On Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Light Duty On Road"
+        },
+        "amount": {
+          "value": "$0.07",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.07"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Light Duty Off Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Light Duty Off Road"
+        },
+        "amount": {
+          "value": "$0.08",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.08"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "AR (Already Replaced Vehicle)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "AR (Already Replaced Vehicle)"
+        },
+        "amount": {
+          "value": "$0.21",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.21"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Medium Duty On Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Medium Duty On Road"
+        },
+        "amount": {
+          "value": "$0.15",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.15"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Medium Duty Off Road",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Medium Duty Off Road"
+        },
+        "amount": {
+          "value": "$0.26",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$0.26"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Post EVO",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Post EVO"
+        },
+        "amount": {
+          "value": "Pass through",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Pass through"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "FO9499 – VA Supply Transport",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "FO9499 – VA Supply Transport"
+        },
+        "amount": {
+          "value": "Pass through",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Pass through"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Management Information System (per month each vehicle)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Management Information System (per month each vehicle)"
+        },
+        "amount": {
+          "value": "$4.00",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$4.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Administrative Fee",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Administrative Fee"
+        },
+        "amount": {
+          "value": "$42.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$42.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Daily Pool Rates – Actual Cost from Vendor Contract",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Daily Pool Rates – Actual Cost from Vendor Contract"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Short Term Used Vehicle Lease",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Short Term Used Vehicle Lease"
+        },
+        "amount": {
+          "value": "155.02",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "155.02"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Commercial Equipment Rental (per Unit)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Commercial Equipment Rental (per Unit)"
+        },
+        "amount": {
+          "value": "Cost plus $12.00 fee",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Cost plus $12.00 fee"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Telematics GPS Tracking",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Telematics GPS Tracking"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accident Deductible (per accident)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Accident Deductible (per accident)"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Fuel Pass-through (per gallon)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Fuel Pass-through (per gallon)"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Additional Management Service and Research",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "Service and Research"
+        },
+        "amount": {
+          "value": "$50.00",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "$50.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicle Complaint Processing (per occurrence)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Vehicle Complaint Processing (per occurrence)"
+        },
+        "amount": {
+          "value": "$20.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$20.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Operator Negligence and Vehicle Abuse",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Operator Negligence and Vehicle Abuse"
+        },
+        "amount": {
+          "value": "Varies(abuse or driver neglect cases only)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Varies(abuse or driver neglect cases only)"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicle Service Center (per occurrence each vehicle)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Vehicle Service Center (per occurrence each vehicle)"
+        },
+        "amount": {
+          "value": "$7.50",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$7.50"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicle Feature and Miscellaneous Equipment Upgrade",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Vehicle Feature and Miscellaneous Equipment Upgrade"
+        },
+        "amount": {
+          "value": "Actual Cost",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Actual Cost"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicle Detail Cleaning Service",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Vehicle Detail Cleaning Service"
+        },
+        "amount": {
+          "value": "$40.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$40.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fee Past 30 days",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "Past 30 days"
+        },
+        "amount": {
+          "value": "5% of balance",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "5% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fee Past 60 days",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "Past 60 days"
+        },
+        "amount": {
+          "value": "10% of balance",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "10% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Accounts receivable late fee Past 90 days",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "Past 90 days"
+        },
+        "amount": {
+          "value": "15% of balance",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "15% of balance"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Statutory Maintenance Non-Compliance 10 Days Late (per vehicle per month)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "10 Days Late (per vehicle per month)"
+        },
+        "amount": {
+          "value": "$100.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$100.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Statutory Maintenance Non-Compliance 20 Days Late (per vehicle per month)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "20 Days Late (per vehicle per month)"
+        },
+        "amount": {
+          "value": "$200.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$200.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Statutory Maintenance Non-Compliance 30 Days Late (per vehicle per month)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "30 Days Late (per vehicle per month)"
+        },
+        "amount": {
+          "value": "$300.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "$300.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Transactions Rate (per hour)",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Transactions Rate (per hour)"
+        },
+        "amount": {
+          "value": "46.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "46.00"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "d5d4b9439d216fa769dd53f214b49be9c3365f33208eccde25e93ef34aceedac",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:11:30.397Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:11:30.397Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4901,
+    "outputTokens": 7088,
+    "costMicros": 80682,
+    "latencyMs": 45284
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "division of\nutops Fleet\nOperations\nFiscal Year 2024 Approved Rates\nThe Division of Fleet Operations proposed rates for fiscal year 2024 were approved by the Department of Government Operations Rate Committee on September 22, 2022. The rates are were approved by the Utah State Legislature on March 3, 2023 in S.B. 8\nFuel Network Rates\nFuel Network Rates\nState-Owned Sites Markup on Fuel (per gallon): 0.28\nRetail Sites Markup on Fuel (per gallon): 0.18\nPercentage of Transaction Value on Non-fuel Purchases: 3.0%\nEPA Compliance Monitoring (per month): $100.00\nService Rate (per hour): $70.00\nMaterials Rate: Actual Cost\nPetroleum Storage Tank Trust Fund Rate: Actual Cost\nAccounts receivable late fees:\nPast 30 days: 5% of balance\nPast 60 days: 10% of balance\nPast 90 days: 15% of balance\nMotor Pool Rates\nMotor Pool Rates\nLease Rate (per month, per vehicle): See formula\nContract price divided by current life cycle\nMileage (see grid below for actual rate): See formula\nMaintenance and repair costs for a particular vehicle/use type,\ndivided by total miles for that vehicle/use type\n<table><tr><th>Category</th><th>Rate</th></tr><tr><td>Heavy Duty On Road</td><td>$ 0.50.</td></tr><tr><td>Heavy Duty Off Road</td><td>$ 0.80</td></tr><tr><td>Motorcycle</td><td>$ 0.45 :</td></tr><tr><td>Police Pursuit</td><td>$ 0.13</td></tr><tr><td>Bus</td><td>$ 0.16</td></tr><tr><td>Light Duty On Road</td><td>$ 0.07</td></tr><tr><td>Light Duty Off Road</td><td>$ 0.08</td></tr><tr><td>AR (Already Replaced Vehicle)</td><td>$ 0.21</td></tr><tr><td>Medium Duty On Road</td><td>$ 0.15</td></tr><tr><td>Medium Duty Off Road</td><td>$ 0.26</td></tr><tr><td>Post EVO</td><td>Pass through</td></tr><tr><td>FO9499 VA Supply Transport</td><td>Pass through</td></tr></table>\nManagement Information System (per month each vehicle) $4.00"
+      },
+      {
+        "page": 2,
+        "text": "Administrative Fee: $42.00\nDaily Pool Rates – Actual Cost from Vendor Contract: Actual Cost\nShort Term Used Vehicle Lease: 155.02\nCommercial Equipment Rental (per Unit): Cost plus $12.00 fee\nTelematics GPS Tracking: Actual Cost\nAccident Deductible (per accident): Actual Cost\nFuel Pass-through (per gallon): Actual Cost\nAdditional Management: <empty>\nService and Research: $50.00\nVehicle Complaint Processing (per occurrence): $20.00\nOperator Negligence and Vehicle Abuse: Varies(abuse or driver neglect cases only)\nVehicle Service Center (per occurrence each vehicle): $7.50\nVehicle Feature and Miscellaneous Equipment Upgrade: Actual Cost\nVehicle Detail Cleaning Service: $40.00\nAccounts receivable late fee: <empty>\nPast 30 days: 5% of balance\nPast 60 days: 10% of balance\nPast 90 days: 15% of balance\nStatutory Maintenance Non-Compliance: <empty>\n10 Days Late (per vehicle per month): $100.00\n20 Days Late (per vehicle per month): $200.00\n30 Days Late (per vehicle per month): $300.00\nTransactions Group\nTransactions Group\nTransactions Rate (per hour): 46.00"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "division of\nutops Fleet\nOperations",
+        "page": 1,
+        "bbox": [
+          0.6305553581664116,
+          0.0427668184524949,
+          0.878033463917234,
+          0.11364202323267829
+        ],
+        "kind": "Figure",
+        "confidence": 0.8285836011171341
+      },
+      {
+        "text": "Fiscal Year 2024 Approved Rates",
+        "page": 1,
+        "bbox": [
+          0.11574624664587133,
+          0.17478989010818863,
+          0.39698387946265534,
+          0.19520861551849086
+        ],
+        "kind": "Title",
+        "confidence": 0.8807135999202729
+      },
+      {
+        "text": "The Division of Fleet Operations proposed rates for fiscal year 2024 were approved by the Department of Government Operations Rate Committee on September 22, 2022. The rates are were approved by the Utah State Legislature on March 3, 2023 in S.B. 8",
+        "page": 1,
+        "bbox": [
+          0.11584979187646578,
+          0.2181945616654717,
+          0.8764095720083368,
+          0.2716797960514345
+        ],
+        "kind": "Text",
+        "confidence": 0.9607037186622619
+      },
+      {
+        "text": "Fuel Network Rates",
+        "page": 1,
+        "bbox": [
+          0.12637478380700243,
+          0.31660177237318887,
+          0.2794625903116642,
+          0.3277361542739625
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8646945059299469
+      },
+      {
+        "text": "Fuel Network Rates\nState-Owned Sites Markup on Fuel (per gallon): 0.28\nRetail Sites Markup on Fuel (per gallon): 0.18\nPercentage of Transaction Value on Non-fuel Purchases: 3.0%\nEPA Compliance Monitoring (per month): $100.00\nService Rate (per hour): $70.00\nMaterials Rate: Actual Cost\nPetroleum Storage Tank Trust Fund Rate: Actual Cost\nAccounts receivable late fees:\nPast 30 days: 5% of balance\nPast 60 days: 10% of balance\nPast 90 days: 15% of balance",
+        "page": 1,
+        "bbox": [
+          0.12108640156362781,
+          0.3256246123906992,
+          0.8856995979546552,
+          0.5406076596156718
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9253843307495118
+      },
+      {
+        "text": "Motor Pool Rates",
+        "page": 1,
+        "bbox": [
+          0.12935739109430872,
+          0.5809425945668473,
+          0.2644624250075236,
+          0.5924341041262633
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8573939144611358
+      },
+      {
+        "text": "Motor Pool Rates\nLease Rate (per month, per vehicle): See formula\nContract price divided by current life cycle\nMileage (see grid below for actual rate): See formula\nMaintenance and repair costs for a particular vehicle/use type,\ndivided by total miles for that vehicle/use type",
+        "page": 1,
+        "bbox": [
+          0.12545297899070393,
+          0.5897741858858584,
+          0.8881569026605808,
+          0.6892586341736764
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7937520146369934
+      },
+      {
+        "text": "<table><tr><th>Category</th><th>Rate</th></tr><tr><td>Heavy Duty On Road</td><td>$ 0.50.</td></tr><tr><td>Heavy Duty Off Road</td><td>$ 0.80</td></tr><tr><td>Motorcycle</td><td>$ 0.45 :</td></tr><tr><td>Police Pursuit</td><td>$ 0.13</td></tr><tr><td>Bus</td><td>$ 0.16</td></tr><tr><td>Light Duty On Road</td><td>$ 0.07</td></tr><tr><td>Light Duty Off Road</td><td>$ 0.08</td></tr><tr><td>AR (Already Replaced Vehicle)</td><td>$ 0.21</td></tr><tr><td>Medium Duty On Road</td><td>$ 0.15</td></tr><tr><td>Medium Duty Off Road</td><td>$ 0.26</td></tr><tr><td>Post EVO</td><td>Pass through</td></tr><tr><td>FO9499 VA Supply Transport</td><td>Pass through</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.17679625081888956,
+          0.6847984413122511,
+          0.5820305368495031,
+          0.8817992324371853
+        ],
+        "kind": "Table",
+        "confidence": 0.7989111524361829
+      },
+      {
+        "text": "Management Information System (per month each vehicle) $4.00",
+        "page": 1,
+        "bbox": [
+          0.12947230114476957,
+          0.8747776730780041,
+          0.8916307183060077,
+          0.8994087486616602
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7964847564697266
+      },
+      {
+        "text": "Administrative Fee: $42.00\nDaily Pool Rates – Actual Cost from Vendor Contract: Actual Cost\nShort Term Used Vehicle Lease: 155.02\nCommercial Equipment Rental (per Unit): Cost plus $12.00 fee\nTelematics GPS Tracking: Actual Cost\nAccident Deductible (per accident): Actual Cost\nFuel Pass-through (per gallon): Actual Cost\nAdditional Management: <empty>\nService and Research: $50.00\nVehicle Complaint Processing (per occurrence): $20.00\nOperator Negligence and Vehicle Abuse: Varies(abuse or driver neglect cases only)\nVehicle Service Center (per occurrence each vehicle): $7.50\nVehicle Feature and Miscellaneous Equipment Upgrade: Actual Cost\nVehicle Detail Cleaning Service: $40.00\nAccounts receivable late fee: <empty>\nPast 30 days: 5% of balance\nPast 60 days: 10% of balance\nPast 90 days: 15% of balance\nStatutory Maintenance Non-Compliance: <empty>\n10 Days Late (per vehicle per month): $100.00\n20 Days Late (per vehicle per month): $200.00\n30 Days Late (per vehicle per month): $300.00",
+        "page": 2,
+        "bbox": [
+          0.1065489543244336,
+          0.08673181530142857,
+          0.8818743644441975,
+          0.5171110444048346
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8644192934036254
+      },
+      {
+        "text": "Transactions Group",
+        "page": 2,
+        "bbox": [
+          0.1259621795465821,
+          0.5547228168760117,
+          0.28058708361731566,
+          0.5699248393862806
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8737271815538407
+      },
+      {
+        "text": "Transactions Group\nTransactions Rate (per hour): 46.00",
+        "page": 2,
+        "bbox": [
+          0.1229290779724774,
+          0.5620708511217387,
+          0.8817106731950465,
+          0.5913641342649265
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9375580549240112
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 9269
+  }
+}

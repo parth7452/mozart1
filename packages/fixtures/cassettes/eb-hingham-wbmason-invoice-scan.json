@@ -1,0 +1,400 @@
+{
+  "key": "eb-hingham-wbmason-invoice-scan",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:08:14.213Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "253661463",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "253661463"
+    },
+    "invoice_date": {
+      "value": "04/16/2025",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "04/16/2025"
+    },
+    "po_number": {
+      "value": "S151787147",
+      "confidence": 0.6,
+      "source_page": 1,
+      "source_quote": "S151787147"
+    },
+    "customer_name": {
+      "value": "Town of Hingham - Zoning Dept.",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "Town of Hingham - Zoning Dept."
+    },
+    "invoice_total": {
+      "value": "47.29",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Total Due:"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "KID21005779",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "KID21005779"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "47.29",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "47.29"
+        },
+        "extended_amount": {
+          "value": "47.29",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "47.29"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:08:14.214Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:08:14.214Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4169,
+    "outputTokens": 464,
+    "costMicros": 12978,
+    "latencyMs": 4438
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "WHO BUT W.B.MASON\n(Page 1)\nPM\nW.B.MASON CO., INC.\n59 Centre St\nBrockton, MA 02301\nAddress Service Requested\n888-WB-MASON www.wbmason.com\nInvoice Number: 253661463\nCustomer Number: C2588144\nInvoice Date: 04/16/2025\nDue Date: 05/16/2025\nOrder Date: 03/31/2025\nOrder Number: S151787147\nOrder Method: WEB\n1327 1 AB 0.593 E0057X 10099 D14231356708 S2 P10776616 0001:0002\nTop||||||||||||||\nHINGHAM-ZONING DEPT.\n210 CENTRAL ST\nHINGHAM MA 02043-2756\nDelivery Address\nTown of Hingham - Zoning Dept.\nAttn.: Donna Thompson\n210 Central Street\nHingham MA 02043\nW.B. Mason Federal ID #: 04-2455641\nImportant Messages\nSign up for Paperless Invoicing at wbmason.com/paperless. Your Registration Code: 5638183225\nLooking for an easier way to see and pay bills?\nVisit WWW.WBMASON.COM/ACCOUNTSTATEMENT.aspx to access your account, go paperless, review invoices and account statements, and link your checking account or credit card to make fast secure payments.\n<table><tr><th>ITEM NUMBER</th><th>DESCRIPTION</th><th>QTY</th><th>U/M</th><th>UNIT PRICE</th><th>EXT PRICE</th></tr><tr><td>KID21005779</td><td>EXTINGUISHER FIRE 4# ABC</td><td>1</td><td>EA</td><td>47.29</td><td>47.29</td></tr><tr><td></td><td></td><td></td><td></td><td>SUBTOTAL:</td><td>47.29</td></tr><tr><td></td><td></td><td>TAX &</td><td>BOTTLE</td><td>DEPOSITS TOTAL:\nORDER TOTAL:</td><td>0.00\n47.29</td></tr><tr><td></td><td></td><td></td><td></td><td>Total Due:</td><td>47.29</td></tr></table>\nTo ensure proper credit, please detach and return below portion with your payment\nWHO BUT W.B.MASON\nW.B. MASON CO., INC.\nPO BOX 981101\nBOSTON, MA 02298-1101\nHINGHAM-ZONING DEPT.\n210 CENTRAL ST\nHINGHAM MA 02043-2756\nRemittance Section\nCustomer Number: C2588144\nInvoice Number: 253661463\nInvoice Date: 04/16/2025\nTerms: Net 30\nTotal Due: 47.29\nPLEASE REFERENCE INVOICE NUMBER WHEN MAKING PAYMENT. PAY ON OUR WEBSITE OR SEND PAYMENT TO:\nW.B. MASON CO., INC.\nPO BOX 981101\nBOSTON, MA 02298-1101\n0001:0002\nC25881442536614632536614630000000047293"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "WHO BUT W.B.MASON",
+        "page": 1,
+        "bbox": [
+          0.10321509101821313,
+          0.049864626511396386,
+          0.2774999532643232,
+          0.0875132987531364
+        ],
+        "kind": "Figure",
+        "confidence": 0.9500868409872054
+      },
+      {
+        "text": "(Page 1)",
+        "page": 1,
+        "bbox": [
+          0.8885558485621796,
+          0.03229112645884896,
+          0.9382737070009878,
+          0.04287068179942981
+        ],
+        "kind": "Header",
+        "confidence": 0.8992918819189072
+      },
+      {
+        "text": "PM",
+        "page": 1,
+        "bbox": [
+          0.9185969811719971,
+          0.050038562586889435,
+          0.9368062158783105,
+          0.05756147321100851
+        ],
+        "kind": "Header",
+        "confidence": 0.8168592333793641
+      },
+      {
+        "text": "W.B.MASON CO., INC.\n59 Centre St\nBrockton, MA 02301",
+        "page": 1,
+        "bbox": [
+          0.1004652811495373,
+          0.10049980376256827,
+          0.22077455467574367,
+          0.12878360946854567
+        ],
+        "kind": "Text",
+        "confidence": 0.9312848180532456
+      },
+      {
+        "text": "Address Service Requested\n888-WB-MASON www.wbmason.com",
+        "page": 1,
+        "bbox": [
+          0.10082081211276063,
+          0.13970769649034376,
+          0.29467500020938775,
+          0.15807333308371066
+        ],
+        "kind": "Text",
+        "confidence": 0.9014889448881149
+      },
+      {
+        "text": "Invoice Number: 253661463\nCustomer Number: C2588144\nInvoice Date: 04/16/2025\nDue Date: 05/16/2025\nOrder Date: 03/31/2025\nOrder Number: S151787147\nOrder Method: WEB",
+        "page": 1,
+        "bbox": [
+          0.5889364429699362,
+          0.061993381392537426,
+          0.9393884447085943,
+          0.1686516955153319
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9879066705703735
+      },
+      {
+        "text": "1327 1 AB 0.593 E0057X 10099 D14231356708 S2 P10776616 0001:0002",
+        "page": 1,
+        "bbox": [
+          0.09828209875349868,
+          0.21266895420208093,
+          0.45959939858939736,
+          0.22203286631790964
+        ],
+        "kind": "Text",
+        "confidence": 0.8955386966466904
+      },
+      {
+        "text": "Top||||||||||||||",
+        "page": 1,
+        "bbox": [
+          0.0834596668916363,
+          0.22597302957321636,
+          0.440619229529846,
+          0.24768997609399637
+        ],
+        "kind": "Figure",
+        "confidence": 0.7003252655267715
+      },
+      {
+        "text": "HINGHAM-ZONING DEPT.\n210 CENTRAL ST\nHINGHAM MA 02043-2756",
+        "page": 1,
+        "bbox": [
+          0.10076093968596941,
+          0.2520021094440431,
+          0.27981862005346925,
+          0.2863762994321918
+        ],
+        "kind": "Text",
+        "confidence": 0.9577967673540115
+      },
+      {
+        "text": "Delivery Address\nTown of Hingham - Zoning Dept.\nAttn.: Donna Thompson\n210 Central Street\nHingham MA 02043",
+        "page": 1,
+        "bbox": [
+          0.6523715627399661,
+          0.23372928647860253,
+          0.8407153293897677,
+          0.29207896638645986
+        ],
+        "kind": "Text",
+        "confidence": 0.9033177345991135
+      },
+      {
+        "text": "W.B. Mason Federal ID #: 04-2455641",
+        "page": 1,
+        "bbox": [
+          0.6829126607668164,
+          0.30681342077064944,
+          0.9054926403325873,
+          0.31543291548703095
+        ],
+        "kind": "Text",
+        "confidence": 0.7868701875209808
+      },
+      {
+        "text": "Important Messages",
+        "page": 1,
+        "bbox": [
+          0.017699707819911044,
+          0.3320186309133889,
+          0.20618821755664918,
+          0.3470553855201279
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8242320060729981
+      },
+      {
+        "text": "Sign up for Paperless Invoicing at wbmason.com/paperless. Your Registration Code: 5638183225",
+        "page": 1,
+        "bbox": [
+          0.01839626458935042,
+          0.3477563786679055,
+          0.6561728430750506,
+          0.36437883775426877
+        ],
+        "kind": "Text",
+        "confidence": 0.9016443818807602
+      },
+      {
+        "text": "Looking for an easier way to see and pay bills?",
+        "page": 1,
+        "bbox": [
+          0.18421010764367235,
+          0.39115567549431157,
+          0.7948320823138462,
+          0.41423261534100464
+        ],
+        "kind": "Title",
+        "confidence": 0.8100273191928864
+      },
+      {
+        "text": "Visit WWW.WBMASON.COM/ACCOUNTSTATEMENT.aspx to access your account, go paperless, review invoices and account statements, and link your checking account or credit card to make fast secure payments.",
+        "page": 1,
+        "bbox": [
+          0.026084930452172868,
+          0.4299255072139509,
+          0.9507148219487701,
+          0.48232557398200326
+        ],
+        "kind": "Text",
+        "confidence": 0.9661606967449188
+      },
+      {
+        "text": "<table><tr><th>ITEM NUMBER</th><th>DESCRIPTION</th><th>QTY</th><th>U/M</th><th>UNIT PRICE</th><th>EXT PRICE</th></tr><tr><td>KID21005779</td><td>EXTINGUISHER FIRE 4# ABC</td><td>1</td><td>EA</td><td>47.29</td><td>47.29</td></tr><tr><td></td><td></td><td></td><td></td><td>SUBTOTAL:</td><td>47.29</td></tr><tr><td></td><td></td><td>TAX &</td><td>BOTTLE</td><td>DEPOSITS TOTAL:\nORDER TOTAL:</td><td>0.00\n47.29</td></tr><tr><td></td><td></td><td></td><td></td><td>Total Due:</td><td>47.29</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.018302752501629996,
+          0.5140131807404781,
+          0.9646953366880026,
+          0.6131438122554416
+        ],
+        "kind": "Table",
+        "confidence": 0.6872741317749024
+      },
+      {
+        "text": "To ensure proper credit, please detach and return below portion with your payment",
+        "page": 1,
+        "bbox": [
+          0.2219204629792635,
+          0.6689667677789236,
+          0.7641595118245589,
+          0.6826015362060652
+        ],
+        "kind": "Text",
+        "confidence": 0.9170651137828827
+      },
+      {
+        "text": "WHO BUT W.B.MASON",
+        "page": 1,
+        "bbox": [
+          0.04237331027107759,
+          0.7030274434581723,
+          0.18298550089257615,
+          0.7343077678598868
+        ],
+        "kind": "Figure",
+        "confidence": 0.9347847700119019
+      },
+      {
+        "text": "W.B. MASON CO., INC.\nPO BOX 981101\nBOSTON, MA 02298-1101",
+        "page": 1,
+        "bbox": [
+          0.04225449131687615,
+          0.748838700426167,
+          0.2565893619904071,
+          0.7900023590043966
+        ],
+        "kind": "Text",
+        "confidence": 0.9565444648265838
+      },
+      {
+        "text": "HINGHAM-ZONING DEPT.\n210 CENTRAL ST\nHINGHAM MA 02043-2756",
+        "page": 1,
+        "bbox": [
+          0.1050785422438658,
+          0.8518283728648283,
+          0.28413992605889915,
+          0.8866150941715005
+        ],
+        "kind": "Text",
+        "confidence": 0.963903871178627
+      },
+      {
+        "text": "Remittance Section\nCustomer Number: C2588144\nInvoice Number: 253661463\nInvoice Date: 04/16/2025\nTerms: Net 30\nTotal Due: 47.29",
+        "page": 1,
+        "bbox": [
+          0.5940802229609473,
+          0.6943065457982902,
+          0.9631824782955414,
+          0.7981773507259615
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9796282768249511
+      },
+      {
+        "text": "PLEASE REFERENCE INVOICE NUMBER WHEN MAKING PAYMENT. PAY ON OUR WEBSITE OR SEND PAYMENT TO:",
+        "page": 1,
+        "bbox": [
+          0.5962658742720114,
+          0.81907424519839,
+          0.92951690493287,
+          0.8522132271648454
+        ],
+        "kind": "Text",
+        "confidence": 0.9582800954580307
+      },
+      {
+        "text": "W.B. MASON CO., INC.\nPO BOX 981101\nBOSTON, MA 02298-1101",
+        "page": 1,
+        "bbox": [
+          0.5958504708819968,
+          0.8925387004117257,
+          0.7700871883101705,
+          0.9248244655126607
+        ],
+        "kind": "Text",
+        "confidence": 0.9420957505702972
+      },
+      {
+        "text": "0001:0002",
+        "page": 1,
+        "bbox": [
+          0.019738146979022805,
+          0.9759108264662717,
+          0.07103089651898206,
+          0.9836112520087202
+        ],
+        "kind": "Footer",
+        "confidence": 0.9014789342880248
+      },
+      {
+        "text": "C25881442536614632536614630000000047293",
+        "page": 1,
+        "bbox": [
+          0.2672457238601324,
+          0.9628923497805464,
+          0.7289252197232956,
+          0.9777449087613336
+        ],
+        "kind": "Footer",
+        "confidence": 0.8584549784660339
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 6599
+  }
+}

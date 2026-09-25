@@ -114,7 +114,26 @@ file stores `$4,191.50 Invoice Total:`, value before label, while the page
 shows the label first. Both values are right. The check is right to refuse a
 quote the text layer does not contain.
 
-`public_scanned` is not recorded: it needs `REDUCTO_API_KEY`.
+`public_scanned`, read through Reducto's OCR as production reads every upload,
+was recorded the same morning for $0.31: 93.9% recall and precision, and 10 of
+10 classified. Its misses are the same payer, buyer and unit price as the clean
+twins, plus Hingham's customer: `Town of Hingham - Zoning Dept.`, where their
+answer is `HINGHAM-ZONING DEPT.`
+
+79.7% of its quotes were found on the page. This number is why the suite is
+worth having. Nearly every value is right, and the gaps are in checking them:
+
+- **Grainger's scan** cites page 2 of a one-page file for all nine fields, so
+  none can be checked, though all nine values are right. Asked three more
+  times, with nothing kept, its quotes failed the check twice more. A quote
+  that names a page the file does not have could be looked for on the pages it
+  does have.
+- **Texas and Illinois** quote whole table rows (`2  EACH  $448.00 …`).
+  Reducto writes a table as HTML cells, so a row is not in the text as written,
+  though every cell in it is.
+- **OCR misreads.** Illinois prints `Sedan – compact` with a dash that OCR read
+  as a hyphen, and Oklahoma's degraded unit price came out `$6;721:8000`.
+  Refusing these is right: the text layer disagrees with the page.
 
 ## What these documents are
 

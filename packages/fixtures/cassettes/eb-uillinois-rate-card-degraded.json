@@ -1,0 +1,378 @@
+{
+  "key": "eb-uillinois-rate-card-degraded",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:10:27.842Z"
+  },
+  "document": {
+    "agreement_type": {
+      "value": "Car Pool Rate Sheet",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Car Pool Rate Sheet"
+    },
+    "effective_from": {
+      "value": "January 2, 2024",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "RATES EFFECTIVE January 2, 2024"
+    },
+    "terms": [
+      {
+        "sku_upc": {
+          "value": "Sedan – compact",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sedan – compact"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "40¢ $39 $175 $450"
+        },
+        "amount": {
+          "value": "40¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "40¢"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Sedan – full size",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sedan – full size"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "47¢ $52 $215 $520"
+        },
+        "amount": {
+          "value": "47¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "47¢"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Mini Van (7 passenger)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Mini Van (7 passenger)"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "65¢ $68 $260 $680"
+        },
+        "amount": {
+          "value": "65¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "65¢"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Sport Utility Vehicle (SUV) (8 passenger, 2WD or 4WD)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sport Utility Vehicle (SUV) (8 passenger, 2WD or 4WD)"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "78¢ $73 $285 $730"
+        },
+        "amount": {
+          "value": "78¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "78¢"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Full Size Van (15 passenger & Conversion)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Full Size Van (15 passenger & Conversion)"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "$1.07 $100 $410 $900"
+        },
+        "amount": {
+          "value": "$1.07",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$1.07"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Work trucks",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Work trucks"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "79¢ $73 $350 $730"
+        },
+        "amount": {
+          "value": "79¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "79¢"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Compact SUV",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Compact SUV"
+        },
+        "term_text": {
+          "value": "Rate per mile with daily, weekly, and monthly minimums",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "52¢ $60 $255 $535"
+        },
+        "amount": {
+          "value": "52¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "52¢"
+        }
+      },
+      {
+        "term_text": {
+          "value": "Charges consist of either the mileage rate or the duration minimum, whichever is greater.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Charges consist of either the mileage rate or the duration minimum, whichever is greater."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges."
+        },
+        "amount": {
+          "value": "$25",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$25"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Rates may change; subject to monthly review of gasoline pricing.",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Rates may change; subject to monthly review of gasoline pricing."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "These rates are effective January 2, 2024. Departments making Car Pool reservations for the use on or after January 2, 2024, will be charged this rate regardless of when the reservation was placed. Vehicles that are picked up prior to January 2, 2024, but returned after that date will be charged the current rate.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "These rates are effective January 2, 2024. Departments making Car Pool reservations for the use on or after January 2, 2024, will be charged this rate regardless of when the reservation was placed. Vehicles that are picked up prior to January 2, 2024, but returned after that date will be charged the current rate."
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        },
+        "amount": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "counterparty": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "approved_by": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "d5d4b9439d216fa769dd53f214b49be9c3365f33208eccde25e93ef34aceedac",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:10:27.843Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:10:27.843Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3348,
+    "outputTokens": 2539,
+    "costMicros": 32086,
+    "latencyMs": 18582
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "RATES EFFECTIVE January 2, 2024\nCar Pool Rate Sheet\n(All rates include fuel, maintenance, and service. Fuel Surcharge is in addition to the mileage rate)\n<table><tr><th>Type of Vehicle</th><th>Rate/mile</th><th>Daily\nminimum</th><th>Weekly\nMinimum</th><th>Monthly\nMinimum</th></tr><tr><td>Sedan - compact</td><td>40¢</td><td>$39</td><td>$175</td><td>$450</td></tr><tr><td>Sedan - full size</td><td>47¢</td><td>$52</td><td>$215</td><td>$520</td></tr><tr><td>Mini Van\n(7 passenger)</td><td>65¢</td><td>$68</td><td>$260</td><td>$680</td></tr><tr><td>Sport Utility Vehicle (SUV)\n(8 passenger, 2WD or 4WD)</td><td>78¢</td><td>$73.</td><td>$285</td><td>$730</td></tr><tr><td>Full Size Van\n(15 passenger & Conversion)</td><td>$1.07</td><td>$100</td><td>$410</td><td>$900</td></tr><tr><td>Work trucks</td><td>79¢</td><td>$73</td><td>$350</td><td>$730</td></tr><tr><td>Compact SUV</td><td>52¢</td><td>$60</td><td>$255</td><td>$535</td></tr></table>\nCharges consist of either the mileage rate or the duration minimum, whichever is greater. Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges. Rates may change; subject to monthly review of gasoline pricing. These rates are effective January 2, 2024. Departments making Car Pool reservations for the use on or after January 2, 2024, will be charged this rate regardless of when the reservation was placed. Vehicles that are picked up prior to January 2, 2024, but returned after that date will be charged the current rate.\nSee www.fs.illinois.edu for latest rates or call 217-333-3910.\nG:\\WORD\\PETE\\DOCS\\CARPOOL\\Rate sheets\\January 2024 Rates.docx"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "RATES EFFECTIVE January 2, 2024",
+        "page": 1,
+        "bbox": [
+          0.27378657729406486,
+          0.062252432625796314,
+          0.6444454500114576,
+          0.09391622593087193
+        ],
+        "kind": "Header",
+        "confidence": 0.8026287883520127
+      },
+      {
+        "text": "Car Pool Rate Sheet",
+        "page": 1,
+        "bbox": [
+          0.37062410947470736,
+          0.1401983636476548,
+          0.6452888524998766,
+          0.17460026189311145
+        ],
+        "kind": "Title",
+        "confidence": 0.7072794288396835
+      },
+      {
+        "text": "(All rates include fuel, maintenance, and service. Fuel Surcharge is in addition to the mileage rate)",
+        "page": 1,
+        "bbox": [
+          0.31135354779301916,
+          0.18361864396667854,
+          0.6985644450593841,
+          0.24327188277932105
+        ],
+        "kind": "Text",
+        "confidence": 0.9190691322088241
+      },
+      {
+        "text": "<table><tr><th>Type of Vehicle</th><th>Rate/mile</th><th>Daily\nminimum</th><th>Weekly\nMinimum</th><th>Monthly\nMinimum</th></tr><tr><td>Sedan - compact</td><td>40¢</td><td>$39</td><td>$175</td><td>$450</td></tr><tr><td>Sedan - full size</td><td>47¢</td><td>$52</td><td>$215</td><td>$520</td></tr><tr><td>Mini Van\n(7 passenger)</td><td>65¢</td><td>$68</td><td>$260</td><td>$680</td></tr><tr><td>Sport Utility Vehicle (SUV)\n(8 passenger, 2WD or 4WD)</td><td>78¢</td><td>$73.</td><td>$285</td><td>$730</td></tr><tr><td>Full Size Van\n(15 passenger & Conversion)</td><td>$1.07</td><td>$100</td><td>$410</td><td>$900</td></tr><tr><td>Work trucks</td><td>79¢</td><td>$73</td><td>$350</td><td>$730</td></tr><tr><td>Compact SUV</td><td>52¢</td><td>$60</td><td>$255</td><td>$535</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.13269445352165007,
+          0.25688271343998176,
+          0.8276465971734273,
+          0.7534561273043697
+        ],
+        "kind": "Table",
+        "confidence": 0.9196247816085816
+      },
+      {
+        "text": "Charges consist of either the mileage rate or the duration minimum, whichever is greater. Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges. Rates may change; subject to monthly review of gasoline pricing. These rates are effective January 2, 2024. Departments making Car Pool reservations for the use on or after January 2, 2024, will be charged this rate regardless of when the reservation was placed. Vehicles that are picked up prior to January 2, 2024, but returned after that date will be charged the current rate.",
+        "page": 1,
+        "bbox": [
+          0.03698329435638526,
+          0.7515169059903922,
+          0.9015524960067515,
+          0.8914304420078317
+        ],
+        "kind": "Text",
+        "confidence": 0.9079970389604568
+      },
+      {
+        "text": "See www.fs.illinois.edu for latest rates or call 217-333-3910.",
+        "page": 1,
+        "bbox": [
+          0.03672035710572853,
+          0.9006911455482858,
+          0.3771459545761099,
+          0.9248092761586336
+        ],
+        "kind": "Text",
+        "confidence": 0.6523256421089172
+      },
+      {
+        "text": "G:\\WORD\\PETE\\DOCS\\CARPOOL\\Rate sheets\\January 2024 Rates.docx",
+        "page": 1,
+        "bbox": [
+          0.03565007731907974,
+          0.9309120234980904,
+          0.48987140696382336,
+          0.9615112861944636
+        ],
+        "kind": "Footer",
+        "confidence": 0.6204380735754966
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4909
+  }
+}

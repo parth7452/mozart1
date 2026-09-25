@@ -164,8 +164,11 @@ Ten recorded suites, each scored separately and never blended (the table is in
 documents: ten public records from ExtractBench, scored against ExtractBench's
 verified answers. 97.9% recall and precision, 10 of 10 classified. Recording it
 found the upload door refusing three real invoices and orders for their fonts'
-names; that is fixed. Its scanned half, `public_scanned`, is the one suite
-still pending, and it needs `REDUCTO_API_KEY`.
+names; that is fixed. Its scanned half, `public_scanned`, read through Reducto:
+93.9% recall and precision, 10 of 10 classified, but only 79.7% of quotes
+checked. The values are right. The gaps are one scan citing a page it does not
+have, and quotes of whole table rows that Reducto stores as HTML cells. No suite
+is pending.
 
 A one-time check of 160 scanned office papers (RVL-CDIP) opened no case: the
 two pages read as payment advices really are check stubs, and both scored

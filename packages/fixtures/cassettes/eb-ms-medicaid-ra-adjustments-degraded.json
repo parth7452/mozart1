@@ -1,0 +1,216 @@
+{
+  "key": "eb-ms-medicaid-ra-adjustments-degraded",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:08:36.241Z"
+  },
+  "document": {
+    "payer_name": {
+      "value": "MISSISSIPPI ENVISION MMIS DIVISION OF MEDICAID",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "MISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID"
+    },
+    "payment_reference": {
+      "value": "04957561",
+      "confidence": 0.8,
+      "source_page": 1,
+      "source_quote": "REMITTANCE: 04957561"
+    },
+    "payment_date": {
+      "value": "01/07/08",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "DATE: 01/07/08"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "08000400000009778",
+          "confidence": 0.75,
+          "source_page": 1,
+          "source_quote": "08000400000009778"
+        },
+        "gross_amount": {
+          "value": "-80.00",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "-80.00"
+        },
+        "deduction_amount": {
+          "value": "-6.70",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "-6.70"
+        },
+        "net_amount": {
+          "value": "-73.30",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "-73.30"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "08000400000009779",
+          "confidence": 0.75,
+          "source_page": 1,
+          "source_quote": "08000400000009779"
+        },
+        "gross_amount": {
+          "value": "80.00",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "80.00"
+        },
+        "deduction_amount": {
+          "value": "6.70",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "6.70"
+        },
+        "net_amount": {
+          "value": "73.30",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "73.30"
+        },
+        "reason_code": {
+          "value": "3222",
+          "confidence": 0.8,
+          "source_page": 1,
+          "source_quote": "EXCEPTION CODES: 3222"
+        }
+      }
+    ],
+    "payment_total": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "05911b4e15970005d14217782baff6b64da5314ba67feebf35ad66a897856c31",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:08:36.242Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:08:36.242Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3326,
+    "outputTokens": 1001,
+    "costMicros": 16662,
+    "latencyMs": 8431
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "Mississippi Medicaid Provider Billing Handbook\nAdjustment Information Page\nAdjustment Header Information\nDATE: 01/07/08\nPROVIDER NO: 00099999\nREMITTANCE: 04957561\nNPI NUMBER: 1234567890\nMISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nADJUSTMENTS\nCLINICS\nPAGE: 00000015\nRPT PAGE: 000111098\nREMIT SEQ: 00009515\n<table>\n<thead>\n<tr>\n<th colspan=\"11\"> BENEFICIARY NAME MEDICAID ID TCN PAT ACCT NUM MED REC NO </th>\n</tr>\n<tr>\n<th colspan=\"11\"> DATES OF SERVICE TOB SVC PVDR SERVICE PROVIDER NAME SUBMITTED AMT FEE REDUCTION AMT PAT RESP AMT TOT PAID AMT STATUS </th>\n</tr>\n<tr>\n<th> LINE </th>\n<th> PROC </th>\n<th> TYPE/DESC </th>\n<th> M1 </th>\n<th> M2 </th>\n<th> M3 </th>\n<th> M4 </th>\n<th> REVCD </th>\n<th> THCD </th>\n<th> SVC PROV </th>\n<th> PROV CONTROL NO </th>\n</tr>\n<tr>\n<th></th>\n<th></th>\n<th> DATES OF SERV </th>\n<th> LINE UNITS </th>\n<th colspan=\"3\"> LN SUBM AMOUNT </th>\n<th colspan=\"2\"> LN FEE REDUCT AMT </th>\n<th> LN PAID AMOUNT </th>\n<th> LN STATUS </th>\n</tr>\n</thead>\n<tbody>\n</tbody>\n</table>\n<table><tr><th>NANCY BENEFICIARY 00000444777906 08000400000009778</th><th>1NAN 01001B</th><th>1NAN</th><th>01001B</th><th></th></tr><tr><td>12/28/07-12/28/07 11 00001111 JAMES B PROVIDER -80.00</td><td>-6.70</td><td>3.00</td><td>-73.30</td><td>CREDIT</td></tr><tr><td>REF: ORIGINAL TCN: 08000385555144447 DRG CODE:\n1 99213 HC/HCPCS/CPT CODE</td><td>DRG WEIGHT: 0.00000</td><td>00001111</td><td>00042888000001</td><td></td></tr><tr><td>12/28/07-12/28/07 -1.00 <-80.00</td><td>-6.70</td><td>-73.30</td><td>CREDIT</td><td></td></tr><tr><td>NANCY BENEFICIARY 00000444777906 08000400000009779</td><td>1NAN 01001B</td><td>1NAN</td><td>01001B</td><td></td></tr><tr><td>12/28/07-12/28/07 11 00001111 JAMES B PROVIDER 80.00</td><td>6.70</td><td>3.00</td><td>73.30</td><td>DEBIT</td></tr><tr><td>REF: ORIGINAL TCN: 08000385555144447 DRG CODE:\nEXCEPTION CODES: 3222</td><td>DRG WEIGHT: 0.00000</td><td></td><td></td><td></td></tr><tr><td>1 99213 HC/HCPCS/CPT CODE</td><td></td><td>00001111</td><td>00042888000001</td><td></td></tr><tr><td>12/28/07-12/28/07 1.00 80.00</td><td>6.70</td><td>73.30</td><td>DEBIT</td><td></td></tr></table>\nAdjustment Line Item Information\nClaim Header/Line Information for\nAdjustments\nPage 4 of 4"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "Mississippi Medicaid Provider Billing Handbook",
+        "page": 1,
+        "bbox": [
+          0.6664593103794907,
+          0.11506172593611459,
+          0.9551240446091451,
+          0.13689725471710718
+        ],
+        "kind": "Header",
+        "confidence": 0.8598235934972763
+      },
+      {
+        "text": "Adjustment Information Page",
+        "page": 1,
+        "bbox": [
+          0.09481019915144212,
+          0.1875114579307852,
+          0.302100140383478,
+          0.2126966249175378
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6788347750902176
+      },
+      {
+        "text": "Adjustment Header Information\nDATE: 01/07/08\nPROVIDER NO: 00099999\nREMITTANCE: 04957561\nNPI NUMBER: 1234567890\nMISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nADJUSTMENTS\nCLINICS\nPAGE: 00000015\nRPT PAGE: 000111098\nREMIT SEQ: 00009515",
+        "page": 1,
+        "bbox": [
+          0.09309983874345024,
+          0.2283567028836261,
+          0.951186159406249,
+          0.3753853676854628
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7283285140991211
+      },
+      {
+        "text": "<table>\n<thead>\n<tr>\n<th colspan=\"11\"> BENEFICIARY NAME MEDICAID ID TCN PAT ACCT NUM MED REC NO </th>\n</tr>\n<tr>\n<th colspan=\"11\"> DATES OF SERVICE TOB SVC PVDR SERVICE PROVIDER NAME SUBMITTED AMT FEE REDUCTION AMT PAT RESP AMT TOT PAID AMT STATUS </th>\n</tr>\n<tr>\n<th> LINE </th>\n<th> PROC </th>\n<th> TYPE/DESC </th>\n<th> M1 </th>\n<th> M2 </th>\n<th> M3 </th>\n<th> M4 </th>\n<th> REVCD </th>\n<th> THCD </th>\n<th> SVC PROV </th>\n<th> PROV CONTROL NO </th>\n</tr>\n<tr>\n<th></th>\n<th></th>\n<th> DATES OF SERV </th>\n<th> LINE UNITS </th>\n<th colspan=\"3\"> LN SUBM AMOUNT </th>\n<th colspan=\"2\"> LN FEE REDUCT AMT </th>\n<th> LN PAID AMOUNT </th>\n<th> LN STATUS </th>\n</tr>\n</thead>\n<tbody>\n</tbody>\n</table>",
+        "page": 1,
+        "bbox": [
+          0.09023937921127763,
+          0.37699730634479056,
+          0.9532818580406113,
+          0.4604156535217245
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8260235071182251
+      },
+      {
+        "text": "<table><tr><th>NANCY BENEFICIARY 00000444777906 08000400000009778</th><th>1NAN 01001B</th><th>1NAN</th><th>01001B</th><th></th></tr><tr><td>12/28/07-12/28/07 11 00001111 JAMES B PROVIDER -80.00</td><td>-6.70</td><td>3.00</td><td>-73.30</td><td>CREDIT</td></tr><tr><td>REF: ORIGINAL TCN: 08000385555144447 DRG CODE:\n1 99213 HC/HCPCS/CPT CODE</td><td>DRG WEIGHT: 0.00000</td><td>00001111</td><td>00042888000001</td><td></td></tr><tr><td>12/28/07-12/28/07 -1.00 <-80.00</td><td>-6.70</td><td>-73.30</td><td>CREDIT</td><td></td></tr><tr><td>NANCY BENEFICIARY 00000444777906 08000400000009779</td><td>1NAN 01001B</td><td>1NAN</td><td>01001B</td><td></td></tr><tr><td>12/28/07-12/28/07 11 00001111 JAMES B PROVIDER 80.00</td><td>6.70</td><td>3.00</td><td>73.30</td><td>DEBIT</td></tr><tr><td>REF: ORIGINAL TCN: 08000385555144447 DRG CODE:\nEXCEPTION CODES: 3222</td><td>DRG WEIGHT: 0.00000</td><td></td><td></td><td></td></tr><tr><td>1 99213 HC/HCPCS/CPT CODE</td><td></td><td>00001111</td><td>00042888000001</td><td></td></tr><tr><td>12/28/07-12/28/07 1.00 80.00</td><td>6.70</td><td>73.30</td><td>DEBIT</td><td></td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.08702400303056422,
+          0.4643941011548112,
+          0.9522872462816159,
+          0.6875152154595198
+        ],
+        "kind": "Table",
+        "confidence": 0.5747124791145325
+      },
+      {
+        "text": "Adjustment Line Item Information",
+        "page": 1,
+        "bbox": [
+          0.13363217059072563,
+          0.6719852741846524,
+          0.340153125615579,
+          0.7959798457901037
+        ],
+        "kind": "Figure",
+        "confidence": 0.6099538519978522
+      },
+      {
+        "text": "Claim Header/Line Information for\nAdjustments\nPage 4 of 4",
+        "page": 1,
+        "bbox": [
+          0.3968586732275382,
+          0.9033202746280727,
+          0.602069816656669,
+          0.9676687592133176
+        ],
+        "kind": "Footer",
+        "confidence": 0.7139277040958405
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 11039
+  }
+}

@@ -1,0 +1,736 @@
+{
+  "key": "eb-texas-facilities-po-degraded",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:10:01.283Z"
+  },
+  "document": {
+    "po_number": {
+      "value": "303-0-0317",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "PO Number:303-0-0317"
+    },
+    "po_date": {
+      "value": "11/7/2019",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Order Date: 11/7/2019"
+    },
+    "buyer_name": {
+      "value": "TEXAS FACILITIES COMMISSION",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "TEXAS FACILITIES COMMISSION"
+    },
+    "ship_to": {
+      "value": "Parking Garage R, Warehouse 1706 San Jacinto Blvd. ATTN: Leandra Contreras Austin, TX 78701",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Parking Garage R, Warehouse\n1706 San Jacinto Blvd.\nATTN: Leandra Contreras\nAustin, TX 78701"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC-~-FG3-COVERCLOTHINDIGO-~-AC",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC-~-FG3-COVERCLOTHINDIGO-~-AC"
+        },
+        "qty_ordered": {
+          "value": 2,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "2  EACH  $448.00  11/7/2019  12/6/2019  $896.00"
+        },
+        "unit_cost": {
+          "value": "$448.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "2  EACH  $448.00  11/7/2019  12/6/2019  $896.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "85040-T2--BKN-(M3)-3EB-MED-SS-~-LH-G1-(1)-F-OBAY-~-BHA-KD-AS",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "85040-T2--BKN-(M3)-3EB-MED-SS-~-LH-G1-(1)-F-OBAY-~-BHA-KD-AS"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1  EACH  $540.00  11/7/2019  12/6/2019  $540.00"
+        },
+        "unit_cost": {
+          "value": "$540.00",
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1  EACH  $540.00  11/7/2019  12/6/2019  $540.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "1801AG2113",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "1801AG2113"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1  EACH  $610.00  11/7/2019  12/6/2019  $610.00"
+        },
+        "unit_cost": {
+          "value": "$610.00",
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1  EACH  $610.00  11/7/2019  12/6/2019  $610.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Labor to install 4 chairs",
+          "confidence": 0.7,
+          "source_page": 2,
+          "source_quote": "Labor to install 4 chairs"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "1  FEE  $165.00  11/7/2019  12/6/2019  $165.00"
+        },
+        "unit_cost": {
+          "value": "$165.00",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "1  FEE  $165.00  11/7/2019  12/6/2019  $165.00"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0234ffc502426856c2b6a606fa20def5b4c0b69ff195be155835062008d8bc1c",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:10:01.284Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:10:01.284Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 7828,
+    "outputTokens": 1628,
+    "costMicros": 31936,
+    "latencyMs": 15525
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "303-0-0317\nPage 1 of 4\nPURCHASE ORDER\nPO Number:303-0-0317\nRequisition Number:303-0-00473\nOrder Date: 11/7/2019\nReleased\nMAIL INVOICE TO AGENCY BELOW\nTEXAS FACILITIES COMMISSION\nFISCAL MANAGEMENT / ACCOUNTS PAYABLE\nP.O. BOX 13047 Austin, Texas 78711-3047\nOR\nemail to: accountspayable@tfc.state.tx.us\nDelivery Location\nParking Garage R, Warehouse\n1706 San Jacinto Blvd.\nATTN: Leandra Contreras\nAustin, TX 78701\nShow numbers on all papers and packages\nReferenced Source or Vendor\n17526176577\nSHELTON-KELLER GROUP INC\n200 EAST CESAR CHAVEZ ST STE 190\nAUSTIN, TX 787014004\nMegan Williams\nPhone:512-592-5214, Fax:\nmwilliams@skgtexas.com\nChairs for new FDC employees\nDescription: Refer to SKG Quote No. 10885, dated 10/02/19\nTFC Contact: Leandra Contreras, 512-463-0896\nLine Items\n<table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Start Date</th><th>End Date</th><th>Total</th></tr><tr><td>Sit On It / Ideon (Exemplis)</td><td>2</td><td>EACH</td><td>$448.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$896.00</td></tr><tr><td>2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC----</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>FG3-COVERCLOTHINDIGO-~-</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>AC</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>Amplify, Highback, Mesh Back, Enhanced Synchro</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>Cntrl, Height</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>FC1:Black Frame</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>B17:Standard Black Nylon Base</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>E3:Seat Depth Adjustment Upgrade</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>\nhttps://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019"
+      },
+      {
+        "page": 2,
+        "text": "303-0-0317\nPage 2 of 4\n<table><tr><th>C16:Standard Carpet Casters</th><th></th><th></th><th></th><th></th></tr><tr><td>SO:Standard Cylinder Height</td><td></td><td></td><td></td><td></td></tr><tr><td>MC5:Onyx (Black) Mesh Color</td><td></td><td></td><td></td><td></td></tr><tr><td>FABRIC:Fabric Grade Selections</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>FG3:Fabric Grade 3</td><td></td><td></td><td></td><td></td></tr><tr><td>COVERCLOTH:Cover Cloth Standard Color Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>INDIGO:Cover Cloth Indigo</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>AC:Fully Assembled</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>Allseating</td><td></td><td></td><td></td><td></td></tr><tr><td>85040-T2--BKN-(M3)-3EB-MED-SS--LH-G1-(1)-F-</td><td></td><td></td><td></td><td></td></tr><tr><td>OBAY-BHA-KD-AS</td><td></td><td></td><td></td><td></td></tr><tr><td>YouToo, Midback, Synchro Tilt, Task 2 Arm\nBKN:Black Nylon</td><td></td><td></td><td></td><td></td></tr><tr><td>(M3):M3 Mesh</td><td></td><td></td><td></td><td></td></tr><tr><td>3EB:Ebony</td><td></td><td></td><td></td><td></td></tr><tr><td>MED:Upholstered Medium Seat 20\"Wx18\"D (Std)</td><td></td><td></td><td></td><td></td></tr><tr><td>SS:Seat Slider (2.5\" Range)</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>LH:65mm (2.5) Hard Surface Casters</td><td></td><td></td><td></td><td></td></tr><tr><td>G1:Grade 1</td><td></td><td></td><td></td><td></td></tr><tr><td>(1):Oasis 1 EACH</td><td>$540.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$540.00</td></tr><tr><td>F-OBAY:Bay</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>BHA:Back Height Adjustment</td><td></td><td></td><td></td><td></td></tr><tr><td>KD:Knocked Down</td><td></td><td></td><td></td><td></td></tr><tr><td>AS:Allseating Standard</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>SAFCO Products Company\n1801AG2113</td><td></td><td></td><td></td><td></td></tr><tr><td>Comfort Series Big & Tall Executive Chair, Fabric,</td><td></td><td></td><td></td><td></td></tr><tr><td>Black</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425 1 EACH</td><td>$610.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$610.00</td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>Labor to install 4 chairs 1 FEE</td><td>$165.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$165.00</td></tr></table>\nhttps://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019"
+      },
+      {
+        "page": 3,
+        "text": "303-0-0317\nPage 3 of 4\nNIGP Class: 425\nNIGP Item: 06\nObject Class: 334\nReimbursement Type: Not Reimburseable\nGrand Total: $2,211.00\nQuestions or concerns regarding this transaction or service should be directed to: Texas Facilities Commission Procurement Division, Phone: (512) 463-0209 or FAX: (512)236-6164 (The mailing address for the Texas Facilities Commission is at the top of this purchase order.)\nAgency: TFC\nFiscal Year: 2020\nDivision: Facilities Design and Construction\nProgram: Facilities Design and Construction\nPhone: 512.463.0896\nOrg Code: 0802 - Project Management\nType of Purchase/PCC Code: ‘X’ Purchases of commodities/services made from SPD TxMAS contracts\nWork Order Number: N/A\nALL TERMS AND CONDITIONS SET FORTH IN OUR BID INVITATION BECOME A PART OF THIS ORDER. VENDOR GUARANTEES MERCHANDISE WILL MEET OR EXCEED SPECIFICATIONS IN THE BID INVITATION.\nInvoicing Standards\nTo facilitate payments from Texas Facilities Commission please follow the invoicing standards set forth below.\nThe invoice should include, but is not limited to including:\n(1) the vendor's mailing and e-mail (if applicable) address;\n(2) the vendor's telephone number;\n(3) the name and telephone number of a person designated by the vendor to answer questions regarding the invoice;\n(4) the state agency requisition number;\n(5) the state agency's name, agency number, and delivery address;\n(6) the commission's purchase order number, if applicable;\n(7) the contract number or other reference number if applicable;\n(8) a valid Texas Identification Number (TIN) issued by the Comptroller of Public Accounts;\n(9) a description of the goods or services, in sufficient detail to identify the order which relates to the invoice;\n(10) unit numbers corresponding to the original order; and\n(11) other relevant information supporting and explaining the payment requested or identifying a successor organization to an original vendor, if necessary.\nFOB DESTINATION CASH DISCOUNT: 0% 0 DAYS.\nTEXAS FACILITIES COMMISSION INTERNAL PURCHASING\nPURCHASER: Gonzalez, James - CTCD, CTCM, 5124632743\n(IN ACCORDANCE WITH YOUR BID, SUPPLIES MUST BE PLACED IN THE AGENCY RECEIVING ROOM IN DAYS FROM RECEIPT OF ORDER.)\nSTATE AND CITY SALES TAX EXEMPTION CERTIFICATE: The undersigned claims an exemption from taxes under Tex. Tax Code $151.309 (1993), for purchase of tangible property described in this purchase order, purchased from contractor and/or shipper listed above, as this property is being secured for the exclusive use of the State of Texas.\n(Show Terms And Conditions...)\nhttps://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019."
+      },
+      {
+        "page": 4,
+        "text": "303-0-0317\nPage 4 of 4\nhttps://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "303-0-0317",
+        "page": 1,
+        "bbox": [
+          0.09083439895864376,
+          0.0025796717310617194,
+          0.18299534030775372,
+          0.013957760373237087
+        ],
+        "kind": "Header",
+        "confidence": 0.8944538503885269
+      },
+      {
+        "text": "Page 1 of 4",
+        "page": 1,
+        "bbox": [
+          0.8266789149003724,
+          0.003732779325370887,
+          0.9175445399653199,
+          0.020818179333466705
+        ],
+        "kind": "Header",
+        "confidence": 0.9013482421636582
+      },
+      {
+        "text": "PURCHASE ORDER",
+        "page": 1,
+        "bbox": [
+          0.38119202477835085,
+          0.15159541373411803,
+          0.6259477232565827,
+          0.16894568598011764
+        ],
+        "kind": "Title",
+        "confidence": 0.9227841377258301
+      },
+      {
+        "text": "PO Number:303-0-0317\nRequisition Number:303-0-00473",
+        "page": 1,
+        "bbox": [
+          0.12913115599576303,
+          0.2168064980460658,
+          0.3713538243414243,
+          0.25232449298994947
+        ],
+        "kind": "Key Value",
+        "confidence": 0.886310625076294
+      },
+      {
+        "text": "Order Date: 11/7/2019\nReleased",
+        "page": 1,
+        "bbox": [
+          0.7299023938183413,
+          0.22142692001288883,
+          0.9029149985309173,
+          0.25763107100695454
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9591122388839721
+      },
+      {
+        "text": "MAIL INVOICE TO AGENCY BELOW\nTEXAS FACILITIES COMMISSION\nFISCAL MANAGEMENT / ACCOUNTS PAYABLE\nP.O. BOX 13047 Austin, Texas 78711-3047\nOR\nemail to: accountspayable@tfc.state.tx.us",
+        "page": 1,
+        "bbox": [
+          0.1010580925368301,
+          0.2758889871798148,
+          0.5025662623483617,
+          0.3927330294574494
+        ],
+        "kind": "Text",
+        "confidence": 0.7668933570384979
+      },
+      {
+        "text": "Delivery Location\nParking Garage R, Warehouse\n1706 San Jacinto Blvd.\nATTN: Leandra Contreras\nAustin, TX 78701\nShow numbers on all papers and packages",
+        "page": 1,
+        "bbox": [
+          0.10026790526335014,
+          0.44575884985911224,
+          0.47558026021355604,
+          0.5640277220169547
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8849982738494873
+      },
+      {
+        "text": "Referenced Source or Vendor\n17526176577\nSHELTON-KELLER GROUP INC\n200 EAST CESAR CHAVEZ ST STE 190\nAUSTIN, TX 787014004\nMegan Williams\nPhone:512-592-5214, Fax:\nmwilliams@skgtexas.com",
+        "page": 1,
+        "bbox": [
+          0.5227079135822114,
+          0.44843268931500885,
+          0.8996257517783341,
+          0.5973570960779324
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9117144346237183
+      },
+      {
+        "text": "Chairs for new FDC employees",
+        "page": 1,
+        "bbox": [
+          0.19627787081287093,
+          0.638975143859625,
+          0.3939649953161891,
+          0.6529688457033879
+        ],
+        "kind": "Text",
+        "confidence": 0.6588837236166001
+      },
+      {
+        "text": "Description: Refer to SKG Quote No. 10885, dated 10/02/19\nTFC Contact: Leandra Contreras, 512-463-0896",
+        "page": 1,
+        "bbox": [
+          0.10301952922713588,
+          0.6665538222573327,
+          0.5046104102146962,
+          0.7143118822619686
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8667787075042724
+      },
+      {
+        "text": "Line Items",
+        "page": 1,
+        "bbox": [
+          0.11821918702186375,
+          0.7320857216589323,
+          0.19827918615386259,
+          0.742882689778675
+        ],
+        "kind": "Section Header",
+        "confidence": 0.7962109953165054
+      },
+      {
+        "text": "<table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Start Date</th><th>End Date</th><th>Total</th></tr><tr><td>Sit On It / Ideon (Exemplis)</td><td>2</td><td>EACH</td><td>$448.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$896.00</td></tr><tr><td>2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC----</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>FG3-COVERCLOTHINDIGO-~-</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>AC</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>Amplify, Highback, Mesh Back, Enhanced Synchro</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>Cntrl, Height</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>FC1:Black Frame</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>B17:Standard Black Nylon Base</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>E3:Seat Depth Adjustment Upgrade</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.1025158771331232,
+          0.7637014180665311,
+          0.9069988633483071,
+          0.9329855935460245
+        ],
+        "kind": "Table",
+        "confidence": 0.7193781712651253
+      },
+      {
+        "text": "https://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019",
+        "page": 1,
+        "bbox": [
+          0.08582003300808622,
+          0.9807573537105257,
+          0.9071628087010599,
+          0.9994879299658543
+        ],
+        "kind": "Footer",
+        "confidence": 0.8777762562036515
+      },
+      {
+        "text": "303-0-0317",
+        "page": 2,
+        "bbox": [
+          0.08244693276418517,
+          0.0034634560502855767,
+          0.1733694701332636,
+          0.015865651754774463
+        ],
+        "kind": "Header",
+        "confidence": 0.8849249809980393
+      },
+      {
+        "text": "Page 2 of 4",
+        "page": 2,
+        "bbox": [
+          0.8129338254996604,
+          0,
+          0.9005244943733656,
+          0.01217272732043848
+        ],
+        "kind": "Header",
+        "confidence": 0.8448272287845612
+      },
+      {
+        "text": "<table><tr><th>C16:Standard Carpet Casters</th><th></th><th></th><th></th><th></th></tr><tr><td>SO:Standard Cylinder Height</td><td></td><td></td><td></td><td></td></tr><tr><td>MC5:Onyx (Black) Mesh Color</td><td></td><td></td><td></td><td></td></tr><tr><td>FABRIC:Fabric Grade Selections</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>FG3:Fabric Grade 3</td><td></td><td></td><td></td><td></td></tr><tr><td>COVERCLOTH:Cover Cloth Standard Color Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>INDIGO:Cover Cloth Indigo</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>AC:Fully Assembled</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>Allseating</td><td></td><td></td><td></td><td></td></tr><tr><td>85040-T2--BKN-(M3)-3EB-MED-SS--LH-G1-(1)-F-</td><td></td><td></td><td></td><td></td></tr><tr><td>OBAY-BHA-KD-AS</td><td></td><td></td><td></td><td></td></tr><tr><td>YouToo, Midback, Synchro Tilt, Task 2 Arm\nBKN:Black Nylon</td><td></td><td></td><td></td><td></td></tr><tr><td>(M3):M3 Mesh</td><td></td><td></td><td></td><td></td></tr><tr><td>3EB:Ebony</td><td></td><td></td><td></td><td></td></tr><tr><td>MED:Upholstered Medium Seat 20\"Wx18\"D (Std)</td><td></td><td></td><td></td><td></td></tr><tr><td>SS:Seat Slider (2.5\" Range)</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>LH:65mm (2.5) Hard Surface Casters</td><td></td><td></td><td></td><td></td></tr><tr><td>G1:Grade 1</td><td></td><td></td><td></td><td></td></tr><tr><td>(1):Oasis 1 EACH</td><td>$540.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$540.00</td></tr><tr><td>F-OBAY:Bay</td><td></td><td></td><td></td><td></td></tr><tr><td>~:No Selection</td><td></td><td></td><td></td><td></td></tr><tr><td>BHA:Back Height Adjustment</td><td></td><td></td><td></td><td></td></tr><tr><td>KD:Knocked Down</td><td></td><td></td><td></td><td></td></tr><tr><td>AS:Allseating Standard</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>SAFCO Products Company\n1801AG2113</td><td></td><td></td><td></td><td></td></tr><tr><td>Comfort Series Big & Tall Executive Chair, Fabric,</td><td></td><td></td><td></td><td></td></tr><tr><td>Black</td><td></td><td></td><td></td><td></td></tr><tr><td>NIGP Class: 425 1 EACH</td><td>$610.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$610.00</td></tr><tr><td>NIGP Item: 06</td><td></td><td></td><td></td><td></td></tr><tr><td>Object Class: 334</td><td></td><td></td><td></td><td></td></tr><tr><td>Reimbursement Type: Not Reimburseable</td><td></td><td></td><td></td><td></td></tr><tr><td>Notes: New chairs need to match the current chairs</td><td></td><td></td><td></td><td></td></tr><tr><td>in the department. Purchasing to request a waiver.</td><td></td><td></td><td></td><td></td></tr><tr><td>Labor to install 4 chairs 1 FEE</td><td>$165.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$165.00</td></tr></table>",
+        "page": 2,
+        "bbox": [
+          0.10508979234576833,
+          0.059151655247133963,
+          0.9046069120160013,
+          0.9194433976549315
+        ],
+        "kind": "Table",
+        "confidence": 0.6350204461691331
+      },
+      {
+        "text": "https://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019",
+        "page": 2,
+        "bbox": [
+          0.09274638401493633,
+          0.9794739155980736,
+          0.9161904297252305,
+          1
+        ],
+        "kind": "Footer",
+        "confidence": 0.9033256739377975
+      },
+      {
+        "text": "303-0-0317",
+        "page": 3,
+        "bbox": [
+          0.08602150537634409,
+          0.004675324675324675,
+          0.17809139784946237,
+          0.015064935064935066
+        ],
+        "kind": "Header",
+        "confidence": 0.8862688630819321
+      },
+      {
+        "text": "Page 3 of 4",
+        "page": 3,
+        "bbox": [
+          0.8252688172043011,
+          0.0005194805194805195,
+          0.915994623655914,
+          0.016103896103896103
+        ],
+        "kind": "Header",
+        "confidence": 0.8947638988494873
+      },
+      {
+        "text": "NIGP Class: 425\nNIGP Item: 06\nObject Class: 334\nReimbursement Type: Not Reimburseable",
+        "page": 3,
+        "bbox": [
+          0.11760752688172044,
+          0.07324675324675324,
+          0.39852150537634407,
+          0.1303896103896104
+        ],
+        "kind": "Text",
+        "confidence": 0.7100041329860687
+      },
+      {
+        "text": "Grand Total: $2,211.00",
+        "page": 3,
+        "bbox": [
+          0.7298387096774194,
+          0.13922077922077922,
+          0.8951612903225806,
+          0.15324675324675324
+        ],
+        "kind": "Key Value",
+        "confidence": 0.788095498085022
+      },
+      {
+        "text": "Questions or concerns regarding this transaction or service should be directed to: Texas Facilities Commission Procurement Division, Phone: (512) 463-0209 or FAX: (512)236-6164 (The mailing address for the Texas Facilities Commission is at the top of this purchase order.)",
+        "page": 3,
+        "bbox": [
+          0.0967741935483871,
+          0.19064935064935065,
+          0.8931451612903226,
+          0.2135064935064935
+        ],
+        "kind": "Text",
+        "confidence": 0.9350739896297454
+      },
+      {
+        "text": "Agency: TFC\nFiscal Year: 2020\nDivision: Facilities Design and Construction\nProgram: Facilities Design and Construction\nPhone: 512.463.0896\nOrg Code: 0802 - Project Management\nType of Purchase/PCC Code: ‘X’ Purchases of commodities/services made from SPD TxMAS contracts\nWork Order Number: N/A",
+        "page": 3,
+        "bbox": [
+          0.15793010752688172,
+          0.24311688311688312,
+          0.8387096774193549,
+          0.425974025974026
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9869828462600708
+      },
+      {
+        "text": "ALL TERMS AND CONDITIONS SET FORTH IN OUR BID INVITATION BECOME A PART OF THIS ORDER. VENDOR GUARANTEES MERCHANDISE WILL MEET OR EXCEED SPECIFICATIONS IN THE BID INVITATION.",
+        "page": 3,
+        "bbox": [
+          0.0961021505376344,
+          0.45194805194805193,
+          0.8702956989247311,
+          0.4753246753246753
+        ],
+        "kind": "Text",
+        "confidence": 0.9384857326745988
+      },
+      {
+        "text": "Invoicing Standards",
+        "page": 3,
+        "bbox": [
+          0.0967741935483871,
+          0.49142857142857144,
+          0.21236559139784944,
+          0.5018181818181818
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8964489072561264
+      },
+      {
+        "text": "To facilitate payments from Texas Facilities Commission please follow the invoicing standards set forth below.",
+        "page": 3,
+        "bbox": [
+          0.09543010752688172,
+          0.5075324675324675,
+          0.6942204301075269,
+          0.5174025974025974
+        ],
+        "kind": "Text",
+        "confidence": 0.8802331835031509
+      },
+      {
+        "text": "The invoice should include, but is not limited to including:",
+        "page": 3,
+        "bbox": [
+          0.09543010752688172,
+          0.531948051948052,
+          0.4126344086021505,
+          0.5418181818181819
+        ],
+        "kind": "Text",
+        "confidence": 0.8921197801828384
+      },
+      {
+        "text": "(1) the vendor's mailing and e-mail (if applicable) address;",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.548051948051948,
+          0.42741935483870963,
+          0.5574025974025973
+        ],
+        "kind": "List Item",
+        "confidence": 0.9069118648767471
+      },
+      {
+        "text": "(2) the vendor's telephone number;",
+        "page": 3,
+        "bbox": [
+          0.09475806451612903,
+          0.5625974025974027,
+          0.3024193548387097,
+          0.5724675324675326
+        ],
+        "kind": "List Item",
+        "confidence": 0.8957424700260163
+      },
+      {
+        "text": "(3) the name and telephone number of a person designated by the vendor to answer questions regarding the invoice;",
+        "page": 3,
+        "bbox": [
+          0.09341397849462366,
+          0.5776623376623377,
+          0.752016129032258,
+          0.5885714285714285
+        ],
+        "kind": "List Item",
+        "confidence": 0.9140714287757874
+      },
+      {
+        "text": "(4) the state agency requisition number;",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.5932467532467532,
+          0.3272849462365591,
+          0.6036363636363636
+        ],
+        "kind": "List Item",
+        "confidence": 0.88440001308918
+      },
+      {
+        "text": "(5) the state agency's name, agency number, and delivery address;",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.6088311688311688,
+          0.46908602150537637,
+          0.6187012987012988
+        ],
+        "kind": "List Item",
+        "confidence": 0.9161451429128646
+      },
+      {
+        "text": "(6) the commission's purchase order number, if applicable;",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.6233766233766234,
+          0.42741935483870963,
+          0.6337662337662338
+        ],
+        "kind": "List Item",
+        "confidence": 0.9109187752008439
+      },
+      {
+        "text": "(7) the contract number or other reference number if applicable;",
+        "page": 3,
+        "bbox": [
+          0.09274193548387097,
+          0.638961038961039,
+          0.45833333333333337,
+          0.6488311688311689
+        ],
+        "kind": "List Item",
+        "confidence": 0.8940509378910064
+      },
+      {
+        "text": "(8) a valid Texas Identification Number (TIN) issued by the Comptroller of Public Accounts;",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.6540259740259741,
+          0.601478494623656,
+          0.663896103896104
+        ],
+        "kind": "List Item",
+        "confidence": 0.9046226978302002
+      },
+      {
+        "text": "(9) a description of the goods or services, in sufficient detail to identify the order which relates to the invoice;",
+        "page": 3,
+        "bbox": [
+          0.09341397849462366,
+          0.6696103896103897,
+          0.7022849462365591,
+          0.6794805194805196
+        ],
+        "kind": "List Item",
+        "confidence": 0.9068673551082611
+      },
+      {
+        "text": "(10) unit numbers corresponding to the original order; and",
+        "page": 3,
+        "bbox": [
+          0.09408602150537634,
+          0.6851948051948052,
+          0.4227150537634409,
+          0.6950649350649352
+        ],
+        "kind": "List Item",
+        "confidence": 0.8927238821983338
+      },
+      {
+        "text": "(11) other relevant information supporting and explaining the payment requested or identifying a successor organization to an original vendor, if necessary.",
+        "page": 3,
+        "bbox": [
+          0.09341397849462366,
+          0.7002597402597402,
+          0.8924731182795699,
+          0.7241558441558441
+        ],
+        "kind": "List Item",
+        "confidence": 0.9381097316741943
+      },
+      {
+        "text": "FOB DESTINATION CASH DISCOUNT: 0% 0 DAYS.",
+        "page": 3,
+        "bbox": [
+          0.09744623655913978,
+          0.7418181818181818,
+          0.383736559139785,
+          0.7496103896103896
+        ],
+        "kind": "Text",
+        "confidence": 0.6993349313735961
+      },
+      {
+        "text": "TEXAS FACILITIES COMMISSION INTERNAL PURCHASING",
+        "page": 3,
+        "bbox": [
+          0.0961021505376344,
+          0.7683116883116883,
+          0.4301075268817204,
+          0.7755844155844156
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6309725597500802
+      },
+      {
+        "text": "PURCHASER: Gonzalez, James - CTCD, CTCM, 5124632743",
+        "page": 3,
+        "bbox": [
+          0.09274193548387097,
+          0.7833766233766234,
+          0.5470430107526881,
+          0.8207792207792208
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9117619276046753
+      },
+      {
+        "text": "(IN ACCORDANCE WITH YOUR BID, SUPPLIES MUST BE PLACED IN THE AGENCY RECEIVING ROOM IN DAYS FROM RECEIPT OF ORDER.)",
+        "page": 3,
+        "bbox": [
+          0.0961021505376344,
+          0.8493506493506493,
+          0.8870967741935484,
+          0.8587012987012986
+        ],
+        "kind": "Text",
+        "confidence": 0.7495439231395722
+      },
+      {
+        "text": "STATE AND CITY SALES TAX EXEMPTION CERTIFICATE: The undersigned claims an exemption from taxes under Tex. Tax Code $151.309 (1993), for purchase of tangible property described in this purchase order, purchased from contractor and/or shipper listed above, as this property is being secured for the exclusive use of the State of Texas.",
+        "page": 3,
+        "bbox": [
+          0.09475806451612903,
+          0.8748051948051948,
+          0.8938172043010753,
+          0.908051948051948
+        ],
+        "kind": "Text",
+        "confidence": 0.9199734777212143
+      },
+      {
+        "text": "(Show Terms And Conditions...)",
+        "page": 3,
+        "bbox": [
+          0.38306451612903225,
+          0.9142857142857143,
+          0.6081989247311828,
+          0.9246753246753247
+        ],
+        "kind": "Text",
+        "confidence": 0.6628404706716537
+      },
+      {
+        "text": "https://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019.",
+        "page": 3,
+        "bbox": [
+          0.08333333333333333,
+          0.9875324675324675,
+          0.9126344086021506,
+          0.9994805194805194
+        ],
+        "kind": "Footer",
+        "confidence": 0.8426001727581024
+      },
+      {
+        "text": "303-0-0317",
+        "page": 4,
+        "bbox": [
+          0.07342833326560384,
+          0.010478287624791669,
+          0.1657593479442657,
+          0.02323975482925432
+        ],
+        "kind": "Header",
+        "confidence": 0.9072607964277267
+      },
+      {
+        "text": "Page 4 of 4",
+        "page": 4,
+        "bbox": [
+          0.8085140435506873,
+          0,
+          0.8961541902039835,
+          0.0130993807683417
+        ],
+        "kind": "Header",
+        "confidence": 0.7768407911062241
+      },
+      {
+        "text": "https://portal.tfc.state.tx.us/InternalProcurement/(S(bvv0baikuhdmvencq2y0gti0))/Account... 11/7/2019",
+        "page": 4,
+        "bbox": [
+          0.1051896593577807,
+          0.976182392989188,
+          0.9306662426237358,
+          1
+        ],
+        "kind": "Footer",
+        "confidence": 0.8828174740076065
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 7626
+  }
+}

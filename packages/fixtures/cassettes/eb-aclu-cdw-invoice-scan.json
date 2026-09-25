@@ -1,0 +1,436 @@
+{
+  "key": "eb-aclu-cdw-invoice-scan",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:07:05.850Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "NF67652",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "NF67652"
+    },
+    "invoice_date": {
+      "value": "07/19/14",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "07/19/14"
+    },
+    "po_number": {
+      "value": "95055",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "95055"
+    },
+    "customer_name": {
+      "value": "SUDBURY PUBLIC SCHOOLS",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "SUDBURY PUBLIC SCHOOLS"
+    },
+    "invoice_total": {
+      "value": "$11,989.25",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "$11,989.25"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "2856676",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "2856676"
+        },
+        "qty": {
+          "value": 455,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "455"
+        },
+        "unit_cost": {
+          "value": "26.35",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "26.35"
+        },
+        "extended_amount": {
+          "value": "11,989.25",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "11,989.25"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:07:05.851Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:07:05.851Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3210,
+    "outputTokens": 471,
+    "costMicros": 11130,
+    "latencyMs": 4533
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "<empty> REMIT PAYMENT TO: <empty>\nINVOICE\nACH INFORMATION:\nTHE NORTHERN TRUST\n50 SOUTH LASALLE STREET\nCHICAGO, IL 60675\nE-mail Remittance To: gachremittance@cdw.com\nROUTING NO.: 071000152\nACCOUNT NAME: CDW GOVERNMENT\nACCOUNT NO.: 91057\nCDWG\nCDW Government\n75 Remittance Drive, Suite 1515\nChicago, IL 60675-1515\nRETURN SERVICE REQUESTED\nINVOICE NUMBER: NF67652\nINVOICE DATE: 07/19/14\nCUSTOMER NUMBER: 1095519\nSUBTOTAL: $11,989.25\nSHIPPING: $0.00\nSALES TAX: $0.00\nDUE DATE: 08/18/14\nAMOUNT DUE: $11,989.25\n131 SP 0.480 E0013X 10019 D1026048211 P2068707 0001:0001\nԿիլիլեալիցեողոկողվեե\nSUDBURY PUBLIC SCHOOLS\nACCTS PAYABLE\nBUSINESS OFFICE\n40 FAIRBANK RD STE C\nSUDBURY MA 01776-5609\nCDW Government\n75 Remittance Drive\nSuite 1515\nChicago, IL 60675-1515\nPLEASE RETURN THIS PORTION WITH YOUR PAYMENT\nINVOICE DATE: 07/19/14\nINVOICE NUMBER: NF67652\nPAYMENT TERMS: Net 30 Days\nDUE DATE: 08/18/14\nORDER DATE: 07/15/14\nSHIP VIA: Best Way Custom Freight\nPURCHASE ORDER NUMBER: 95055\nCUSTOMER NUMBER: 1095519\n<table><tr><th>ITEM NUMBER</th><th>DESCRIPTION</th><th>QTY\nORD</th><th>QTY\nSHIP</th><th>QTY\nB/O</th><th>UNIT PRICE</th><th>TOTAL</th></tr><tr><td>2856676\n\nJUL\n\nBY:</td><td>ACAD GOOGLE CHROME OS MGT LIC+SUP 5Y\nManufacturer Part Number: CROSSWDNEDU\nElectronic distribution NO MEDIA\n\nCustomer has indicated to invoice to the 40 Fairbank road\naddress. I have archived the PO with the customer notes on\nit.\n\nSaid 8-7-14\n\nEGEIVEL\n\n14 2014</td><td>455</td><td>455</td><td>0</td><td>26.35</td><td>11,989.25</td></tr></table>\nGO GREEN!\nCDW is happy to announce that paperless billing is now available! If you would like to start receiving your invoices as an emailed PDF, please email CDW at paperlessbilling@cdw.com. Please include your Customer number or an Invoice number in your email for faster processing.\nREDUCE PROCESSING COSTS AND ELIMINATE THE HASSLE OF PAPER CHECKS!\nBegin transmitting your payments electronically via ACH_using CDW's bank and remittance information located at the top of the attached payment coupon. Email credit@cdw.com with any questions.\nACCOUNT MANAGER: JIM PINTO\n203-851-7119\njimpin@cdwg.com\nSALES ORDER NUMBER: FLDQ324\nSHIPPING ADDRESS:\nCURTIS MIDDLE SCHOOL\nMICHAEL O'BRIEN/MICHELE GRAY\n22 PRATTS MILL RD\nSUDBURY PUBLIC SCHOOLS\nSUDBURY MA 01776-2623\n<table><tr><th>SUBTOTAL</th><th>$11,989.25</th></tr><tr><td>SHIPPING</td><td>$0.00</td></tr><tr><td>SALES TAX</td><td>$0.00</td></tr><tr><td>AMOUNT DUE</td><td>$11,989.25</td></tr></table>\nCDWC)\nCage Code Number 1KH72\nDUNS Number 02-615-7235\nHAVE QUESTIONS ABOUT YOUR ACCOUNT? PLEASE EMAIL US AT credit@cdw.com VISIT US ON THE INTERNET AT www.cdwg.com\nISO 9001 and ISO 14001 Certified CDW GOVERNMENT FEIN 36-4230110\n0001:0001\nPage 1 of"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "<empty> REMIT PAYMENT TO: <empty>",
+        "page": 1,
+        "bbox": [
+          0.11250728993723476,
+          0.03688860656836126,
+          0.4085152821900642,
+          0.052263205237755676
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9128875017166138
+      },
+      {
+        "text": "INVOICE",
+        "page": 1,
+        "bbox": [
+          0.46781797366875205,
+          0.038879561787898795,
+          0.5337878845824795,
+          0.04835733821310653
+        ],
+        "kind": "Section Header",
+        "confidence": 0.5881852999329567
+      },
+      {
+        "text": "ACH INFORMATION:\nTHE NORTHERN TRUST\n50 SOUTH LASALLE STREET\nCHICAGO, IL 60675",
+        "page": 1,
+        "bbox": [
+          0.574222859473479,
+          0.03148261008915742,
+          0.7098351315903496,
+          0.06500393604297937
+        ],
+        "kind": "Text",
+        "confidence": 0.8095767945051193
+      },
+      {
+        "text": "E-mail Remittance To: gachremittance@cdw.com\nROUTING NO.: 071000152\nACCOUNT NAME: CDW GOVERNMENT\nACCOUNT NO.: 91057",
+        "page": 1,
+        "bbox": [
+          0.7336255418950377,
+          0.029548687432253473,
+          0.9615925580906421,
+          0.06406721925922139
+        ],
+        "kind": "Text",
+        "confidence": 0.8388417840003968
+      },
+      {
+        "text": "CDWG",
+        "page": 1,
+        "bbox": [
+          0.11989244880197548,
+          0.0712032037449907,
+          0.21614330031406548,
+          0.10949279832532909
+        ],
+        "kind": "Figure",
+        "confidence": 0.9143446952104568
+      },
+      {
+        "text": "CDW Government\n75 Remittance Drive, Suite 1515\nChicago, IL 60675-1515",
+        "page": 1,
+        "bbox": [
+          0.22993399975308762,
+          0.07445233205427469,
+          0.43672515764492914,
+          0.1088464291793411
+        ],
+        "kind": "Text",
+        "confidence": 0.942955756187439
+      },
+      {
+        "text": "RETURN SERVICE REQUESTED",
+        "page": 1,
+        "bbox": [
+          0.11681939965832024,
+          0.1172820649779386,
+          0.26453823292738476,
+          0.12587670067703857
+        ],
+        "kind": "Text",
+        "confidence": 0.8524678617715835
+      },
+      {
+        "text": "INVOICE NUMBER: NF67652\nINVOICE DATE: 07/19/14\nCUSTOMER NUMBER: 1095519\nSUBTOTAL: $11,989.25\nSHIPPING: $0.00\nSALES TAX: $0.00\nDUE DATE: 08/18/14\nAMOUNT DUE: $11,989.25",
+        "page": 1,
+        "bbox": [
+          0.5740014389033257,
+          0.06718499982760937,
+          0.977910583251496,
+          0.16909529202781637
+        ],
+        "kind": "Key Value",
+        "confidence": 0.982129979133606
+      },
+      {
+        "text": "131 SP 0.480 E0013X 10019 D1026048211 P2068707 0001:0001",
+        "page": 1,
+        "bbox": [
+          0.11958156537894177,
+          0.21765074947510976,
+          0.43435439193324704,
+          0.22722703671143216
+        ],
+        "kind": "Text",
+        "confidence": 0.8748150974512101
+      },
+      {
+        "text": "Կիլիլեալիցեողոկողվեե",
+        "page": 1,
+        "bbox": [
+          0.10501030250991508,
+          0.2311622841354799,
+          0.4557807462382233,
+          0.25276725917510406
+        ],
+        "kind": "Figure",
+        "confidence": 0.7682795837521553
+      },
+      {
+        "text": "SUDBURY PUBLIC SCHOOLS\nACCTS PAYABLE\nBUSINESS OFFICE\n40 FAIRBANK RD STE C\nSUDBURY MA 01776-5609",
+        "page": 1,
+        "bbox": [
+          0.12230570938274549,
+          0.2562859960051743,
+          0.2804178900908111,
+          0.30493823599839104
+        ],
+        "kind": "Text",
+        "confidence": 0.9624260693788529
+      },
+      {
+        "text": "CDW Government\n75 Remittance Drive\nSuite 1515\nChicago, IL 60675-1515",
+        "page": 1,
+        "bbox": [
+          0.5768329383409165,
+          0.2367964108869892,
+          0.7349540653347397,
+          0.28635771550435735
+        ],
+        "kind": "Text",
+        "confidence": 0.9548302590847015
+      },
+      {
+        "text": "PLEASE RETURN THIS PORTION WITH YOUR PAYMENT",
+        "page": 1,
+        "bbox": [
+          0.6063758103689711,
+          0.30869028787819847,
+          0.9541022803799886,
+          0.31982373714259466
+        ],
+        "kind": "Text",
+        "confidence": 0.7976578503847123
+      },
+      {
+        "text": "INVOICE DATE: 07/19/14\nINVOICE NUMBER: NF67652\nPAYMENT TERMS: Net 30 Days\nDUE DATE: 08/18/14\nORDER DATE: 07/15/14\nSHIP VIA: Best Way Custom Freight\nPURCHASE ORDER NUMBER: 95055\nCUSTOMER NUMBER: 1095519",
+        "page": 1,
+        "bbox": [
+          0.03543503845464971,
+          0.3307999147535374,
+          0.9824687158356117,
+          0.396359719818627
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9816612005233765
+      },
+      {
+        "text": "<table><tr><th>ITEM NUMBER</th><th>DESCRIPTION</th><th>QTY\nORD</th><th>QTY\nSHIP</th><th>QTY\nB/O</th><th>UNIT PRICE</th><th>TOTAL</th></tr><tr><td>2856676\n\nJUL\n\nBY:</td><td>ACAD GOOGLE CHROME OS MGT LIC+SUP 5Y\nManufacturer Part Number: CROSSWDNEDU\nElectronic distribution NO MEDIA\n\nCustomer has indicated to invoice to the 40 Fairbank road\naddress. I have archived the PO with the customer notes on\nit.\n\nSaid 8-7-14\n\nEGEIVEL\n\n14 2014</td><td>455</td><td>455</td><td>0</td><td>26.35</td><td>11,989.25</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.03837836645951517,
+          0.3907878103890406,
+          0.9874585067098806,
+          0.7240636907472315
+        ],
+        "kind": "Table",
+        "confidence": 0.8357233107089996
+      },
+      {
+        "text": "GO GREEN!",
+        "page": 1,
+        "bbox": [
+          0.4716447474133129,
+          0.7264694282955549,
+          0.5605506983465715,
+          0.7356274766690802
+        ],
+        "kind": "Section Header",
+        "confidence": 0.8256214946508408
+      },
+      {
+        "text": "CDW is happy to announce that paperless billing is now available! If you would like to start receiving your invoices as an emailed PDF, please email CDW at paperlessbilling@cdw.com. Please include your Customer number or an Invoice number in your email for faster processing.",
+        "page": 1,
+        "bbox": [
+          0.13355790026856507,
+          0.7385205834665176,
+          0.9079797043584956,
+          0.776250221906442
+        ],
+        "kind": "Text",
+        "confidence": 0.9306457042694092
+      },
+      {
+        "text": "REDUCE PROCESSING COSTS AND ELIMINATE THE HASSLE OF PAPER CHECKS!",
+        "page": 1,
+        "bbox": [
+          0.23101650035323795,
+          0.7800437520238449,
+          0.8034468288415072,
+          0.792952124048271
+        ],
+        "kind": "Section Header",
+        "confidence": 0.6243187308311462
+      },
+      {
+        "text": "Begin transmitting your payments electronically via ACH_using CDW's bank and remittance information located at the top of the attached payment coupon. Email credit@cdw.com with any questions.",
+        "page": 1,
+        "bbox": [
+          0.1299816225533916,
+          0.7935362758251658,
+          0.9054725077866621,
+          0.8203640518142674
+        ],
+        "kind": "Text",
+        "confidence": 0.8458956569433211
+      },
+      {
+        "text": "ACCOUNT MANAGER: JIM PINTO\n203-851-7119\njimpin@cdwg.com\nSALES ORDER NUMBER: FLDQ324",
+        "page": 1,
+        "bbox": [
+          0.04505676876818671,
+          0.8340155755088341,
+          0.36061239532628364,
+          0.9231350173584073
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8727481603622436
+      },
+      {
+        "text": "SHIPPING ADDRESS:\nCURTIS MIDDLE SCHOOL\nMICHAEL O'BRIEN/MICHELE GRAY\n22 PRATTS MILL RD\nSUDBURY PUBLIC SCHOOLS\nSUDBURY MA 01776-2623",
+        "page": 1,
+        "bbox": [
+          0.36033729703688905,
+          0.8317083487462258,
+          0.6758973967378648,
+          0.9212823229078749
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8602611780166626
+      },
+      {
+        "text": "<table><tr><th>SUBTOTAL</th><th>$11,989.25</th></tr><tr><td>SHIPPING</td><td>$0.00</td></tr><tr><td>SALES TAX</td><td>$0.00</td></tr><tr><td>AMOUNT DUE</td><td>$11,989.25</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.6756267715913491,
+          0.8303205561662609,
+          0.9894132701479204,
+          0.9189750961452667
+        ],
+        "kind": "Table",
+        "confidence": 0.8961727902293206
+      },
+      {
+        "text": "CDWC)",
+        "page": 1,
+        "bbox": [
+          0.06670901679089064,
+          0.9435388518672901,
+          0.13229647399082772,
+          0.9739216581284836
+        ],
+        "kind": "Figure",
+        "confidence": 0.7559576481580734
+      },
+      {
+        "text": "Cage Code Number 1KH72\nDUNS Number 02-615-7235",
+        "page": 1,
+        "bbox": [
+          0.4512919474039467,
+          0.9294483501820574,
+          0.5961636252423881,
+          0.9475708818372612
+        ],
+        "kind": "Footer",
+        "confidence": 0.6668220475316048
+      },
+      {
+        "text": "HAVE QUESTIONS ABOUT YOUR ACCOUNT? PLEASE EMAIL US AT credit@cdw.com VISIT US ON THE INTERNET AT www.cdwg.com",
+        "page": 1,
+        "bbox": [
+          0.6854341373179218,
+          0.930369512615378,
+          0.9810820415713548,
+          0.9689218026811369
+        ],
+        "kind": "Text",
+        "confidence": 0.6047428518533706
+      },
+      {
+        "text": "ISO 9001 and ISO 14001 Certified CDW GOVERNMENT FEIN 36-4230110",
+        "page": 1,
+        "bbox": [
+          0.42219415309468156,
+          0.9610927860524947,
+          0.6259144984119593,
+          0.9822881635298791
+        ],
+        "kind": "Footer",
+        "confidence": 0.7888035207986832
+      },
+      {
+        "text": "0001:0001",
+        "page": 1,
+        "bbox": [
+          0.04711217791865191,
+          0.9846541511239407,
+          0.09718230253304194,
+          0.9922204722744192
+        ],
+        "kind": "Footer",
+        "confidence": 0.8843265414237976
+      },
+      {
+        "text": "Page 1 of",
+        "page": 1,
+        "bbox": [
+          0.9176170906603693,
+          0.9735500822625714,
+          0.9812609672865071,
+          0.9857412264822444
+        ],
+        "kind": "Footer",
+        "confidence": 0.8829185724258423
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 6125
+  }
+}

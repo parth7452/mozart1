@@ -1,0 +1,408 @@
+{
+  "key": "eb-ms-medicaid-ra-paid-denied-degraded",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:09:17.598Z"
+  },
+  "document": {
+    "payer_name": {
+      "value": "MISSISSIPPI DIVISION OF MEDICAID",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "DIVISION OF MEDICAID"
+    },
+    "payment_reference": {
+      "value": "04952126",
+      "confidence": 0.85,
+      "source_page": 2,
+      "source_quote": "REMITTANCE: 04952126"
+    },
+    "payment_date": {
+      "value": "01/07/08",
+      "confidence": 0.9,
+      "source_page": 2,
+      "source_quote": "DATE: 01/07/08"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "59A92",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "59A92"
+        },
+        "gross_amount": {
+          "value": "181.23",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "181.23"
+        },
+        "deduction_amount": {
+          "value": "9.06",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "9.06"
+        },
+        "net_amount": {
+          "value": "172.17",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "172.17"
+        },
+        "reason_code": {
+          "value": "0132",
+          "confidence": 0.5,
+          "source_page": 1,
+          "source_quote": "0132"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "59J19",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "59J19"
+        },
+        "gross_amount": {
+          "value": "161.28",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "161.28"
+        },
+        "deduction_amount": {
+          "value": "11.74",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "11.74"
+        },
+        "net_amount": {
+          "value": "149.54",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "149.54"
+        },
+        "reason_code": {
+          "value": "0439",
+          "confidence": 0.5,
+          "source_page": 1,
+          "source_quote": "0439"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "3719JANEAC2000",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "3719JANEAC2000"
+        },
+        "gross_amount": {
+          "value": "6,964.77",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "6,964.77"
+        },
+        "deduction_amount": {
+          "value": "4,555.11",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "4,555.11"
+        },
+        "net_amount": {
+          "value": "2,409.66",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "2,409.66"
+        },
+        "reason_code": {
+          "value": "0674",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "0674"
+        }
+      }
+    ],
+    "payment_total": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "05911b4e15970005d14217782baff6b64da5314ba67feebf35ad66a897856c31",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:09:17.599Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:09:17.599Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4811,
+    "outputTokens": 2172,
+    "costMicros": 31342,
+    "latencyMs": 19789
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "Mississippi Medicaid Provider Billing Handbook\nHeader Information for Paid/Denied Claims\nDATE: 01/14/08\nPROVIDER NO: 00099999\nREMITTANCE: 00000065\nNPI NUMBER: 1234567890\nMISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nPAID DENIED\nPAGE: 0000006\nRPT PAGE: 00007770\nREMIT SEQ: 00000996\nVISION AND HEARING\n(1) BENEFICIARY NAME\n(2) MEDICAID ID\n(3) TCN\n(4) PAT ACCT NUM\n(5) MED REC NO\n(6) DATES OF SERVICE\n(7) TOB\n(8) SVC PVDR\n(9) SERVICE PROVIDER NAME\n(10) SUBMITTED AMT\n(11) FEE REDUCTION AMT\n(12) PAT RESP AMT\n(13) TOT PAID AMT\n(14) STATUS\n(15) LINE\n(16) PROC\n(17) TYPE/DESC\n(18) M1 M2 M3 M4\n(19) REVCD\n(20) THCD\nSVC PROV\n(21)\n(22) PROV CONTROL NO\n(23) DATES OF SERVICE\n(24) LINE UNITS\n(25) LN SUBM AMOUNT\n(26) LN FEE REDUCT AMT\n(27) LN PAID AMOUNT\n(28) LN STATUS\n<table><tr><th colspan=\"2\">JOHN A BENEFICIARY</th><th colspan=\"2\">00000995588771</th><th>08000000360109867</th><th>59A92</th><th></th><th></th><th></th><th></th></tr><tr><td colspan=\"3\">01/15/08-01/15/08 11</td><td>00011111 CHARLES</td><td>Q PROVIDER</td><td>181.23</td><td>9.06</td><td></td><td>.00</td><td>172.17 PAID</td></tr><tr><td>1</td><td>99204</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>0801111114700</td><td></td></tr><tr><td colspan=\"5\">01/15/08-01/15/08 1.00 114.09</td><td>5.70</td><td colspan=\"3\">108.39 PAID</td><td>Line Item Information</td></tr><tr><td colspan=\"5\">2 V2020 HC/HCPCS/CPT CODE:</td><td></td><td>00011111</td><td></td><td>08011111114701</td><td>for</td></tr><tr><td></td><td></td><td>01/15/08-01/15/08</td><td>1.00</td><td>36.00</td><td>1.80</td><td></td><td>34.20</td><td>PAID</td><td>Paid/Denied Claims</td></tr><tr><td colspan=\"5\">3 V2100 HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08011111114702</td><td></td></tr><tr><td colspan=\"4\">01/15/08-01/15/08 1.00</td><td>19.49</td><td>.97</td><td></td><td>18.52</td><td>PAID</td><td></td></tr><tr><td>4</td><td>92340</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08011111114703</td><td></td></tr><tr><td colspan=\"3\">JIM Q BENEFICIARY 00000994488775</td><td></td><td>08000000000920007</td><td>59J19</td><td></td><td></td><td></td><td></td></tr><tr><td colspan=\"3\">01/16/08-01/16/08 11</td><td>00011111</td><td>CHARLES Q PROVIDER</td><td>161.28</td><td>11.74</td><td></td><td>3.00</td><td>149.54 PAID</td></tr><tr><td>1</td><td>92014</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08010007999991</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 76.28</td><td>6.81</td><td></td><td>69.47</td><td>PAID</td><td></td></tr><tr><td colspan=\"5\">2 92015 HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08010007999992</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 25.00</td><td>1.25</td><td></td><td>23.75</td><td>PAID</td><td></td></tr><tr><td colspan=\"5\">3 2021F HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td colspan=\"2\">08010007999993</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 0.00</td><td>.00</td><td></td><td>.00</td><td>DENY</td><td></td></tr><tr><td>(29)</td><td>EXCEPTION</td><td>CODES:</td><td>0132 0439</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>\nPaid/Denied Claims\nPage 5 of 6"
+      },
+      {
+        "page": 2,
+        "text": "Mississippi Medicaid Provider Billing Handbook\nMISSISSIPPI DIVISION OF\nMEDICAID\nSection: Remittance Advice\nDATE: 01/07/08\nPROVIDER NO: 00099999\nREMITTANCE: 04952126\nNPI NUMBER: 1234567890\nMISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nPAID / DENIED\nINPATIENT\nPAGE: 0000005\nRPT PAGE: 000013542\nREMIT SEQ: 00000480\n<table><tr><th>BENEFICIARY NAME</th><th></th><th>MEDICAID</th><th>ID</th><th>TCN</th><th></th><th>PAT ACCT NUM</th><th></th><th></th><th>MED</th><th>REC</th><th>NO</th><th></th><th></th><th></th><th></th></tr><tr><td>DATES OF SERVICE</td><td>TOB</td><td>SVC</td><td>PVDR</td><td>SERVICE PROVIDER</td><td>NAME</td><td>SUBMITTED AMT</td><td>FEE</td><td>REDUCTION</td><td>AMT</td><td>PAT</td><td>RESP AMT</td><td>TOT</td><td>PAID</td><td>AMT</td><td>STATUS</td></tr><tr><td></td><td></td><td></td><td></td><td></td><td></td><td>============\n\n==================================</td><td></td><td>===============</td><td></td><td></td><td>=============================</td><td></td><td></td><td></td><td></td></tr><tr><td>JANE A DOE</td><td></td><td>00000998877667</td><td></td><td>08001355000025107</td><td></td><td>3719JANEAC2000</td><td></td><td>3719JANEAC2000</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>12/21/07-12/23/07</td><td>111</td><td></td><td>00099999</td><td>ANYTOWN MEDICAL CENT</td><td></td><td>6,964.77</td><td></td><td>4,555.11</td><td></td><td></td><td>.00</td><td></td><td>2,409.66</td><td></td><td>PAID</td></tr><tr><td>DRG CODE: (30)</td><td></td><td>DRG</td><td>WEIGHT:</td><td>0.00000 (31)</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>EXCEPTION</td><td>CODES:</td><td></td><td>0674</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>\nPaid/Denied Claims\nPage 6 of 6"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "Mississippi Medicaid Provider Billing Handbook",
+        "page": 1,
+        "bbox": [
+          0.6627425626251503,
+          0.10855444130816336,
+          0.9518932627424487,
+          0.12620951163354663
+        ],
+        "kind": "Header",
+        "confidence": 0.8166568666696548
+      },
+      {
+        "text": "Header Information for Paid/Denied Claims",
+        "page": 1,
+        "bbox": [
+          0.12982809357232608,
+          0.1519841801721734,
+          0.38564911177590244,
+          0.1701965183099115
+        ],
+        "kind": "Figure",
+        "confidence": 0.5787493899464606
+      },
+      {
+        "text": "DATE: 01/14/08\nPROVIDER NO: 00099999\nREMITTANCE: 00000065\nNPI NUMBER: 1234567890",
+        "page": 1,
+        "bbox": [
+          0.042814944648377096,
+          0.18825612358568172,
+          0.19519879900831433,
+          0.2543893665964383
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8267911195755004
+      },
+      {
+        "text": "MISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nPAID DENIED",
+        "page": 1,
+        "bbox": [
+          0.38524401369856853,
+          0.19294130132658247,
+          0.5570024003520377,
+          0.2545008202816442
+        ],
+        "kind": "Text",
+        "confidence": 0.7554268121719361
+      },
+      {
+        "text": "PAGE: 0000006\nRPT PAGE: 00007770\nREMIT SEQ: 00000996",
+        "page": 1,
+        "bbox": [
+          0.7956019664758178,
+          0.19259868494956497,
+          0.9291312175409744,
+          0.2421336026346383
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7902421355247498
+      },
+      {
+        "text": "VISION AND HEARING",
+        "page": 1,
+        "bbox": [
+          0.6567490251965319,
+          0.2426330796302102,
+          0.7840774052010803,
+          0.2576173922589027
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7539648652076721
+      },
+      {
+        "text": "(1) BENEFICIARY NAME\n(2) MEDICAID ID\n(3) TCN\n(4) PAT ACCT NUM\n(5) MED REC NO\n(6) DATES OF SERVICE\n(7) TOB\n(8) SVC PVDR\n(9) SERVICE PROVIDER NAME\n(10) SUBMITTED AMT\n(11) FEE REDUCTION AMT\n(12) PAT RESP AMT\n(13) TOT PAID AMT\n(14) STATUS\n(15) LINE\n(16) PROC\n(17) TYPE/DESC\n(18) M1 M2 M3 M4\n(19) REVCD\n(20) THCD\nSVC PROV\n(21)\n(22) PROV CONTROL NO\n(23) DATES OF SERVICE\n(24) LINE UNITS\n(25) LN SUBM AMOUNT\n(26) LN FEE REDUCT AMT\n(27) LN PAID AMOUNT\n(28) LN STATUS",
+        "page": 1,
+        "bbox": [
+          0.04119136264967644,
+          0.26824675975534135,
+          0.951832657488643,
+          0.36072019547405565
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9819265127182006
+      },
+      {
+        "text": "<table><tr><th colspan=\"2\">JOHN A BENEFICIARY</th><th colspan=\"2\">00000995588771</th><th>08000000360109867</th><th>59A92</th><th></th><th></th><th></th><th></th></tr><tr><td colspan=\"3\">01/15/08-01/15/08 11</td><td>00011111 CHARLES</td><td>Q PROVIDER</td><td>181.23</td><td>9.06</td><td></td><td>.00</td><td>172.17 PAID</td></tr><tr><td>1</td><td>99204</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>0801111114700</td><td></td></tr><tr><td colspan=\"5\">01/15/08-01/15/08 1.00 114.09</td><td>5.70</td><td colspan=\"3\">108.39 PAID</td><td>Line Item Information</td></tr><tr><td colspan=\"5\">2 V2020 HC/HCPCS/CPT CODE:</td><td></td><td>00011111</td><td></td><td>08011111114701</td><td>for</td></tr><tr><td></td><td></td><td>01/15/08-01/15/08</td><td>1.00</td><td>36.00</td><td>1.80</td><td></td><td>34.20</td><td>PAID</td><td>Paid/Denied Claims</td></tr><tr><td colspan=\"5\">3 V2100 HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08011111114702</td><td></td></tr><tr><td colspan=\"4\">01/15/08-01/15/08 1.00</td><td>19.49</td><td>.97</td><td></td><td>18.52</td><td>PAID</td><td></td></tr><tr><td>4</td><td>92340</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08011111114703</td><td></td></tr><tr><td colspan=\"3\">JIM Q BENEFICIARY 00000994488775</td><td></td><td>08000000000920007</td><td>59J19</td><td></td><td></td><td></td><td></td></tr><tr><td colspan=\"3\">01/16/08-01/16/08 11</td><td>00011111</td><td>CHARLES Q PROVIDER</td><td>161.28</td><td>11.74</td><td></td><td>3.00</td><td>149.54 PAID</td></tr><tr><td>1</td><td>92014</td><td colspan=\"3\">HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08010007999991</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 76.28</td><td>6.81</td><td></td><td>69.47</td><td>PAID</td><td></td></tr><tr><td colspan=\"5\">2 92015 HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td></td><td>08010007999992</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 25.00</td><td>1.25</td><td></td><td>23.75</td><td>PAID</td><td></td></tr><tr><td colspan=\"5\">3 2021F HC/HCPCS/CPT CODE</td><td></td><td>00011111</td><td colspan=\"2\">08010007999993</td><td></td></tr><tr><td colspan=\"5\">01/16/08-01/16/08 1.00 0.00</td><td>.00</td><td></td><td>.00</td><td>DENY</td><td></td></tr><tr><td>(29)</td><td>EXCEPTION</td><td>CODES:</td><td>0132 0439</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.040843679958957047,
+          0.3623754870026162,
+          0.9526619920758781,
+          0.8932700950292236
+        ],
+        "kind": "Table",
+        "confidence": 0.8109060951405103
+      },
+      {
+        "text": "Paid/Denied Claims",
+        "page": 1,
+        "bbox": [
+          0.4170011494732859,
+          0.9272840716315026,
+          0.5334110204151399,
+          0.939841173292169
+        ],
+        "kind": "Footer",
+        "confidence": 0.7996103346347809
+      },
+      {
+        "text": "Page 5 of 6",
+        "page": 1,
+        "bbox": [
+          0.4435589953494016,
+          0.9470732712378295,
+          0.5060589271571962,
+          0.9663217146718225
+        ],
+        "kind": "Footer",
+        "confidence": 0.8058740615844726
+      },
+      {
+        "text": "Mississippi Medicaid Provider Billing Handbook",
+        "page": 2,
+        "bbox": [
+          0.041325920050323726,
+          0.11554127929208888,
+          0.329335639459959,
+          0.1364384699744792
+        ],
+        "kind": "Header",
+        "confidence": 0.7862251996994019
+      },
+      {
+        "text": "MISSISSIPPI DIVISION OF\nMEDICAID",
+        "page": 2,
+        "bbox": [
+          0.8480374153650464,
+          0.05111650862540973,
+          0.949204451806959,
+          0.18048868235059776
+        ],
+        "kind": "Figure",
+        "confidence": 0.9694421231746674
+      },
+      {
+        "text": "Section: Remittance Advice",
+        "page": 2,
+        "bbox": [
+          0.04176530694927502,
+          0.165310611107938,
+          0.2042933264099636,
+          0.18035693643181716
+        ],
+        "kind": "Title",
+        "confidence": 0.6216086402535439
+      },
+      {
+        "text": "DATE: 01/07/08\nPROVIDER NO: 00099999\nREMITTANCE: 04952126\nNPI NUMBER: 1234567890",
+        "page": 2,
+        "bbox": [
+          0.04056671704573174,
+          0.23265428971972552,
+          0.21204718486302632,
+          0.2988079090370951
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9256211042404174
+      },
+      {
+        "text": "MISSISSIPPI ENVISION MMIS\nDIVISION OF MEDICAID\nREMITTANCE ADVICE\nPAID / DENIED",
+        "page": 2,
+        "bbox": [
+          0.35873326518411425,
+          0.22818115880902362,
+          0.5538484272069404,
+          0.2946983209993924
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8456650495529174
+      },
+      {
+        "text": "INPATIENT",
+        "page": 2,
+        "bbox": [
+          0.6518936556794082,
+          0.27499802540189294,
+          0.7223213756463716,
+          0.2901959823414783
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8283239364624023
+      },
+      {
+        "text": "PAGE: 0000005\nRPT PAGE: 000013542\nREMIT SEQ: 00000480",
+        "page": 2,
+        "bbox": [
+          0.7986949850231718,
+          0.2213471742082352,
+          0.947009918220649,
+          0.27224566400242256
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9471735239028931
+      },
+      {
+        "text": "<table><tr><th>BENEFICIARY NAME</th><th></th><th>MEDICAID</th><th>ID</th><th>TCN</th><th></th><th>PAT ACCT NUM</th><th></th><th></th><th>MED</th><th>REC</th><th>NO</th><th></th><th></th><th></th><th></th></tr><tr><td>DATES OF SERVICE</td><td>TOB</td><td>SVC</td><td>PVDR</td><td>SERVICE PROVIDER</td><td>NAME</td><td>SUBMITTED AMT</td><td>FEE</td><td>REDUCTION</td><td>AMT</td><td>PAT</td><td>RESP AMT</td><td>TOT</td><td>PAID</td><td>AMT</td><td>STATUS</td></tr><tr><td></td><td></td><td></td><td></td><td></td><td></td><td>============\n\n==================================</td><td></td><td>===============</td><td></td><td></td><td>=============================</td><td></td><td></td><td></td><td></td></tr><tr><td>JANE A DOE</td><td></td><td>00000998877667</td><td></td><td>08001355000025107</td><td></td><td>3719JANEAC2000</td><td></td><td>3719JANEAC2000</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>12/21/07-12/23/07</td><td>111</td><td></td><td>00099999</td><td>ANYTOWN MEDICAL CENT</td><td></td><td>6,964.77</td><td></td><td>4,555.11</td><td></td><td></td><td>.00</td><td></td><td>2,409.66</td><td></td><td>PAID</td></tr><tr><td>DRG CODE: (30)</td><td></td><td>DRG</td><td>WEIGHT:</td><td>0.00000 (31)</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>EXCEPTION</td><td>CODES:</td><td></td><td>0674</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></table>",
+        "page": 2,
+        "bbox": [
+          0.04061617806205835,
+          0.2926680741407684,
+          0.9517255241779912,
+          0.4674327715122172
+        ],
+        "kind": "Table",
+        "confidence": 0.5500498588596072
+      },
+      {
+        "text": "Paid/Denied Claims",
+        "page": 2,
+        "bbox": [
+          0.42516856654016444,
+          0.9295784322189575,
+          0.5422380479262978,
+          0.9431413783036274
+        ],
+        "kind": "Footer",
+        "confidence": 0.8735044538974761
+      },
+      {
+        "text": "Page 6 of 6",
+        "page": 2,
+        "bbox": [
+          0.4526338502723125,
+          0.9511822012759277,
+          0.514598930229042,
+          0.9686024306345045
+        ],
+        "kind": "Footer",
+        "confidence": 0.8461509108543397
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 18102
+  }
+}

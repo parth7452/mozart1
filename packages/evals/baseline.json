@@ -1,11 +1,11 @@
 {
-  "recordedAt": "2026-09-25T06:51:13.055Z",
+  "recordedAt": "2026-09-25T07:14:02.754Z",
   "extractModel": "claude-sonnet-5",
-  "recall": 0.99,
-  "precision": 0.9922048997772829,
-  "groundedRate": 0.9934149098638436,
+  "recall": 0.9865424430641822,
+  "precision": 0.9885892116182573,
+  "groundedRate": 0.9679245341538745,
   "classificationAccuracy": 1,
-  "totalCostMicros": 1839644,
+  "totalCostMicros": 2094696,
   "suites": {
     "authored": {
       "recall": 1,
@@ -76,9 +76,13 @@
       "groundedRate": 0.9894736842105264,
       "classificationAccuracy": 1,
       "documents": 10
+    },
+    "public_scanned": {
+      "recall": 0.9393939393939394,
+      "precision": 0.9393939393939394,
+      "groundedRate": 0.7971390168970813,
+      "classificationAccuracy": 1,
+      "documents": 10
     }
-  },
-  "pendingSuites": {
-    "public_scanned": "not yet recorded: 10 fixture documents, no cassettes. `pnpm record:cassettes --suite public_scanned` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }
