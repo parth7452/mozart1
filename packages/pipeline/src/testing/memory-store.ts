@@ -41,7 +41,7 @@ import type {
   KnownIdentifier,
   PacketDocument,
 } from '@recouple/core-domain';
-import { DOC_TYPES, restoreDocument } from '@recouple/extraction';
+import { DOC_TYPES, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
@@ -326,7 +326,9 @@ export class InMemoryStore
     documentId: string,
     pages: readonly { readonly page: number; readonly text: string }[],
   ): Promise<void> {
-    this.pages.set(documentId, [...pages].sort((a, b) => a.page - b.page).map((p) => p.text));
+    // By page number, as `PostgresStore.pagesFor` answers: a page with no text
+    // is '' and does not shift the pages after it (`textByPage`).
+    this.pages.set(documentId, textByPage(pages));
   }
 
   async pagesFor(documentId: string): Promise<readonly string[] | undefined> {

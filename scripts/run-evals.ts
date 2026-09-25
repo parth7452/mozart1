@@ -24,6 +24,7 @@ import {
   classifierPromptSha256,
   locateQuote,
   modelFor,
+  textByPage,
   type Cassette,
   type DocType,
   type DocumentPayload,
@@ -150,7 +151,7 @@ for (const fixture of documents) {
   // A scan's text layer is the one OCR produced; replaying it means the score
   // covers the whole pipeline rather than extraction in isolation (ADR 0009).
   const cassette = cassettes.get(fixture.key);
-  const ocrPages = cassette?.ocr?.pages.map((page) => page.text);
+  const ocrPages = cassette?.ocr === undefined ? undefined : textByPage(cassette.ocr.pages);
   const payload: DocumentPayload = {
     documentId: fixture.key,
     orgId: 'eval',

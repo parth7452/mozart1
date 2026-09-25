@@ -5,6 +5,8 @@ import { checkQuote, groundingReport, ungroundedFields, verifyQuotes } from '../
 import { locateQuote } from '../src/ocr';
 import { buildReadContent } from '../src/prompt';
 import { costMicros, modelFor } from '../src/models';
+import { buildExtractionResult } from '../src/claude';
+import type { ModelCallRecord } from '../src/ports';
 
 const field = (value: unknown, quote: string, page = 1, confidence = 0.9) => ({
   value,
@@ -235,6 +237,59 @@ describe('a quote cited to a page the document does not have', () => {
     expect(checkQuote('AMOUNT DUE: 392.70', 2, onePage).verified).toBe(false);
     expect(checkQuote('PO NUMBER: WEB2454487478', 3, onePage).verified).toBe(false);
     expect(checkQuote('AMOUNT DUE: -392.07', 2, onePage).verified).toBe(false);
+  });
+
+  it('counts a page with no text as a page, so the pages after it keep their numbers', () => {
+    // As `textByPage` builds a duplex scan whose blank back OCR reported nothing for.
+    const duplex = ['Deduction notice', '', 'Remit stub\nDeduction $3,120.00'];
+    const onPage3 = checkQuote('Deduction $3,120.00', 3, duplex);
+    expect(onPage3).toMatchObject({ verified: true, matchedBy: 'exact' });
+    expect(onPage3.foundOnPage).toBeUndefined();
+    expect(checkQuote('Deduction $3,120.00', 4, duplex)).toMatchObject({ verified: true, foundOnPage: 3 });
+    // Cited to the blank page itself: a page that exists, so looked for there only.
+    expect(checkQuote('Deduction $3,120.00', 2, duplex).verified).toBe(false);
+  });
+
+  it('writes the model’s own page onto the extraction’s model call, and nothing off the page', () => {
+    // `extraction_results` stores the page the quote is on and has no column
+    // for the page the model named, so the model call is where it is kept.
+    const call: ModelCallRecord = {
+      purpose: 'extract',
+      provider: 'anthropic',
+      modelVersion: 'claude-sonnet-5',
+      costMicros: 0,
+      latencyMs: 0,
+      outcome: 'ok',
+    };
+    const moved = buildExtractionResult({
+      docType: 'invoice',
+      extractor: 'test',
+      document: { invoice_number: field('9823373304', 'INVOICE NUMBER: 9823373304', 2) },
+      pageText: onePage,
+      call,
+    });
+    expect(moved.call.detail).toBe(
+      'cited a page past the last page of the 1-page text layer; each quote found on one page only: ' +
+        'invoice_number p2→p1',
+    );
+    expect(moved.call.detail).not.toContain('9823373304');
+    const cited = buildExtractionResult({
+      docType: 'invoice',
+      extractor: 'test',
+      document: { invoice_number: field('9823373304', 'INVOICE NUMBER: 9823373304', 1) },
+      pageText: onePage,
+      call,
+    });
+    expect(cited.call).toBe(call);
+    // A schema mismatch keeps its own detail first.
+    const both = buildExtractionResult({
+      docType: 'invoice',
+      extractor: 'test',
+      document: { invoice_number: field('9823373304', 'INVOICE NUMBER: 9823373304', 2) },
+      pageText: onePage,
+      call: { ...call, outcome: 'schema_mismatch', detail: 'lines: Required' },
+    });
+    expect(both.call.detail).toMatch(/^lines: Required; cited a page/);
   });
 
   it('never searches when the cited page exists, even when the quote is on another', () => {

@@ -51,6 +51,37 @@ export class OcrError extends Error {
 }
 
 /**
+ * A text layer as `checkQuote` reads it: entry `i` is page `i + 1`.
+ *
+ * Reducto reports only the pages it found text on, so a duplex scan's blank
+ * back comes back as no page at all. Read by position, as every caller did,
+ * the page after a blank one moved up a place: a field quoted from page 3 was
+ * checked against page 2's slot, and once a citation past the end could be
+ * moved to the one page holding its quote, a right citation to page 3 could be
+ * stored as page 2 — the blank one — and marked verified. A page with no text
+ * is `''` here instead, so every page keeps its own number. A blank page
+ * *after* the last one with text is simply past the end.
+ *
+ * A page number that is not a whole number from 1, or one given twice, is an
+ * error, not a page to skip: `document_pages` refuses both too.
+ */
+export function textByPage(
+  pages: readonly { readonly page: number; readonly text: string }[],
+): string[] {
+  const byNumber: string[] = [];
+  for (const { page, text } of pages) {
+    if (!Number.isInteger(page) || page < 1) {
+      throw new RangeError(`a text layer page must be a whole number from 1, got ${page}`);
+    }
+    if (byNumber[page - 1] !== undefined) {
+      throw new RangeError(`the text layer has page ${page} twice`);
+    }
+    byNumber[page - 1] = text;
+  }
+  return Array.from(byNumber, (text) => text ?? '');
+}
+
+/**
  * As `checkQuote`'s `separator` tier reads a page: case and spacing folded, a
  * column rule one glyph whichever way it was drawn, a table's cells and rows
  * the spaces they print as, and every dash a hyphen (`asLaidOut`), so a quote

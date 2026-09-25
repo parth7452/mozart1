@@ -62,6 +62,7 @@ import {
   modelFor,
   ocrFromEnv,
   OcrError,
+  textByPage,
   withClassification,
   type Cassette,
   type ClassificationResult,
@@ -252,7 +253,7 @@ if (classifyOnly) {
       process.exitCode = 1;
       continue;
     }
-    const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const ocrPages = recorded.ocr === undefined ? undefined : textByPage(recorded.ocr.pages);
     const base = admitted(fixture, 'classify');
     if (base === undefined) continue;
     const payload: DocumentPayload = {
@@ -322,7 +323,7 @@ if (extractOnly) {
       process.exitCode = 1;
       continue;
     }
-    const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const ocrPages = recorded.ocr === undefined ? undefined : textByPage(recorded.ocr.pages);
     const base = admitted(fixture, 'extract');
     if (base === undefined) continue;
     const payload: DocumentPayload = {
@@ -431,7 +432,7 @@ for (const fixture of documents) {
       totalMicros += ocrResult.call.costMicros;
       payload = {
         ...payload,
-        pageText: ocrResult.pages.map((page) => page.text),
+        pageText: textByPage(ocrResult.pages),
         pageTextSource: 'ocr',
       };
       console.log(

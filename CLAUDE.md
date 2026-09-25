@@ -1388,7 +1388,8 @@ through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
 since closed the gaps (98.5%). A quote that cites a page the document does not
 have is looked for on the pages it does have, and verifies only when exactly
 one holds it; the field is re-pointed there, with the model's page kept as
-`citedPage` in memory (Grainger's one-page scan cited page 2 for every field).
+`citedPage` and named on the extraction's `model_calls.detail` (Grainger's
+one-page scan cited page 2 for every field).
 From the `separator` tier on, a page is read as laid out (`asLaidOut`): table
 cells and rows are spaces, so a quoted table row matches Reducto's HTML cells,
 and every dash is `-`. Two numbers stay two (`$39 $175` is never `$39175`), and a
@@ -1487,3 +1488,20 @@ specifications read as price agreements, so the classifier now says an agreement
 must fix a price, and that an effective date or "supersedes" does not make one.
 Re-asked ($0.39 for the 77 corpus documents, still 77 of 77; $0.18 for sixty of
 the scans), three of five specifications moved to `other`; the budgets did not.
+
+**A page keeps its number when the page before it is blank** (no ADR, no
+migration). Reducto reports no page it found no text on, and the pipeline,
+`pagesFor` and the memory store all read the text layer by position, so after a
+duplex scan's blank back every later page answered to the number before its
+own: a quote cited to page 3 was checked against page 2's slot, and once a
+citation past the end could be re-pointed, a right citation to page 3 could be
+stored as page 2 — the blank one — and marked verified. `textByPage` (`ocr.ts`)
+builds the layer by page number, `''` for a page with no text, wherever one is
+made or read back (`readablePayload`, `PostgresStore.pagesFor`, the memory
+store, `pnpm eval`, `pnpm record:cassettes`); no recorded cassette has a gap,
+so the eval does not move. And `extraction_results` has no column for the page
+the model named and `document` is not stored, so a re-pointed field would have
+lost it after the read; `buildExtractionResult` now names each one on the
+extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
+page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
+read a duplex scan through the pipeline and back out of Postgres.

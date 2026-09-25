@@ -160,3 +160,104 @@ describe('a scanned notice through the whole of processUpload', () => {
     }
   });
 });
+
+describe('a scan with a blank page before the last', () => {
+  /**
+   * A duplex scan: the notice on page 1, a blank back on page 2, the remittance
+   * stub on page 3. Reducto reports only the pages it found text on, so it
+   * answers pages 1 and 3. Read by position, page 3 was the second entry: a
+   * quote cited to page 3 was refused as past the end, and once a citation past
+   * the end could be moved, it would have been moved to page 2 — the blank one.
+   */
+  class DuplexOcr extends FakeOcr {
+    override async ocr(document: DocumentPayload): Promise<OcrResult> {
+      const read = await super.ocr(document);
+      return {
+        ...read,
+        pages: [
+          { page: 1, text: 'Deduction notice\nClaim APDP-99812' },
+          { page: 3, text: 'Remit stub\nDeduction $3,120.00\nRetailer Walmart' },
+        ],
+        blocks: [],
+      };
+    }
+  }
+
+  function citingPage(page: number): Extractor {
+    return {
+      name: 'quoting',
+      async extract(document: DocumentPayload, docType: DocType): Promise<ExtractionResult> {
+        return buildExtractionResult({
+          docType,
+          extractor: 'quoting',
+          pageText: document.pageText,
+          document: {
+            claim_id: { value: 'APDP-99812', confidence: 0.99, source_page: 1, source_quote: 'Claim APDP-99812' },
+            deduction_amount: { value: '$3,120.00', confidence: 0.99, source_page: page, source_quote: 'Deduction $3,120.00' },
+          },
+          call: {
+            purpose: 'extract',
+            provider: 'anthropic',
+            modelVersion: 'fixture',
+            documentId: document.documentId,
+            costMicros: 0,
+            latencyMs: 1,
+            outcome: 'ok',
+          },
+        });
+      },
+    };
+  }
+
+  function duplex(extractor: Extractor) {
+    const store = new InMemoryStore();
+    return {
+      store,
+      deps: {
+        store,
+        scanner: new AlwaysCleanScanner(),
+        classifier: new NoticeClassifier(),
+        extractor,
+        ocr: new DuplexOcr(),
+        now: () => new Date('2026-09-18T00:00:00Z'),
+      } satisfies PipelineDeps,
+    };
+  }
+
+  it('keeps every page at its own number, the blank one as empty text', async () => {
+    const { deps: d, store } = duplex(citingPage(3));
+    const result = await processUpload(scanUpload, d);
+    const documentId = result.ingest.document.documentId;
+    expect(await store.pagesFor(documentId)).toEqual([
+      'Deduction notice\nClaim APDP-99812',
+      '',
+      'Remit stub\nDeduction $3,120.00\nRetailer Walmart',
+    ]);
+  });
+
+  it('verifies a quote cited to the page after the blank one, where it is', async () => {
+    const { deps: d } = duplex(citingPage(3));
+    const result = await processUpload(scanUpload, d);
+    const amount = result.extraction?.fields.find((f) => f.fieldPath === 'deduction_amount');
+    expect(amount).toMatchObject({ sourcePage: 3, quoteVerified: true });
+    expect(amount?.citedPage).toBeUndefined();
+  });
+
+  it('moves a citation past the last page to the page that holds the quote, never the blank one', async () => {
+    const { deps: d, store } = duplex(citingPage(4));
+    const result = await processUpload(scanUpload, d);
+    const amount = result.extraction?.fields.find((f) => f.fieldPath === 'deduction_amount');
+    expect(amount).toMatchObject({ sourcePage: 3, citedPage: 4, quoteVerified: true });
+    const stored = store.extractions.flatMap((row) => row.fields).find((f) => f.fieldPath === 'deduction_amount');
+    expect(stored?.sourcePage).toBe(3);
+    const extract = store.modelCalls.find((call) => call.provider === 'anthropic' && call.purpose === 'extract');
+    expect(extract?.detail).toContain('deduction_amount p4→p3');
+  });
+
+  it('still refuses a quote cited to the blank page itself', async () => {
+    const { deps: d } = duplex(citingPage(2));
+    const result = await processUpload(scanUpload, d);
+    const amount = result.extraction?.fields.find((f) => f.fieldPath === 'deduction_amount');
+    expect(amount).toMatchObject({ sourcePage: 2, quoteVerified: false });
+  });
+});

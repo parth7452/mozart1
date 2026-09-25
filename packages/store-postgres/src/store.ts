@@ -38,7 +38,7 @@ import type {
   KnownDeduction,
   KnownIdentifier,
 } from '@recouple/core-domain';
-import { restoreDocument } from '@recouple/extraction';
+import { restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
@@ -1688,13 +1688,16 @@ export class PostgresStore
 
   async pagesFor(documentId: string): Promise<readonly string[] | undefined> {
     return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ text_layer: string | null }>(
-        `select text_layer from document_pages
+      // By page number, not by row: OCR stores no row for a page it found no
+      // text on, and read by position the page after it would take its number
+      // (`textByPage`).
+      const { rows } = await client.query<{ page_number: number; text_layer: string | null }>(
+        `select page_number, text_layer from document_pages
           where document_id = $1 order by page_number asc`,
         [documentId],
       );
       if (rows.length === 0) return undefined;
-      return rows.map((row) => row.text_layer ?? '');
+      return textByPage(rows.map((row) => ({ page: row.page_number, text: row.text_layer ?? '' })));
     });
   }
 

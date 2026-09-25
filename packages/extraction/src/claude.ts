@@ -20,6 +20,7 @@ import {
   type ClassificationResult,
   type DocType,
   type DocumentPayload,
+  type ExtractedField,
   type Extractor,
   type ExtractionResult,
   type ModelCallRecord,
@@ -310,6 +311,12 @@ export class ClaudeExtractor implements Extractor {
  * Turns a validated document object into a result: flatten to fields, then check
  * every quote against the page it cites. Shared by the live extractor and the
  * cassette replay so evals score exactly what production would produce.
+ *
+ * A field `verifyQuotes` moved off a page past the end of the text layer is named
+ * on the call's `detail`, with the page the model cited and the page that
+ * holds the quote. That call is the `model_calls` row for this read, so the
+ * model's own citation outlives the read even though `extraction_results`
+ * stores the page the quote is actually on.
  */
 export function buildExtractionResult(input: {
   docType: DocType;
@@ -321,6 +328,8 @@ export function buildExtractionResult(input: {
   issues?: readonly ReassemblyIssue[];
 }): ExtractionResult {
   const fields = verifyQuotes(flattenExtraction(input.document), input.pageText);
+  const moved = citedPagesMissing(fields, input.pageText?.length ?? 0);
+  const detail = [input.call.detail, moved].filter((part) => part !== undefined).join('; ');
   return {
     docType: input.docType,
     schemaVersion: SCHEMA_VERSION,
@@ -329,6 +338,30 @@ export function buildExtractionResult(input: {
     document: input.document,
     validated: input.validated ?? true,
     issues: input.issues ?? [],
-    call: input.call,
+    call: detail === '' ? input.call : { ...input.call, detail },
   };
+}
+
+/** How many moved fields a call's `detail` names before it counts the rest. */
+const MOVED_FIELDS_NAMED = 8;
+
+/**
+ * The fields cited to a page past the text layer's end and found on one in it, as
+ * schema paths and page numbers — nothing off the page. Undefined when none.
+ */
+function citedPagesMissing(
+  fields: readonly ExtractedField[],
+  pages: number,
+): string | undefined {
+  const moved = fields.filter((field) => field.citedPage !== undefined);
+  if (moved.length === 0) return undefined;
+  const named = moved
+    .slice(0, MOVED_FIELDS_NAMED)
+    .map((field) => `${field.fieldPath} p${field.citedPage}→p${field.sourcePage}`);
+  const rest = moved.length - named.length;
+  return (
+    `cited a page past the last page of the ${pages}-page text layer; each quote found on one page only: ` +
+    named.join(', ') +
+    (rest > 0 ? `, and ${rest} more` : '')
+  );
 }

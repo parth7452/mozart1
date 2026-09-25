@@ -84,10 +84,10 @@ export interface ExtractedField {
    * the quote on exactly one page it does (`verifyQuotes`). `sourcePage` is
    * then that page, which is what a box, a reviewer and the stored row follow.
    *
-   * In memory only. `extraction_results` has no column for it, so the stored
-   * row carries the page the quote is on; the model's own citation stays in
-   * the extraction's `document`, which this read reassembled from the model's
-   * answer and which is never rewritten.
+   * `extraction_results` has no column for it, so the stored row carries the
+   * page the quote is on, and `document` is not stored at all. The model's own
+   * citation is kept on the extraction's `model_calls` row instead
+   * (`buildExtractionResult` names each moved field in `detail`).
    */
   readonly citedPage?: number;
   readonly sourceQuote: string;
