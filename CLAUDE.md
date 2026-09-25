@@ -1394,9 +1394,12 @@ check is right to refuse.
 no migration). `parseMoneyToCents` read two decimal places or none, so
 Oklahoma County's `$6,721.8000` — exactly 672,180 cents — was unreadable. It now
 reads digits past the cents when every one is `0`, and nothing is rounded:
-four or more places always, three only after a whole part grouped by commas
-(`1.000` could be a thousand with a point for the separator; `1,234.500`
-cannot). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
+four or more places, never three. `1.000` could be a thousand with a point
+for the separator, and after a comma `$1,500.000` is likelier `$1,500,000`
+with its last comma misread as a point than $1,500.00 — a thousandth of the
+amount, and a quote check cannot catch it, because the quote matches the
+misread page (the first version read three places after a comma; a review
+closed it). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
 and is still refused, and so is one decimal place (`6,721.8`): the quote check
 matches anywhere on the page, so a quote cut short of `$6,721.85` would verify.
 Every newly read form's two-place prefix already read as the same cents, so a
