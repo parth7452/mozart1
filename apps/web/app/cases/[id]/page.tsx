@@ -7,6 +7,7 @@ import { isUuid } from '../../../lib/request';
 import { aboutFrom } from '../../../lib/notices';
 import { mayApprove, workflowStoreFor } from '../../../lib/workflow';
 import { CaseReview } from '../../../components/case-review';
+import { viewerOf } from '../../../lib/viewer';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,7 +108,7 @@ export default async function CasePage({
 
     return (
       <CaseReview
-        viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
+        viewer={viewerOf(session)}
         summary={summary}
         documents={documents}
         fields={fields}

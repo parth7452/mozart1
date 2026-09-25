@@ -419,6 +419,16 @@ button:disabled { cursor: wait; opacity: .65; }
 .viewer > div { min-width: 0; }
 .viewer-email { display: block; font-size: 11px; overflow-wrap: anywhere; }
 .viewer-role { display: block; color: #9aa7bb; font-size: 10px; text-transform: capitalize; margin-top: 2px; }
+.sign-out { padding: 12px 0 0 42px; }
+.sign-out button { background: none; border: 0; padding: 0; color: #a6b1c2; font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.sign-out button:hover, .sign-out button:focus-visible { color: var(--lime); }
+.workspace-switcher { margin-top: 18px; }
+.workspace-switcher ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.workspace-switcher button, .workspace-current { display: block; width: 100%; text-align: left; padding: 8px 12px; border-radius: 5px; font: inherit; font-size: 12px; overflow-wrap: anywhere; }
+.workspace-switcher button { background: none; border: 1px solid transparent; color: #e3e7ee; cursor: pointer; }
+.workspace-switcher button:hover, .workspace-switcher button:focus-visible { border-color: #344057; color: var(--lime); }
+.workspace-current { color: #9aa7bb; }
+.workspace-current-mark { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-left: 4px; }
 .workspace-body { min-width: 0; }
 .workspace-top { display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 18px 40px; border-bottom: 1px solid var(--line); background: #fcfdfb; font-size: 12px; gap: 16px; }
 .workspace-top > div { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
@@ -563,7 +573,7 @@ dl.fields .quote { border-left: 2px solid #d9e2ce; padding-left: 9px; margin-top
   .workspace { display: block; }
   .sidebar { height: auto; position: relative; padding: 18px 22px; flex-direction: row; align-items: center; justify-content: space-between; gap: 18px; }
   .sidebar .brand-link { margin: 0; }.wordmark { font-size: 30px; }
-  .workspace-label, .sidebar nav, .sidebar-bottom { display: none; }
+  .workspace-label, .sidebar nav, .sidebar-bottom, .workspace-switcher { display: none; }
   .organization { border: 0; padding: 0; font-size: 11px; max-width: 60%; }.org-avatar { display: none; }
   .workspace-top { min-height: 55px; padding: 15px 22px; font-size: 10px; }.workspace-status { display: none; }
   .workspace-top > div { gap: 10px; }

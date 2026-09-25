@@ -3,6 +3,7 @@ import { requireSession, storeFor } from '../../../lib/session';
 import { env } from '../../../lib/env';
 import { mayConnectLedger, qboConnectFromEnv } from '../../../lib/qbo-connect';
 import { LedgerConnectionPage } from '../../../components/ledger-connection';
+import { viewerOf } from '../../../lib/viewer';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export default async function QuickBooksSettingsPage({
     const runs = new PostgresLedgerSyncStore({ connectionString: env.databaseUrl }, identity, store);
     return (
       <LedgerConnectionPage
-        viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
+        viewer={viewerOf(session)}
         connections={await runs.ledgerConnectionOverview()}
         mayConnect={mayConnectLedger(session.org.role)}
         deployment={
