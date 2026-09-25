@@ -1,0 +1,1023 @@
+{
+  "key": "eb-stephenville-axon-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:46:40.430Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "INUS246402",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice ID INUS246402"
+    },
+    "invoice_date": {
+      "value": "01-May-24",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Date 01-May-24"
+    },
+    "po_number": {
+      "value": "Q-390730",
+      "confidence": 0.7,
+      "source_page": 1,
+      "source_quote": "Your Ref Q-390730,"
+    },
+    "customer_name": {
+      "value": "Stephenville Police Dept.- TX",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Stephenville Police Dept.- TX"
+    },
+    "invoice_total": {
+      "value": "67,215.25",
+      "confidence": 0.98,
+      "source_page": 8,
+      "source_quote": "Total 67,215.25"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "72036",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "72036"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73840",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "73840"
+        },
+        "qty": {
+          "value": 34,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "34.00"
+        },
+        "unit_cost": {
+          "value": "900.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "900.00"
+        },
+        "extended_amount": {
+          "value": "6,120.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "6,120.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73683",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "73683"
+        },
+        "qty": {
+          "value": 34,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "34.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73746",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "73746"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "2,340.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "2,340.00"
+        },
+        "extended_amount": {
+          "value": "6,552.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "6,552.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73683",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "73683"
+        },
+        "qty": {
+          "value": 42,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "42.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80464",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "80464"
+        },
+        "qty": {
+          "value": 45,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "45.00"
+        },
+        "unit_cost": {
+          "value": "520.90",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "520.90"
+        },
+        "extended_amount": {
+          "value": "4,688.10",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "4,688.10"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73309",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "73309"
+        },
+        "qty": {
+          "value": 46,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "46.00"
+        },
+        "unit_cost": {
+          "value": "551.25",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "551.25"
+        },
+        "extended_amount": {
+          "value": "5,071.50",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "5,071.50"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73310",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "73310"
+        },
+        "qty": {
+          "value": 46,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "46.00"
+        },
+        "unit_cost": {
+          "value": "571.33",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "571.33"
+        },
+        "extended_amount": {
+          "value": "5,256.24",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "5,256.24"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80464",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "80464"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "1.00"
+        },
+        "unit_cost": {
+          "value": "520.90",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "520.90"
+        },
+        "extended_amount": {
+          "value": "104.18",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "104.18"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73686",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "73686"
+        },
+        "qty": {
+          "value": 45,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "45.00"
+        },
+        "unit_cost": {
+          "value": "1,440.00",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "1,440.00"
+        },
+        "extended_amount": {
+          "value": "12,960.00",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "12,960.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80465",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "80465"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "496.93",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "496.93"
+        },
+        "extended_amount": {
+          "value": "596.32",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "596.32"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73689",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "73689"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "625.10",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "625.10"
+        },
+        "extended_amount": {
+          "value": "750.12",
+          "confidence": 0.98,
+          "source_page": 2,
+          "source_quote": "750.12"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73688",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "73688"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "647.97",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "647.97"
+        },
+        "extended_amount": {
+          "value": "777.56",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "777.56"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80466",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "80466"
+        },
+        "qty": {
+          "value": 5,
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "5.00"
+        },
+        "unit_cost": {
+          "value": "233.86",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "233.86"
+        },
+        "extended_amount": {
+          "value": "233.86",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "233.86"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80400",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "80400"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "1,015.57",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "1,015.57"
+        },
+        "extended_amount": {
+          "value": "3,138.39",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "3,138.39"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73391",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "73391"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "1,015.57",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "1,015.57"
+        },
+        "extended_amount": {
+          "value": "3,138.39",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "3,138.39"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "50041",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "50041"
+        },
+        "qty": {
+          "value": 2,
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "2.00"
+        },
+        "unit_cost": {
+          "value": "1,750.00",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "1,750.00"
+        },
+        "extended_amount": {
+          "value": "700.00",
+          "confidence": 0.98,
+          "source_page": 3,
+          "source_quote": "700.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "50043",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "50043"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "1.00"
+        },
+        "unit_cost": {
+          "value": "1,750.20",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "1,750.20"
+        },
+        "extended_amount": {
+          "value": "350.04",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "350.04"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73202",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "73202"
+        },
+        "qty": {
+          "value": 45,
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "45.00"
+        },
+        "unit_cost": {
+          "value": "195.07",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "195.07"
+        },
+        "extended_amount": {
+          "value": "1,755.63",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "1,755.63"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73202",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "73202"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "1.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "11534",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "11534"
+        },
+        "qty": {
+          "value": 50,
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "50.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "74211",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "74211"
+        },
+        "qty": {
+          "value": 5,
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "5.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 4,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "71104",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "71104"
+        },
+        "qty": {
+          "value": 5,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "5.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "74210",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "74210"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "71019",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "71019"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "70033",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "70033"
+        },
+        "qty": {
+          "value": 6,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "6.00"
+        },
+        "unit_cost": {
+          "value": "43.90",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "43.90"
+        },
+        "extended_amount": {
+          "value": "52.68",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "52.68"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80495",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "80495"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "371.56",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "371.56"
+        },
+        "extended_amount": {
+          "value": "1,148.22",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "1,148.22"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "72048",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "72048"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "12.69",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "12.69"
+        },
+        "extended_amount": {
+          "value": "39.22",
+          "confidence": 0.98,
+          "source_page": 5,
+          "source_quote": "39.22"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "70112",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "70112"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "236.12",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "236.12"
+        },
+        "extended_amount": {
+          "value": "729.67",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "729.67"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80379",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "80379"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "58.90",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "58.90"
+        },
+        "extended_amount": {
+          "value": "182.02",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "182.02"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73313",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "73313"
+        },
+        "qty": {
+          "value": 5,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "5.00"
+        },
+        "unit_cost": {
+          "value": "150.24",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "150.24"
+        },
+        "extended_amount": {
+          "value": "150.24",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "150.24"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "73314",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "73314"
+        },
+        "qty": {
+          "value": 5,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "5.00"
+        },
+        "unit_cost": {
+          "value": "155.91",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "155.91"
+        },
+        "extended_amount": {
+          "value": "155.91",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "155.91"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80410",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "80410"
+        },
+        "qty": {
+          "value": 28,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "28.00"
+        },
+        "unit_cost": {
+          "value": "863.23",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "863.23"
+        },
+        "extended_amount": {
+          "value": "5,335.23",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "5,335.23"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "80504",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "80504"
+        },
+        "qty": {
+          "value": 4,
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "4.00"
+        },
+        "unit_cost": {
+          "value": "4,140.00",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "4,140.00"
+        },
+        "extended_amount": {
+          "value": "3,312.01",
+          "confidence": 0.98,
+          "source_page": 6,
+          "source_quote": "3,312.01"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "74020",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "74020"
+        },
+        "qty": {
+          "value": 50,
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "50.00"
+        },
+        "unit_cost": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "0.00"
+        },
+        "extended_amount": {
+          "value": "0.00",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "0.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "71200",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "71200"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "210.73",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "210.73"
+        },
+        "extended_amount": {
+          "value": "651.21",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "651.21"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "11634",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "11634"
+        },
+        "qty": {
+          "value": 14,
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "14.00"
+        },
+        "unit_cost": {
+          "value": "1,057.03",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "1,057.03"
+        },
+        "extended_amount": {
+          "value": "3,266.51",
+          "confidence": 0.98,
+          "source_page": 7,
+          "source_quote": "3,266.51"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:46:40.432Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:46:40.432Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 35868,
+    "outputTokens": 7530,
+    "costMicros": 147036,
+    "latencyMs": 46979
+  }
+}

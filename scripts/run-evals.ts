@@ -218,6 +218,8 @@ const SUITE_LABELS: Record<string, string> = {
   logistics: 'one freight case across five documents — does the argument hold',
   customer: 'simulated camera pages — does a staffing or freight case survive one',
   formats: 'merged cells and an EDI 812 printout — the distributor formats nothing else covers',
+  public: 'real public records nobody wrote for us — does it read a page it has never seen',
+  public_scanned: 'the same records scanned or degraded, read through OCR',
 };
 
 /**
@@ -235,6 +237,8 @@ const SUITE_ORDER = [
   'logistics',
   'customer',
   'formats',
+  'public',
+  'public_scanned',
 ];
 const scoredSuites = [...new Set(scores.map((s) => suiteOf.get(s.key) ?? 'unknown'))].sort(
   (a, b) => {
@@ -259,8 +263,12 @@ for (const suiteName of scoredSuites) {
   console.log('document                       recall  precis  ground  wrong  missing');
   console.log('─'.repeat(72));
   for (const score of suiteScores) {
+    // A document with no ground truth (Utah's rate schedule names no date)
+    // still counts for grounding and classification, but it has no recall or
+    // precision to report, and 100%/0% would read as a result.
+    const scored = score.fields.length > 0;
     console.log(
-      `${score.key.padEnd(30)} ${pct(score.recall)}  ${pct(score.precision)}  ` +
+      `${score.key.padEnd(30)} ${pct(scored ? score.recall : null)}  ${pct(scored ? score.precision : null)}  ` +
         `${pct(score.groundedRate)}  ${String(score.wrong).padStart(5)}  ${String(score.missing).padStart(7)}`,
     );
   }

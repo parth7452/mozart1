@@ -53,7 +53,14 @@ export interface FixtureDocument {
      * Formats no other suite has: a distributor's table with merged cells and
      * a supplier portal's printout of an EDI 812 (`formats.ts`).
      */
-    | 'formats';
+    | 'formats'
+    /**
+     * Real documents from public records, with ExtractBench's verified answers
+     * (`public.ts`): the only suite nobody wrote. `public_scanned` is the same
+     * source read through OCR.
+     */
+    | 'public'
+    | 'public_scanned';
 }
 
 export interface FixtureCase {

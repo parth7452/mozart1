@@ -1,0 +1,87 @@
+{
+  "key": "eb-grafton-isotrope-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:31:36.683Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "19503",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "19503"
+    },
+    "invoice_date": {
+      "value": "09/03/2024",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "09/03/2024"
+    },
+    "po_number": {
+      "value": "Dish 160R Upton St",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Dish 160R Upton St"
+    },
+    "customer_name": {
+      "value": "Town of Grafton, Mass.",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Town of Grafton, Mass."
+    },
+    "invoice_total": {
+      "value": "USD 4,000.00",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "USD 4,000.00"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "David Maxson, WCP: Dish 160R Upton St: August-September 2024 Review and analyze application, consult with staff, prepare report, participate in public hearing, consult on draft decision.",
+          "confidence": 0.7,
+          "source_page": 1,
+          "source_quote": "David Maxson, WCP:\nDish 160R Upton St: August-September 2024 Review and analyze \napplication, consult with staff, prepare report, participate in public \nhearing, consult on draft decision."
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "4,000.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "4,000.00"
+        },
+        "extended_amount": {
+          "value": "4,000.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "4,000.00"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:31:36.684Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:31:36.684Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4309,
+    "outputTokens": 603,
+    "costMicros": 14648,
+    "latencyMs": 5136
+  }
+}

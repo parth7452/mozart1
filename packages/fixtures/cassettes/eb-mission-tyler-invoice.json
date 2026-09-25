@@ -1,0 +1,269 @@
+{
+  "key": "eb-mission-tyler-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:45:36.641Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "025-479686",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "025-479686"
+    },
+    "invoice_date": {
+      "value": "10/01/2024",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "10/01/2024"
+    },
+    "customer_name": {
+      "value": "CITY OF MISSION",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "CITY OF MISSION"
+    },
+    "invoice_total": {
+      "value": "162,130.07",
+      "confidence": 0.98,
+      "source_page": 2,
+      "source_quote": "162,130.07"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "Mobile Service Orders Subscription Fees",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Mobile Service Orders Subscription Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "759.69",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "759.69"
+        },
+        "extended_amount": {
+          "value": "759.69",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "759.69"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Host Reporting Services",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Host Reporting Services"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "3,150.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "3,150.00"
+        },
+        "extended_amount": {
+          "value": "3,150.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "3,150.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Community Development Pro Annual Fees",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Community Development Pro Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$1,907.85",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$1,907.85"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Content Manager Annual Fees",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Content Manager Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$16,878.75",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$16,878.75"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "ERP Pro Financials Annual Fees",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "ERP Pro Financials Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$57,011.23",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$57,011.23"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "ERP Pro Utilities Annual Fees",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "ERP Pro Utilities Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$49,846.30",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$49,846.30"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Municipal Justice Annual Fees",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Municipal Justice Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$31,581.90",
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "$31,581.90"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Third Party Annual Fees",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "Third Party Annual Fees"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$994.35",
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "$994.35"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "po_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:45:36.642Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:45:36.642Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 9526,
+    "outputTokens": 2513,
+    "costMicros": 44182,
+    "latencyMs": 20168
+  }
+}

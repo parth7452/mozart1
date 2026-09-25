@@ -1,0 +1,165 @@
+{
+  "key": "eb-southampton-york-invoice",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:45:49.678Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "2105629",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Number: 2105629"
+    },
+    "invoice_date": {
+      "value": "04/30/2021",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "Invoice Date: 04/30/2021"
+    },
+    "customer_name": {
+      "value": "Hampton Bays Water District",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "Hampton Bays Water District"
+    },
+    "invoice_total": {
+      "value": "$4,191.50",
+      "confidence": 0.99,
+      "source_page": 2,
+      "source_quote": "Invoice Total: $4,191.50"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "1,4-Dioxane by GC/MS/SIM EPA 522",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "1,4-Dioxane by GC/MS/SIM EPA 522"
+        },
+        "qty": {
+          "value": 8,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "8"
+        },
+        "unit_cost": {
+          "value": "$95.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$95.00"
+        },
+        "extended_amount": {
+          "value": "$760.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$760.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "PFAS, EPA 537.1 List",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "PFAS, EPA 537.1 List"
+        },
+        "qty": {
+          "value": 12,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "12"
+        },
+        "unit_cost": {
+          "value": "$275.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$275.00"
+        },
+        "extended_amount": {
+          "value": "$3,300.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$3,300.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Sample Disposal Fee",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Sample Disposal Fee"
+        },
+        "qty": {
+          "value": 20,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "20"
+        },
+        "unit_cost": {
+          "value": "$1.50",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$1.50"
+        },
+        "extended_amount": {
+          "value": "$30.00",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$30.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Surcharge",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "Surcharge"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "extended_amount": {
+          "value": "$101.50",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$101.50"
+        },
+        "unit_cost": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "po_number": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:45:49.680Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:45:49.680Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 6034,
+    "outputTokens": 1198,
+    "costMicros": 24048,
+    "latencyMs": 9880
+  }
+}

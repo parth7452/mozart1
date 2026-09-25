@@ -1,0 +1,282 @@
+{
+  "key": "eb-fort-bend-invoice-scan",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:07:44.297Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "44920",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "44920"
+    },
+    "invoice_date": {
+      "value": "05/18/22",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "05/18/22"
+    },
+    "po_number": {
+      "value": "212706",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "212706"
+    },
+    "customer_name": {
+      "value": "FORT BEND COUNTY EMS",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "FORT BEND COUNTY EMS"
+    },
+    "invoice_total": {
+      "value": "$2,150.00",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "$2,150.00"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "IQ10183",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "IQ10183"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "$1,800.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$1,800.00"
+        },
+        "extended_amount": {
+          "value": "$1,800.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$1,800.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "IQ10182",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "IQ10182"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "$350.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$350.00"
+        },
+        "extended_amount": {
+          "value": "$350.00",
+          "confidence": 0.98,
+          "source_page": 1,
+          "source_quote": "$350.00"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:07:44.299Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:07:44.299Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3176,
+    "outputTokens": 670,
+    "costMicros": 13052,
+    "latencyMs": 5233
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "EMS Technology Solutions LLC\n3781 TRAMORE POINTE PKWY\nAUSTELL, GA 30106\n877-217-3707\nINVOICE\nOPERATIVE 10\nEMS TECHNOLOGY SOLUTIONS, LLC\nInvoice #: 44920\nInvoice Date: 05/18/22\nAmount Due: $2,150.00\nFORT BEND COUNTY EMS\nFORT BEND COUNTY AUDITOR\nATTN: ACCOUNTS PAYABLE\n301 JACKSON, SUITE 701\nRICHMOND, TX 77469\nHEALTH AND HUMAN SERVICES\n4520 READING ROAD, SUITE A A-\n100\nROSENBERG, TX 77471\nDue Date: 07/02/22\nTerms: NET 45\nP.O. Number: 212706\nSales Rep: STEVN\n<table><tr><th>Item</th><th>Description</th><th>Quantity</th><th>Price</th><th>Amount</th></tr><tr><td>IQ10183</td><td>ANNUAL SANDBOX MAINTENANCE\nSERVICE PERIOD MAY 18, 2022 - MAY 17, 2023</td><td>1</td><td>$1,800.00</td><td>$1,800.00</td></tr><tr><td>IQ10182</td><td>IQ SANDBOX ENVIRONMENT SETUP</td><td>1</td><td>$350.00</td><td>$350.00</td></tr><tr><td></td><td>PO# 212706</td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td>Subtotal:</td><td>$2,150.00</td></tr><tr><td></td><td></td><td></td><td>Sales Tax:</td><td>$0.00</td></tr><tr><td></td><td></td><td></td><td>Total:</td><td>$2,150.00</td></tr><tr><td></td><td></td><td></td><td>Payments:</td><td>$0.00</td></tr><tr><td></td><td></td><td></td><td>Amount Due:</td><td>$2,150.00</td></tr></table>\nPlease note our address has changed to 3781 Tramore Pointe Pkwy, Austell GA 30106.\nUpdated Purchase Orders can be sent to accounting@operativeiq.com.\nCall us at 877-217-3707 ext 111 for questions regarding this invoice.\nAutomatically pay invoices by ACH or Credit Card by setting up a Bill.com account.\nTo pay online, go to https://app01.us.bill.com/p/operativeiq"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "EMS Technology Solutions LLC\n3781 TRAMORE POINTE PKWY\nAUSTELL, GA 30106\n877-217-3707",
+        "page": 1,
+        "bbox": [
+          0.14858490566037735,
+          0.04562043795620438,
+          0.35318396226415094,
+          0.09306569343065693
+        ],
+        "kind": "Text",
+        "confidence": 0.9575508654117584
+      },
+      {
+        "text": "INVOICE",
+        "page": 1,
+        "bbox": [
+          0.4563679245283019,
+          0.05063868613138686,
+          0.5778301886792453,
+          0.06706204379562045
+        ],
+        "kind": "Title",
+        "confidence": 0.9256815195083619
+      },
+      {
+        "text": "OPERATIVE 10\nEMS TECHNOLOGY SOLUTIONS, LLC",
+        "page": 1,
+        "bbox": [
+          0.6757075471698113,
+          0.046532846715328466,
+          0.8838443396226414,
+          0.09945255474452555
+        ],
+        "kind": "Figure",
+        "confidence": 0.8386878967285156
+      },
+      {
+        "text": "Invoice #: 44920\nInvoice Date: 05/18/22\nAmount Due: $2,150.00",
+        "page": 1,
+        "bbox": [
+          0.6409198113207547,
+          0.1177007299270073,
+          0.8915094339622641,
+          0.1687956204379562
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9839033126831055
+      },
+      {
+        "text": "FORT BEND COUNTY EMS\nFORT BEND COUNTY AUDITOR\nATTN: ACCOUNTS PAYABLE\n301 JACKSON, SUITE 701\nRICHMOND, TX 77469",
+        "page": 1,
+        "bbox": [
+          0.14858490566037735,
+          0.1875,
+          0.35318396226415094,
+          0.24726277372262773
+        ],
+        "kind": "Text",
+        "confidence": 0.9582537442445755
+      },
+      {
+        "text": "HEALTH AND HUMAN SERVICES\n4520 READING ROAD, SUITE A A-\n100\nROSENBERG, TX 77471",
+        "page": 1,
+        "bbox": [
+          0.6450471698113207,
+          0.18704379562043796,
+          0.8661556603773585,
+          0.23448905109489052
+        ],
+        "kind": "Text",
+        "confidence": 0.9299577504396439
+      },
+      {
+        "text": "Due Date: 07/02/22\nTerms: NET 45\nP.O. Number: 212706\nSales Rep: STEVN",
+        "page": 1,
+        "bbox": [
+          0.14386792452830188,
+          0.2755474452554745,
+          0.8915094339622641,
+          0.30839416058394165
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9719342947006225
+      },
+      {
+        "text": "<table><tr><th>Item</th><th>Description</th><th>Quantity</th><th>Price</th><th>Amount</th></tr><tr><td>IQ10183</td><td>ANNUAL SANDBOX MAINTENANCE\nSERVICE PERIOD MAY 18, 2022 - MAY 17, 2023</td><td>1</td><td>$1,800.00</td><td>$1,800.00</td></tr><tr><td>IQ10182</td><td>IQ SANDBOX ENVIRONMENT SETUP</td><td>1</td><td>$350.00</td><td>$350.00</td></tr><tr><td></td><td>PO# 212706</td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td>Subtotal:</td><td>$2,150.00</td></tr><tr><td></td><td></td><td></td><td>Sales Tax:</td><td>$0.00</td></tr><tr><td></td><td></td><td></td><td>Total:</td><td>$2,150.00</td></tr><tr><td></td><td></td><td></td><td>Payments:</td><td>$0.00</td></tr><tr><td></td><td></td><td></td><td>Amount Due:</td><td>$2,150.00</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.14386792452830188,
+          0.3562956204379562,
+          0.8920990566037735,
+          0.5556569343065694
+        ],
+        "kind": "Table",
+        "confidence": 0.7554738438791699
+      },
+      {
+        "text": "Please note our address has changed to 3781 Tramore Pointe Pkwy, Austell GA 30106.",
+        "page": 1,
+        "bbox": [
+          0.14681603773584906,
+          0.5766423357664233,
+          0.6733490566037735,
+          0.5885036496350364
+        ],
+        "kind": "Text",
+        "confidence": 0.9108624815940857
+      },
+      {
+        "text": "Updated Purchase Orders can be sent to accounting@operativeiq.com.",
+        "page": 1,
+        "bbox": [
+          0.1474056603773585,
+          0.6094890510948905,
+          0.5754716981132075,
+          0.6195255474452555
+        ],
+        "kind": "Text",
+        "confidence": 0.9034096866846084
+      },
+      {
+        "text": "Call us at 877-217-3707 ext 111 for questions regarding this invoice.",
+        "page": 1,
+        "bbox": [
+          0.14563679245283018,
+          0.6414233576642335,
+          0.5566037735849056,
+          0.6514598540145985
+        ],
+        "kind": "Text",
+        "confidence": 0.897755166888237
+      },
+      {
+        "text": "Automatically pay invoices by ACH or Credit Card by setting up a Bill.com account.",
+        "page": 1,
+        "bbox": [
+          0.14563679245283018,
+          0.6710766423357665,
+          0.6432783018867925,
+          0.6847627737226278
+        ],
+        "kind": "Text",
+        "confidence": 0.8494910717010498
+      },
+      {
+        "text": "To pay online, go to https://app01.us.bill.com/p/operativeiq",
+        "page": 1,
+        "bbox": [
+          0.14563679245283018,
+          0.6947992700729927,
+          0.4970518867924528,
+          0.7062043795620437
+        ],
+        "kind": "Text",
+        "confidence": 0.8413274884223938
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 4866
+  }
+}

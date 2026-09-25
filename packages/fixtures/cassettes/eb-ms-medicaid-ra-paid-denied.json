@@ -1,0 +1,151 @@
+{
+  "key": "eb-ms-medicaid-ra-paid-denied",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.98,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:31:29.926Z"
+  },
+  "document": {
+    "payer_name": {
+      "value": "DIVISION OF MEDICAID",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "DIVISION OF MEDICAID"
+    },
+    "payment_reference": {
+      "value": "00000065",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "REMITTANCE: 00000065"
+    },
+    "payment_date": {
+      "value": "01/14/08",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "DATE: 01/14/08"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "59A92",
+          "confidence": 0.75,
+          "source_page": 1,
+          "source_quote": "59A92"
+        },
+        "gross_amount": {
+          "value": "181.23",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "181.23"
+        },
+        "deduction_amount": {
+          "value": "9.06",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "9.06"
+        },
+        "net_amount": {
+          "value": "172.17",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "172.17"
+        },
+        "reason_code": {
+          "value": "0132 0439",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "EXCEPTION CODES:   0132    0439"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "59J19",
+          "confidence": 0.75,
+          "source_page": 1,
+          "source_quote": "59J19"
+        },
+        "gross_amount": {
+          "value": "161.28",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "161.28"
+        },
+        "deduction_amount": {
+          "value": "11.74",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "11.74"
+        },
+        "net_amount": {
+          "value": "149.54",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "149.54"
+        },
+        "reason_code": {
+          "value": "0132 0439",
+          "confidence": 0.5,
+          "source_page": 1,
+          "source_quote": "EXCEPTION CODES:   0132    0439"
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "3719JANEAC2000",
+          "confidence": 0.8,
+          "source_page": 2,
+          "source_quote": "3719JANEAC2000"
+        },
+        "gross_amount": {
+          "value": "6,964.77",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "6,964.77"
+        },
+        "deduction_amount": {
+          "value": "4,555.11",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "4,555.11"
+        },
+        "net_amount": {
+          "value": "2,409.66",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "2,409.66"
+        },
+        "reason_code": {
+          "value": "0674",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "EXCEPTION CODES:   0674"
+        }
+      }
+    ],
+    "payment_total": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "05911b4e15970005d14217782baff6b64da5314ba67feebf35ad66a897856c31",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:31:29.926Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:31:29.926Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 8494,
+    "outputTokens": 2281,
+    "costMicros": 39798,
+    "latencyMs": 21032
+  }
+}

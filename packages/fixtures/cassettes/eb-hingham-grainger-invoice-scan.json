@@ -1,0 +1,424 @@
+{
+  "key": "eb-hingham-grainger-invoice-scan",
+  "docType": "invoice",
+  "classifiedAs": "invoice",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:08:00.303Z"
+  },
+  "document": {
+    "invoice_number": {
+      "value": "9823373304",
+      "confidence": 0.99,
+      "source_page": 2,
+      "source_quote": "9823373304"
+    },
+    "invoice_date": {
+      "value": "08/30/2023",
+      "confidence": 0.99,
+      "source_page": 2,
+      "source_quote": "08/30/2023"
+    },
+    "po_number": {
+      "value": "WEB2454487473",
+      "confidence": 0.98,
+      "source_page": 2,
+      "source_quote": "WEB2454487473"
+    },
+    "customer_name": {
+      "value": "HINGHAM TOWN HALL SELECTMEN",
+      "confidence": 0.97,
+      "source_page": 2,
+      "source_quote": "HINGHAM TOWN HALL SELECTMEN"
+    },
+    "invoice_total": {
+      "value": "392.07",
+      "confidence": 0.99,
+      "source_page": 2,
+      "source_quote": "AMOUNT DUE 392.07"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "61DE01",
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "61DE01"
+        },
+        "qty": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "1"
+        },
+        "unit_cost": {
+          "value": "392.07",
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "392.07"
+        },
+        "extended_amount": {
+          "value": "392.07",
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "392.07"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0a03fdecea7b9d87aeb6bf097919e86f8bbc68e1e73a8f21d9163474d5ebd080",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:08:00.303Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:08:00.303Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4583,
+    "outputTokens": 487,
+    "costMicros": 14036,
+    "latencyMs": 4654
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "GRAINGER.\nPAGE 1 OF 1\n428 UNIVERSITY AVE.\nNORWOOD, MA 02062-2638.\nwww.gralnger.com\nBILL TO\n\nMDG2023 00000598 1 MB 0561\nHINGHAM TOWN HALL SELECTMEN\n210 CENTRAL ST\nHINGHAM, MA 02043-1955\nORIGINAL INVOICE\nGRAINGER ACCOUNT NUMBER: 838233708\nINVOICE NUMBER: 9823373304\nINVOICE DATE: 08/30/2023\nDUE DATE: 09/29/2023\nAMOUNT DUE: 392.07\nPO NUMBER: WEB2454487473\nCALLER: JEFF PIZZI\nCUSTOMER PHONE: (781) 741-1400\nORDER NUMBER: 1491364305\nINCO TERMS: FOB DESTINATION\nPay invoices online at:\nwww.grainger.com/invoicing\nSign up for paperless invoicing at:\nwww.grainger.com/paperlessinvoicing\nTHANK YOU !\nFEI NUMBER 36-1150280\nFOR ANY QUESTIONS ABOUT THIS INVOICE OR ACCOUNT CALL 1-800-472-4643\n<table><tr><th>PO\nLINE #</th><th>ITEM #</th><th>DESCRIPTION</th><th>QUANTITY</th><th>UNIT PRICE</th><th>TOTAL</th></tr><tr><td>000001</td><td>61DE01</td><td>The following items were for:\nJEFFREY PIZZ\n210 CENTRAL ST\nHINGHAM MA 02043-2756\n\nOFFICE DEHUMID,229CFM,16.9PT, WHITE\nMANUFACTURER # FFAP5033W1\nDelivery# 6603284436 Date: 08/30/2023\nCarrler: FDX GROUND No. of pkgs: 1 Wt: 45.10\nTrk#: 702957151960\nSHIPPED FROM: DC BORDENTOWN, NJ - 010\n400 BORDENTOWN-HEDDING RD BORDENTOWN NJ 08505</td><td>1</td><td>392.07</td><td>392.07</td></tr></table>\nTHIS PURCHASE IS GOVERNED EXCLUSIVELY BY GRAINGER'S TERMS OF SALE, INCLUDING: (I) DISPUTE RESOLUTION REMEDIES, AND (1) CERTAIN WARRANTY AND DAMAGES LIMITATIONS AND DISCLAIMERS IN EFFECT AT THE TIME OF THE ORDER, WHICH ARE INCORPORATED BY REFERENCE HEREIN. GRAINGER'S TERMS OF SALE ARE AVAILABLE AT WWW.GRAINGER.COM. PRODUCT RETURN INSTRUCTIONS ARE AVAILABLE AT WWW.GRAINGER.COM/RETURNS.\nINVOICE SUB TOTAL 392.07\nThese items are sold for domestic consumption. If exported, purchaser assumes full responsibility for compliance with US export controls. Diversion contrary to US law prohibited.\nPAY THIS INVOICE; PAYMENT TERMS NET 30 DAYS AFTER INVOICE DATE IN U.S. DOLLARS.\nAMOUNT DUE 392.07\nPLEASE DETACH THIS PORTION AND RETURN WITH YOUR PAYMENT.\nBILL TO:\nHINGHAM TOWN HALL SELECTMEN\n210 CENTRAL ST\nHINGHAM, MA 02043-1955\nREMIT TO:\nGRAINGER\nDEPT. 838233708\nPALATINE, IL 60038-0001\n83823370898233733041000039207100000001000000010000002309294H\nACCOUNT NUMBER\n838233708\nDATE\n08/30/2023\nINVOICE NUMBER\n9823373304\nAMOUNT DUE\n392.07\nFOR COMMENTS OR CHANGE OF ADDRESS, ENTER INFORMATION ON REVERSE SIDE.\n1 NNN 0000806 1"
+      }
+    ],
+    "blocks": [
+      {
+        "text": "GRAINGER.",
+        "page": 1,
+        "bbox": [
+          0.07339341032738665,
+          0.014243300185052116,
+          0.2822514377951407,
+          0.050701967983852764
+        ],
+        "kind": "Figure",
+        "confidence": 0.9415116310119629
+      },
+      {
+        "text": "PAGE 1 OF 1",
+        "page": 1,
+        "bbox": [
+          0.37607978080393994,
+          0.016107440029142567,
+          0.470742903059186,
+          0.024977024810353722
+        ],
+        "kind": "Header",
+        "confidence": 0.8665172308683395
+      },
+      {
+        "text": "428 UNIVERSITY AVE.\nNORWOOD, MA 02062-2638.\nwww.gralnger.com",
+        "page": 1,
+        "bbox": [
+          0.08037303372562553,
+          0.0675158285388132,
+          0.2629501468254482,
+          0.09817039112559335
+        ],
+        "kind": "Text",
+        "confidence": 0.9386306375265121
+      },
+      {
+        "text": "BILL TO\n\nMDG2023 00000598 1 MB 0561",
+        "page": 1,
+        "bbox": [
+          0.15941640139921318,
+          0.14699262368928628,
+          0.36211631030727487,
+          0.16946231618184457
+        ],
+        "kind": "Text",
+        "confidence": 0.9201724916696548
+      },
+      {
+        "text": "HINGHAM TOWN HALL SELECTMEN\n210 CENTRAL ST\nHINGHAM, MA 02043-1955",
+        "page": 1,
+        "bbox": [
+          0.15900459305489317,
+          0.19165970813359606,
+          0.39320738743418837,
+          0.2262763838321172
+        ],
+        "kind": "Text",
+        "confidence": 0.9437320649623872
+      },
+      {
+        "text": "ORIGINAL INVOICE",
+        "page": 1,
+        "bbox": [
+          0.6069413463473537,
+          0.013784026147448267,
+          0.8602843286508457,
+          0.027918710218288147
+        ],
+        "kind": "Title",
+        "confidence": 0.7761863499879837
+      },
+      {
+        "text": "GRAINGER ACCOUNT NUMBER: 838233708\nINVOICE NUMBER: 9823373304\nINVOICE DATE: 08/30/2023\nDUE DATE: 09/29/2023\nAMOUNT DUE: 392.07",
+        "page": 1,
+        "bbox": [
+          0.5267572846467992,
+          0.03428280342950454,
+          0.9331861707746165,
+          0.09617033416924017
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9740949153900147
+      },
+      {
+        "text": "PO NUMBER: WEB2454487473\nCALLER: JEFF PIZZI\nCUSTOMER PHONE: (781) 741-1400\nORDER NUMBER: 1491364305\nINCO TERMS: FOB DESTINATION",
+        "page": 1,
+        "bbox": [
+          0.6225306301124279,
+          0.11112331877600257,
+          0.8616117694408973,
+          0.16071792440470797
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9600083351135253
+      },
+      {
+        "text": "Pay invoices online at:\nwww.grainger.com/invoicing\nSign up for paperless invoicing at:\nwww.grainger.com/paperlessinvoicing",
+        "page": 1,
+        "bbox": [
+          0.6219459527659971,
+          0.22435396053166637,
+          0.9276664305460303,
+          0.27467827572105036
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8547663688659668
+      },
+      {
+        "text": "THANK YOU !\nFEI NUMBER 36-1150280",
+        "page": 1,
+        "bbox": [
+          0.617761195629625,
+          0.27909896351966984,
+          0.8840180651074292,
+          0.2949716619039885
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8535883665084838
+      },
+      {
+        "text": "FOR ANY QUESTIONS ABOUT THIS INVOICE OR ACCOUNT CALL 1-800-472-4643",
+        "page": 1,
+        "bbox": [
+          0.5233403313185632,
+          0.29475041771237404,
+          0.9336169856325752,
+          0.3114822150485333
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7926665186882019
+      },
+      {
+        "text": "<table><tr><th>PO\nLINE #</th><th>ITEM #</th><th>DESCRIPTION</th><th>QUANTITY</th><th>UNIT PRICE</th><th>TOTAL</th></tr><tr><td>000001</td><td>61DE01</td><td>The following items were for:\nJEFFREY PIZZ\n210 CENTRAL ST\nHINGHAM MA 02043-2756\n\nOFFICE DEHUMID,229CFM,16.9PT, WHITE\nMANUFACTURER # FFAP5033W1\nDelivery# 6603284436 Date: 08/30/2023\nCarrler: FDX GROUND No. of pkgs: 1 Wt: 45.10\nTrk#: 702957151960\nSHIPPED FROM: DC BORDENTOWN, NJ - 010\n400 BORDENTOWN-HEDDING RD BORDENTOWN NJ 08505</td><td>1</td><td>392.07</td><td>392.07</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.07125773906095442,
+          0.3130325564791477,
+          0.9348044417408632,
+          0.6052012720430326
+        ],
+        "kind": "Table",
+        "confidence": 0.9020025312900544
+      },
+      {
+        "text": "THIS PURCHASE IS GOVERNED EXCLUSIVELY BY GRAINGER'S TERMS OF SALE, INCLUDING: (I) DISPUTE RESOLUTION REMEDIES, AND (1) CERTAIN WARRANTY AND DAMAGES LIMITATIONS AND DISCLAIMERS IN EFFECT AT THE TIME OF THE ORDER, WHICH ARE INCORPORATED BY REFERENCE HEREIN. GRAINGER'S TERMS OF SALE ARE AVAILABLE AT WWW.GRAINGER.COM. PRODUCT RETURN INSTRUCTIONS ARE AVAILABLE AT WWW.GRAINGER.COM/RETURNS.",
+        "page": 1,
+        "bbox": [
+          0.07677084203985567,
+          0.6081732648991667,
+          0.6902005452812365,
+          0.6497028313129471
+        ],
+        "kind": "Text",
+        "confidence": 0.9060297966003419
+      },
+      {
+        "text": "INVOICE SUB TOTAL 392.07",
+        "page": 1,
+        "bbox": [
+          0.7404984840712535,
+          0.6014088805634579,
+          0.9327511321707358,
+          0.6108606010523342
+        ],
+        "kind": "Text",
+        "confidence": 0.6511010095477104
+      },
+      {
+        "text": "These items are sold for domestic consumption. If exported, purchaser assumes full responsibility for compliance with US export controls. Diversion contrary to US law prohibited.",
+        "page": 1,
+        "bbox": [
+          0.07123662065148749,
+          0.657271761285626,
+          0.5907800561992065,
+          0.6816314714722337
+        ],
+        "kind": "Text",
+        "confidence": 0.8884319067001343
+      },
+      {
+        "text": "PAY THIS INVOICE; PAYMENT TERMS NET 30 DAYS AFTER INVOICE DATE IN U.S. DOLLARS.",
+        "page": 1,
+        "bbox": [
+          0.07020574218910387,
+          0.6826691511466965,
+          0.6774906012786929,
+          0.7115386063174232
+        ],
+        "kind": "Text",
+        "confidence": 0.5939028948545456
+      },
+      {
+        "text": "AMOUNT DUE 392.07",
+        "page": 1,
+        "bbox": [
+          0.7701553217461032,
+          0.686785832148833,
+          0.9340671087035768,
+          0.6993904574797953
+        ],
+        "kind": "Text",
+        "confidence": 0.7325678139925003
+      },
+      {
+        "text": "PLEASE DETACH THIS PORTION AND RETURN WITH YOUR PAYMENT.",
+        "page": 1,
+        "bbox": [
+          0.24637071282843473,
+          0.7154035025746177,
+          0.7593427130208557,
+          0.7274327530594855
+        ],
+        "kind": "Text",
+        "confidence": 0.7015224903821945
+      },
+      {
+        "text": "BILL TO:\nHINGHAM TOWN HALL SELECTMEN\n210 CENTRAL ST\nHINGHAM, MA 02043-1955",
+        "page": 1,
+        "bbox": [
+          0.07164782559699942,
+          0.7862158708671863,
+          0.3063933622489302,
+          0.8321304555772924
+        ],
+        "kind": "Text",
+        "confidence": 0.950184667110443
+      },
+      {
+        "text": "REMIT TO:\nGRAINGER\nDEPT. 838233708\nPALATINE, IL 60038-0001",
+        "page": 1,
+        "bbox": [
+          0.5212007380513478,
+          0.7704114807673744,
+          0.7280552349786016,
+          0.8214748308888323
+        ],
+        "kind": "Text",
+        "confidence": 0.8584742665290832
+      },
+      {
+        "text": "83823370898233733041000039207100000001000000010000002309294H",
+        "page": 1,
+        "bbox": [
+          0.2313166290338338,
+          0.8857216782237094,
+          0.946372786618228,
+          0.9016139598420142
+        ],
+        "kind": "Text",
+        "confidence": 0.8998261064291
+      },
+      {
+        "text": "ACCOUNT NUMBER\n838233708",
+        "page": 1,
+        "bbox": [
+          0.19305616479729096,
+          0.9325461850943789,
+          0.33729829596583244,
+          0.9556637571046259
+        ],
+        "kind": "Footer",
+        "confidence": 0.7049900740385056
+      },
+      {
+        "text": "DATE\n08/30/2023",
+        "page": 1,
+        "bbox": [
+          0.3942572723644759,
+          0.9319577547707408,
+          0.491645871939515,
+          0.9554602310939238
+        ],
+        "kind": "Footer",
+        "confidence": 0.7657304286956788
+      },
+      {
+        "text": "INVOICE NUMBER\n9823373304",
+        "page": 1,
+        "bbox": [
+          0.5765323926845619,
+          0.929977747329313,
+          0.7121796463454543,
+          0.9533762458656952
+        ],
+        "kind": "Footer",
+        "confidence": 0.7338951289653778
+      },
+      {
+        "text": "AMOUNT DUE\n392.07",
+        "page": 1,
+        "bbox": [
+          0.7798797306771778,
+          0.928672429817412,
+          0.9309937815294685,
+          0.9511666013877947
+        ],
+        "kind": "Text",
+        "confidence": 0.6405831694602966
+      },
+      {
+        "text": "FOR COMMENTS OR CHANGE OF ADDRESS, ENTER INFORMATION ON REVERSE SIDE.",
+        "page": 1,
+        "bbox": [
+          0.22481790122258452,
+          0.9681133483349373,
+          0.7240228318336811,
+          0.9790638875889545
+        ],
+        "kind": "Footer",
+        "confidence": 0.9069165736436844
+      },
+      {
+        "text": "1 NNN 0000806 1",
+        "page": 1,
+        "bbox": [
+          0.8900078399731328,
+          0.9785652139075671,
+          0.9768993997099655,
+          0.9840664779901112
+        ],
+        "kind": "Footer",
+        "confidence": 0.7916382163763046
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 8267
+  }
+}

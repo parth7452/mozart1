@@ -1,0 +1,304 @@
+{
+  "key": "eb-oklahoma-county-po-degraded",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T07:09:33.643Z"
+  },
+  "document": {
+    "po_number": {
+      "value": "22601904",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "22601904"
+    },
+    "po_date": {
+      "value": "08/28/2025",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "08/28/2025"
+    },
+    "buyer_name": {
+      "value": "OK CO EMERGENCY MANAGEMENT",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "OK CO EMERGENCY MANAGEMENT"
+    },
+    "ship_to": {
+      "value": "OK CO EMERGENCY MANAGEMENT 320 ROBERT S KERR ROOM 101 OKLAHOMA CITY, OK 73102",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "OK CO EMERGENCY MANAGEMENT 320 ROBERT S KERR ROOM 101 OKLAHOMA CITY, OK 73102"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "1",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "1.0000"
+        },
+        "unit_cost": {
+          "value": "$6,721.8000",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$6,721.8000"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0234ffc502426856c2b6a606fa20def5b4c0b69ff195be155835062008d8bc1c",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T07:09:33.645Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T07:09:33.645Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 3169,
+    "outputTokens": 481,
+    "costMicros": 11148,
+    "latencyMs": 4646
+  },
+  "ocr": {
+    "provider": "reducto",
+    "pages": [
+      {
+        "page": 1,
+        "text": "COUNTY\nTY CLERK\n\nMARESSA TREAT\n.Oklahoma County.\nRequisition Purchase Order\nBill To EMMGT\nOK CO EMERGENCY\nMANAGEMENT\n320 ROBERT S KERR\nROOM 101\nOKLAHOMA CITY, OK 73102\nVendor 5421\nAVL SYSTEMS DESIGN LLC\n14901 BRISTOL PARK BLVD\nEDMOND, OK 73013\n22601904\nShip To EMMGT\nOK CO EMERGENCY\nMANAGEMENT\n320 ROBERT S KERR\nROOM 101\nOKLAHOMA CITY, OK 73102\nPurchase Order\nFiscal Year: 2026\nPage 1 of 1\nTHIS NUMBER MUST APPEAR ON ALL INVOICES, PACKAGES, AND SHIPPING PAPERS.\nPurchase Order Number: 22601904\nPurchase Order Date: 08/28/2025\nDepartment: Emergency Management\nI approve the processing of this purchase request and the encumbering on the designated account to a maximum'stated herein.\nVENDOR PHONE NUMBER: 405-749-1866\nVENDOR EMAIL: <empty>\nVENDOR NUMBER: 5421\nREQUISITION NUMBER: 12602080\nREQUISITIONER NAME: Nick Rutledge\nBUYER NAME: Nick Rutledge\nDELIVERY REFERENCE: <empty>\nNOTES\nState Contract #SW1021AV - EOC Audio-Visual Equip The Above Purchase Order Number Must Appear On All Correspondence - Packing Sheets And Bills Of Lading\n<table><tr><th>ITEM #</th><th>.</th><th>DESCRIPTION.</th><th>QUANTITY</th><th>UOM</th><th>UNIT PRICE</th><th>**EXTENDED PRICE</th></tr><tr><td></td><td></td><td>Statewide Contract #SW1021AV - Emergency Operations Center (EOC) audio-visual\nequipment\nGL #: 12515500 - 55310* $6,721.80</td><td>1.0000</td><td>EACH</td><td>$6;721:8000</td><td>$6,721.80</td></tr></table>\nIn accordance with 19 O.S. § 1505, the vendor shall furnish an invoice stating the name and address of the vendor which must also be sufficiently itemized to clearly describe each item purchased, the unit price when applicable, the number or volume of each item purchased.. the total price, the total purchase price, and the date of the purchase. Requisitioning Officer: \"I approve the processing of this purchase request and the encumbering on the designated account to a maximum of: $0.00\"- Oklahoma County Purchasing Agent: \"I hereby approve the issuance and encumbrance of this purchase order.\" Oklahoma County Clerk: \"I hereby certify that the amount of this encumbrance has been entered against the designated appropriation accounts and that this encumbrance is within the authorized available balance of said appropriation.\"\nApprover Name: Long Tran\nApproval Date: 08/28/2025\n<signature>\nOklahoma County Clerk\n<signature>\nOklahoma County Purchasing Agent\nTotal Ext. Price $6,721.80\nPurchase Order Total $6,721.80\nPurchasing Copy."
+      }
+    ],
+    "blocks": [
+      {
+        "text": "COUNTY\nTY CLERK\n\nMARESSA TREAT",
+        "page": 1,
+        "bbox": [
+          0.033308126132110816,
+          0.028773602436073294,
+          0.13115494720799642,
+          0.1013512714084132
+        ],
+        "kind": "Figure",
+        "confidence": 0.8465716630220413
+      },
+      {
+        "text": ".Oklahoma County.\nRequisition Purchase Order",
+        "page": 1,
+        "bbox": [
+          0.1469011780934431,
+          0.026483744838882523,
+          0.3903003760851894,
+          0.0638332834430329
+        ],
+        "kind": "Text",
+        "confidence": 0.5871307000517845
+      },
+      {
+        "text": "Bill To EMMGT\nOK CO EMERGENCY\nMANAGEMENT\n320 ROBERT S KERR\nROOM 101\nOKLAHOMA CITY, OK 73102\nVendor 5421\nAVL SYSTEMS DESIGN LLC\n14901 BRISTOL PARK BLVD\nEDMOND, OK 73013",
+        "page": 1,
+        "bbox": [
+          0.0688078937704737,
+          0.1028883714265123,
+          0.32139302354138244,
+          0.26705742443566416
+        ],
+        "kind": "Key Value",
+        "confidence": 0.8381970167160034
+      },
+      {
+        "text": "22601904",
+        "page": 1,
+        "bbox": [
+          0.48260083144167787,
+          0.0397631650033546,
+          0.6166443101263128,
+          0.08224397357450701
+        ],
+        "kind": "Figure",
+        "confidence": 0.9414382338523866
+      },
+      {
+        "text": "Ship To EMMGT\nOK CO EMERGENCY\nMANAGEMENT\n320 ROBERT S KERR\nROOM 101\nOKLAHOMA CITY, OK 73102",
+        "page": 1,
+        "bbox": [
+          0.35036805572728913,
+          0.09979077603389173,
+          0.5992523294704819,
+          0.19589051846050104
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9508224964141846
+      },
+      {
+        "text": "Purchase Order",
+        "page": 1,
+        "bbox": [
+          0.8034569571692405,
+          0.02182682373206203,
+          0.9501927605278305,
+          0.03438214568280958
+        ],
+        "kind": "Title",
+        "confidence": 0.842796477675438
+      },
+      {
+        "text": "Fiscal Year: 2026\nPage 1 of 1",
+        "page": 1,
+        "bbox": [
+          0.6419230261404839,
+          0.03788799687122317,
+          0.9533177933516266,
+          0.05443755586942005
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7728253722190856
+      },
+      {
+        "text": "THIS NUMBER MUST APPEAR ON ALL INVOICES, PACKAGES, AND SHIPPING PAPERS.",
+        "page": 1,
+        "bbox": [
+          0.6375283068289267,
+          0.050353245302250216,
+          0.9540381398819835,
+          0.08359273785591853
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7720589399337768
+      },
+      {
+        "text": "Purchase Order Number: 22601904\nPurchase Order Date: 08/28/2025\nDepartment: Emergency Management",
+        "page": 1,
+        "bbox": [
+          0.6349276438854538,
+          0.08092737871442307,
+          0.9603880854902238,
+          0.15012377876004046
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9504845380783081
+      },
+      {
+        "text": "I approve the processing of this purchase request and the encumbering on the designated account to a maximum'stated herein.",
+        "page": 1,
+        "bbox": [
+          0.6534848908647414,
+          0.17928013067560944,
+          0.9492037972180243,
+          0.2137695404635615
+        ],
+        "kind": "Text",
+        "confidence": 0.8548228472471238
+      },
+      {
+        "text": "VENDOR PHONE NUMBER: 405-749-1866\nVENDOR EMAIL: <empty>\nVENDOR NUMBER: 5421\nREQUISITION NUMBER: 12602080\nREQUISITIONER NAME: Nick Rutledge\nBUYER NAME: Nick Rutledge\nDELIVERY REFERENCE: <empty>",
+        "page": 1,
+        "bbox": [
+          0.022112487698446908,
+          0.29697179847676763,
+          0.966774350989334,
+          0.3628705691773678
+        ],
+        "kind": "Key Value",
+        "confidence": 0.9389853954315186
+      },
+      {
+        "text": "NOTES",
+        "page": 1,
+        "bbox": [
+          0.02210643432535592,
+          0.35101770457440473,
+          0.9654146211852783,
+          0.389379108468758
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7793705105781555
+      },
+      {
+        "text": "State Contract #SW1021AV - EOC Audio-Visual Equip The Above Purchase Order Number Must Appear On All Correspondence - Packing Sheets And Bills Of Lading",
+        "page": 1,
+        "bbox": [
+          0.030851229582681612,
+          0.3840238246315253,
+          0.5959199698351875,
+          0.41886475523970096
+        ],
+        "kind": "Text",
+        "confidence": 0.5228298678994179
+      },
+      {
+        "text": "<table><tr><th>ITEM #</th><th>.</th><th>DESCRIPTION.</th><th>QUANTITY</th><th>UOM</th><th>UNIT PRICE</th><th>**EXTENDED PRICE</th></tr><tr><td></td><td></td><td>Statewide Contract #SW1021AV - Emergency Operations Center (EOC) audio-visual\nequipment\nGL #: 12515500 - 55310* $6,721.80</td><td>1.0000</td><td>EACH</td><td>$6;721:8000</td><td>$6,721.80</td></tr></table>",
+        "page": 1,
+        "bbox": [
+          0.025524297073288793,
+          0.40761082148986155,
+          0.9692024938427435,
+          0.48803249565120227
+        ],
+        "kind": "Table",
+        "confidence": 0.7951674789190293
+      },
+      {
+        "text": "In accordance with 19 O.S. § 1505, the vendor shall furnish an invoice stating the name and address of the vendor which must also be sufficiently itemized to clearly describe each item purchased, the unit price when applicable, the number or volume of each item purchased.. the total price, the total purchase price, and the date of the purchase. Requisitioning Officer: \"I approve the processing of this purchase request and the encumbering on the designated account to a maximum of: $0.00\"- Oklahoma County Purchasing Agent: \"I hereby approve the issuance and encumbrance of this purchase order.\" Oklahoma County Clerk: \"I hereby certify that the amount of this encumbrance has been entered against the designated appropriation accounts and that this encumbrance is within the authorized available balance of said appropriation.\"",
+        "page": 1,
+        "bbox": [
+          0.03657995168882014,
+          0.8046189237030629,
+          0.6498793742463417,
+          0.8884587151224888
+        ],
+        "kind": "Text",
+        "confidence": 0.6122420310974122
+      },
+      {
+        "text": "Approver Name: Long Tran\nApproval Date: 08/28/2025\n<signature>\nOklahoma County Clerk\n<signature>\nOklahoma County Purchasing Agent",
+        "page": 1,
+        "bbox": [
+          0.02983880936522927,
+          0.8857699603558219,
+          0.6080311741691733,
+          0.9623406964465406
+        ],
+        "kind": "Key Value",
+        "confidence": 0.7859606385231018
+      },
+      {
+        "text": "Total Ext. Price $6,721.80\nPurchase Order Total $6,721.80",
+        "page": 1,
+        "bbox": [
+          0.6593604060514691,
+          0.90462282992615,
+          0.9837501645050575,
+          0.957708340893962
+        ],
+        "kind": "Key Value",
+        "confidence": 0.82140212059021
+      },
+      {
+        "text": "Purchasing Copy.",
+        "page": 1,
+        "bbox": [
+          0.46582856007548634,
+          0.96438372937849,
+          0.5608008049877522,
+          0.9751346551715298
+        ],
+        "kind": "Footer",
+        "confidence": 0.7130841851234435
+      }
+    ],
+    "credits": 0,
+    "latencyMs": 7659
+  }
+}
