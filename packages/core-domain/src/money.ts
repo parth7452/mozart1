@@ -348,7 +348,13 @@ function centsFromBigInt(value: bigint, source: string): Cents {
 export function extendedCents(quantity: number, price: UnitPrice): Cents {
   if (!Number.isSafeInteger(quantity)) throw new MoneyError('a quantity must be an integer');
   const exact = BigInt(quantity) * price.units * 100n;
-  return centsFromBigInt(divRoundHalfUp(exact, 10n ** BigInt(price.places)), String(quantity));
+  const total = Number(divRoundHalfUp(exact, 10n ** BigInt(price.places)));
+  if (!Number.isSafeInteger(total)) {
+    throw new MoneyError(
+      `${quantity} at ${formatUnitPrice(price)} is out of the safe integer range of cents`,
+    );
+  }
+  return cents(total);
 }
 
 /**

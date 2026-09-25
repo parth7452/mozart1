@@ -445,7 +445,9 @@ describe('arithmetic at a printed unit price', () => {
 
   it('is within half a cent of the exact product, and exact when the price is whole cents', () => {
     fc.assert(
-      fc.property(anyPrice, fc.integer({ min: 0, max: 1_000_000 }), ({ price }, quantity) => {
+      // A price up to $100m and a quantity up to 100,000 keep every product in
+      // range; past it, `extendedCents` refuses (below) rather than wrapping.
+      fc.property(anyPrice, fc.integer({ min: 0, max: 100_000 }), ({ price }, quantity) => {
         const total = extendedCents(quantity, price);
         const scale = 10n ** BigInt(price.places);
         const exact = BigInt(quantity) * price.units * 100n;
@@ -454,6 +456,13 @@ describe('arithmetic at a printed unit price', () => {
         if (!price.rounded) expect(total).toBe(quantity * price.cents);
       }),
     );
+  });
+
+  it('refuses a line total it cannot hold exactly', () => {
+    expect(() => extendedCents(999_999, parseUnitPrice('90072082.62'))).toThrow(
+      /999999 at \$90,072,082\.62 is out of the safe integer range/,
+    );
+    expect(() => extendedCents(1.5, parseUnitPrice('$0.0125'))).toThrow(/integer/);
   });
 
   it('agrees with shortageCents whenever the price is whole cents', () => {
