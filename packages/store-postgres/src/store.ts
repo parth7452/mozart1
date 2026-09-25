@@ -4263,6 +4263,27 @@ export class PostgresStore
   }
 
   /**
+   * Matches a remittance line recorded on `case.discovered` and never named as
+   * a pair (audit F1). Read by `pnpm link:duplicates`; reads only.
+   */
+  async unnamedProbablePairs(options?: {
+    readonly limit?: number;
+  }): Promise<readonly workflow.UnnamedProbablePair[]> {
+    return this.withTenant((client) => workflow.unnamedProbablePairs(client, options));
+  }
+
+  /** Names one of those as a `case.possible_duplicate`, once (audit F1). */
+  async namePossibleDuplicate(input: {
+    readonly discoveredEventId: string;
+    readonly of: string;
+    readonly recordedBy: string;
+  }): Promise<'named' | 'already_named'> {
+    return this.withTenant((client) =>
+      workflow.namePossibleDuplicate(client, this.tenant, input),
+    );
+  }
+
+  /**
    * The coverage page's figures for the last `months` months (ADR 0030, ADR
    * 0038): per channel per month, per channel over the window, dollars-only
    * monthly totals, and the confirmed duplicates still counted twice. One

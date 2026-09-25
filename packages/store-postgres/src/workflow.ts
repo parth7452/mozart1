@@ -1632,6 +1632,146 @@ export async function possibleDuplicates(
     .map(({ eventId: _eventId, ...pair }) => pair);
 }
 
+// ---------------------------------------------------------------------------
+// 6a. Pairs a remittance line recorded but never named (audit F1)
+// ---------------------------------------------------------------------------
+//
+// Until the fix beside `openCaseForLine`, a remittance line that probably
+// matched a case already open wrote the match into its own `case.discovered`
+// event (`probable_duplicate_of`) and nowhere else, so the pair never reached
+// `possibleDuplicates` and could never be answered or merged. These two are the
+// one-off repair: the list of such matches, and the write that names one in
+// `case.possible_duplicate`'s own shape. Nothing is re-read from a document and
+// nothing is inferred: the pair and its basis are what the `case.discovered`
+// event already said, and the write reads them from that event rather than from
+// its caller.
+
+/** One match a `case.discovered` event recorded that no pair event names yet. */
+export interface UnnamedProbablePair {
+  /** The case the event is on — the one opened second. */
+  readonly deductionId: string;
+  /** The case it probably duplicates. */
+  readonly of: string;
+  /** Names of the facts that agreed, as the event recorded them. */
+  readonly basis: readonly string[];
+  /** The `case.discovered` event the pair is read from. */
+  readonly discoveredEventId: string;
+}
+
+/**
+ * The matches, oldest first. A pair already named in either direction is not
+ * listed, so a second run of the backfill lists nothing. The other half must be
+ * a case this tenant can see — RLS decides, as it does for the pair list.
+ */
+export async function unnamedProbablePairs(
+  client: PoolClient,
+  options?: { readonly limit?: number },
+): Promise<readonly UnnamedProbablePair[]> {
+  const limit = options?.limit ?? POSSIBLE_DUPLICATES_MAX_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(`unnamedProbablePairs limit must be a positive integer, got ${String(limit)}`);
+  }
+  const { rows } = await client.query<{
+    event_id: string;
+    deduction_id: string;
+    of: string;
+    basis: unknown;
+  }>(
+    `select e.id::text as event_id,
+            e.deduction_id::text as deduction_id,
+            lower(x.of) as of,
+            coalesce(e.payload->'probable_duplicate_basis', '[]'::jsonb) as basis
+       from deduction_events e
+       cross join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(e.payload->'probable_duplicate_of') = 'array'
+              then e.payload->'probable_duplicate_of' else '[]'::jsonb end
+       ) as x(of)
+      where e.event_type = 'case.discovered'
+        and exists (select 1 from deductions o where o.id::text = lower(x.of))
+        and not exists (
+          select 1 from deduction_events p
+           where p.event_type = $1
+             and ((p.deduction_id = e.deduction_id and lower(p.payload->>'of') = lower(x.of))
+               or (p.deduction_id::text = lower(x.of)
+                   and lower(p.payload->>'of') = e.deduction_id::text))
+        )
+      order by e.id asc, lower(x.of) asc
+      limit $2`,
+    [PAIR_NAMED, Math.min(limit, POSSIBLE_DUPLICATES_MAX_LIMIT)],
+  );
+  return rows.map((row) => ({
+    deductionId: row.deduction_id,
+    of: row.of,
+    basis: basisOf(row.basis),
+    discoveredEventId: row.event_id,
+  }));
+}
+
+/**
+ * Names one recorded match as a pair: one `case.possible_duplicate` on the case
+ * the `case.discovered` event is on, `{ of, basis }` as `openCase` writes it,
+ * plus the event it was read from. Idempotent: both cases are locked in id
+ * order — the verdict write's order, so the two cannot deadlock — and a pair
+ * already named in either direction answers `already_named` and writes nothing.
+ * A caller naming a match the event does not record is refused by name.
+ */
+export async function namePossibleDuplicate(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: {
+    readonly discoveredEventId: string;
+    readonly of: string;
+    readonly recordedBy: string;
+  },
+): Promise<'named' | 'already_named'> {
+  const action = 'naming a possible duplicate';
+  requireCaller(input.recordedBy, tenant.userId, action);
+
+  const { rows: found } = await client.query<{ deduction_id: string; payload: Record<string, unknown> }>(
+    `select deduction_id::text as deduction_id, payload
+       from deduction_events
+      where id = $1::bigint and event_type = 'case.discovered'`,
+    [input.discoveredEventId],
+  );
+  const discovered = found[0];
+  const there = idKey(input.of);
+  const recorded = Array.isArray(discovered?.payload['probable_duplicate_of'])
+    ? (discovered.payload['probable_duplicate_of'] as unknown[])
+        .filter((id): id is string => typeof id === 'string')
+        .map(idKey)
+    : [];
+  if (discovered === undefined || !recorded.includes(there)) {
+    throw new Error(
+      `case.discovered event ${input.discoveredEventId} records no probable match with ${input.of}`,
+    );
+  }
+  const here = idKey(discovered.deduction_id);
+  if (here === there) {
+    throw new NoSuchDuplicatePairError(discovered.deduction_id, input.of);
+  }
+
+  for (const deductionId of [here, there].sort()) {
+    await lockCase(client, deductionId, action, input.recordedBy, WRITER_ROLES);
+  }
+
+  const { rows: named } = await client.query<{ one: number }>(
+    `select 1 as one from deduction_events
+      where event_type = $1
+        and ((deduction_id::text = $2 and lower(payload->>'of') = $3)
+          or (deduction_id::text = $3 and lower(payload->>'of') = $2))
+      limit 1`,
+    [PAIR_NAMED, here, there],
+  );
+  if (named.length > 0) return 'already_named';
+
+  await appendEvent(client, tenant, here, PAIR_NAMED, {
+    of: there,
+    basis: basisOf(discovered.payload['probable_duplicate_basis']),
+    backfilled_from_event: input.discoveredEventId,
+  });
+  return 'named';
+}
+
 export async function recordDuplicateVerdict(
   client: PoolClient,
   tenant: TenantContext,
