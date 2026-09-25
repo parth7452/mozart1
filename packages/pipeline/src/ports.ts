@@ -1262,6 +1262,32 @@ export class PacketAfterApprovalError extends CaseWorkflowError {
 }
 
 /**
+ * An approval naming a packet that is no longer the case's latest.
+ *
+ * A packet may be assembled again while it waits for approval — evidence that
+ * arrived after the first assembly has to be able to get in — and the old row
+ * stays, because `packets` is append-only. The database's foreign key
+ * (`approvals_packet_is_a_real_packet`) says only that the hash names a packet
+ * of this decision, so it would admit an approval of the superseded one from a
+ * page loaded before the re-assembly. Refused here, under the case's row lock
+ * that assembly also takes, so the approver is told to look again rather than
+ * authorising contents nobody means to send.
+ */
+export class PacketSupersededError extends CaseWorkflowError {
+  constructor(
+    readonly decisionId: string,
+    readonly packetHash: string,
+    readonly latestPacketHash: string,
+  ) {
+    super(
+      `approve refused: packet ${packetHash} for decision ${decisionId} was assembled again ` +
+        `as ${latestPacketHash} — approve the latest packet`,
+    );
+    this.name = 'PacketSupersededError';
+  }
+}
+
+/**
  * The narrative could not be built from this case at all.
  *
  * `buildPacketNarrative` raises a `PacketError`, which is not a

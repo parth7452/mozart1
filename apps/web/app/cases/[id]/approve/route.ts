@@ -4,6 +4,7 @@ import {
   DecisionNotFoundError,
   DuplicateApprovalError,
   PacketNotForDecisionError,
+  PacketSupersededError,
   PreparerCannotApproveError,
   WrongCaseStateError,
   WrongRoleError,
@@ -137,6 +138,15 @@ export async function POST(
     if (cause instanceof PacketNotForDecisionError || cause instanceof DecisionNotFoundError) {
       return NextResponse.redirect(
         backToCase(request.url, id, 'approve_no_packet'),
+        { status: 303 },
+      );
+    }
+    if (cause instanceof PacketSupersededError) {
+      // The packet was assembled again after this page loaded — evidence got
+      // in. The old contents are not what anyone means to send, so nothing is
+      // approved and the approver is shown the latest to look at.
+      return NextResponse.redirect(
+        backToCase(request.url, id, 'approve_superseded', cause.latestPacketHash.slice(0, 12)),
         { status: 303 },
       );
     }

@@ -9,13 +9,14 @@ import {
   DuplicateSubmissionError,
   InvalidRecoveryAmountError,
   PacketHashMismatchError,
+  PacketSupersededError,
   PreparerCannotApproveError,
   RationaleTooLongError,
   WrongCaseStateError,
   WrongRoleError,
   type CaseWorkflowStore,
 } from '@recouple/pipeline';
-import { MAX_RATIONALE_LENGTH } from '@recouple/core-domain';
+import { MAX_RATIONALE_LENGTH, buildPacketNarrative } from '@recouple/core-domain';
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
 import { ApprovalAuthorError, approve } from '../src/workflow';
@@ -391,6 +392,37 @@ function workflowContract(
       expect((await h.store(h.analyst).getWorkflow(deductionId))?.state).toBe('awaiting_approval');
     });
 
+    it('refuses approving a packet that has since been assembled again', async () => {
+      const deductionId = await h.newCase();
+      const { decisionId, packetId: first, contentHash } = await toAwaitingApproval(h, deductionId);
+      // Evidence arrives while the packet waits, and the analyst assembles
+      // again: the case stays where it is, and the new packet is the one shown.
+      await h.attachEvidence(deductionId);
+      const second = await h
+        .store(h.analyst)
+        .assemblePacket({ deductionId, decisionId, assembledBy: h.analyst });
+      expect(second.contentHash).not.toBe(contentHash);
+      expect(second.fileDocumentIds).toHaveLength(3);
+      const shown = await h.store(h.approver).getWorkflow(deductionId);
+      expect(shown?.state).toBe('awaiting_approval');
+      expect(shown?.packet?.packetId).toBe(second.packetId);
+
+      // An approver on a page loaded before the re-assembly: refused by name,
+      // and nothing written — the latest packet can still be approved.
+      const stale = h
+        .store(h.approver)
+        .approve({ decisionId, packetId: first, approverId: h.approver });
+      await expect(stale).rejects.toBeInstanceOf(PacketSupersededError);
+      await expect(stale).rejects.toHaveProperty('latestPacketHash', second.contentHash);
+      expect((await h.store(h.approver).getWorkflow(deductionId))?.approval).toBeUndefined();
+
+      await h
+        .store(h.approver)
+        .approve({ decisionId, packetId: second.packetId, approverId: h.approver });
+      const approved = await h.store(h.approver).getWorkflow(deductionId);
+      expect(approved?.approval?.packetHash).toBe(second.contentHash);
+    });
+
     it('refuses a second submission on the same channel', async () => {
       const deductionId = await h.newCase();
       const { decisionId, packetId, approvalId } = await toSubmitted(h, deductionId);
@@ -580,7 +612,7 @@ function workflowContract(
       const { decisionId } = await toAwaitingApproval(h, deductionId);
       const midway = await h.store(h.analyst).getWorkflow(deductionId);
       expect(midway?.decision?.decisionId).toBe(decisionId);
-      expect(midway?.packet?.narrative).toContain('Deduction amount: $3,120.00');
+      expect(midway?.packet?.narrative).toContain('Amount deducted: $3,120.00\n');
       expect(midway?.packet?.fileDocumentIds.length).toBeGreaterThan(0);
       expect(midway?.approval).toBeUndefined();
       expect(midway?.submission).toBeUndefined();
@@ -608,6 +640,7 @@ workflowContract('in memory', describe, async () => {
   store.addMember(orgId, owner, 'owner');
   store.addMember(orgId, colleague, 'analyst');
   store.addMember(orgId, reader, 'read_only');
+  store.nameOrg(orgId, 'Workflow in memory');
   let claim = 0;
   let document = 0;
 
@@ -963,10 +996,42 @@ describeDb('the workflow on postgres', () => {
     expect(rows[0]?.assembled_by).toBe(tenant.analyst);
     expect(rows[0]?.files).toHaveLength(2);
     // The debtor the tenant created, not the string the notice printed.
-    expect(rows[0]?.narrative).toContain('Retailer: Walmart Stores, Inc.');
-    expect(rows[0]?.narrative).toContain('Claim: WF-');
-    expect(rows[0]?.narrative).toContain('Deduction amount: $3,120.00');
-    expect(rows[0]?.narrative).toContain(`Rationale: ${RATIONALE}`);
+    expect(rows[0]?.narrative).toContain('To: Walmart Stores, Inc.\n');
+    expect(rows[0]?.narrative).toContain('Claim or deduction reference: WF-');
+    expect(rows[0]?.narrative).toContain('Amount deducted: $3,120.00\n');
+    expect(rows[0]?.narrative).toContain(`Explanation:\n${RATIONALE}\n`);
+
+    // Byte for byte what `buildPacketNarrative` gives for this case's own
+    // values — which is also what the in-memory store is held to
+    // (`workflow-memory.test.ts`), so the two stores build the same letter.
+    const { rows: facts } = await admin.query<{ supplier: string; claim: string }>(
+      `select o.name as supplier, d.claim_id as claim
+         from deductions d join organizations o on o.id = d.org_id where d.id = $1`,
+      [deductionId],
+    );
+    const { rows: files } = await admin.query<{ id: string; filename: string; role: string }>(
+      `select d.id, d.filename, dd.role from deduction_documents dd
+         join documents d on d.id = dd.document_id where dd.deduction_id = $1`,
+      [deductionId],
+    );
+    const filenameOf = new Map(files.map((f) => [f.id, f]));
+    expect(rows[0]?.narrative).toBe(
+      buildPacketNarrative({
+        supplier: facts[0]?.supplier as string,
+        payer: 'Walmart Stores, Inc.',
+        claimId: facts[0]?.claim as string,
+        invoiceNumbers: [],
+        deductionAmountCents: 312_000,
+        deductionDate: '2026-08-14',
+        disputeDeadline: '2026-10-13',
+        reason: 'shortage_never_received',
+        rationale: RATIONALE,
+        documents: (rows[0]?.files ?? []).map((id) => ({
+          role: filenameOf.get(id)?.role as 'notice' | 'evidence',
+          filename: filenameOf.get(id)?.filename as string,
+        })),
+      }),
+    );
 
     // Append-only: nothing in this path holds an UPDATE on it, and the trigger
     // refuses the table's owner as well.

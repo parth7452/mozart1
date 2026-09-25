@@ -58,6 +58,7 @@ import {
   NotACanonicalReasonError,
   NothingToSendError,
   PacketAfterApprovalError,
+  PacketSupersededError,
   PacketHashMismatchError,
   PacketNotBuildableError,
   PacketNotForDecisionError,
@@ -729,6 +730,14 @@ export class InMemoryStore
     this.memberships.push({ orgId, userId, role });
   }
 
+  /** `organizations.name`, which the dispute letter is from. */
+  readonly organizationNames = new Map<string, string>();
+
+  /** Names a tenant, as its `organizations` row would. */
+  nameOrg(orgId: string, name: string): void {
+    this.organizationNames.set(orgId, name);
+  }
+
   /** This user's role in this tenant, or nothing — an unknown `sub` has none. */
   private roleOf(orgId: string, userId: string): MembershipRole | undefined {
     return this.memberships.find((m) => m.orgId === orgId && m.userId === userId)?.role;
@@ -1058,11 +1067,25 @@ export class InMemoryStore
     // Postgres store wraps it: a `PacketError` is not a `CaseWorkflowError`,
     // and a caller that sorts rules from bugs on the base class would read one
     // as a fault. Nothing is swallowed — the original is the `cause`.
+    const supplier = this.organizationNames.get(existing.orgId);
+    if (supplier === undefined) {
+      // Postgres cannot have a case without an `organizations` row, so neither
+      // can this store: a test that never named its tenant is told so here
+      // rather than handed a letter from nobody.
+      throw new Error(`organization ${existing.orgId} has no name: call nameOrg() first`);
+    }
+    // Every `invoice_number` the case holds. This store models no merges, so a
+    // case's names are its own; Postgres reads a merged-away case's too.
+    const invoiceNumbers = this.identifiers
+      .filter((row) => row.deductionId === input.deductionId && row.kind === 'invoice_number')
+      .map((row) => row.identifier);
     let narrative: string;
     try {
       narrative = buildPacketNarrative({
+        supplier,
         ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
-        ...(existing.retailerName !== undefined ? { retailer: existing.retailerName } : {}),
+        ...(existing.retailerName !== undefined ? { payer: existing.retailerName } : {}),
+        invoiceNumbers,
         deductionAmountCents: amountCents,
         ...(existing.deductionDate !== undefined
           ? { deductionDate: existing.deductionDate }
@@ -1192,6 +1215,12 @@ export class InMemoryStore
       throw new WrongCaseStateError(packet.deductionId, 'approve', existing.state, [
         'awaiting_approval',
       ]);
+    }
+    // Only the latest packet may be approved — the check the Postgres store
+    // makes under the case's row lock. The last one pushed is the latest.
+    const latest = this.packets.filter((p) => p.decisionId === input.decisionId).at(-1);
+    if (latest !== undefined && latest.packetId !== packet.packetId) {
+      throw new PacketSupersededError(input.decisionId, packet.contentHash, latest.contentHash);
     }
     const standing = this.approvals.find((a) => a.decisionId === input.decisionId);
     if (standing !== undefined) {

@@ -356,13 +356,15 @@ describe('assembling the packet', () => {
 });
 
 describe('the cover sheet', () => {
-  it('serves the narrative as markdown, to download rather than render', async () => {
+  it('serves the letter as plain text, to download rather than render', async () => {
     await assembled();
     const response = await coverSheet(new Request('https://app.example.test/'), params(CASE_ID));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
-    expect(response.headers.get('content-disposition')).toContain('attachment');
+    expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(response.headers.get('content-disposition')).toBe(
+      `attachment; filename="dispute-letter-${CASE_ID.slice(0, 8)}.txt"`,
+    );
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     // The narrative quotes text read off somebody else's document, so nothing
     // the browser might render it as may fetch, script or frame anything.
@@ -821,6 +823,51 @@ describe('the store’s named refusals, as a reviewer meets them', () => {
     expect(said(response)).toMatch(
       new RegExp(`already approved as packet ${ready.hash.slice(0, 12)}`),
     );
+  });
+
+  it('assembles again while the packet waits, so evidence added after it gets in', async () => {
+    const ready = await assembled();
+    store().attach(CASE_ID, '13131313-1111-2222-3333-444444444444');
+
+    const response = await assemble(
+      post('packet', { decisionId: ready.decisionId }),
+      params(CASE_ID),
+    );
+    expect(said(response)).toMatch(/packet assembled: 3 documents under [0-9a-f]{12}\./);
+    const shown = await store().getWorkflow(CASE_ID);
+    expect(shown?.state).toBe('awaiting_approval');
+    expect(shown?.packet?.fileDocumentIds).toHaveLength(3);
+    expect(shown?.packet?.contentHash).not.toBe(ready.hash);
+  });
+
+  it('refuses approving the packet a page showed before it was assembled again', async () => {
+    const ready = await assembled();
+    store().attach(CASE_ID, '13131313-1111-2222-3333-444444444444');
+    const again = await store().assemblePacket({
+      deductionId: CASE_ID,
+      decisionId: ready.decisionId,
+      assembledBy: ANALYST,
+    });
+
+    harness.userId = APPROVER;
+    harness.role = 'approver';
+    store().setRole(APPROVER, 'approver');
+    const stale = await approve(
+      post('approve', { decisionId: ready.decisionId, packetId: ready.packetId }),
+      params(CASE_ID),
+    );
+    expect(key(stale)).toBe('approve_superseded');
+    expect(said(stale)).toMatch(
+      new RegExp(`nothing was approved; check packet ${again.contentHash.slice(0, 12)} below`),
+    );
+    expect((await store().getWorkflow(CASE_ID))?.approval).toBeUndefined();
+
+    const fresh = await approve(
+      post('approve', { decisionId: ready.decisionId, packetId: again.packetId }),
+      params(CASE_ID),
+    );
+    expect(key(fresh)).toBe('approved');
+    expect((await store().getWorkflow(CASE_ID))?.approval?.packetHash).toBe(again.contentHash);
   });
 
   it('lets the first approval stand when the button is pressed twice', async () => {
@@ -1402,10 +1449,13 @@ describe('the store double, where it has to agree with the real one', () => {
     // With no approval, the latest is what a reviewer is looking at.
     expect((await store().getWorkflow(CASE_ID))?.packet?.packetId).toBe(second.packetId);
 
-    // With one, it is the packet that approval named.
-    await store().approve({
+    // With one, it is the packet that approval named. `approve` now refuses
+    // any packet but the latest (`PacketSupersededError`), so an approval of an
+    // earlier one exists only in data recorded before that rule — seeded here,
+    // because the page still has to show what those approvals named.
+    store().seedApproval({
       decisionId: ready.decisionId,
-      packetId: ready.packetId,
+      packetHash: ready.hash,
       approverId: APPROVER,
     });
     const after = await store().getWorkflow(CASE_ID);

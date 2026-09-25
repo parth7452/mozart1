@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
   buildPacketNarrative,
+  ENCLOSURE_ROLE_WORDS,
+  FIXED_TEXT_BUDGET,
+  INVOICE_NUMBERS_BUDGETED,
   MAX_NARRATIVE_LENGTH,
   MAX_RATIONALE_LENGTH,
   NARRATIVE_BUDGET_WITHOUT_RATIONALE,
@@ -11,6 +14,7 @@ import {
   type PacketNarrativeInput,
 } from '../src/packet';
 import { CANONICAL_REASON_CODE_LIST } from '../src/reason-codes';
+import { REASON_WORDS } from '../src/reason-words';
 import { formatCents, cents } from '../src/money';
 
 /**
@@ -33,8 +37,10 @@ const anyText = fc
 // this input, and therefore what the builder has to be exercised with.
 const anyInput: fc.Arbitrary<PacketNarrativeInput> = fc
   .record({
+    supplier: anyText,
     claimId: fc.option(anyText, { nil: undefined }),
-    retailer: fc.option(anyText, { nil: undefined }),
+    payer: fc.option(anyText, { nil: undefined }),
+    invoiceNumbers: fc.array(anyText, { maxLength: 3 }),
     deductionAmountCents: fc.integer({ min: 1, max: 9_000_000_000_000 }),
     deductionDate: fc.option(fc.constantFrom('2026-08-14', '2025-01-02'), { nil: undefined }),
     disputeDeadline: fc.option(fc.constantFrom('2026-10-13', '2025-03-03'), { nil: undefined }),
@@ -49,19 +55,23 @@ const anyInput: fc.Arbitrary<PacketNarrativeInput> = fc
     ),
   })
   .map((raw) => ({
+    supplier: raw.supplier,
+    invoiceNumbers: raw.invoiceNumbers,
     deductionAmountCents: raw.deductionAmountCents,
     reason: raw.reason,
     rationale: raw.rationale,
     documents: raw.documents,
     ...(raw.claimId !== undefined ? { claimId: raw.claimId } : {}),
-    ...(raw.retailer !== undefined ? { retailer: raw.retailer } : {}),
+    ...(raw.payer !== undefined ? { payer: raw.payer } : {}),
     ...(raw.deductionDate !== undefined ? { deductionDate: raw.deductionDate } : {}),
     ...(raw.disputeDeadline !== undefined ? { disputeDeadline: raw.disputeDeadline } : {}),
   }));
 
 const walmart: PacketNarrativeInput = {
+  supplier: 'Harbor Lane Foods, LLC',
   claimId: 'APDP-41007',
-  retailer: 'Walmart Stores, Inc.',
+  payer: 'Walmart Stores, Inc.',
+  invoiceNumbers: ['INV-88213'],
   deductionAmountCents: 312_000,
   deductionDate: '2026-08-14',
   disputeDeadline: '2026-10-13',
@@ -74,44 +84,83 @@ const walmart: PacketNarrativeInput = {
 };
 
 describe('the packet narrative', () => {
-  it('reads as a cover page a human would send', () => {
+  it('reads as a letter a supplier would send a payer', () => {
     expect(buildPacketNarrative(walmart)).toBe(
       [
-        'DISPUTE PACKET — COVER NARRATIVE',
+        'DISPUTE OF DEDUCTION',
         '',
-        'Retailer: Walmart Stores, Inc.',
-        'Claim: APDP-41007',
-        'Deduction amount: $3,120.00',
+        'From: Harbor Lane Foods, LLC',
+        'To: Walmart Stores, Inc.',
+        '',
+        'Claim or deduction reference: APDP-41007',
+        'Invoice number: INV-88213',
+        'Amount deducted: $3,120.00',
         'Deduction date: 2026-08-14',
         'Dispute deadline: 2026-10-13',
-        'Dispute reason: shortage_never_received',
         '',
-        'This deduction is disputed in full.',
+        'Harbor Lane Foods, LLC disputes this deduction in full and asks that $3,120.00 be repaid.',
         '',
-        'Rationale: POD signed for the full quantity on 2026-08-02.',
+        'Reason for dispute: Shipment deducted as never received, though delivery is documented',
         '',
-        'Enclosed documents:',
-        '  1. notice: apdp-notice.pdf',
-        '  2. evidence: pod-signed.pdf',
+        'Explanation:',
+        'POD signed for the full quantity on 2026-08-02.',
+        '',
+        'Enclosures:',
+        '  1. Deduction notice: apdp-notice.pdf',
+        '  2. Supporting document: pod-signed.pdf',
+        '',
+        'Please quote the claim or deduction reference above in any reply about this dispute.',
         '',
       ].join('\n'),
     );
   });
 
+  // A payer reads words, not our taxonomy: no canonical code may reach the
+  // letter as itself, whichever one the analyst chose.
+  it('says the reason in words, never as a code', () => {
+    for (const reason of CANONICAL_REASON_CODE_LIST) {
+      const narrative = buildPacketNarrative({ ...walmart, reason });
+      expect(narrative, reason).toContain(`Reason for dispute: ${REASON_WORDS[reason]}\n`);
+      expect(narrative, reason).not.toContain(reason);
+    }
+  });
+
+  it('names no kind of payer: the engine is payer-agnostic', () => {
+    const narrative = buildPacketNarrative({ ...walmart, payer: 'Acme Distribution' });
+    expect(narrative.toLowerCase()).not.toMatch(/retailer|distributor|shipper/);
+  });
+
+  it('lists every invoice number once, in an order that does not depend on the store', () => {
+    const narrative = buildPacketNarrative({
+      ...walmart,
+      invoiceNumbers: ['INV-9', 'INV-10', 'INV-9', '  '],
+    });
+    // Code-unit order, not numeric and not locale: '1' sorts before '9'.
+    expect(narrative).toContain('Invoice numbers: INV-10, INV-9\n');
+    expect(
+      buildPacketNarrative({ ...walmart, invoiceNumbers: ['INV-10', 'INV-9'] }),
+    ).toBe(narrative);
+  });
+
   it('says a value was not recorded rather than inventing one', () => {
     const sparse = buildPacketNarrative({
+      supplier: 'Harbor Lane Foods, LLC',
+      invoiceNumbers: [],
       deductionAmountCents: 45_000,
       reason: 'unauthorised_deduction_no_basis',
       rationale: 'No backup was provided with the deduction.',
       documents: [{ role: 'notice', filename: 'notice.pdf' }],
     });
-    expect(sparse).toContain(`Claim: ${NOT_RECORDED}`);
-    expect(sparse).toContain(`Retailer: ${NOT_RECORDED}`);
+    expect(sparse).toContain(`Claim or deduction reference: ${NOT_RECORDED}`);
+    expect(sparse).toContain(`To: ${NOT_RECORDED}`);
+    expect(sparse).toContain(`Invoice number: ${NOT_RECORDED}`);
     expect(sparse).toContain(`Deduction date: ${NOT_RECORDED}`);
-    expect(sparse).toContain(`Dispute deadline: ${NOT_RECORDED}`);
+    // A deadline the case does not hold is left out of the letter rather than
+    // telling the payer we do not know it.
+    expect(sparse).not.toContain('Dispute deadline');
     // The amount is never "not recorded": a case has one, and the column is
     // `not null check (> 0)`.
-    expect(sparse).toContain('Deduction amount: $450.00');
+    expect(sparse).toContain('Amount deducted: $450.00');
   });
 
   it('is deterministic — the same case is the same bytes, every time', () => {
@@ -126,16 +175,20 @@ describe('the packet narrative', () => {
     fc.assert(
       fc.property(anyInput, (input) => {
         const narrative = buildPacketNarrative(input);
+        expect(narrative).toContain(`From: ${input.supplier}\n`);
         if (input.claimId !== undefined) expect(narrative).toContain(input.claimId);
-        if (input.retailer !== undefined) expect(narrative).toContain(input.retailer);
+        if (input.payer !== undefined) expect(narrative).toContain(`To: ${input.payer}\n`);
+        for (const invoice of input.invoiceNumbers) expect(narrative).toContain(invoice);
         if (input.deductionDate !== undefined) expect(narrative).toContain(input.deductionDate);
         if (input.disputeDeadline !== undefined) {
           expect(narrative).toContain(input.disputeDeadline);
         }
-        expect(narrative).toContain(input.reason);
+        expect(narrative).toContain(REASON_WORDS[input.reason]);
         expect(narrative).toContain(input.rationale);
         for (const document of input.documents) {
-          expect(narrative).toContain(`${document.role}: ${document.filename}`);
+          expect(narrative).toContain(
+            `${ENCLOSURE_ROLE_WORDS[document.role]}: ${document.filename}`,
+          );
         }
       }),
     );
@@ -152,15 +205,18 @@ describe('the packet narrative', () => {
         // The money line, and only the money line: an analyst's rationale may
         // contain anything at all, so a check over the whole narrative would
         // be a check on their prose rather than on our arithmetic.
-        const amountLine = narrative
-          .split('\n')
-          .find((line) => line.startsWith('Deduction amount: '));
-        expect(amountLine).toBe(`Deduction amount: ${rendered}`);
+        const lines = narrative.split('\n');
+        const amountLine = lines.find((line) => line.startsWith('Amount deducted: '));
+        expect(amountLine).toBe(`Amount deducted: ${rendered}`);
         // Exactly two decimal places, and no more — a float would show up here
         // as a longer tail, an exponent, or a NaN.
-        expect(amountLine).toMatch(/^Deduction amount: \$[\d,]+\.\d{2}$/);
+        expect(amountLine).toMatch(/^Amount deducted: \$[\d,]+\.\d{2}$/);
         expect(amountLine).not.toMatch(/e[+-]/i);
         expect(amountLine).not.toContain('NaN');
+        // The dispute sentence prints the same amount, and it is the same
+        // string: one `formatCents`, never a second rendering.
+        const asks = lines.find((line) => line.includes(' disputes this deduction in full'));
+        expect(asks?.endsWith(` asks that ${rendered} be repaid.`)).toBe(true);
       }),
     );
   });
@@ -177,6 +233,7 @@ describe('the packet narrative', () => {
   it('refuses a packet with nothing in it, and a dispute with no reason given', () => {
     expect(() => buildPacketNarrative({ ...walmart, documents: [] })).toThrow(PacketError);
     expect(() => buildPacketNarrative({ ...walmart, rationale: '   ' })).toThrow(PacketError);
+    expect(() => buildPacketNarrative({ ...walmart, supplier: ' ' })).toThrow(/who it is from/);
     expect(() =>
       buildPacketNarrative({ ...walmart, reason: 'made_up_code' as never }),
     ).toThrow(PacketError);
@@ -203,18 +260,52 @@ describe('the packet narrative', () => {
  * and wedges it there: nothing can amend the decision, and nothing can build a
  * packet from it. So the cap has to be something a store can check *first*,
  * which means it has to be a number that always leaves room for everything
- * else the cover page prints.
+ * else the letter prints.
  */
 describe('the rationale budget', () => {
   /** The caps the budget is made of (see `NARRATIVE_BUDGET_WITHOUT_RATIONALE`). */
   const CAPS = {
-    retailer: 500,
+    supplier: 200,
+    payer: 500,
     claimId: 200,
+    invoiceNumber: 200,
+    invoiceNumbers: INVOICE_NUMBERS_BUDGETED,
     documents: 25,
     filename: 255,
   } as const;
 
-  it('leaves room for the rest of the cover page', () => {
+  // The fixed text is measured, not asserted: build the letter with every
+  // value one character long (a single invoice, a single enclosure) and take
+  // the values away. If the template grows past its budget, this is where it
+  // says so.
+  it('spends no more on its own words than the budget says', () => {
+    const narrative = buildPacketNarrative({
+      supplier: 'S',
+      payer: 'P',
+      claimId: 'C',
+      invoiceNumbers: ['a', 'b'],
+      deductionAmountCents: 1,
+      deductionDate: 'D',
+      disputeDeadline: 'E',
+      reason: 'duplicate_claim',
+      rationale: 'R',
+      documents: [{ role: 'notice', filename: 'f' }],
+    });
+    const values =
+      2 * 'S'.length +
+      'P'.length +
+      'C'.length +
+      'a, b'.length +
+      2 * '$0.01'.length +
+      'D'.length +
+      'E'.length +
+      REASON_WORDS.duplicate_claim.length +
+      'R'.length +
+      `  1. ${ENCLOSURE_ROLE_WORDS.notice}: f\n`.length;
+    expect(narrative.length - values).toBeLessThanOrEqual(FIXED_TEXT_BUDGET);
+  });
+
+  it('leaves room for the rest of the letter', () => {
     expect(MAX_RATIONALE_LENGTH).toBe(MAX_NARRATIVE_LENGTH - NARRATIVE_BUDGET_WITHOUT_RATIONALE);
     // A cap that had grown until nothing was left would be a cap in name only.
     expect(MAX_RATIONALE_LENGTH).toBeGreaterThan(1_000);
@@ -225,15 +316,23 @@ describe('the rationale budget', () => {
   // and a rationale of exactly MAX_RATIONALE_LENGTH.
   it('fits the column with every field at its cap', () => {
     const narrative = buildPacketNarrative({
+      supplier: 'S'.repeat(CAPS.supplier),
       claimId: 'C'.repeat(CAPS.claimId),
-      retailer: 'R'.repeat(CAPS.retailer),
+      payer: 'P'.repeat(CAPS.payer),
+      invoiceNumbers: Array.from({ length: CAPS.invoiceNumbers }, (_, i) =>
+        String(i).padStart(CAPS.invoiceNumber, 'I'),
+      ),
       deductionAmountCents: Number.MAX_SAFE_INTEGER,
       deductionDate: '2026-08-14',
       disputeDeadline: '2026-10-13',
-      reason: 'unauthorised_deduction_no_basis',
+      // The longest words any reason has, so the worst case is the worst case.
+      reason: CANONICAL_REASON_CODE_LIST.reduce((a, b) =>
+        REASON_WORDS[a].length >= REASON_WORDS[b].length ? a : b,
+      ),
       rationale: 'x'.repeat(MAX_RATIONALE_LENGTH),
       documents: Array.from({ length: CAPS.documents }, () => ({
-        role: 'remittance' as const,
+        // The longest role in words.
+        role: 'evidence' as const,
         filename: 'f'.repeat(CAPS.filename),
       })),
     });
@@ -245,12 +344,17 @@ describe('the rationale budget', () => {
   it('holds for any rationale at or under the cap', () => {
     const withinCaps = fc
       .record({
+        supplier: fc.string({ minLength: 1, maxLength: CAPS.supplier }).filter((t) => t.trim() !== ''),
         claimId: fc.option(fc.string({ maxLength: CAPS.claimId }).filter((t) => t.trim() !== ''), {
           nil: undefined,
         }),
-        retailer: fc.option(
-          fc.string({ maxLength: CAPS.retailer }).filter((t) => t.trim() !== ''),
+        payer: fc.option(
+          fc.string({ maxLength: CAPS.payer }).filter((t) => t.trim() !== ''),
           { nil: undefined },
+        ),
+        invoiceNumbers: fc.array(
+          fc.string({ minLength: 1, maxLength: CAPS.invoiceNumber }),
+          { maxLength: CAPS.invoiceNumbers },
         ),
         deductionAmountCents: fc.integer({ min: 1, max: Number.MAX_SAFE_INTEGER }),
         reason: fc.constantFrom(...CANONICAL_REASON_CODE_LIST),
@@ -273,6 +377,8 @@ describe('the rationale budget', () => {
         ),
       })
       .map((raw) => ({
+        supplier: raw.supplier,
+        invoiceNumbers: raw.invoiceNumbers,
         deductionAmountCents: raw.deductionAmountCents,
         reason: raw.reason,
         rationale: raw.rationale,
@@ -280,7 +386,7 @@ describe('the rationale budget', () => {
         deductionDate: '2026-08-14',
         disputeDeadline: '2026-10-13',
         ...(raw.claimId !== undefined ? { claimId: raw.claimId } : {}),
-        ...(raw.retailer !== undefined ? { retailer: raw.retailer } : {}),
+        ...(raw.payer !== undefined ? { payer: raw.payer } : {}),
       }));
 
     fc.assert(
@@ -312,7 +418,7 @@ describe('the packet content hash', () => {
   });
 
   // The hash covers the document set and the narrative covers the order, so
-  // two documents that are the same document as far as the cover page is
+  // two documents that are the same document as far as the letter is
   // concerned — same role, same filename, a POD scanned twice — hash the same
   // whichever way round they were attached. That is what lets a store hand
   // back the packet that already exists instead of writing a second one.

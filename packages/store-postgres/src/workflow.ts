@@ -62,6 +62,7 @@ import {
   NotACanonicalReasonError,
   NothingToSendError,
   PacketAfterApprovalError,
+  PacketSupersededError,
   PacketHashMismatchError,
   PacketNotBuildableError,
   PacketNotForDecisionError,
@@ -442,6 +443,43 @@ async function packetDocuments(
 }
 
 /**
+ * Who the letter is from: the tenant's own `organizations.name`.
+ *
+ * No `org_id` predicate — `tenant_read` on `organizations` admits exactly the
+ * claimed org, so the policy is what picks the row. Anything but one row is a
+ * session with no tenant, and a letter from nobody is refused loudly rather
+ * than sent.
+ */
+async function supplierName(client: PoolClient): Promise<string> {
+  const { rows } = await client.query<{ name: string }>(`select name from organizations`);
+  if (rows.length !== 1 || rows[0] === undefined) {
+    throw new Error(`expected the tenant's one organization, read ${rows.length}`);
+  }
+  return rows[0].name;
+}
+
+/**
+ * Every invoice number the case is known by, a merged-away case's included.
+ *
+ * A merged-away case's names are its survivor's (ADR 0042 §10), so they are
+ * read through `deduction_merges_current` like every other reader of
+ * `deduction_identifiers`. Order is not asked of the database: collation is a
+ * server setting, and `buildPacketNarrative` sorts by code unit so both stores
+ * build the same bytes.
+ */
+async function caseInvoiceNumbers(client: PoolClient, deductionId: string): Promise<string[]> {
+  const { rows } = await client.query<{ identifier: string }>(
+    `select distinct i.identifier
+       from deduction_identifiers i
+       left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+      where coalesce(m.surviving_deduction_id, i.deduction_id) = $1
+        and i.identifier_kind = 'invoice_number'`,
+    [deductionId],
+  );
+  return rows.map((row) => row.identifier);
+}
+
+/**
  * Builds the cover narrative, turning `core-domain`'s own refusal into one of
  * the workflow's.
  *
@@ -638,10 +676,14 @@ export async function assemblePacket(
     throw new NothingToSendError(input.deductionId);
   }
 
+  const supplier = await supplierName(client);
+  const invoiceNumbers = await caseInvoiceNumbers(client, input.deductionId);
   const narrative = buildNarrativeOrRefuse(input.deductionId, input.decisionId, () =>
     buildPacketNarrative({
+      supplier,
       ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
-      ...(existing.retailer !== undefined ? { retailer: existing.retailer } : {}),
+      ...(existing.retailer !== undefined ? { payer: existing.retailer } : {}),
+      invoiceNumbers,
       deductionAmountCents: exactCents(existing.amountText, 'deduction_amount_cents'),
       ...(existing.deductionDate !== undefined
         ? { deductionDate: existing.deductionDate }
@@ -767,6 +809,14 @@ export async function approve(
     throw new WrongCaseStateError(packet.deductionId, 'approve', existing.state, [
       'awaiting_approval',
     ]);
+  }
+  // Only the latest packet may be approved. Asked under the case's row lock,
+  // which `assemblePacket` takes too, so a re-assembly cannot land between this
+  // read and the insert. The foreign key admits any packet of this decision
+  // (ADR 0020 §5); this is the store's half, as the hash check at submission is.
+  const latest = await latestPacket(client, input.decisionId);
+  if (latest !== undefined && latest.packetId !== packet.packetId) {
+    throw new PacketSupersededError(input.decisionId, packet.contentHash, latest.contentHash);
   }
 
   const approvalId = await translating(
