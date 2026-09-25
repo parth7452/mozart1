@@ -76,3 +76,28 @@ export function withColumnRules(text: string): string {
 }
 
 const COLUMN_RULE = /(^|\s)[|Il!¦│](?=\s|$)/g;
+
+/**
+ * A table's cell and row boundaries, read as the space a reader sees there.
+ *
+ * Reducto writes a table as HTML — `<tr><td>2</td><td>EACH</td><td>$448.00</td>`
+ * — and the model quotes the row as the page shows it, cells apart:
+ * `2  EACH  $448.00`. Every cell was on the page and the quote still failed,
+ * because between two cells the text layer says `</td><td>`.
+ *
+ * Only table structure is rewritten (`table`, `caption`, `thead`, `tbody`,
+ * `tfoot`, `tr`, `th`, `td`, `colgroup`, `col`, with or without attributes),
+ * and each tag becomes one space, nothing more: a cell boundary is exactly as
+ * strong as a space. So two numbers in adjacent cells stay two numbers, as two
+ * numbers a space apart do (`verify.ts`), and a quote that joins them into one
+ * is still refused.
+ *
+ * Runs on text whose entities are not yet decoded, as `withoutInlineMarkup`
+ * does its tags: `&lt;td&gt;` is the page printing "<td>", and stays text.
+ */
+export function withTableCellsAsSpace(text: string): string {
+  return text.replace(TABLE_TAG, ' ');
+}
+
+const TABLE_TAG =
+  /<\/?(?:table|caption|thead|tbody|tfoot|tr|th|td|colgroup|col)(?:\s[^<>]*)?\/?>/gi;

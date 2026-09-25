@@ -12,7 +12,7 @@
  */
 
 import type { DocumentPayload, ModelCallRecord } from './ports';
-import { withColumnRules } from './markup';
+import { withColumnRules, withTableCellsAsSpace } from './markup';
 
 /** A laid-out region of a page. Boxes are normalised [x0, y0, x1, y1] in 0..1. */
 export interface OcrBlock {
@@ -50,14 +50,44 @@ export class OcrError extends Error {
   }
 }
 
-/** Whitespace and case are presentation; everything else has to match. */
 /**
- * As `checkQuote` reads a page: case and spacing folded, and a column rule one
- * glyph whichever way it was drawn (`withColumnRules`), so a quote that
- * verifies by its rules can still be boxed.
+ * A text layer as `checkQuote` reads it: entry `i` is page `i + 1`.
+ *
+ * Reducto reports only the pages it found text on, so a duplex scan's blank
+ * back comes back as no page at all. Read by position, as every caller did,
+ * the page after a blank one moved up a place: a field quoted from page 3 was
+ * checked against — and could be stored as — page 2, the blank one. A page
+ * with no text is `''` here instead, so every page keeps its own number. A
+ * blank page *after* the last one with text is simply past the end, which is
+ * all `checkQuote` claims about such a page.
+ *
+ * A page number that is not a whole number from 1 is an error, not a page to
+ * skip: `document_pages` refuses it too.
+ */
+export function textByPage(
+  pages: readonly { readonly page: number; readonly text: string }[],
+): string[] {
+  const byNumber: string[] = [];
+  for (const { page, text } of pages) {
+    if (!Number.isInteger(page) || page < 1) {
+      throw new RangeError(`a text layer page must be a whole number from 1, got ${page}`);
+    }
+    if (byNumber[page - 1] !== undefined) {
+      throw new RangeError(`the text layer has page ${page} twice`);
+    }
+    byNumber[page - 1] = text;
+  }
+  return Array.from(byNumber, (text) => text ?? '');
+}
+
+/**
+ * As `checkQuote` reads a page: case and spacing folded, a column rule one
+ * glyph whichever way it was drawn (`withColumnRules`) and a table cell's edge
+ * a space (`withTableCellsAsSpace`), so a quote that verifies by its
+ * separators can still be boxed.
  */
 function normalise(text: string): string {
-  return withColumnRules(text).toLowerCase().replace(/\s+/g, ' ').trim();
+  return withColumnRules(withTableCellsAsSpace(text)).toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**

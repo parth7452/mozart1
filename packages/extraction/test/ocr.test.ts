@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { locateQuote, type OcrBlock } from '../src/ocr';
+import { locateQuote, textByPage, type OcrBlock } from '../src/ocr';
 import { checkQuote, groundingReport, verifyQuotes } from '../src/verify';
 import { flattenExtraction } from '../src/flatten';
 import { buildReadContent } from '../src/prompt';
@@ -62,6 +62,43 @@ describe('placing a quote on the page', () => {
     ];
     expect(locateQuote('Deduction $600.00 | Paid $6,600.00', 1, ruled)?.bbox).toEqual([0.1, 0.2, 0.9, 0.25]);
     expect(locateQuote('Deduction $600.00 | Paid $6,660.00', 1, ruled)).toBeUndefined();
+  });
+
+  it('boxes a row quoted across the cells Reducto wrote as HTML', () => {
+    const table: OcrBlock[] = [
+      {
+        page: 1,
+        text: '<table><tr><td>Sedan - compact</td><td>40¢</td><td>$39</td><td>$175</td></tr></table>',
+        bbox: [0.1, 0.3, 0.9, 0.6],
+        kind: 'Table',
+        confidence: 0.9,
+      },
+    ];
+    expect(locateQuote('40¢ $39 $175', 1, table)?.bbox).toEqual([0.1, 0.3, 0.9, 0.6]);
+    expect(locateQuote('40¢ $39 $157', 1, table)).toBeUndefined();
+  });
+});
+
+describe('a text layer by page number', () => {
+  it('puts each page at its own number, and a page OCR found no text on as empty', () => {
+    expect(
+      textByPage([
+        { page: 3, text: 'three' },
+        { page: 1, text: 'one' },
+      ]),
+    ).toEqual(['one', '', 'three']);
+    expect(textByPage([])).toEqual([]);
+  });
+
+  it('refuses a page number no page has, and a page given twice', () => {
+    expect(() => textByPage([{ page: 0, text: 'x' }])).toThrow(/whole number from 1/);
+    expect(() => textByPage([{ page: 1.5, text: 'x' }])).toThrow(/whole number from 1/);
+    expect(() =>
+      textByPage([
+        { page: 1, text: 'x' },
+        { page: 1, text: 'y' },
+      ]),
+    ).toThrow(/page 1 twice/);
   });
 });
 

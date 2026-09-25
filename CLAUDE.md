@@ -210,7 +210,7 @@ does):
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 | public | real public records nobody wrote for us | 97.9% / 97.9% | 98.9% | 10/10 |
-| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 79.7% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 98.5% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -308,7 +308,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 597 of 1,722 fields carry a
+About $0.0272 per document across 77 of them, and 620 of 1,722 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1383,11 +1383,13 @@ answers stand. The fourth is a product gap: a unit price printed `$6,721.8000`,
 which `parseMoneyToCents` will not read. `public_scanned` holds four scanned
 invoices and ExtractBench's degraded copies of six `public` documents, read
 through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
-79.7% grounding. Three things cost the grounding, and none is a wrong value.
-Grainger's one-page scan cites page 2 for every field, and its quotes failed
-again in two of three re-asks. Quotes of whole table rows do not match, because Reducto writes
-a table as HTML cells. And OCR misread a dash and a degraded price, which the
-check is right to refuse.
+79.7% grounding as first recorded. Three things cost the grounding, and none
+was a wrong value. Grainger's one-page scan cites page 2 for every field, and
+its quotes failed again in two of three re-asks. Quotes of whole table rows did
+not match, because Reducto writes a table as HTML cells. And OCR misread a
+degraded price, which the check is right to refuse. The first two were the
+checker's, and are fixed (*A quote is looked for where it can be*, below):
+98.5% now.
 
 Recording `public` found the upload door refusing three of the fourteen
 distinct documents as "active content (/AA)". The `/AA` was the start of their
@@ -1403,3 +1405,41 @@ Two of the scans carry one and are stored without it.
 A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
 $0.45, image only) opened nothing. The two pages read as payment advices really
 are check stubs, and both scored below the floor.
+
+**A quote is looked for where it can be** (no ADR, no migration). Two gaps in
+`checkQuote`, both found by `public_scanned`. *A page past the end.* A quote
+cited to a page past the last page of the text layer is now looked for on
+every page in it, and accepted only when exactly one page holds it; on none or
+several it is refused as before, and a citation to a page in the layer is still
+checked there and nowhere else. The field is **moved**, not only marked:
+`sourcePage` becomes the page that holds the quote, because the reviewer's
+page, the OCR box, a packet's citation and a post-audit all follow it, and page
+2 of a one-page file sends them nowhere. The model's number is kept as
+`citedPage` and written onto the extraction's `model_calls.detail` (schema
+paths and page numbers only), so the correction is on the record;
+`extraction_results` has no column for it, and adding one is an append-only
+schema change with its own ADR. Moving a page is only as safe as the page
+numbers, and they were not: Reducto reports no page it found no text on, and
+the pipeline, `pagesFor` and the memory store all read the text layer by
+position, so after a duplex scan's blank back every later page answered to the
+number before its own. `textByPage` (`ocr.ts`) now builds it by page number,
+`''` for a page with no text, everywhere a text layer is made or read back.
+*Table cells.* `withTableCellsAsSpace` (`markup.ts`) reads `<table>`, `<tr>`,
+`<td>`, `<th>` and their kin as one space each, before entities are decoded, in
+the `separator` tier and every tier after it, and in `locateQuote`. A cell edge
+is exactly as strong as a space, which exposed two older holes. The looser
+tiers dropped every space, so "Qty 2 $448.00" verified an invented "$2448.00"
+and "Qty 20 S" an invented "Qty 205"; a gap between two digits now stays a gap
+in the punctuation and OCR tiers. And a quote a tier reduced to nothing
+verified against any page, since every page includes the empty string: "—" at
+the punctuation tier, `<b></b>` at the exact one, and `</td><td>` would have at
+the new one; an empty form now matches nothing. A dash drawn as a hyphen
+(`Sedan – compact`) was already accepted as punctuation and stays so;
+`$6;721:8000` is still refused. Across 1,722 fields, 28 moved from refused to
+verified and nothing else changed tier, page or box. `public_scanned` grounding
+rose 79.7% → 98.5% (Grainger 0% → 100%, Texas 37.5% → 100%, Illinois 75% →
+100%), `scanned` 99.95% → 100% (Crosswind's total, whose quote copied a cell OCR
+had glued), overall 96.8% → 99.2%, boxes 597 → 620, and the baseline was
+re-recorded for those three numbers only. `grounding.test.ts`, `ocr.test.ts`,
+`scanned-upload.test.ts` and `pipeline-on-postgres.test.ts` show a wrong value
+still fails through each new path and a blank page keeps its number.

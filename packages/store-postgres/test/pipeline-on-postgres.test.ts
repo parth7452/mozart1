@@ -196,6 +196,52 @@ describeDb('the pipeline against a real database', () => {
     expect(Number(rows[0]?.n)).toBeGreaterThan(10);
   });
 
+  it('reads a text layer back by page number, a page OCR found no text on as empty', async () => {
+    // A duplex scan's blank back gets no `document_pages` row. Read back by
+    // position, the page after it took its number, and a quote cited to page 3
+    // was checked against — and could be stored as — page 2 (`textByPage`).
+    // Its own tenant: the tests below count this tenant's documents.
+    const duplexOrgId = randomUUID();
+    const duplexAnalystId = randomUUID();
+    await admin.query(`insert into organizations (id, slug, name) values ($1, $2, 'Duplex')`, [
+      duplexOrgId,
+      `${slug}-duplex`,
+    ]);
+    await admin.query(`insert into org_settings (org_id) values ($1)`, [duplexOrgId]);
+    await admin.query(`insert into users (id, email) values ($1, $2)`, [
+      duplexAnalystId,
+      `analyst-${duplexAnalystId}@example.test`,
+    ]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'analyst')`, [
+      duplexOrgId,
+      duplexAnalystId,
+    ]);
+    const duplexStore = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId: duplexOrgId, userId: duplexAnalystId },
+    );
+    const bytes = new TextEncoder().encode(`%PDF-1.7 duplex ${randomUUID()}`);
+    const document = await duplexStore.putDocument({
+      orgId: duplexOrgId,
+      sha256: randomUUID().replaceAll('-', '').repeat(2),
+      filename: 'duplex-scan.pdf',
+      mimeType: 'application/pdf',
+      byteSize: bytes.length,
+      bytes,
+      requiresSplit: false,
+    });
+    await duplexStore.recordPages(document.documentId, [
+      { page: 1, text: 'Deduction notice' },
+      { page: 3, text: 'Remit stub' },
+    ]);
+    expect(await duplexStore.pagesFor(document.documentId)).toEqual([
+      'Deduction notice',
+      '',
+      'Remit stub',
+    ]);
+    await duplexStore.close();
+  });
+
   it('keeps every field’s provenance in the database', async () => {
     const { rows } = await admin.query<{
       field_path: string;

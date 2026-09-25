@@ -131,9 +131,29 @@ worth having. Nearly every value is right, and the gaps are in checking them:
 - **Texas and Illinois** quote whole table rows (`2  EACH  $448.00 …`).
   Reducto writes a table as HTML cells, so a row is not in the text as written,
   though every cell in it is.
-- **OCR misreads.** Illinois prints `Sedan – compact` with a dash that OCR read
-  as a hyphen, and Oklahoma's degraded unit price came out `$6;721:8000`.
-  Refusing these is right: the text layer disagrees with the page.
+- **OCR misreads.** Oklahoma's degraded unit price came out `$6;721:8000`.
+  Refusing it is right: the text layer disagrees with the page. (This list
+  first also named Illinois's `Sedan – compact`, which OCR read with a hyphen.
+  That was wrong: the check had already accepted it as a punctuation match, and
+  the 79.7% counted it as found.)
+
+## Checked again (2026-09-25)
+
+Nothing was re-recorded. The checker changed, and the same cassettes were
+scored again: 98.5% of `public_scanned`'s quotes are now found on the page.
+
+- **A page past the end.** A quote that names a page past the last page of the
+  text is looked for on every page there is, and accepted only when exactly one
+  page holds it. The field is then stored against that page, and the page the
+  model named is kept on the field and on the read's model-call record.
+  Grainger: 0% → 100%. A page OCR found no text on now keeps its number as an
+  empty page, so the pages after it keep theirs.
+- **Table cells.** A cell or row boundary in Reducto's HTML reads as a space,
+  so a row quoted as the page shows it is found. Two numbers in neighbouring
+  cells still read as two numbers, never one. Texas: 37.5% → 100%. Illinois:
+  75% → 100%.
+- **Still refused.** Oklahoma's `$6;721:8000`, and Utah's `approved_by`, whose
+  quote opens its first sentence with words the page does not print there.
 
 ## What these documents are
 

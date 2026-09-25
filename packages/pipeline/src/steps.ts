@@ -25,6 +25,7 @@ import {
   RemittanceAdviceSchema,
   restoreDocument,
   ShipmentDocumentSchema,
+  textByPage,
   type DeductionNotice,
   type DocType,
   type ExtractedField,
@@ -298,7 +299,7 @@ async function readablePayload(
       const result = await deps.ocr.ocr(payload);
       calls.push(result.call);
       await deps.store.recordPages(document.documentId, result.pages);
-      pageText = result.pages.map((page) => page.text);
+      pageText = textByPage(result.pages);
       textSource = 'ocr';
       blocks = result.blocks;
     } catch (error) {

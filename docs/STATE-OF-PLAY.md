@@ -165,10 +165,11 @@ documents: ten public records from ExtractBench, scored against ExtractBench's
 verified answers. 97.9% recall and precision, 10 of 10 classified. Recording it
 found the upload door refusing three real invoices and orders for their fonts'
 names; that is fixed. Its scanned half, `public_scanned`, read through Reducto:
-93.9% recall and precision, 10 of 10 classified, but only 79.7% of quotes
-checked. The values are right. The gaps are one scan citing a page it does not
-have, and quotes of whole table rows that Reducto stores as HTML cells. No suite
-is pending.
+93.9% recall and precision, 10 of 10 classified, and 98.5% of quotes checked.
+It was 79.7% as first recorded, with the values right: one scan cited a page it
+does not have, and quotes of whole table rows missed the HTML cells Reducto
+stores. The checker now looks for such a quote on the one page that holds it,
+and reads a cell edge as a space. No suite is pending.
 
 A one-time check of 160 scanned office papers (RVL-CDIP) opened no case: the
 two pages read as payment advices really are check stubs, and both scored

@@ -78,6 +78,14 @@ export interface ExtractedField {
   readonly value: unknown;
   readonly confidence: number;
   readonly sourcePage: number;
+  /**
+   * The page the model cited, kept only when it named a page past the last
+   * page of the text layer and the quote was found on exactly one page in it.
+   * `sourcePage` is then that page, found by `verifyQuotes` rather than told to
+   * it, and this is the model's own number, so a wrong citation is said out
+   * loud rather than overwritten.
+   */
+  readonly citedPage?: number;
   readonly sourceQuote: string;
   readonly sourceBbox: readonly number[] | null;
   /**
