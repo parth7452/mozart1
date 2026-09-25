@@ -37,13 +37,13 @@ const WHITESPACE = 1;
 const DELIMITER = 2;
 
 /**
- * ISO 32000-1 §7.2.2's whitespace and delimiters, plus `0xFF`, which PDFium
- * reads as whitespace: a byte one reader splits a token on and we do not is a
+ * ISO 32000-1 §7.2.2's whitespace and delimiters, plus `0x80` and `0xFF`, which
+ * PDFium reads as whitespace: a byte one reader splits a token on and we do not is a
  * key that reader runs and we never saw. The same set as `PDF_NAME` in
  * `sniff.ts`.
  */
 const CHAR_CLASS = new Uint8Array(256);
-for (const code of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20, 0xff]) CHAR_CLASS[code] = WHITESPACE;
+for (const code of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20, 0x80, 0xff]) CHAR_CLASS[code] = WHITESPACE;
 for (const ch of '()<>[]{}/%') CHAR_CLASS[ch.charCodeAt(0)] = DELIMITER;
 
 export const TOKEN = {
