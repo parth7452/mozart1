@@ -9,6 +9,8 @@
 
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
+import { judgeOpenAction } from './pdf-open-action';
+import { scanPdfNames } from './pdf-names';
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -140,10 +142,85 @@ function activeContentOf(latin1: string): string[] {
 
 export interface PdfInspection {
   readonly encrypted: boolean;
+  /** The markers that block this file, in `PDF_ACTIVE_CONTENT`'s order. */
   readonly activeContent: readonly string[];
+  /**
+   * Each `/OpenAction` whose value is a plain destination, and so does not
+   * block (`pdf-open-action.ts`). Empty whenever the raw scan decided.
+   */
+  readonly allowedOpenActions: readonly string[];
+  /**
+   * How the markers were found: `tokenized` read names where a reader reads
+   * them (`pdf-names.ts`); `raw` matched them anywhere in the bytes, because
+   * tokenizing could not account for the file (`rawScanReason`).
+   */
+  readonly nameScan: 'tokenized' | 'raw';
+  readonly rawScanReason?: string;
+  readonly objectStreamsDecoded: number;
   readonly pageCount: number;
   readonly inflatedBytes: number;
   readonly streamsInspected: number;
+}
+
+const PDF_ACTIVE_CONTENT_SET: ReadonlySet<string> = new Set(PDF_ACTIVE_CONTENT);
+
+/**
+ * The most object-stream text the name scan will inflate and read, within the
+ * bomb budget. The bomb loop inflates only a file's first 500 streams, so
+ * without this a 2 MB file of ten thousand small object streams could have the
+ * door read 256 MB of names — seconds of work for every upload. Past it, the
+ * raw scan decides.
+ */
+export const MAX_OBJECT_STREAM_TEXT_BYTES = 64 * 1024 * 1024;
+
+const OPEN_ACTION: ReadonlySet<string> = new Set(['/OpenAction']);
+
+/**
+ * The markers that block, read by the tokenizer where it can account for the
+ * file and by the raw scan where it cannot. Over the file's own bytes the raw
+ * scan is the stricter — it sees every name the tokenizer does, and refuses any
+ * `/OpenAction`, because a value only it saw cannot be judged — but it cannot
+ * see inside a compressed object stream. A file that falls back is exactly as
+ * blind there as every file was before the tokenizer.
+ */
+function activeContentIn(
+  bytes: Uint8Array,
+  latin1: string,
+  inflateBudget: number,
+): Pick<PdfInspection, 'activeContent' | 'allowedOpenActions' | 'nameScan' | 'rawScanReason' | 'objectStreamsDecoded'> {
+  const scan = scanPdfNames(bytes, latin1, {
+    wanted: PDF_ACTIVE_CONTENT_SET,
+    valued: OPEN_ACTION,
+    inflateBudget,
+  });
+  if (scan.mode === 'raw') {
+    return {
+      activeContent: activeContentOf(latin1),
+      allowedOpenActions: [],
+      nameScan: 'raw',
+      rawScanReason: scan.reason,
+      objectStreamsDecoded: 0,
+    };
+  }
+  const blocking = new Set(scan.found);
+  blocking.delete('/OpenAction');
+  const allowedOpenActions: string[] = [];
+  for (const site of scan.sites) {
+    let verdict: ReturnType<typeof judgeOpenAction>;
+    try {
+      verdict = judgeOpenAction(site, scan);
+    } catch {
+      verdict = { allowed: false, reason: 'the value could not be read' };
+    }
+    if (verdict.allowed) allowedOpenActions.push(verdict.destination);
+    else blocking.add('/OpenAction');
+  }
+  return {
+    activeContent: PDF_ACTIVE_CONTENT.filter((marker) => blocking.has(marker)),
+    allowedOpenActions,
+    nameScan: 'tokenized',
+    objectStreamsDecoded: scan.objectStreams,
+  };
 }
 
 /** Budgets for the decompression check. A bomb blows one of these, not both. */
@@ -167,6 +244,10 @@ export const DEFAULT_BOMB_LIMITS: BombLimits = {
  * inflate are skipped — this is a safety check, not a parser, and a malformed
  * stream is the renderer's problem, not a reason to reject an otherwise good
  * document.
+ *
+ * Then reads the active-content markers where a reader reads names
+ * (`pdf-names.ts`), object streams included, and falls back to matching them
+ * anywhere in the bytes when it cannot account for the file.
  */
 export function inspectPdf(
   bytes: Uint8Array,
@@ -177,7 +258,6 @@ export function inspectPdf(
   const trailerIndex = Math.max(latin1.lastIndexOf('trailer'), 0);
   const encrypted = latin1.includes('/Encrypt') && latin1.indexOf('/Encrypt') >= trailerIndex - 4096;
 
-  const activeContent = activeContentOf(latin1);
   const pageCount = (latin1.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
 
   let inflatedBytes = 0;
@@ -230,7 +310,10 @@ export function inspectPdf(
     );
   }
 
-  return { encrypted, activeContent, pageCount, inflatedBytes, streamsInspected };
+  // After the bomb checks, so that a bomb is refused exactly as it always was.
+  const names = activeContentIn(bytes, latin1, Math.min(limits.maxInflatedBytes, MAX_OBJECT_STREAM_TEXT_BYTES));
+
+  return { encrypted, ...names, pageCount, inflatedBytes, streamsInspected };
 }
 
 export interface AcceptedUpload {
