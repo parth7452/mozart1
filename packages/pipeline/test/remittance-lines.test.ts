@@ -541,6 +541,21 @@ describe('the same deduction arriving twice', () => {
       'amount_cents',
       'deduction_date',
     ]);
+    // And the pair is named where a reviewer is shown it (ADR 0032, audit F1):
+    // one `case.possible_duplicate` on the new case, in `openCase`'s own shape.
+    const named = store.events.filter((e) => e.eventType === 'case.possible_duplicate');
+    expect(named).toHaveLength(1);
+    expect(named[0]?.deductionId).toBe(second.opened[0]?.deductionId);
+    expect(named[0]?.payload).toEqual({
+      of: first.opened[0]?.deductionId,
+      basis: ['invoice_number', 'amount_cents', 'deduction_date'],
+    });
+  });
+
+  it('names no pair for a line that matched nothing', async () => {
+    const { store, deps, stored } = await harness();
+    await openCasesFromRemittance(stored, extractionOf(sameLine()), deps);
+    expect(store.events.filter((e) => e.eventType === 'case.possible_duplicate')).toEqual([]);
   });
 
   it('does not call a different amount on the same invoice a duplicate', async () => {

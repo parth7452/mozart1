@@ -1,6 +1,7 @@
 # 0028 — A short-paid remittance line is a discovered deduction
 
-- Status: accepted; §7's claim key amended by 0048 for an invoice printed on several lines
+- Status: accepted; §7's claim key amended by 0048 for an invoice printed on several lines;
+  §7 carries a note (2026-09-25) on naming a probable match as a pair
 - Date: 2026-09-22
 
 ## Context
@@ -306,6 +307,26 @@ null and recording the reason on `case.discovered` when it will not parse —
 identical to the notice path. `dispute_deadline` stays null: a remittance prints
 no window, and "dispute within 90 days" in its footer is a payer rule, which is
 Phase 2's job.
+
+**Note (2026-09-25, audit F1, no migration).** Because this composite is the
+only identifier a line resolves on exactly, a line that *probably* matches a
+case already open — a notice read first, then the advice that short-paid it —
+is resolved in `openCasesFromRemittance`, not in `openCase`, which never sees
+the invoice number on this path. Until this note the match was written only
+into the line's own `case.discovered` event (`probable_duplicate_of`), which
+nothing reads, so the pair never reached Possible duplicates (ADR 0032) and
+could never be answered or merged (ADR 0042 answered `not_confirmed`). The
+reverse order was unaffected, because the notice's `openCase` names the pair
+itself. `openCaseForLine` now also appends one `case.possible_duplicate`
+event per candidate on the line's case, `{ of, basis }` exactly as `openCase`
+writes it, so the list, the verdict and the merge check read it unchanged.
+`probable_duplicate_of` stays on `case.discovered` as before. Cases opened
+before the fix are repaired by `pnpm link:duplicates`, an operator command that
+names each match from its `case.discovered` payload as `app_rw` with a
+member's claims (ADR 0034), skips any pair already named in either direction,
+and adds `backfilled_from_event` to the payload so the repair is traceable.
+Events are append-only, so the repair is additive and running it twice writes
+nothing more.
 
 ### 8. One line's failure does not cost the others
 
