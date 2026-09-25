@@ -1,0 +1,135 @@
+{
+  "key": "eb-texas-facilities-po",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:47:02.229Z"
+  },
+  "document": {
+    "po_number": {
+      "value": "303-0-0317",
+      "confidence": 0.98,
+      "source_page": 1,
+      "source_quote": "PO Number:303-0-0317"
+    },
+    "po_date": {
+      "value": "11/7/2019",
+      "confidence": 0.97,
+      "source_page": 1,
+      "source_quote": "Order Date: 11/7/2019"
+    },
+    "buyer_name": {
+      "value": "TEXAS FACILITIES COMMISSION",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "TEXAS FACILITIES COMMISSION"
+    },
+    "ship_to": {
+      "value": "Parking Garage R, Warehouse 1706 San Jacinto Blvd. ATTN: Leandra Contreras Austin, TX 78701",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "Parking Garage R, Warehouse \n1706 San Jacinto Blvd. \nATTN: Leandra Contreras \nAustin, TX 78701"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC-~-FG3-COVERCLOTHINDIGO-~-AC",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "2723Y.A142.B1--FC1-B17-E3-C16-S0-MC5-FABRIC-~-\nFG3-COVERCLOTHINDIGO-~- \nAC"
+        },
+        "qty_ordered": {
+          "value": 2,
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "2 EACH $448.00 11/7/2019 12/6/2019 $896.00"
+        },
+        "unit_cost": {
+          "value": "$448.00",
+          "confidence": 0.97,
+          "source_page": 1,
+          "source_quote": "2 EACH $448.00 11/7/2019 12/6/2019 $896.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "85040-T2--BKN-(M3)-3EB-MED-SS-~-LH-G1-(1)-F-OBAY-~-BHA-KD-AS",
+          "confidence": 0.85,
+          "source_page": 2,
+          "source_quote": "85040-T2--BKN-(M3)-3EB-MED-SS-~-LH-G1-(1)-F-\nOBAY-~-BHA-KD-AS"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "1 EACH $540.00 11/7/2019 12/6/2019 $540.00"
+        },
+        "unit_cost": {
+          "value": "$540.00",
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "1 EACH $540.00 11/7/2019 12/6/2019 $540.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "1801AG2113",
+          "confidence": 0.9,
+          "source_page": 2,
+          "source_quote": "1801AG2113"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "1 EACH $610.00 11/7/2019 12/6/2019 $610.00"
+        },
+        "unit_cost": {
+          "value": "$610.00",
+          "confidence": 0.97,
+          "source_page": 2,
+          "source_quote": "1 EACH $610.00 11/7/2019 12/6/2019 $610.00"
+        }
+      },
+      {
+        "sku_upc": {
+          "value": "Labor to install 4 chairs",
+          "confidence": 0.7,
+          "source_page": 2,
+          "source_quote": "Labor to install 4 chairs"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1 FEE $165.00 11/7/2019 12/6/2019 $165.00"
+        },
+        "unit_cost": {
+          "value": "$165.00",
+          "confidence": 0.95,
+          "source_page": 2,
+          "source_quote": "1 FEE $165.00 11/7/2019 12/6/2019 $165.00"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0234ffc502426856c2b6a606fa20def5b4c0b69ff195be155835062008d8bc1c",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:47:02.230Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:47:02.230Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 13607,
+    "outputTokens": 1382,
+    "costMicros": 41034,
+    "latencyMs": 10995
+  }
+}

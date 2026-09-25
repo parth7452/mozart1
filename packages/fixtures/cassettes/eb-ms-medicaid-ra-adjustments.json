@@ -1,0 +1,119 @@
+{
+  "key": "eb-ms-medicaid-ra-adjustments",
+  "docType": "remittance_advice",
+  "classifiedAs": "remittance_advice",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:31:06.548Z"
+  },
+  "document": {
+    "payer_name": {
+      "value": "DIVISION OF MEDICAID",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "DIVISION OF MEDICAID"
+    },
+    "payment_reference": {
+      "value": "04957561",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "REMITTANCE: 04957561"
+    },
+    "payment_date": {
+      "value": "01/07/08",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "DATE: 01/07/08"
+    },
+    "lines": [
+      {
+        "invoice_number": {
+          "value": "08000400000009778",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "08000400000009778"
+        },
+        "gross_amount": {
+          "value": "-80.00",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "-80.00"
+        },
+        "deduction_amount": {
+          "value": "-6.70",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "-6.70"
+        },
+        "net_amount": {
+          "value": "-73.30",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "-73.30"
+        },
+        "reason_code": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "invoice_number": {
+          "value": "08000400000009779",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "08000400000009779"
+        },
+        "gross_amount": {
+          "value": "80.00",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "80.00"
+        },
+        "deduction_amount": {
+          "value": "6.70",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "6.70"
+        },
+        "net_amount": {
+          "value": "73.30",
+          "confidence": 0.85,
+          "source_page": 1,
+          "source_quote": "73.30"
+        },
+        "reason_code": {
+          "value": "3222",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "EXCEPTION CODES: 3222"
+        }
+      }
+    ],
+    "payment_total": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "05911b4e15970005d14217782baff6b64da5314ba67feebf35ad66a897856c31",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:31:06.549Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:31:06.549Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5359,
+    "outputTokens": 878,
+    "costMicros": 19498,
+    "latencyMs": 7593
+  }
+}

@@ -1,0 +1,221 @@
+{
+  "key": "eb-uillinois-rate-card",
+  "docType": "price_agreement",
+  "classifiedAs": "price_agreement",
+  "classifierConfidence": 0.95,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:47:13.868Z"
+  },
+  "document": {
+    "agreement_type": {
+      "value": "Car Pool Rate Sheet",
+      "confidence": 0.85,
+      "source_page": 1,
+      "source_quote": "Car Pool Rate Sheet"
+    },
+    "effective_from": {
+      "value": "January 2, 2024",
+      "confidence": 0.95,
+      "source_page": 1,
+      "source_quote": "RATES EFFECTIVE January 2, 2024"
+    },
+    "terms": [
+      {
+        "term_text": {
+          "value": "Sedan – compact",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sedan – compact 40¢ $39 $175 $450"
+        },
+        "amount": {
+          "value": "40¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "40¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Sedan – full size",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sedan – full size 47¢ $52 $215 $520"
+        },
+        "amount": {
+          "value": "47¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "47¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Mini Van (7 passenger)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Mini Van (7 passenger) 65¢ $68 $260 $680"
+        },
+        "amount": {
+          "value": "65¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "65¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Sport Utility Vehicle (SUV) (8 passenger, 2WD or 4WD)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Sport Utility Vehicle (SUV) (8 passenger, 2WD or 4WD) 78¢ $73 $285 $730"
+        },
+        "amount": {
+          "value": "78¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "78¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Full Size Van (15 passenger & Conversion)",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Full Size Van (15 passenger & Conversion) $1.07 $100 $410 $900"
+        },
+        "amount": {
+          "value": "$1.07",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$1.07"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Work trucks",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Work trucks 79¢ $73 $350 $730"
+        },
+        "amount": {
+          "value": "79¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "79¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Compact SUV",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Compact SUV 52¢ $60 $255 $535"
+        },
+        "amount": {
+          "value": "52¢",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "52¢"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      },
+      {
+        "term_text": {
+          "value": "Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges.",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "Vehicles returned late will accrue a $25 per day late-return fee in addition to normal use charges."
+        },
+        "amount": {
+          "value": "$25",
+          "confidence": 0.9,
+          "source_page": 1,
+          "source_quote": "$25 per day"
+        },
+        "sku_upc": {
+          "value": null,
+          "confidence": 0,
+          "source_page": 1,
+          "source_quote": ""
+        }
+      }
+    ],
+    "counterparty": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "effective_to": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    },
+    "approved_by": {
+      "value": null,
+      "confidence": 0,
+      "source_page": 1,
+      "source_quote": ""
+    }
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "d5d4b9439d216fa769dd53f214b49be9c3365f33208eccde25e93ef34aceedac",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:47:13.869Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:47:13.869Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 4635,
+    "outputTokens": 1279,
+    "costMicros": 22060,
+    "latencyMs": 9093
+  }
+}

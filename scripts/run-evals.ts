@@ -263,8 +263,12 @@ for (const suiteName of scoredSuites) {
   console.log('document                       recall  precis  ground  wrong  missing');
   console.log('─'.repeat(72));
   for (const score of suiteScores) {
+    // A document with no ground truth (Utah's rate schedule names no date)
+    // still counts for grounding and classification, but it has no recall or
+    // precision to report, and 100%/0% would read as a result.
+    const scored = score.fields.length > 0;
     console.log(
-      `${score.key.padEnd(30)} ${pct(score.recall)}  ${pct(score.precision)}  ` +
+      `${score.key.padEnd(30)} ${pct(scored ? score.recall : null)}  ${pct(scored ? score.precision : null)}  ` +
         `${pct(score.groundedRate)}  ${String(score.wrong).padStart(5)}  ${String(score.missing).padStart(7)}`,
     );
   }

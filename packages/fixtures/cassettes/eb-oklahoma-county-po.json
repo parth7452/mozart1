@@ -1,0 +1,75 @@
+{
+  "key": "eb-oklahoma-county-po",
+  "docType": "po",
+  "classifiedAs": "po",
+  "classifierConfidence": 0.99,
+  "classifier": {
+    "model": "claude-haiku-4-5",
+    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "temperature": 0,
+    "classifiedAt": "2026-09-25T06:46:48.195Z"
+  },
+  "document": {
+    "po_number": {
+      "value": "22601904",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "22601904"
+    },
+    "po_date": {
+      "value": "08/28/2025",
+      "confidence": 0.99,
+      "source_page": 1,
+      "source_quote": "08/28/2025"
+    },
+    "buyer_name": {
+      "value": "OK CO EMERGENCY MANAGEMENT",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "OK CO EMERGENCY MANAGEMENT"
+    },
+    "ship_to": {
+      "value": "OK CO EMERGENCY MANAGEMENT, 320 ROBERT S KERR, ROOM 101, OKLAHOMA CITY, OK 73102",
+      "confidence": 0.9,
+      "source_page": 1,
+      "source_quote": "OK CO EMERGENCY MANAGEMENT 320 ROBERT S KERR ROOM 101 OKLAHOMA CITY, OK 73102"
+    },
+    "lines": [
+      {
+        "sku_upc": {
+          "value": "1",
+          "confidence": 0.6,
+          "source_page": 1,
+          "source_quote": "1"
+        },
+        "qty_ordered": {
+          "value": 1,
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "1.0000"
+        },
+        "unit_cost": {
+          "value": "$6,721.8000",
+          "confidence": 0.95,
+          "source_page": 1,
+          "source_quote": "$6,721.8000"
+        }
+      }
+    ]
+  },
+  "extractor": {
+    "model": "claude-sonnet-5",
+    "promptSha256": "0234ffc502426856c2b6a606fa20def5b4c0b69ff195be155835062008d8bc1c",
+    "schemaVersion": "1.2.0",
+    "extractedAt": "2026-09-25T06:46:48.196Z"
+  },
+  "recordedWith": "claude-sonnet-5",
+  "recordedAt": "2026-09-25T06:46:48.196Z",
+  "call": {
+    "modelVersion": "claude-sonnet-5",
+    "inputTokens": 5338,
+    "outputTokens": 483,
+    "costMicros": 15506,
+    "latencyMs": 4456
+  }
+}
