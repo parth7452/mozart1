@@ -301,10 +301,10 @@ Values that already exist (`docs/qbo-credentials.md`):
 **The hosting IP question needs me.** Vercel does not give fixed IP
 addresses. Ask me before you answer that one.
 
-**What is missing: the two pages.**
+**What is missing: the terms page.**
 
-- The app has **no privacy policy and no terms page**. This repository has
-  neither, and I cannot see whether `mozart.financial` has them.
+- **The privacy policy is done** (you, 2026-09-25). The terms page is not
+  confirmed yet. Neither lives in this repository.
 - Both must be **public** (readable without signing in) and at stable
   addresses. They should sit on the same domain as the app, for example
   `https://mozart.financial/privacy` and `https://mozart.financial/terms`.
@@ -351,7 +351,8 @@ addresses. Ask me before you answer that one.
      fields; it never receives QuickBooks data);
    - Reducto (reads the text off scanned pages);
    - Fly.io (the virus scanner uploads pass through);
-   - later, Postmark, when email-in exists.
+   - Postmark (email-in, live since 2026-09-25). It keeps inbound mail,
+     attachments included, for at least 7 days and 45 by default.
 7. **AI use:** say that uploaded documents are read by an AI model, what the
    model provider's contract says about using that data, and that a person
    reviews before anything is filed.
@@ -682,13 +683,25 @@ arrives as a held document that a person opens with one click (ADR 0047).
 proves that an email which filed nothing says why, and that the sweep
 records email Postmark could not deliver.
 
+**Run once, 2026-09-25**, in your own workspace: 5.1–5.4 passed. The address
+was issued, the Gmail notice was held by email with aligned DKIM "yes", and
+**Open a case from it** opened DN-2609-003 for $2,000.00, with every proof
+query as expected. 5.5 was read from our side, not in Postmark's Activity:
+the single delivery was answered 200 with no 401 before it, and the recorded
+DKIM "pass" is only possible with exactly one of each `X-Spam-*` header and
+`DKIM_VALID_AU`. 5.6–5.8 have not been run.
+
 **Before you start** (ADR 0047, "What the founder does", steps 1–4):
 
-- the inbound domain's MX record points at `inbound.postmarkapp.com`;
+- the inbound domain's MX record points at `inbound.postmarkapp.com`.
+  Done: 2026-09-25, for `in.mozart.financial`, at Porkbun (the domain's DNS
+  host; Vercel serves only `app.`);
 - the Postmark server's inbound webhook is
-  `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`;
+  `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`.
+  Done: 2026-09-25;
 - `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` are set on Vercel
-  **Production only**, and production has been redeployed since;
+  **Production only**, and production has been redeployed since. Done:
+  2026-09-25, redeployed at 04:37 UTC;
 - migration 0034 is applied to production. Done: 2026-09-24, and read back.
 
 **Where:** your own workspace, as its owner. The test adds one real case
@@ -1121,5 +1134,5 @@ None of these is fixed in this PR. Each needs a decision or its own change;
    disconnect.
 8. **No sign-out button and no workspace switcher.** Both are workable for
    now (see *Before you start*), but a customer will notice.
-9. **No privacy policy or terms page** (§1). This blocks Intuit production
-   keys.
+9. **The terms page is not confirmed** (§1). The privacy policy is done
+   (2026-09-25); Intuit's production keys need both.
