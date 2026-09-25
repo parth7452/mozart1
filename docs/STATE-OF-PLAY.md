@@ -1,6 +1,6 @@
 # State of play
 
-*2026-09-23*
+*2026-09-25*
 
 A supplier can sign in, upload a deduction notice, and get back a case where
 every extracted field traces to the quote it came from — and then take that case
@@ -10,6 +10,8 @@ an outcome (2026-09-21, ending `partial`). The ledger sync, fixed by ADR 0035
 and ADR 0036, ran against the QuickBooks sandbox on 2026-09-23: nine invoices
 read, three short-pays found — two opened as cases, one declined — and no
 anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
+Email-in went live on 2026-09-25: a notice emailed from Gmail to an issued
+address was held because it came by email, and a person opened its case.
 
 ## Live in production
 
@@ -31,11 +33,29 @@ Verified on the deployed app, not only in tests:
   synced, and the ledger sync ran as a job acting as the connection's member
 - **A sealed QuickBooks credential** (ADR 0033): one connection, its token set
   stored as ciphertext and rotated as new rows
+- **Email-in** (ADR 0047), 2026-09-25: `in.mozart.financial`, its MX at
+  Porkbun, both Production variables set. A PDF notice emailed from Gmail to
+  an issued address was answered 200 on its first delivery, recorded with
+  aligned DKIM "pass", scanned, read as a `deduction_notice` at 0.99 and held
+  `by_email`. **Open a case from it** opened DN-2609-003 for $2,000.00 with
+  `confirmed_by` on `case.discovered`, `document.hold_released`, and no
+  further model call
+- **QuickBooks on production keys** (ADR 0039), 2026-09-24. The sandbox
+  connection was disconnected from Settings → QuickBooks at 18:47 UTC, and
+  Intuit confirmed the revoke. Intuit's production keys went onto Vercel
+  Production at 18:57. At 19:00 a production company was connected through
+  the app, and its first sync finished three seconds later. The sandbox
+  connection's tokens had already been refreshed, and re-sealed through the
+  live KMS, eight times since 2026-09-22
 
 The scanner runs as its own container on Fly, with clamd bound to loopback
 behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
 file passes, the EICAR test file is flagged by name, unauthenticated callers get
-401.
+401. Until 2026-09-25 its Fly organization was on the free trial, which stops
+every machine 300 seconds after it starts, whatever `fly.toml` says. Eight of
+the first ten production scans waited 36–51 seconds for a cold start, and the
+first emailed notice used 51 of its route's 60. Billing is on now, and the
+machine stays up.
 
 Production (Supabase `hvheqbgkvwhlqutklwfh`) carries migrations through 0034 (0034, ADR 0047, on
 2026-09-24 at 21:37, after `mozart-preview`, read back on both). 0028 and
@@ -58,10 +78,9 @@ The gap between *it worked once* and *it works*:
 
 | | What would prove it |
 | --- | --- |
-| **QuickBooks connect** (ADR 0039, migration 0030) | Deployed, and 0030 applied and read back on 2026-09-23. What would prove it: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
-| **Email-in** (ADR 0047, migration 0034) | **Built, not deployed to mail.** The webhook, the job, Settings → Email, "Email that filed nothing" and `pnpm sweep:inbound` are built and tested against in-memory stores and Postgres. Migration 0034 is in production since 2026-09-24. It waits on the founder's Postmark setup (domain, MX, server, webhook URL, two Production variables). What would prove it: an address issued, a Gmail notice held "by email" with aligned DKIM "yes", and a case opened from it (`docs/VERIFY-CHECKLIST.md` §5) |
+| **Email-in's failure paths** (ADR 0047) | The main path is live (above). Not yet exercised: forged `X-Spam-*` and `Authentication-Results` headers, an unaligned sender, an iPhone photo, mail over the size limit, a non-token recipient, a wrong secret's 401 being retried, and `pnpm sweep:inbound` against a real failure. Each is in `docs/VERIFY-CHECKLIST.md` §5.6–5.8 and comes before any customer is given an address |
 | **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
 | **Closed sign-ups, and the claims guard** (ADR 0045, migration 0033) | 0033 was applied to `mozart-preview` and then production on 2026-09-24 and read back on both (md5, both functions still definer and pinned, same results and grants, a `sub`-only caller refused). The web half deployed on merge. What would prove it: both members sign in through the new form; an address with no auth user gets the same "sent" page and no mail, with `otp_disabled` in the log; a person invited from the dashboard follows the invitation once and then signs in from the form; then the founder switches off "Allow new users to sign up" |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
@@ -75,8 +94,6 @@ screen should say, and the query or log line that proves it.
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| Production QuickBooks keys | **you** | Intuit's production-keys assessment (privacy and terms pages). Until then only sandbox companies can connect |
-| Postmark setup for email-in | **you** | ADR 0047 "What the founder does", steps 1–3: the inbound domain and its MX record, a Postmark server and webhook URL, and `POSTMARK_INBOUND_SECRET` and `INBOUND_DOMAIN` on Vercel Production only. Migration 0034 is already in production |
 
 ## Where the phases stand
 
@@ -166,9 +183,10 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## Next
 
-1. **Click through QuickBooks connect** against the sandbox: Connect, first
+1. ~~**Click through QuickBooks connect** against the sandbox: Connect, first
    sync, Disconnect (and confirm Intuit's revoke), Connect again. Only then the
-   production QBO keys.
+   production QBO keys.~~ **done** (2026-09-24), ending on a production
+   company connected with the production keys.
 2. ~~**Coverage and ledger anomalies on a page.**~~ **done** — `/coverage`: a
    rate per channel over the last 12 months, the month-by-channel table, and
    the ledger sync's runs and anomalies per connection.

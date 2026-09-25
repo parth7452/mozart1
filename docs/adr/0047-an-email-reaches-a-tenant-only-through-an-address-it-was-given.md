@@ -523,3 +523,39 @@ something the ADR had said differently, and what it did.
   read. An infected part left nothing to read, so it counts as filing
   nothing. A `not_received` row whose message was later received is not
   listed, because the received one stands (§12).
+
+## Found in the rollout (2026-09-25)
+
+Nothing here changes a decision above either. The founder's steps 1–6 ran on
+2026-09-25: `in.mozart.financial` with its MX at Porkbun, which hosts the
+domain's DNS (Vercel serves only `app.`); a Postmark server pointed at it;
+both variables on Production only; production redeployed; an address issued
+by the owner. Then one PDF notice was emailed from Gmail.
+
+- **Two unverified items are settled for Gmail.** The one delivery was
+  answered 200, with no 401 before it, so Postmark sends the URL's
+  credential without waiting for a challenge. Whether a 401 is retried is
+  still open. The message was recorded with aligned DKIM `pass` and
+  `authenticated` true. `postmarkVerdict` gives that only for exactly one
+  `X-Spam-Tests` carrying `DKIM_VALID_AU`, one each of the other two
+  `X-Spam-*` headers and one author address. So Postmark still scores mail
+  with spam blocking left off, as step 2 has it. The message reached its
+  tenant and address, so `OriginalRecipient`
+  carried the plain envelope address §3 parses. Nothing else on the list has
+  met a real message.
+- **The rest ran as designed.** The attachment was `stored` and the one-line
+  body was `body_too_short`. The job read the notice as a `deduction_notice`
+  at 0.99 and held it `by_email`. **Open a case from it** opened DN-2609-003
+  ($2,000.00) with `confirmed_by` on `case.discovered`. It wrote
+  `document.hold_released` and made no further model call.
+- **The request used 51 of its 60 seconds, all of it waiting on the
+  scanner.** Vercel's outgoing-request record put the scan call at 50.6 s.
+  The scan service's Fly organization was on Fly's free trial. The trial
+  stops every machine 300 seconds after it starts, whatever `fly.toml` says,
+  so nearly every scan met a cold start: eight of the first ten production
+  scans took 36–51 s. ADR 0018 had ruled out scale-to-zero, and
+  `fly machine update --autostop=off` finds nothing to change, because
+  autostop was never the cause. Billing was added the same day. A scan past
+  the route's 60 seconds would have been cut off by Vercel and retried by
+  Postmark a minute later, re-scanning the stored bytes. So nothing would
+  have been lost, but the retry would have been routine. No code changed.

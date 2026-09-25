@@ -191,8 +191,8 @@ corpus is generated text PDFs, and the numbers that matter will come from scans.
 Since then: a held-out corpus of twelve documents written elsewhere, a scanned
 suite, Reducto OCR behind an `OcrProvider` port, the schema deployed to Supabase
 with every invariant verified there, and email-in through Postmark (ADR 0047),
-built, with migration 0034 in production, and waiting on the founder's Postmark
-setup (`docs/VERIFY-CHECKLIST.md` §5).
+live since 2026-09-25 on `in.mozart.financial`: its first message, from Gmail,
+was held by email and opened by a person (`docs/VERIFY-CHECKLIST.md` §5).
 
 Nine recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
@@ -351,7 +351,10 @@ JSON contract — the service reimplements `interpretClamdReply` rather than
 importing it, so that test is what keeps the two from drifting.
 
 The upload path is live and verified in production (2026-09-19). The scan
-service runs on Fly as `recouple-clamav`; `CLAMAV_SCAN_URL` and
+service runs on Fly as `recouple-clamav`. Its Fly organization was on the free
+trial until 2026-09-25, which stops every machine 300 seconds after it starts
+whatever `fly.toml` says, so most scans waited 36–51 seconds for a cold start;
+billing is on now (`services/clamav-scan/README.md`). `CLAMAV_SCAN_URL` and
 `CLAMAV_SCAN_TOKEN` are set on the Vercel project alongside `ANTHROPIC_API_KEY`
 and `REDUCTO_API_KEY`. A scanned Walmart APDP notice uploaded through the
 signed-in app came back as a case with every field quote-verified against the
@@ -779,7 +782,9 @@ no member to act as means no store, and the run row still says
 `not_configured`. `pnpm link:qbo` places the first token set from `.env` with
 the **real** cipher and no flag that changes that; `docs/qbo-credentials.md` is
 the once-per-deployment AWS setup written for somebody who does not work in AWS.
-Nothing here has met a live KMS or a live Intuit rotation.
+Both have since been met. The sandbox connection's tokens were refreshed, and
+sealed through the live KMS, eight times between 2026-09-22 and 2026-09-24, a
+new row each time.
 
 **A ledger window is anchored on what was paid** (ADR 0035, migration 0027).
 The first production sync (2026-09-22) examined 12 invoices, found nothing and
@@ -976,7 +981,12 @@ per-org unique is gone and the partial index is there, `app.member_is_owner()`
 is pinned, not definer, and executable by `app_rw` and `app_ro` alone, the
 policies read as written, the request roles still hold nothing, and the one
 existing connection — made by the owner — is enabled with its six credential
-rows. Nothing here has met a live Intuit consent or revoke yet.
+rows. Both have since been met, on 2026-09-24. That connection was
+disconnected from the app at 18:47 UTC, and Intuit confirmed the revoke. The
+production keys went onto Vercel at 18:57. At 19:00 a production company was
+connected through the app (`environment: production` on its
+`accounting_connection.connected` row), and its first sync finished three
+seconds later.
 
 **Coverage is on a page** (`/coverage`, no ADR, no migration). What we found and
 what we filed, per channel: a card per channel with its trailing-12-month rate,
@@ -1335,8 +1345,11 @@ and have no usage on `app`; no `app` function is unpinned; and the lookup
 refuses a caller carrying only a `sub`, only an `org_id`, or both, while a
 caller with neither gets an empty answer (tested in a block that writes
 nothing). The security advisor shows only its old leaked-password notice.
-Nothing here has met a live Postmark message yet: the founder's setup and ADR
-0047's unverified list come first.
+The first live message arrived on 2026-09-25, after the founder's setup: a
+Gmail notice to an issued address, answered 200 on its first delivery, held
+`by_email` with aligned DKIM "pass", and opened by a person as DN-2609-003. ADR
+0047's "Found in the rollout" says which unverified items it settled. The rest
+come before any customer is given an address.
 
 The formats that were missing have fixtures (`packages/fixtures/src/formats.ts`,
 suite `formats`), both from the beachhead — a foodservice manufacturer and a

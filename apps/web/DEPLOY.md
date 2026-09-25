@@ -43,6 +43,8 @@ when it is missing:
 The scan service is a container that has to be deployed once, separately —
 `services/clamav-scan`, with its own README. It exists because clamd has no
 authentication and cannot be exposed to Vercel's egress directly (ADR 0018).
+Its host needs billing set up: Fly's free trial stops every machine five
+minutes after it starts, and the next scan then waits for a cold start.
 Do not set `CLAMAV_HOST` here: that is the direct-clamd path, and it is for a
 laptop running `docker compose up -d clamd`, where there is no untrusted network
 in between.
@@ -108,7 +110,7 @@ reach production:
 | Variable | Why |
 | --- | --- |
 | `POSTMARK_INBOUND_SECRET` | The password in the webhook URL Postmark is given, `https://postmark:<secret>@app.mozart.financial/api/inbound/postmark`. Postmark signs nothing, so this is the webhook's whole authentication, and it reaches every tenant. `openssl rand -hex 32`; under 64 characters is refused |
-| `INBOUND_DOMAIN` | The subdomain whose MX points at `inbound.postmarkapp.com` (priority 10), used for nothing else — `in.mozart.financial`, say. An email to any other domain is refused |
+| `INBOUND_DOMAIN` | The subdomain whose MX points at `inbound.postmarkapp.com` (priority 10), used for nothing else. Production's is `in.mozart.financial`, its MX at Porkbun (the domain's DNS host). An email to any other domain is refused |
 
 Set both or neither. With neither, the route answers 503 and logs nothing — what
 a preview answers. One without the other, a short secret, no Inngest keys (an

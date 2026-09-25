@@ -52,6 +52,15 @@ If `fly launch` rewrote `fly.toml`, check that `auto_stop_machines = false` and
 signatures on the next upload, which is the difference between uploads working
 and uploads working sometimes.
 
+**Set up billing on the Fly organization first.** An organization still on
+Fly's free trial stops every machine 300 seconds after it starts, whatever
+`fly.toml` says, and ends the app outright after seven days or two machine-hours.
+`fly machine status` shows it as a `stop` from `flyd` with
+`requested_stop=true` exactly five minutes after each start, and
+`fly machine update --autostop=off` answers "no config changes found", because
+autostop was never the cause. Production ran that way until 2026-09-25: eight
+of its first ten scans waited 36–51 seconds for a cold start.
+
 ### Railway / Render
 
 Point a new service at this directory, let it build the `Dockerfile`, set
