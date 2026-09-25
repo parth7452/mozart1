@@ -101,14 +101,16 @@ database invariants: all suites passed
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Foundations: append-only DDL, approval trigger, RLS, roles, money maths, state machine, contracts, CI | **done** |
-| 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **done and measured**, and running behind auth in `apps/web`; the Inngest binding remains |
-| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | **in progress, human-decided and built here rather than after 2 ([ADR 0020](./docs/adr/0020-a-human-decides-and-the-gate-is-exercised.md))** |
-| 1.5 | ERP (QBO) **read**: discovery, reconciliation, the coverage denominator, and cheap triage over short-pay lines | — |
-| 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, **expected-value gating**, owned calibration; retailer portal **read** | — |
+| 1 | Ingest + classify: upload hardening, scan gate, email-in, doc-type, typed extraction with provenance, OCR, reconciliation, fixtures, evals | **done and measured**, live behind auth in `apps/web`, reading through Inngest; email-in live since 2026-09-25 |
+| 3 | Packet + approval + manual submission + outcomes, denial classification and re-file | **built, human-decided ([ADR 0020](./docs/adr/0020-a-human-decides-and-the-gate-is-exercised.md)), and run once end to end in production**; denial classification and re-file not built |
+| 1.5 | ERP (QBO) **read**: discovery, reconciliation, the coverage denominator, and cheap triage over short-pay lines | **built and live on production keys**; triage step A (a deterministic queue) built, step B (a model tier) waits on Jev access |
+| 2 | Evidence + decision: playbooks, cold start, Jev + Claude providers, **expected-value gating**, owned calibration; retailer portal **read** | planned ([docs/plans/phase-2](./docs/plans/phase-2/README.md)), not started |
 | 2.5 | EDI 812/820 ingestion where a supplier already has it | — |
 | 4 | QBO write-back, attribution, Stripe contingency billing, dilution view | — |
 | 5 | Learning loop: override capture, candidate rules, backtest, shadow, promotion | — |
 | 6 | Careful autonomy — only where per-tenant ECE < 0.10 is sustained | — |
+
+Next is the first customer pilot, not a phase: [docs/plans/pilot](./docs/plans/pilot/README.md).
 
 Phases 1.5 and 2.5, and the portal **read** in Phase 2, come from
 [the strategy addendum](./docs/STRATEGY.md) §5. The reason is one sentence: until
