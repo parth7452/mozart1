@@ -612,4 +612,46 @@ describeDb('merging a confirmed duplicate', () => {
     const again = await discovery.recordLedgerCase(input);
     expect(again).toMatchObject({ reused: true, deductionId: held });
   });
+
+  // The dispute letter names every invoice the deduction is known by, and a
+  // merged-away case's names are its survivor's (ADR 0042 §10) — so a letter
+  // assembled on the survivor lists the invoice only the merged-away half held.
+  it("lists a merged-away case's invoice numbers on the survivor's dispute letter", async () => {
+    const pair = await probablePair();
+    const onlyOnTheLoser = `${pair.invoiceNumber}-B`;
+    await admin.query(
+      `insert into deduction_identifiers (org_id, deduction_id, source, identifier_kind, identifier)
+       values ($1,$2,'web_upload','invoice_number',$3)`,
+      [orgId, pair.newer, onlyOnTheLoser],
+    );
+    await store.recordDuplicateVerdict({
+      deductionId: pair.newer,
+      otherDeductionId: pair.older,
+      verdict: 'same',
+      recordedBy: userId,
+      merge: true,
+    });
+    expect(await stateOf(pair.newer)).toBe('merged');
+
+    await store.linkDocument(pair.older, await storedDocument(`letter-${pair.older}`), 'notice');
+    await store.transitionCase(pair.older, 'classified');
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId: pair.older,
+      preparedBy: userId,
+      reason: 'duplicate_invoice_deduction',
+      rationale: 'Both deductions are one claim.',
+    });
+    const packet = await store.assemblePacket({
+      deductionId: pair.older,
+      decisionId,
+      assembledBy: userId,
+    });
+    // Once each, though both halves hold the shared invoice, and in code-unit
+    // order whatever order the database returned them in.
+    expect(packet.narrative).toContain(
+      `Invoice numbers: ${pair.invoiceNumber}, ${onlyOnTheLoser}\n`,
+    );
+    expect(packet.narrative).toContain('From: Merges\n');
+    expect(packet.narrative).toContain('To: Walmart (APDP)\n');
+  });
 });
