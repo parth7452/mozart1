@@ -25,6 +25,7 @@ import {
 } from '@recouple/pipeline/testing';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
+import { FORM_OVERHEAD_BYTES, UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from '../lib/upload-limits';
 
 /**
  * What the reviewer is told: the notice key the redirect carried, resolved.
@@ -792,5 +793,172 @@ describe('uploading the same file as a notice that arrived by email (ADR 0047 §
     expect(said(response)).toMatch(/already arrived by email, and no email opens a case on its own/);
     expect(store.modelCalls).toHaveLength(spent);
     expect(store.cases.size).toBe(0);
+  });
+});
+
+/**
+ * The multi-file form's half of the route (pilot E3): the same request, asked
+ * for JSON, answers with the notice key, its validated fragments and the
+ * sentence they resolve to — never a redirect, and never a word off the page
+ * that the redirect would not also have carried.
+ */
+function jsonUploadRequest(
+  bytes: Uint8Array,
+  filename: string,
+  attachToCase?: string,
+  secFetchSite?: string,
+): NextRequest {
+  const request = uploadRequest(bytes, filename, attachToCase, secFetchSite);
+  const headers = new Headers(request.headers);
+  headers.set('accept', 'application/json');
+  return new NextRequest(request.url, { method: 'POST', body: request.body, headers, duplex: 'half' } as never);
+}
+
+async function answerOf(response: Response): Promise<Record<string, unknown>> {
+  expect(response.status).toBe(200);
+  expect(response.headers.get('location')).toBeNull();
+  expect(response.headers.get('content-type')).toContain('application/json');
+  return (await response.json()) as Record<string, unknown>;
+}
+
+describe('answering the multi-file form with JSON', () => {
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.runner = undefined;
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+  });
+
+  it('says the case a notice opened, by id, where a form post would have gone to it', async () => {
+    const store = harness.store as RouteTestStore;
+    const body = await answerOf(await POST(jsonUploadRequest(notice.bytes, notice.filename)));
+    const opened = [...store.cases.values()][0];
+    expect(body).toEqual({
+      notice: 'upload_on_case',
+      about: [],
+      tone: 'good',
+      text: resolveNotice('upload_on_case')?.text,
+      caseId: opened?.deductionId,
+    });
+  });
+
+  it('carries a duplicate claim id as a validated fragment, as the redirect does', async () => {
+    const store = harness.store as RouteTestStore;
+    store.debtors.push({ debtorId: 'debtor-walmart', names: ['Walmart'] });
+    await POST(jsonUploadRequest(notice.bytes, notice.filename));
+    const opened = [...store.cases.values()][0];
+
+    const rescan = new Uint8Array([...notice.bytes, 0x0a]);
+    const body = await answerOf(await POST(jsonUploadRequest(rescan, 'scan.pdf')));
+
+    expect(body.notice).toBe('upload_duplicate_case');
+    expect(body.about).toEqual(['APDP-99812']);
+    expect(body.text).toBe(resolveNotice('upload_duplicate_case', ['APDP-99812'])?.text);
+    expect(body.caseId).toBe(opened?.deductionId);
+  });
+
+  it('says a held notice is held, with no case to go to', async () => {
+    (harness.store as RouteTestStore).classificationFloorValue = 0.995;
+    const body = await answerOf(await POST(jsonUploadRequest(notice.bytes, notice.filename)));
+    expect(body.notice).toBe('upload_held');
+    expect(body.tone).toBe('bad');
+    expect(body).not.toHaveProperty('caseId');
+    // Our sentence, not the page's: nothing read off the notice is in it.
+    expect(JSON.stringify(body)).not.toContain('APDP');
+  });
+
+  it('refuses a file the door does not accept by its rejection key, storing nothing', async () => {
+    const store = harness.store as RouteTestStore;
+    const text = new TextEncoder().encode('not a pdf at all');
+    const body = await answerOf(await POST(jsonUploadRequest(text, 'notes.pdf')));
+    expect(String(body.notice)).toMatch(/^upload_rejected/);
+    expect(body.tone).toBe('bad');
+    expect(store.documents.size).toBe(0);
+  });
+
+  it('files evidence on the case it names, and says so as JSON', async () => {
+    const store = harness.store as RouteTestStore;
+    const existing = await store.openCase({ orgId: ORG_ID, claimId: 'OTHER-CLAIM' });
+    const body = await answerOf(
+      await POST(jsonUploadRequest(notice.bytes, notice.filename, existing.deductionId)),
+    );
+    expect(body.caseId).toBe(existing.deductionId);
+    expect(store.links.filter((l) => l.deductionId === existing.deductionId)).toHaveLength(1);
+  });
+
+  it('refuses a reader who may not add documents, as JSON, before anything is stored', async () => {
+    harness.role = 'read_only';
+    const store = harness.store as RouteTestStore;
+    const body = await answerOf(await POST(jsonUploadRequest(notice.bytes, notice.filename)));
+    expect(body.notice).toBe('upload_role');
+    expect(store.documents.size).toBe(0);
+  });
+
+  it('still refuses a cross-site POST with a bare 403, JSON asked for or not', async () => {
+    const store = harness.store as RouteTestStore;
+    const response = await POST(
+      jsonUploadRequest(notice.bytes, notice.filename, undefined, 'cross-site'),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.get('content-type')).not.toContain('application/json');
+    expect(harness.sessions).toBe(0);
+    expect(store.documents.size).toBe(0);
+  });
+
+  it('keeps redirecting a plain form post, so the form works without JavaScript', async () => {
+    const response = await POST(uploadRequest(notice.bytes, notice.filename));
+    expect(response.status).toBe(303);
+  });
+});
+
+describe('the upload size limit (pilot E2)', () => {
+  beforeEach(() => {
+    harness.role = 'analyst';
+    harness.sessions = 0;
+    harness.runner = undefined;
+    harness.store = new RouteTestStore();
+    harness.deps = stubbedDeps(harness.store);
+  });
+
+  it('refuses a body the platform could not have delivered by its declared length, before parsing', async () => {
+    const request = new NextRequest('https://app.example.test/upload', {
+      method: 'POST',
+      body: 'x',
+      headers: {
+        'content-length': String(UPLOAD_MAX_BYTES + FORM_OVERHEAD_BYTES + 1),
+        accept: 'application/json',
+      },
+    });
+    const body = await answerOf(await POST(request));
+    expect(body.notice).toBe('upload_too_large');
+    expect(body.text).toContain(`${UPLOAD_MAX_MB} MB`);
+    expect(body.text).toMatch(/Split the PDF/);
+  });
+
+  it('refuses a file one byte over the limit, and stores nothing', async () => {
+    const store = harness.store as RouteTestStore;
+    const big = new Uint8Array(UPLOAD_MAX_BYTES + 1);
+    big.set(notice.bytes.subarray(0, 8));
+    const response = await POST(uploadRequest(big, 'big.pdf'));
+    expect(response.status).toBe(303);
+    expect(said(response)).toContain(`larger than ${UPLOAD_MAX_MB} MB`);
+    expect(store.documents.size).toBe(0);
+  });
+
+  it('refuses a form carrying several files rather than reading one and dropping the rest', async () => {
+    const store = harness.store as RouteTestStore;
+    const form = new FormData();
+    form.append('file', new File([notice.bytes as BlobPart], 'a.pdf', { type: 'application/pdf' }));
+    form.append('file', new File([notice.bytes as BlobPart], 'b.pdf', { type: 'application/pdf' }));
+    const response = await POST(
+      new NextRequest('https://app.example.test/upload', { method: 'POST', body: form }),
+    );
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get('location') as string).searchParams.get('upload')).toBe(
+      'upload_several_files',
+    );
+    expect(store.documents.size).toBe(0);
+    expect(store.modelCalls).toHaveLength(0);
   });
 });
