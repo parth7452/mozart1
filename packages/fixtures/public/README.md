@@ -108,6 +108,11 @@ expected. It cost $0.54. The four misses:
   `parseMoneyToCents` refuses four decimal places. The value is right and our
   parser cannot read it. That is a product gap, not a reading error: unit
   prices on purchase orders and price lists are often printed this way.
+  **Closed the same day**: the parser now reads digits past the cents when
+  they are all `0`, so the price is 672,180 cents on both the clean and the
+  degraded copy. `public` rose to 98.4% and `public_scanned` to 95.5%. A true
+  fraction of a cent (`$0.0125`) is still refused; ADR 0049 proposes how it
+  could be read.
 
 Two quotes on the Southampton invoice were not found on the page because its
 file stores `$4,191.50 Invoice Total:`, value before label, while the page
