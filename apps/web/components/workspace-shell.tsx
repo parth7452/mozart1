@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { Viewer } from './case-list';
+import type { Viewer, WorkspaceOption } from './case-list';
 
 export function Wordmark() {
   return (
@@ -12,6 +12,54 @@ export function Wordmark() {
 
 /** Which part of the workspace a page belongs to, for the nav and the breadcrumb. */
 export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks' | 'email';
+
+/**
+ * The other workspaces this person belongs to, as buttons that POST to
+ * `/workspace`, with the current one marked and not offered.
+ *
+ * Shown only to someone in more than one: for everybody else it would be a
+ * control with nothing to do. What it offers is what the database answered
+ * (`viewerOf`); the route checks the choice against that answer again, and
+ * `requireSession` checks the cookie on every request after, so what this
+ * renders is a convenience, never the guard.
+ */
+export function WorkspaceSwitcher({
+  current,
+  workspaces,
+}: {
+  current: string | undefined;
+  workspaces: readonly WorkspaceOption[];
+}) {
+  if (workspaces.length < 2) return null;
+  const names = workspaces.map((workspace) => workspace.name);
+  // Two workspaces with one name are told apart by their slug, not by guessing.
+  const label = (workspace: WorkspaceOption) =>
+    names.filter((name) => name === workspace.name).length > 1
+      ? `${workspace.name} (${workspace.slug})`
+      : workspace.name;
+  return (
+    <form className="workspace-switcher" method="post" action="/workspace">
+      <span className="nav-label" id="workspace-switcher-label">
+        SWITCH WORKSPACE
+      </span>
+      <ul aria-labelledby="workspace-switcher-label">
+        {workspaces.map((workspace) => (
+          <li key={workspace.orgId}>
+            {workspace.orgId === current ? (
+              <span className="workspace-current" aria-current="true">
+                {label(workspace)} <span className="workspace-current-mark">current</span>
+              </span>
+            ) : (
+              <button type="submit" name="org_id" value={workspace.orgId}>
+                {label(workspace)}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </form>
+  );
+}
 
 /** Shared presentation only. Session resolution stays in the route. */
 export function WorkspaceShell({
@@ -41,6 +89,7 @@ export function WorkspaceShell({
           </span>
           <span>{viewer.orgName}</span>
         </div>
+        <WorkspaceSwitcher current={viewer.orgId} workspaces={viewer.workspaces ?? []} />
         <nav aria-label="Workspace navigation">
           <span className="nav-label">WORKSPACE</span>
           <Link
@@ -106,6 +155,9 @@ export function WorkspaceShell({
               <span className="viewer-role">{viewer.role.replace(/_/g, ' ')}</span>
             </div>
           </div>
+          <form className="sign-out" method="post" action="/logout">
+            <button type="submit">Sign out</button>
+          </form>
         </div>
       </aside>
       <div className="workspace-body">

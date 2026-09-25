@@ -191,6 +191,17 @@ function document(overrides: Partial<CaseDocument> = {}): CaseDocument {
   };
 }
 
+/**
+ * The page itself, without the workspace shell around it. The sidebar carries
+ * a Sign out form on every page (pilot E4), which is not an action on a case;
+ * "no way to act on this case" is a claim about what the page offers.
+ */
+function pageContent(html: string): string {
+  const main = /<main\b[\s\S]*<\/main>/.exec(html)?.[0];
+  if (main === undefined) throw new Error('expected the page to render a <main>');
+  return main;
+}
+
 describe('money and deadlines', () => {
   it('renders integer cents without ever holding a float', () => {
     expect(money(312_000)).toBe('$3,120.00');
@@ -1145,8 +1156,8 @@ describe('the review page', () => {
         today={today}
       />,
     );
-    expect(html).not.toContain('<button');
-    expect(html).not.toMatch(/<form/i);
+    expect(pageContent(html)).not.toContain('<button');
+    expect(pageContent(html)).not.toMatch(/<form/i);
     // The same claim the page has always made, in the words it makes it in now
     // that the actions exist: this app files nothing, and a filing without an
     // approval for that exact decision is refused by the database.
@@ -1854,8 +1865,8 @@ describe('the Phase 3 action cards', () => {
     expect(html).toContain('read this case but not act on it');
     expect(html).not.toContain('assemble its packet');
     // And still no way to act on it.
-    expect(html).not.toMatch(/<form/i);
-    expect(html).not.toMatch(/<button/i);
+    expect(pageContent(html)).not.toMatch(/<form/i);
+    expect(pageContent(html)).not.toMatch(/<button/i);
   });
 
   it('caps the rationale at the length the cover sheet holds, not a number of its own', () => {
@@ -1932,8 +1943,8 @@ describe('the Phase 3 action cards', () => {
           viewerUserId={SECOND_ANALYST}
         />,
       );
-      expect(html, state).not.toMatch(/<form/i);
-      expect(html, state).not.toMatch(/<button/i);
+      expect(pageContent(html), state).not.toMatch(/<form/i);
+      expect(pageContent(html), state).not.toMatch(/<button/i);
     }
   });
 });

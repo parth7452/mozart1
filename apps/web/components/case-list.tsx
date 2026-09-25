@@ -32,6 +32,16 @@ export interface Viewer {
   readonly email: string;
   readonly orgName: string;
   readonly role: string;
+  /** The tenant this page is showing, when the switcher needs to mark it. */
+  readonly orgId?: string;
+  /** Every tenant the database says this person belongs to (`viewerOf`). */
+  readonly workspaces?: readonly WorkspaceOption[];
+}
+
+export interface WorkspaceOption {
+  readonly orgId: string;
+  readonly name: string;
+  readonly slug: string;
 }
 
 /**

@@ -5,6 +5,7 @@ import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { CaseList } from '../components/case-list';
 import { ledgerFilterFrom } from '../lib/case-presentation';
 import { inboundEmailFromEnv, inboundStoreFor } from '../lib/inbound';
+import { viewerOf } from '../lib/viewer';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +59,7 @@ export default async function CaseListPage({
       : undefined;
     return (
       <CaseList
-        viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
+        viewer={viewerOf(session)}
         cases={ledger.rows}
         ledger={{ filter, matching: ledger.total }}
         // The figures are over every case, not the newest hundred in `cases`:

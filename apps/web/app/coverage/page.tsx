@@ -1,6 +1,7 @@
 import { requireSession, storeFor } from '../../lib/session';
 import { qboEnvironmentFromEnv } from '../../lib/qbo-connect';
 import { CoveragePage } from '../../components/coverage-report';
+import { viewerOf } from '../../lib/viewer';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export default async function CoverageRoute() {
     const ledger = await store.ledgerSyncHealth();
     return (
       <CoveragePage
-        viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
+        viewer={viewerOf(session)}
         coverage={coverage}
         ledger={ledger}
         environment={qboEnvironmentFromEnv()}

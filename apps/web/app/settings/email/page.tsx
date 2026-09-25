@@ -4,6 +4,7 @@ import { inboundEmailFromEnv, inboundStoreFor } from '../../../lib/inbound';
 import { mayManageInboundAddresses } from '../../../lib/inbound-addresses';
 import { isUuid } from '../../../lib/request';
 import { InboundEmailPage, type InboundDeployment } from '../../../components/inbound-email';
+import { viewerOf } from '../../../lib/viewer';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export default async function EmailSettingsPage({
 
   return (
     <InboundEmailPage
-      viewer={{ email: session.email, orgName: session.org.name, role: session.org.role }}
+      viewer={viewerOf(session)}
       viewerUserId={session.userId}
       deployment={deployment}
       addresses={await inbound.addresses()}
