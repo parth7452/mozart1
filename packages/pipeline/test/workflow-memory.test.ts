@@ -43,6 +43,7 @@ function freshStore(): InMemoryStore {
   store.addMember(ORG, OWNER, 'owner');
   store.addMember(ORG, COLLEAGUE, 'analyst');
   store.addMember(ORG, READER, 'read_only');
+  store.nameOrg(ORG, 'Harbor Lane Foods, LLC');
   return store;
 }
 
@@ -151,9 +152,10 @@ describe('the in-memory workflow', () => {
 
     const documents = await store.documentsForCase(deductionId);
     expect(packet.fileDocumentIds).toHaveLength(2);
-    expect(packet.narrative).toContain('Retailer: WALMART STORES, INC.');
-    expect(packet.narrative).toContain('Deduction amount: $3,120.00');
-    expect(packet.narrative).toContain('Rationale: POD signed for the full quantity.');
+    expect(packet.narrative).toContain('From: Harbor Lane Foods, LLC\n');
+    expect(packet.narrative).toContain('To: WALMART STORES, INC.\n');
+    expect(packet.narrative).toContain('Amount deducted: $3,120.00\n');
+    expect(packet.narrative).toContain('Explanation:\nPOD signed for the full quantity.\n');
     for (const document of documents) expect(packet.narrative).toContain(document.filename);
 
     // No model wrote this, so it can be recomputed and checked (ADR 0020 §2).
@@ -161,8 +163,10 @@ describe('the in-memory workflow', () => {
       packetContentHash({
         decisionId,
         narrative: buildPacketNarrative({
+          supplier: 'Harbor Lane Foods, LLC',
           claimId: (await store.getCase(deductionId))?.claimId as string,
-          retailer: 'WALMART STORES, INC.',
+          payer: 'WALMART STORES, INC.',
+          invoiceNumbers: [],
           deductionAmountCents: 312_000,
           deductionDate: '2026-08-14',
           disputeDeadline: '2026-10-13',
@@ -176,6 +180,57 @@ describe('the in-memory workflow', () => {
         fileDocumentIds: [...packet.fileDocumentIds],
       }),
     ).toBe(packet.contentHash);
+  });
+
+  it("names the case's invoice numbers in the letter, once each and in code-unit order", async () => {
+    const store = freshStore();
+    const deductionId = await newCase(store);
+    const upload = await store.recordUpload({ orgId: ORG, source: 'web_upload' });
+    const remittance = await store.putDocument({
+      orgId: ORG,
+      sha256: 'f'.repeat(64),
+      filename: 'remittance.pdf',
+      mimeType: 'application/pdf',
+      byteSize: 1024,
+      bytes: new Uint8Array([1, 2, 3]),
+      uploadId: upload.uploadId,
+      requiresSplit: false,
+    });
+    await store.recordIdentifiers({
+      orgId: ORG,
+      deductionId,
+      documentId: remittance.documentId,
+      identifiers: [
+        { kind: 'invoice_number', identifier: 'INV-9' },
+        { kind: 'invoice_number', identifier: 'INV-10' },
+        { kind: 'claim_id', identifier: 'NOT-AN-INVOICE' },
+      ],
+    });
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId,
+      preparedBy: ANALYST,
+      reason: 'duplicate_invoice_deduction',
+      rationale: 'Paid once, deducted twice.',
+    });
+    const packet = await store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST });
+    expect(packet.narrative).toContain('Invoice numbers: INV-10, INV-9\n');
+    expect(packet.narrative).not.toContain('NOT-AN-INVOICE');
+    expect(packet.narrative).toContain('Reason for dispute: The same invoice deducted twice\n');
+  });
+
+  it('refuses to write a letter from a tenant it cannot name', async () => {
+    const store = new InMemoryStore();
+    store.addMember(ORG, ANALYST, 'analyst');
+    const deductionId = await newCase(store);
+    const { decisionId } = await store.recordHumanDecision({
+      deductionId,
+      preparedBy: ANALYST,
+      reason: 'shortage_never_received',
+      rationale: 'POD signed.',
+    });
+    await expect(
+      store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST }),
+    ).rejects.toThrow(/has no name/);
   });
 
   it('refuses a decision from anyone the tenant has not made a writer', async () => {

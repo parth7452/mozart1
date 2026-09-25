@@ -41,6 +41,7 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
   packet_wrong_state: ['classified'],
   approve_note_too_long: ['2001'],
   approve_wrong_state: ['submitted'],
+  approve_superseded: ['0123456789ab'],
   submit_confirmation_too_long: ['121'],
   decline_detail_too_long: ['2001'],
   submit_wrong_state: ['classified'],
@@ -73,6 +74,7 @@ const EVERY_KEY: readonly string[] = [
   'approve_other_case',
   'approve_packet_missing',
   'approve_role',
+  'approve_superseded',
   'approve_wrong_state',
   'approved',
   'attach_already',
@@ -202,6 +204,7 @@ const EVERY_KEY: readonly string[] = [
   'submit_role',
   'submit_wrong_state',
   'submitted',
+  'upload_already_on_case',
   'upload_already_read',
   'upload_case_gone',
   'upload_case_merged',
@@ -213,6 +216,8 @@ const EVERY_KEY: readonly string[] = [
   'upload_no_file',
   'upload_not_queued',
   'upload_not_scanned_clean',
+  'upload_not_sent',
+  'upload_on_case',
   'upload_queued_case',
   'upload_queued_list',
   'upload_read_as',
@@ -229,7 +234,9 @@ const EVERY_KEY: readonly string[] = [
   'upload_rejected_type_not_allowed',
   'upload_remittance_cases',
   'upload_role',
+  'upload_several_files',
   'upload_too_large',
+  'upload_unanswered',
 ];
 
 describe('the notice table', () => {

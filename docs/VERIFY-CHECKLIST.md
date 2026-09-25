@@ -49,18 +49,25 @@ Nothing else is needed.
    for ever. So checklists **3, 7 and 8 run in a separate test workspace**
    (made in checklist 4). Only the checklists that must touch real data
    (1, 2, 6) run in your own workspace.
-2. **There is no sign-out button.** Use a separate private (incognito) window
-   for each person you sign in as, and close it to sign out. Better still,
-   use a separate browser profile for each.
+2. **Sign out is at the bottom of the sidebar**, under your email address
+   (it signs you out everywhere, not just in this window). A separate private
+   (incognito) window or browser profile for each person you sign in as is
+   still the easiest way to be two people at once. On a narrow (phone-width)
+   window the sidebar is collapsed and neither control shows.
 3. **Open every sign-in link in the same window that asked for it.** The link
    only works in the browser that requested it. If your email app opens links
    somewhere else, you'll see "that link has expired". In that case, copy the
    link and paste it into the window that asked for it.
-4. **There is no workspace switcher.** Someone who belongs to two workspaces
-   always lands in the one whose name comes first alphabetically. So use a
-   *different email address* for the test workspace. With Gmail,
-   `you+tenantb@gmail.com` works: it arrives in your own inbox, but the app
-   treats it as a different person.
+4. **Someone in two workspaces switches between them in the sidebar.** Under
+   the workspace name, **Switch workspace** lists every workspace you belong
+   to, with the one you are looking at marked *current*; press another to
+   move to it. It appears only for someone in more than one. The first time
+   you sign in you land in the one whose name comes first alphabetically,
+   and after that in whichever you last switched to (signing out forgets it).
+   Using a *different email address* for the test workspace still works and
+   still keeps the two apart most safely: with Gmail,
+   `you+tenantb@gmail.com` arrives in your own inbox, but the app treats it
+   as a different person.
 5. **The app is `https://app.mozart.financial`.** Always use that address,
    never a `vercel.app` one. Sign-in and QuickBooks only work on that address.
 
@@ -1137,7 +1144,8 @@ None of these is fixed in this PR. Each needs a decision or its own change;
 7. **Coverage shows a misleading reason** when a sync is refused because the
    connection was disconnected mid-run. It blames the member rather than the
    disconnect.
-8. **No sign-out button and no workspace switcher.** Both are workable for
-   now (see *Before you start*), but a customer will notice.
+8. ~~**No sign-out button and no workspace switcher.**~~ **Both done**
+   (pilot E4): **Sign out** and **Switch workspace** are in the sidebar (see
+   *Before you start*, items 2 and 4).
 9. ~~**No privacy policy or terms page** (§1).~~ **Both done**, and Intuit's
    production keys have been on Vercel Production since 2026-09-24.

@@ -419,6 +419,16 @@ button:disabled { cursor: wait; opacity: .65; }
 .viewer > div { min-width: 0; }
 .viewer-email { display: block; font-size: 11px; overflow-wrap: anywhere; }
 .viewer-role { display: block; color: #9aa7bb; font-size: 10px; text-transform: capitalize; margin-top: 2px; }
+.sign-out { padding: 12px 0 0 42px; }
+.sign-out button { background: none; border: 0; padding: 0; color: #a6b1c2; font: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.sign-out button:hover, .sign-out button:focus-visible { color: var(--lime); }
+.workspace-switcher { margin-top: 18px; }
+.workspace-switcher ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.workspace-switcher button, .workspace-current { display: block; width: 100%; text-align: left; padding: 8px 12px; border-radius: 5px; font: inherit; font-size: 12px; overflow-wrap: anywhere; }
+.workspace-switcher button { background: none; border: 1px solid transparent; color: #e3e7ee; cursor: pointer; }
+.workspace-switcher button:hover, .workspace-switcher button:focus-visible { border-color: #344057; color: var(--lime); }
+.workspace-current { color: #9aa7bb; }
+.workspace-current-mark { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-left: 4px; }
 .workspace-body { min-width: 0; }
 .workspace-top { display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 18px 40px; border-bottom: 1px solid var(--line); background: #fcfdfb; font-size: 12px; gap: 16px; }
 .workspace-top > div { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
@@ -494,6 +504,14 @@ form.upload strong { font-size: 13px; font-weight: 500; }
 form.upload label span { font-size: 11px; font-weight: 400; color: #626d59; max-width: 550px; }
 form.upload > div { flex-wrap: nowrap; gap: 10px; }
 form.upload input[type='file'] { width: 220px; max-width: 100%; font-size: 10px; }
+/* The limit line and the per-file results span the whole card, under the
+   label and the picker, however the card lays those two out. */
+form.upload .upload-limit, form.upload .upload-results { grid-column: 1 / -1; }
+.upload-limit { margin: 8px 0 0; font-size: 11px; color: var(--ink-soft); }
+.upload-results { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 12px; }
+.upload-results li.sent span { color: var(--good); }
+.upload-results li.bad span { color: var(--bad); }
+.upload-results li.pending span { color: var(--ink-soft); }
 input[type='file']::file-selector-button { padding: 8px 10px; border: 1px solid #c7cfd2; border-radius: 4px; background: #fff; color: var(--ink); font: inherit; margin-right: 10px; cursor: pointer; }
 .workspace-footer { display: flex; justify-content: space-between; gap: 20px; padding: 24px 0 0; color: #657080; font-size: 8px; letter-spacing: 1.3px; }
 .workspace-footer > span:last-child { font-size: 19px; font-weight: 700; letter-spacing: -1px; color: #657080; }
@@ -563,7 +581,7 @@ dl.fields .quote { border-left: 2px solid #d9e2ce; padding-left: 9px; margin-top
   .workspace { display: block; }
   .sidebar { height: auto; position: relative; padding: 18px 22px; flex-direction: row; align-items: center; justify-content: space-between; gap: 18px; }
   .sidebar .brand-link { margin: 0; }.wordmark { font-size: 30px; }
-  .workspace-label, .sidebar nav, .sidebar-bottom { display: none; }
+  .workspace-label, .sidebar nav, .sidebar-bottom, .workspace-switcher { display: none; }
   .organization { border: 0; padding: 0; font-size: 11px; max-width: 60%; }.org-avatar { display: none; }
   .workspace-top { min-height: 55px; padding: 15px 22px; font-size: 10px; }.workspace-status { display: none; }
   .workspace-top > div { gap: 10px; }

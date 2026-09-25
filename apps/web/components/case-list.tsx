@@ -21,7 +21,8 @@ import {
 } from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
 import { CaseTable } from './case-table';
-import { resolveNotice } from '../lib/notices';
+import { browserUploadNotices, resolveNotice } from '../lib/notices';
+import { MultiUpload } from './multi-upload';
 import { UnreadDocuments } from './unread-documents';
 import { UnattachedDocuments } from './unattached-documents';
 import { PossibleDuplicates } from './possible-duplicates';
@@ -32,6 +33,16 @@ export interface Viewer {
   readonly email: string;
   readonly orgName: string;
   readonly role: string;
+  /** The tenant this page is showing, when the switcher needs to mark it. */
+  readonly orgId?: string;
+  /** Every tenant the database says this person belongs to (`viewerOf`). */
+  readonly workspaces?: readonly WorkspaceOption[];
+}
+
+export interface WorkspaceOption {
+  readonly orgId: string;
+  readonly name: string;
+  readonly slug: string;
 }
 
 /**
@@ -238,33 +249,21 @@ export function CaseList({
           )}
         </section>
         {mayUpload ? (
-          <form
-            id="add-document"
+          <MultiUpload
+            formId="add-document"
             className="card upload"
-            action="/upload"
-            method="post"
-            encType="multipart/form-data"
+            inputId="file"
+            buttonLabel="Read them"
+            notices={browserUploadNotices()}
           >
             <label htmlFor="file">
-              <strong>Add a document</strong>
+              <strong>Add documents</strong>
               <span>
                 A deduction notice opens a case. Anything else is read and waits for a case to be
                 attached to. Nothing is submitted anywhere either way.
               </span>
             </label>
-            <div>
-              <input
-                id="file"
-                type="file"
-                name="file"
-                accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff"
-                required
-              />
-              <button className="primary" type="submit">
-                Read it
-              </button>
-            </div>
-          </form>
+          </MultiUpload>
         ) : null}
         {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
         {mayUpload ? (

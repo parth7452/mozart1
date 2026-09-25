@@ -66,6 +66,7 @@ import {
   NotACanonicalReasonError,
   NothingToSendError,
   PacketAfterApprovalError,
+  PacketSupersededError,
   PacketHashMismatchError,
   PacketNotBuildableError,
   PacketNotForDecisionError,
@@ -449,6 +450,43 @@ async function packetDocuments(
 }
 
 /**
+ * Who the letter is from: the tenant's own `organizations.name`.
+ *
+ * No `org_id` predicate — `tenant_read` on `organizations` admits exactly the
+ * claimed org, so the policy is what picks the row. Anything but one row is a
+ * session with no tenant, and a letter from nobody is refused loudly rather
+ * than sent.
+ */
+async function supplierName(client: PoolClient): Promise<string> {
+  const { rows } = await client.query<{ name: string }>(`select name from organizations`);
+  if (rows.length !== 1 || rows[0] === undefined) {
+    throw new Error(`expected the tenant's one organization, read ${rows.length}`);
+  }
+  return rows[0].name;
+}
+
+/**
+ * Every invoice number the case is known by, a merged-away case's included.
+ *
+ * A merged-away case's names are its survivor's (ADR 0042 §10), so they are
+ * read through `deduction_merges_current` like every other reader of
+ * `deduction_identifiers`. Order is not asked of the database: collation is a
+ * server setting, and `buildPacketNarrative` sorts by code unit so both stores
+ * build the same bytes.
+ */
+async function caseInvoiceNumbers(client: PoolClient, deductionId: string): Promise<string[]> {
+  const { rows } = await client.query<{ identifier: string }>(
+    `select distinct i.identifier
+       from deduction_identifiers i
+       left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+      where coalesce(m.surviving_deduction_id, i.deduction_id) = $1
+        and i.identifier_kind = 'invoice_number'`,
+    [deductionId],
+  );
+  return rows.map((row) => row.identifier);
+}
+
+/**
  * Builds the cover narrative, turning `core-domain`'s own refusal into one of
  * the workflow's.
  *
@@ -645,10 +683,14 @@ export async function assemblePacket(
     throw new NothingToSendError(input.deductionId);
   }
 
+  const supplier = await supplierName(client);
+  const invoiceNumbers = await caseInvoiceNumbers(client, input.deductionId);
   const narrative = buildNarrativeOrRefuse(input.deductionId, input.decisionId, () =>
     buildPacketNarrative({
+      supplier,
       ...(existing.claimId !== undefined ? { claimId: existing.claimId } : {}),
-      ...(existing.retailer !== undefined ? { retailer: existing.retailer } : {}),
+      ...(existing.retailer !== undefined ? { payer: existing.retailer } : {}),
+      invoiceNumbers,
       deductionAmountCents: exactCents(existing.amountText, 'deduction_amount_cents'),
       ...(existing.deductionDate !== undefined
         ? { deductionDate: existing.deductionDate }
@@ -774,6 +816,14 @@ export async function approve(
     throw new WrongCaseStateError(packet.deductionId, 'approve', existing.state, [
       'awaiting_approval',
     ]);
+  }
+  // Only the latest packet may be approved. Asked under the case's row lock,
+  // which `assemblePacket` takes too, so a re-assembly cannot land between this
+  // read and the insert. The foreign key admits any packet of this decision
+  // (ADR 0020 §5); this is the store's half, as the hash check at submission is.
+  const latest = await latestPacket(client, input.decisionId);
+  if (latest !== undefined && latest.packetId !== packet.packetId) {
+    throw new PacketSupersededError(input.decisionId, packet.contentHash, latest.contentHash);
   }
 
   const approvalId = await translating(
@@ -1682,6 +1732,146 @@ export async function possibleDuplicates(
     // wants the most recently noticed first, which is this one.
     .sort((left, right) => (left.eventId < right.eventId ? 1 : -1))
     .map(({ eventId: _eventId, ...pair }) => pair);
+}
+
+// ---------------------------------------------------------------------------
+// 6a. Pairs a remittance line recorded but never named (audit F1)
+// ---------------------------------------------------------------------------
+//
+// Until the fix beside `openCaseForLine`, a remittance line that probably
+// matched a case already open wrote the match into its own `case.discovered`
+// event (`probable_duplicate_of`) and nowhere else, so the pair never reached
+// `possibleDuplicates` and could never be answered or merged. These two are the
+// one-off repair: the list of such matches, and the write that names one in
+// `case.possible_duplicate`'s own shape. Nothing is re-read from a document and
+// nothing is inferred: the pair and its basis are what the `case.discovered`
+// event already said, and the write reads them from that event rather than from
+// its caller.
+
+/** One match a `case.discovered` event recorded that no pair event names yet. */
+export interface UnnamedProbablePair {
+  /** The case the event is on — the one opened second. */
+  readonly deductionId: string;
+  /** The case it probably duplicates. */
+  readonly of: string;
+  /** Names of the facts that agreed, as the event recorded them. */
+  readonly basis: readonly string[];
+  /** The `case.discovered` event the pair is read from. */
+  readonly discoveredEventId: string;
+}
+
+/**
+ * The matches, oldest first. A pair already named in either direction is not
+ * listed, so a second run of the backfill lists nothing. The other half must be
+ * a case this tenant can see — RLS decides, as it does for the pair list.
+ */
+export async function unnamedProbablePairs(
+  client: PoolClient,
+  options?: { readonly limit?: number },
+): Promise<readonly UnnamedProbablePair[]> {
+  const limit = options?.limit ?? POSSIBLE_DUPLICATES_MAX_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(`unnamedProbablePairs limit must be a positive integer, got ${String(limit)}`);
+  }
+  const { rows } = await client.query<{
+    event_id: string;
+    deduction_id: string;
+    of: string;
+    basis: unknown;
+  }>(
+    `select e.id::text as event_id,
+            e.deduction_id::text as deduction_id,
+            lower(x.of) as of,
+            coalesce(e.payload->'probable_duplicate_basis', '[]'::jsonb) as basis
+       from deduction_events e
+       cross join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(e.payload->'probable_duplicate_of') = 'array'
+              then e.payload->'probable_duplicate_of' else '[]'::jsonb end
+       ) as x(of)
+      where e.event_type = 'case.discovered'
+        and exists (select 1 from deductions o where o.id::text = lower(x.of))
+        and not exists (
+          select 1 from deduction_events p
+           where p.event_type = $1
+             and ((p.deduction_id = e.deduction_id and lower(p.payload->>'of') = lower(x.of))
+               or (p.deduction_id::text = lower(x.of)
+                   and lower(p.payload->>'of') = e.deduction_id::text))
+        )
+      order by e.id asc, lower(x.of) asc
+      limit $2`,
+    [PAIR_NAMED, Math.min(limit, POSSIBLE_DUPLICATES_MAX_LIMIT)],
+  );
+  return rows.map((row) => ({
+    deductionId: row.deduction_id,
+    of: row.of,
+    basis: basisOf(row.basis),
+    discoveredEventId: row.event_id,
+  }));
+}
+
+/**
+ * Names one recorded match as a pair: one `case.possible_duplicate` on the case
+ * the `case.discovered` event is on, `{ of, basis }` as `openCase` writes it,
+ * plus the event it was read from. Idempotent: both cases are locked in id
+ * order — the verdict write's order, so the two cannot deadlock — and a pair
+ * already named in either direction answers `already_named` and writes nothing.
+ * A caller naming a match the event does not record is refused by name.
+ */
+export async function namePossibleDuplicate(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: {
+    readonly discoveredEventId: string;
+    readonly of: string;
+    readonly recordedBy: string;
+  },
+): Promise<'named' | 'already_named'> {
+  const action = 'naming a possible duplicate';
+  requireCaller(input.recordedBy, tenant.userId, action);
+
+  const { rows: found } = await client.query<{ deduction_id: string; payload: Record<string, unknown> }>(
+    `select deduction_id::text as deduction_id, payload
+       from deduction_events
+      where id = $1::bigint and event_type = 'case.discovered'`,
+    [input.discoveredEventId],
+  );
+  const discovered = found[0];
+  const there = idKey(input.of);
+  const recorded = Array.isArray(discovered?.payload['probable_duplicate_of'])
+    ? (discovered.payload['probable_duplicate_of'] as unknown[])
+        .filter((id): id is string => typeof id === 'string')
+        .map(idKey)
+    : [];
+  if (discovered === undefined || !recorded.includes(there)) {
+    throw new Error(
+      `case.discovered event ${input.discoveredEventId} records no probable match with ${input.of}`,
+    );
+  }
+  const here = idKey(discovered.deduction_id);
+  if (here === there) {
+    throw new NoSuchDuplicatePairError(discovered.deduction_id, input.of);
+  }
+
+  for (const deductionId of [here, there].sort()) {
+    await lockCase(client, deductionId, action, input.recordedBy, WRITER_ROLES);
+  }
+
+  const { rows: named } = await client.query<{ one: number }>(
+    `select 1 as one from deduction_events
+      where event_type = $1
+        and ((deduction_id::text = $2 and lower(payload->>'of') = $3)
+          or (deduction_id::text = $3 and lower(payload->>'of') = $2))
+      limit 1`,
+    [PAIR_NAMED, here, there],
+  );
+  if (named.length > 0) return 'already_named';
+
+  await appendEvent(client, tenant, here, PAIR_NAMED, {
+    of: there,
+    basis: basisOf(discovered.payload['probable_duplicate_basis']),
+    backfilled_from_event: input.discoveredEventId,
+  });
+  return 'named';
 }
 
 export async function recordDuplicateVerdict(

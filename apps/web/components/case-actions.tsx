@@ -1,4 +1,5 @@
 import {
+  DISPUTE_REASONS,
   MAX_RATIONALE_LENGTH,
   familyOf,
   type CanonicalReasonCode,
@@ -9,53 +10,14 @@ import type { CaseWorkflow } from '@recouple/pipeline';
 import { CONFIRMATION_MAX_LENGTH, NOTE_MAX_LENGTH } from '../lib/notices';
 
 /**
- * The reasons a deduction is disputed, in a reviewer's words.
+ * The reasons a deduction is disputed, as the form offers them.
  *
- * The values are `CanonicalReasonCode`s and nothing else (ADR 0020 §1): a
- * retailer's own code maps onto one of these through playbook data, and a
- * reason outside the taxonomy is a row that can be stored and never counted.
- * The list is a subset on purpose — it is what an analyst picks from, not the
- * whole taxonomy — and the type is what stops it drifting away from it.
- *
- * The labels are in this file because they are how a person reads a code, and
- * the codes are the thing the rest of the system agrees on. A retailer's
- * *rules* are not here and never will be: they are versioned, effective-dated
- * playbook data.
+ * The values are `CanonicalReasonCode`s and nothing else (ADR 0020 §1), and the
+ * words are `core-domain`'s `REASON_WORDS` — the same words the dispute letter
+ * tells the payer, so what a person picks here is what the payer reads. A
+ * payer's *rules* are not here and never will be: they are versioned,
+ * effective-dated playbook data.
  */
-const DISPUTE_REASONS: readonly (readonly [CanonicalReasonCode, string])[] = [
-  ['shortage_quantity', 'They took a shortage for units we shipped'],
-  ['shortage_never_received', 'They say the shipment never arrived'],
-  ['shortage_concealed', 'A concealed shortage claimed after receipt'],
-  ['shortage_carton', 'They took a carton short we can show we shipped'],
-  ['shortage_pallet', 'They took a pallet short we can show we shipped'],
-  ['price_discrepancy', 'They paid a price we did not agree'],
-  ['unauthorised_deduction_no_basis', 'A deduction with no basis given'],
-  ['cost_increase_not_honoured', 'An agreed cost increase was not honoured'],
-  ['compliance_otif', 'An OTIF or fill-rate fine we can disprove'],
-  ['compliance_late_delivery', 'A late-delivery fine we can disprove'],
-  ['compliance_early_delivery', 'An early-delivery fine we can disprove'],
-  ['compliance_appointment_missed', 'A missed-appointment fine we can disprove'],
-  ['compliance_asn_missing', 'An ASN penalty we can disprove'],
-  ['compliance_routing_guide', 'A routing-guide fine we can disprove'],
-  ['duplicate_claim', 'The same claim, taken twice'],
-  ['duplicate_invoice_deduction', 'The same invoice, deducted twice'],
-  ['return_unauthorised', 'A return nobody authorised'],
-  ['return_unsaleable', 'An unsaleables charge that was not ours to take'],
-  ['promo_not_agreed', 'A promotion or allowance we never agreed'],
-  ['promo_rate_mismatch', 'An allowance taken at the wrong rate'],
-  ['promo_duplicate_allowance', 'The same allowance, taken twice'],
-  ['freight_prepaid_billed', 'Freight billed on a prepaid shipment'],
-  ['freight_rate_mismatch', 'Freight charged at the wrong rate'],
-  ['detention_or_layover', 'Detention or layover we did not cause'],
-  ['quality_damaged_in_transit', 'Damage that happened after it left us'],
-  ['quality_expired_short_dated', 'Short-dated or expired product that shipped in date'],
-  ['quality_spec_mismatch', 'Product they say was off-spec, which met the spec'],
-  ['post_audit_pricing', 'A post-audit pricing claim we can answer'],
-  ['post_audit_allowance', 'A post-audit allowance claim we can answer'],
-  ['administrative_fee', 'An administrative or processing fee we never agreed'],
-  ['unknown_uncoded', 'Something else — the rationale says what'],
-];
-
 /**
  * The same list, grouped by the family each code belongs to. Computed rather
  * than written down a second time, so a code cannot end up under a heading its
@@ -173,21 +135,27 @@ export function CaseActions({
         </div>
       ) : null}
 
-      {/* 2. Assemble the packet. */}
-      {state === 'analyst_review' && decision !== undefined && packet === undefined && mayAct ? (
+      {/* 2. Assemble the packet — and again while it waits for approval, so
+          evidence attached after the first assembly can get in. The store
+          allows it until an approval exists, and only the latest packet can be
+          approved (`PacketSupersededError`). */}
+      {decision !== undefined &&
+      mayAct &&
+      ((state === 'analyst_review' && packet === undefined) ||
+        (state === 'awaiting_approval' && packet !== undefined && approval === undefined)) ? (
         <div className="card act" style={{ marginTop: 18 }}>
           <h2 className="section" style={{ marginTop: 0 }}>
-            Assemble the packet
+            {packet === undefined ? 'Assemble the packet' : 'Assemble the packet again'}
           </h2>
           <p className="hint">
-            The notice, everything attached to this case, and a cover sheet our code writes from
-            the fields already read off the page. No model writes it, so the same case always
-            assembles to the same contents — which is what makes approving a hash mean something.
+            {packet === undefined
+              ? 'The notice, everything attached to this case, and a dispute letter our code writes from the fields already read off the page. No model writes it, so the same case always assembles to the same contents — which is what makes approving a hash mean something.'
+              : 'Attached something since the packet below was assembled? Assemble again to include it. The new packet replaces this one for approval; the old one stays on the record.'}
           </p>
           <form action={`/cases/${deductionId}/packet`} method="post">
             <input type="hidden" name="decisionId" value={decision.decisionId} />
-            <button className="primary" type="submit">
-              Assemble the packet
+            <button className={packet === undefined ? 'primary' : undefined} type="submit">
+              {packet === undefined ? 'Assemble the packet' : 'Assemble again'}
             </button>
           </form>
         </div>
@@ -211,8 +179,10 @@ export function CaseActions({
             ))}
           </ul>
           <p className="hint" style={{ margin: '12px 0 0' }}>
-            <a href={`/cases/${deductionId}/packet`}>Download cover sheet</a> — the narrative as
-            markdown, served through the same policies as everything else here.
+            <a href={`/cases/${deductionId}/packet/letter`}>Printable letter</a> (print or save
+            as PDF) · <a href={`/cases/${deductionId}/packet/enclosures`}>All enclosures (.zip)</a>{' '}
+            · <a href={`/cases/${deductionId}/packet`}>Letter as text</a> — each exactly this
+            packet, served through the same policies as everything else here.
           </p>
         </div>
       ) : null}
@@ -275,7 +245,7 @@ export function CaseActions({
           </p>
           <ol className="steps">
             <li>Open the retailer&rsquo;s dispute portal and start a claim for this deduction.</li>
-            <li>Attach the cover sheet and every document listed in the packet above.</li>
+            <li>Attach the dispute letter and every document listed in the packet above.</li>
             <li>Paste back the confirmation number the portal gives you.</li>
           </ol>
           <p className="hint">

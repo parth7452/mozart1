@@ -1,6 +1,11 @@
 import { CASE_STATES } from '@recouple/core-domain';
 import { DOC_TYPES } from '@recouple/extraction';
 import { DEADLINE_BASIS_MAX_LENGTH } from '@recouple/pipeline';
+import { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from './upload-limits';
+
+// Re-exported so the routes keep one import for a limit and its sentence; the
+// numbers themselves live in `upload-limits.ts`, which the browser can load.
+export { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB };
 
 /**
  * Every sentence this app is willing to say back to a reviewer, and nothing
@@ -73,8 +78,6 @@ export const CONFIRMATION_MAX_LENGTH = 120;
  * (docs/STRATEGY.md, ADD-1).
  */
 export const DECLINE_DETAIL_MAX_LENGTH = 2000;
-export const UPLOAD_MAX_MB = 25;
-export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
 /**
  * How long a document may be stored and scanned and unread before the case list
  * says so.
@@ -179,6 +182,10 @@ export const NOTICES = {
   approve_duplicate: {
     tone: 'bad',
     text: 'this packet was already approved; the first approval stands and is the one that counts',
+  },
+  approve_superseded: {
+    tone: 'bad',
+    text: 'that packet was assembled again since this page loaded, and only the latest one can be approved — nothing was approved; check packet {0} below and approve that',
   },
   approve_packet_missing: {
     tone: 'bad',
@@ -394,8 +401,46 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this case was merged into another, so evidence belongs on the case it was merged into. Nothing was stored.',
   },
-  upload_too_large: { tone: 'bad', text: `that file is larger than ${UPLOAD_MAX_MB} MB` },
+  upload_too_large: {
+    // Said by the route and, before anything is sent, by the browser: the
+    // platform refuses a larger body before this app sees it, so the only
+    // place this sentence can reach a person for most large files is there.
+    tone: 'bad',
+    text:
+      `that file is larger than ${UPLOAD_MAX_MB} MB, which is as much as one upload can carry, ` +
+      'so it was not sent. Split the PDF into smaller parts, scan it again at a lower ' +
+      'resolution (200 dpi in black and white is plenty), or send it to us and we will add it.',
+  },
   upload_no_file: { tone: 'bad', text: 'choose a file first' },
+  upload_several_files: {
+    // A form posted without JavaScript carries every file chosen, and this
+    // route reads one. Reading the first and dropping the rest would be a
+    // silent loss, so none is read and the person is told why.
+    tone: 'bad',
+    text: 'this page sends one file at a time when JavaScript is off; nothing was stored. Choose one file, or turn JavaScript on to send several.',
+  },
+  upload_on_case: {
+    // What a fetch caller is told when the form post would simply have gone to
+    // the case: read, and on its case — opened, attached or merged into.
+    tone: 'good',
+    text: 'read, and it is on its case',
+  },
+  upload_already_on_case: {
+    tone: 'good',
+    text: 'that document had already been read, so it was not read again; it is on its case',
+  },
+  upload_unanswered: {
+    // The browser's, never the route's: a request that came back without an
+    // answer this app wrote — a network failure, an expired session, a
+    // platform error page. Whether the file was stored is not known, so the
+    // sentence does not guess, and the rest of the batch is not sent.
+    tone: 'bad',
+    text: 'no answer came back for that file, so whether it was stored is not known. Reload the page and check what arrived before sending it again.',
+  },
+  upload_not_sent: {
+    tone: 'bad',
+    text: 'not sent, because the file before it got no answer',
+  },
   upload_queued_case: {
     tone: 'good',
     text: 'that document is being read; it will appear on this case when it is',
@@ -766,7 +811,7 @@ export const NOTICES = {
   },
   upload_rejected_too_large: {
     tone: 'bad',
-    text: `that file is larger than ${UPLOAD_MAX_MB} MB`,
+    text: `that file is larger than ${UPLOAD_MAX_MB} MB, so it was not stored`,
   },
   upload_rejected_type_not_allowed: {
     tone: 'bad',
@@ -845,6 +890,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   packet_wrong_state: [oneOf(CASE_STATES)],
   approve_note_too_long: [COUNT],
   approve_wrong_state: [oneOf(CASE_STATES)],
+  approve_superseded: [SHORT_HASH],
   submit_confirmation_too_long: [COUNT],
   decline_detail_too_long: [COUNT],
   submit_wrong_state: [oneOf(CASE_STATES)],
@@ -1012,4 +1058,24 @@ export function noticeSentence(reason: unknown): string | undefined {
 export function aboutFrom(value: string | readonly string[] | undefined): readonly string[] {
   if (value === undefined) return [];
   return typeof value === 'string' ? [value] : [...value];
+}
+
+/** The sentences the multi-file upload form says without asking the route. */
+export interface BrowserUploadNotices {
+  readonly tooLarge: Notice;
+  readonly unanswered: Notice;
+  readonly notSent: Notice;
+}
+
+/**
+ * Those sentences, resolved here and handed to the form as props, so the words
+ * the browser says before (or instead of) sending a file are this table's like
+ * every other notice, and the browser bundle carries none of it.
+ */
+export function browserUploadNotices(): BrowserUploadNotices {
+  return {
+    tooLarge: NOTICES.upload_too_large,
+    unanswered: NOTICES.upload_unanswered,
+    notSent: NOTICES.upload_not_sent,
+  };
 }

@@ -18,6 +18,7 @@
     "eval": "tsx scripts/run-evals.ts",
     "link:retailer": "tsx scripts/link-retailer.ts",
     "link:provenance": "tsx scripts/link-provenance.ts",
+    "link:duplicates": "tsx scripts/link-duplicates.ts",
     "qbo:verify": "tsx packages/qbo/scripts/verify-sandbox.mts",
     "render:scans": "tsx scripts/render-scans.mts",
     "build:review": "tsx scripts/build-review-bundle.mts",

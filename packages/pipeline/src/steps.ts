@@ -1420,6 +1420,11 @@ export interface RemittanceRead {
 export const LINES_PROCESSED = 'remittance.lines_processed';
 /** The event on a case a second document turned out to be about. */
 export const MERGED_DUPLICATE_LINE = 'case.merged_duplicate_line';
+/**
+ * The event naming a probable pair for a person (ADR 0032). The store writes it
+ * on the notice path; the remittance-line path writes it here (audit F1).
+ */
+export const POSSIBLE_DUPLICATE = 'case.possible_duplicate';
 /** What `declined_candidates.decided_by` says for a line under the floor. */
 export const DECLINED_BY_TOLERANCE = 'remittance_tolerance';
 
@@ -2077,6 +2082,23 @@ async function openCaseForLine(
       ...confirmationFields(line.confirmation),
     },
   });
+
+  // The pair, in the one place a reviewer is shown it (ADR 0032). `openCase`
+  // writes this event itself on the notice path, where it resolves the arrival;
+  // here the resolution happened above, against the line's own composite claim
+  // id, so `openCase` never sees the match and the pair has to be named here —
+  // one event per candidate, in `openCase`'s shape, so `possibleDuplicates`,
+  // the verdict write and the merge check read it unchanged. Without it a
+  // notice followed by its remittance line was two cases nobody could answer
+  // or merge (audit F1, ADR 0028 §7's note).
+  for (const other of line.probableDuplicateOf ?? []) {
+    await deps.store.appendEvent({
+      orgId: document.orgId,
+      deductionId: opened.deductionId,
+      eventType: POSSIBLE_DUPLICATE,
+      payload: { of: other, basis: [...(line.probableBasis ?? [])] },
+    });
+  }
 
   // The same edge the notice path crosses, by the same trigger, checked against
   // the same table — so the state machine stays the spec for both.

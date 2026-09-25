@@ -191,6 +191,17 @@ function document(overrides: Partial<CaseDocument> = {}): CaseDocument {
   };
 }
 
+/**
+ * The page itself, without the workspace shell around it. The sidebar carries
+ * a Sign out form on every page (pilot E4), which is not an action on a case;
+ * "no way to act on this case" is a claim about what the page offers.
+ */
+function pageContent(html: string): string {
+  const main = /<main\b[\s\S]*<\/main>/.exec(html)?.[0];
+  if (main === undefined) throw new Error('expected the page to render a <main>');
+  return main;
+}
+
 describe('money and deadlines', () => {
   it('renders integer cents without ever holding a float', () => {
     expect(money(312_000)).toBe('$3,120.00');
@@ -1145,8 +1156,8 @@ describe('the review page', () => {
         today={today}
       />,
     );
-    expect(html).not.toContain('<button');
-    expect(html).not.toMatch(/<form/i);
+    expect(pageContent(html)).not.toContain('<button');
+    expect(pageContent(html)).not.toMatch(/<form/i);
     // The same claim the page has always made, in the words it makes it in now
     // that the actions exist: this app files nothing, and a filing without an
     // approval for that exact decision is refused by the database.
@@ -1798,9 +1809,47 @@ describe('the Phase 3 action cards', () => {
     expect(html).toContain('Dispute cover sheet');
     expect(html).toContain(`href="/api/document/${NOTICE_DOC}"`);
     expect(html).toContain('walmart-apdp-notice.pdf');
+    // The letter to print, the enclosures as one download, and the letter as
+    // text — each of them this packet.
     expect(html).toContain(
-      'href="/cases/11111111-2222-3333-4444-555555555555/packet">Download cover sheet',
+      'href="/cases/11111111-2222-3333-4444-555555555555/packet/letter">Printable letter',
     );
+    expect(html).toContain(
+      'href="/cases/11111111-2222-3333-4444-555555555555/packet/enclosures">All enclosures (.zip)',
+    );
+    expect(html).toContain(
+      'href="/cases/11111111-2222-3333-4444-555555555555/packet">Letter as text',
+    );
+  });
+
+  // Evidence attached after the first assembly has to be able to get in, so a
+  // writer is offered the assembly again for as long as nothing is approved —
+  // and only then, because after an approval the store refuses it
+  // (`PacketAfterApprovalError`).
+  it('offers to assemble again while the packet waits, to writers, until it is approved', () => {
+    const packetForm = 'action="/cases/11111111-2222-3333-4444-555555555555/packet"';
+    const waiting = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+    });
+    expect(waiting).toContain(packetForm);
+    expect(waiting).toContain('Assemble the packet again');
+    expect(waiting).toMatch(/<button[^>]*>Assemble again<\/button>/);
+    expect(waiting).toContain('name="decisionId" value="99999999-1111-2222-3333-444444444444"');
+
+    const reader = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval' }),
+      mayAct: false,
+    });
+    expect(reader).not.toContain(packetForm);
+
+    const approved = render({
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: workflow({ state: 'awaiting_approval', approved: true }),
+    });
+    expect(approved).not.toContain(packetForm);
+    expect(approved).not.toContain('Assemble again');
   });
 
   it('offers the approve button to an approver who did not prepare the decision', () => {
@@ -1854,8 +1903,8 @@ describe('the Phase 3 action cards', () => {
     expect(html).toContain('read this case but not act on it');
     expect(html).not.toContain('assemble its packet');
     // And still no way to act on it.
-    expect(html).not.toMatch(/<form/i);
-    expect(html).not.toMatch(/<button/i);
+    expect(pageContent(html)).not.toMatch(/<form/i);
+    expect(pageContent(html)).not.toMatch(/<button/i);
   });
 
   it('caps the rationale at the length the cover sheet holds, not a number of its own', () => {
@@ -1897,7 +1946,7 @@ describe('the Phase 3 action cards', () => {
     expect(approved).toContain('name="approvalId" value="66666666-1111-2222-3333-444444444444"');
     // The channel is fixed and not a choice, and the instructions are plain.
     expect(approved).toContain('manual portal');
-    expect(approved).toContain('Attach the cover sheet');
+    expect(approved).toContain('Attach the dispute letter');
     // A retailer's own rules are data, not code: the page says to follow the
     // routing guide rather than naming a portal it does not know.
     expect(approved).toContain('playbook data this app does not hold yet');
@@ -1932,8 +1981,8 @@ describe('the Phase 3 action cards', () => {
           viewerUserId={SECOND_ANALYST}
         />,
       );
-      expect(html, state).not.toMatch(/<form/i);
-      expect(html, state).not.toMatch(/<button/i);
+      expect(pageContent(html), state).not.toMatch(/<form/i);
+      expect(pageContent(html), state).not.toMatch(/<button/i);
     }
   });
 });

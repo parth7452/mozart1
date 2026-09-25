@@ -10,14 +10,24 @@ import { mayWrite, pipelineDepsFor, runnerFromEnv } from '../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../lib/request';
 import {
   NOTICE_ABOUT_PARAM,
-  UPLOAD_MAX_BYTES as MAX_BYTES,
   noticeClaimId,
+  resolveNotice,
   uploadRejectionNotice,
   type NoticeKey,
 } from '../../lib/notices';
+import type { UploadAnswer } from '../../lib/upload-answer';
+import { FORM_OVERHEAD_BYTES, UPLOAD_MAX_BYTES as MAX_BYTES } from '../../lib/upload-limits';
 
-/** Multipart framing around the file itself: boundaries, headers, field names. */
-const FORM_OVERHEAD_BYTES = 64 * 1024;
+/**
+ * Whether the caller asked for an answer rather than a page. A browser's own
+ * form post asks for `text/html` and gets the redirect, so the form still works
+ * with JavaScript off.
+ */
+function wantsJson(request: Request): boolean {
+  return (request.headers.get('accept') ?? '').toLowerCase().includes('application/json');
+}
+
+const CASE_PATH = /^\/cases\/([^/]+)$/;
 
 /**
  * Takes a file and runs the real pipeline over it: ingest, scan, classify,
@@ -43,6 +53,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const session = await requireSession();
   const back = new URL('/', request.url);
+  const json = wantsJson(request);
+
+  /**
+   * The one place an outcome becomes a response: a 303 to `to` for a form
+   * post, or the same outcome as an `UploadAnswer` for a fetch. `notice` is
+   * what the JSON says; the redirect carries it only when `carry` is set,
+   * because a redirect straight to a case has always been its own answer.
+   */
+  const answer = (
+    to: URL,
+    notice: NoticeKey,
+    about: readonly string[],
+    carry: boolean,
+  ): NextResponse => {
+    if (!json) {
+      if (carry) {
+        to.searchParams.set('upload', notice);
+        to.searchParams.delete(NOTICE_ABOUT_PARAM);
+        for (const fragment of about) to.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
+      }
+      return NextResponse.redirect(to, { status: 303 });
+    }
+    const said = resolveNotice(notice, about);
+    // Every caller below validates its fragments before it names them, so a
+    // notice that does not resolve is a bug here, and it is not papered over.
+    if (said === undefined) throw new Error(`upload notice ${notice} did not resolve`);
+    const caseId = CASE_PATH.exec(to.pathname)?.[1];
+    const body: UploadAnswer = {
+      notice,
+      about,
+      tone: said.tone,
+      text: said.text,
+      ...(isUuid(caseId) ? { caseId } : {}),
+    };
+    return NextResponse.json(body, { headers: { 'cache-control': 'no-store' } });
+  };
 
   /**
    * What happened, as a key out of `lib/notices.ts` and never as a sentence.
@@ -54,12 +100,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
    * one of ours, and what a key cannot say on its own follows as `about`, one
    * validated fragment per `{n}`.
    */
-  const say = (notice: NoticeKey, ...about: readonly string[]): NextResponse => {
-    back.searchParams.set('upload', notice);
-    back.searchParams.delete(NOTICE_ABOUT_PARAM);
-    for (const fragment of about) back.searchParams.append(NOTICE_ABOUT_PARAM, fragment);
-    return NextResponse.redirect(back, { status: 303 });
-  };
+  const say = (notice: NoticeKey, ...about: readonly string[]): NextResponse =>
+    answer(back, notice, about, true);
+
+  /** Straight to a case, with no notice on the redirect; `notice` is the JSON's. */
+  const toCase = (deductionId: string, notice: NoticeKey): NextResponse =>
+    answer(new URL(`/cases/${deductionId}`, request.url), notice, [], false);
 
   if (!mayWrite(session.org.role)) {
     return say('upload_role');
@@ -82,6 +128,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const attachToCase = form.get('attachToCase');
   const attachingTo = isUuid(attachToCase) ? attachToCase : undefined;
   if (attachingTo !== undefined) back.pathname = `/cases/${attachingTo}`;
+
+  // One file per request. A form posted without JavaScript carries every file
+  // the picker held; reading the first and dropping the rest would lose them
+  // without a word, so none is read. (A browser sends an unnamed empty entry
+  // for a picker left empty, which is not a file anybody chose.)
+  const chosen = form.getAll('file').filter((entry) => entry instanceof File && entry.name !== '');
+  if (chosen.length > 1) {
+    return say('upload_several_files');
+  }
 
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0) {
@@ -145,9 +200,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return say('upload_filed_from_record');
       }
       if (outcome.case !== undefined) {
-        return NextResponse.redirect(new URL(`/cases/${outcome.case.deductionId}`, request.url), {
-          status: 303,
-        });
+        return toCase(outcome.case.deductionId, 'upload_already_on_case');
       }
       if (outcome.held !== undefined) {
         back.pathname = '/';
@@ -169,9 +222,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return say('upload_filed_from_record');
     }
     if (result.case !== undefined) {
-      return NextResponse.redirect(new URL(`/cases/${result.case.deductionId}`, request.url), {
-        status: 303,
-      });
+      return toCase(result.case.deductionId, 'upload_on_case');
     }
 
     // Held for a person (ADR 0044): read, recorded, and on no case, because the
@@ -196,9 +247,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ]),
       ];
       if (cases.length === 1) {
-        return NextResponse.redirect(new URL(`/cases/${cases[0]}`, request.url), {
-          status: 303,
-        });
+        return toCase(cases[0] as string, 'upload_on_case');
       }
       if (cases.length > 1) {
         back.pathname = '/';
