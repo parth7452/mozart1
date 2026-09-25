@@ -64,31 +64,49 @@ export interface PrintedAmount {
  * row of dashes — and a minus after it that starts no other number ("6.70-",
  * as remittances print a deduction). A sign is kept, never dropped: a value
  * without it is a different number.
+ *
+ * A dash with a space between it and the number says nothing certain. It is
+ * the separator in "Deduction - $500.00" and "Short pay – $150.00", and the
+ * empty cell left of an amount once a table's cells are spaces ("1,275.00 -
+ * 6.70"), as often as it is a minus. So that number is read both ways — two
+ * entries over one span — and a value of either sign is on the page, as the
+ * quote check itself reads a spaced dash (`LEADING_SIGN` in `verify.ts`). A
+ * dash touching the number ("-$6.70", "–6.70") is a minus, and only a minus.
  */
 export function printedAmounts(text: string): PrintedAmount[] {
   const minus = '[-\u2212\u2012-\u2014]';
   const pattern = new RegExp(
-    `(\\()?((?<![\\p{L}\\p{N}\\-\\u2212\\u2012-\\u2014])${minus} ?)?(?:(\\$ ?)(${minus})?)?` +
+    `(\\()?(?:((?<![\\p{L}\\p{N}\\-\\u2212\\u2012-\\u2014])${minus})( )?)?(?:(\\$ ?)(${minus})?)?` +
       `(\\d+(?:(?:[.,]|, (?=\\d{3}(?!\\d)))\\d+)*|(?<![\\d.])\\.\\d+(?![.,]?\\d))` +
       `(\\))?(${minus}(?![\\d.,$]))?(\\s?(?:cr|dr)\\b)?`,
     'giu',
   );
   const found: PrintedAmount[] = [];
   for (const match of text.matchAll(pattern)) {
-    const [whole, open, minusBefore, dollar, minusAfter, digits, close, minusTrailing, credit] = match;
+    const [whole, open, minusBefore, spaced, dollar, minusAfter, digits, close, minusTrailing, credit] =
+      match;
     if (digits === undefined) continue;
     // Parentheses only in pairs: "(5" is 5, and so is "5)".
     const paired = open !== undefined && close !== undefined;
-    const negative = [minusBefore, minusAfter, minusTrailing].some((m) => m !== undefined);
-    const printed =
-      (paired ? '(' : '') +
-      (negative ? '-' : '') +
-      (dollar ?? '') +
-      digits.replace(/\s/g, '') +
-      (paired ? ')' : '') +
-      (credit ?? '');
+    const signed = [minusAfter, minusTrailing].some((m) => m !== undefined);
+    // A dash set apart by a space may be a separator or an empty cell: both readings.
+    const readings =
+      minusBefore === undefined || signed
+        ? [signed || minusBefore !== undefined]
+        : spaced === undefined
+          ? [true]
+          : [true, false];
     const start = match.index + (open !== undefined && !paired ? 1 : 0);
-    found.push({ text: printed, start, end: match.index + whole.length });
+    for (const negative of readings) {
+      const printed =
+        (paired ? '(' : '') +
+        (negative ? '-' : '') +
+        (dollar ?? '') +
+        digits.replace(/\s/g, '') +
+        (paired ? ')' : '') +
+        (credit ?? '');
+      found.push({ text: printed, start, end: match.index + whole.length });
+    }
   }
   return found;
 }

@@ -43,13 +43,19 @@ money field, `checkQuote` also requires the amount itself:
    `Net payment....1,275.00` prints $1,275.00, not $275.00.
 3. **It is identical to the cent.** An amount is compared as cents, so
    `$6,721.80` equals a printed `$6,721.8000` and nothing else. The sign counts:
-   - a minus that stands alone, whether ASCII, `−` or a dash;
+   - a minus that touches the number, whether ASCII, `−` or a dash (`-$6.70`,
+     `–6.70`);
    - a minus after the number that starts no other number (`6.70-`);
    - accounting parentheses in a pair;
    - `CR`/`DR`.
 
    The hyphen in `CB-203`, a range like `6.70-7.00` and a leader of dashes are
-   not signs. A page's sign is never dropped: a value without it is a different
+   not signs. A dash set apart from the number by a space (`Deduction - $500.00`,
+   or an empty cell printed `-` beside an amount) is read both ways, because it
+   is a separator as often as a minus: a value of either sign is on the page,
+   as the quote check's own `LEADING_SIGN` reads it. *Amended 2026-09-25: this
+   first read a spaced dash as a minus only, which marked a correctly read
+   `$500.00` "amount not on page".* A page's sign is never dropped: a value without it is a different
    number. A unit price is
    compared at its printed digits (ADR 0049): `$0.01` read off a page printing
    `$0.0125` is refused, though both are stored as 1 cent.

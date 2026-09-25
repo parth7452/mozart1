@@ -113,7 +113,7 @@ price.** The founder's decision.
   a `$0.0125` page is still wrong. No recorded document prints a sub-cent price,
   so no expectation moved. A sub-cent fixture, and an expectation kind that
   states the printed price, come with the first real document that has one.
-  `scripts/import-extractbench.py` rounds half to even on floats (`cents()`); it
-  must not be used for a sub-cent price until it reads prices exactly.
+  `scripts/import-extractbench.py` now rounds half up on the decimal as
+  written (`cents()`), the same as `parseUnitPrice`.
 - ADR 0050 checks that the price a field reports is the one the page printed,
   digit for digit, before any of this arithmetic trusts it.
