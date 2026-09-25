@@ -16,6 +16,7 @@ import {
   NotACanonicalReasonError,
   NothingToSendError,
   PacketAfterApprovalError,
+  PacketSupersededError,
   PacketNotForDecisionError,
   RationaleRequiredError,
   RationaleTooLongError,
@@ -175,6 +176,28 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     return packet;
   }
 
+  /**
+   * An approval already on the record, written as-is. The one case `approve`
+   * can no longer make — an approval naming a packet that is not the latest —
+   * still exists in data approved before that rule, and `getWorkflow` has to
+   * show the packet it named.
+   */
+  seedApproval(input: {
+    readonly decisionId: string;
+    readonly packetHash: string;
+    readonly approverId: string;
+  }): ApprovalRecord {
+    const approval: ApprovalRecord = {
+      approvalId: randomUUID(),
+      decisionId: input.decisionId,
+      approverId: input.approverId,
+      packetHash: input.packetHash,
+      approvedAt: this.now,
+    };
+    this.approvals.set(approval.approvalId, approval);
+    return approval;
+  }
+
   private caseOf(deductionId: string): CaseRow {
     const row = this.cases.get(deductionId);
     // The same answer the real store gives: a case this tenant cannot see is
@@ -257,8 +280,18 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     const standing = [...this.approvals.values()].find(
       (candidate) => candidate.decisionId === decision.decisionId,
     );
-    if (row.state !== 'analyst_review' && standing === undefined) {
-      throw new WrongCaseStateError(input.deductionId, 'assemble', row.state, ['analyst_review']);
+    // Two ways in, as the real stores have: from `analyst_review`, or again
+    // while the packet waits in `awaiting_approval`, so evidence that arrived
+    // after the first assembly can get in.
+    if (
+      row.state !== 'analyst_review' &&
+      row.state !== 'awaiting_approval' &&
+      standing === undefined
+    ) {
+      throw new WrongCaseStateError(input.deductionId, 'assemble', row.state, [
+        'analyst_review',
+        'awaiting_approval',
+      ]);
     }
     if (row.documentIds.length === 0) throw new NothingToSendError(input.deductionId);
 
@@ -282,7 +315,9 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       assembledBy: input.assembledBy,
       assembledAt: this.now,
     };
-    this.packets.set(packet.packetId, packet);
+    // A new packet goes last in insertion order, which is what `approve` and
+    // the page read as the latest; an identical one is handed back where it is.
+    if (existing === undefined) this.packets.set(packet.packetId, packet);
     row.state = 'awaiting_approval';
     return {
       packetId: packet.packetId,
@@ -320,6 +355,14 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       throw new WrongCaseStateError(decision.deductionId, 'approve', row.state, [
         'awaiting_approval',
       ]);
+    }
+    // Only the latest packet of the decision may be approved (the real stores
+    // check it under the case's row lock).
+    const latest = [...this.packets.values()]
+      .filter((candidate) => candidate.decisionId === input.decisionId)
+      .at(-1);
+    if (latest !== undefined && latest.packetId !== packet.packetId) {
+      throw new PacketSupersededError(input.decisionId, packet.contentHash, latest.contentHash);
     }
     // `unique (decision_id, action_type)` on `approvals`: a double-clicked
     // button is not a second authorisation.

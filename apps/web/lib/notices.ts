@@ -182,6 +182,10 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this packet was already approved; the first approval stands and is the one that counts',
   },
+  approve_superseded: {
+    tone: 'bad',
+    text: 'that packet was assembled again since this page loaded, and only the latest one can be approved — nothing was approved; check packet {0} below and approve that',
+  },
   approve_packet_missing: {
     tone: 'bad',
     text: 'no packet with that hash was assembled for this decision — reload the case and assemble it again',
@@ -854,6 +858,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   packet_wrong_state: [oneOf(CASE_STATES)],
   approve_note_too_long: [COUNT],
   approve_wrong_state: [oneOf(CASE_STATES)],
+  approve_superseded: [SHORT_HASH],
   submit_confirmation_too_long: [COUNT],
   decline_detail_too_long: [COUNT],
   submit_wrong_state: [oneOf(CASE_STATES)],

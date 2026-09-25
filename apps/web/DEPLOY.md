@@ -144,7 +144,9 @@ entitlement (ADR 0015). An identity it refuses, or one with no membership left,
 is signed out at the provider rather than kept with a live cookie (ADR 0045).
 
 The login form creates no Supabase Auth user (`shouldCreateUser: false`, ADR
-0045), so inviting someone takes three steps:
+0045), so inviting someone takes three steps. For a new customer, follow
+[`docs/ONBOARDING.md`](../../docs/ONBOARDING.md), which does step 1 for a whole
+workspace in one tested SQL block and has the welcome email for step 3.
 
 1. Insert their `users` row and a `memberships` row for their tenant, as the
    owner.

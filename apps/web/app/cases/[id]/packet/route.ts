@@ -19,7 +19,7 @@ import { backToCase, caseNotFound, workflowStoreFor } from '../../../../lib/work
  * Assembles the packet a human will be asked to approve.
  *
  * Our code builds it — the notice, the evidence attached to the case, and a
- * cover narrative composed from already-extracted, already-quote-verified
+ * dispute letter composed from already-extracted, already-quote-verified
  * fields. No model reads anything here, which is why the content hash is a pure
  * function of the case and why approving *that hash* means something (ADR 0020
  * §2).
@@ -136,7 +136,9 @@ export async function POST(
 }
 
 /**
- * The cover sheet, as the markdown our code composed.
+ * The dispute letter, as the plain text our code composed — the packet's
+ * narrative byte for byte, which is what the approval's hash covers. The
+ * printable view is `./letter`, and the enclosures are `./enclosures`.
  *
  * Tenant-scoped the only way anything here is: `getWorkflow` runs as `app_rw`
  * with this session's claims, so a case another tenant owns is *absent* rather
@@ -166,8 +168,8 @@ export async function GET(
 
     return new NextResponse(packet.narrative, {
       headers: {
-        'content-type': 'text/markdown; charset=utf-8',
-        'content-disposition': `attachment; filename="cover-sheet-${id.slice(0, 8)}.md"`,
+        'content-type': 'text/plain; charset=utf-8',
+        'content-disposition': `attachment; filename="dispute-letter-${id.slice(0, 8)}.txt"`,
         // A packet is what a human is about to authorise. It is not something a
         // shared cache should hold, and a stale copy of it is worse than none.
         'cache-control': 'private, no-store',
