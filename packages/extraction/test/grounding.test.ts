@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { quarantine } from '@recouple/core-domain';
 import { flattenExtraction } from '../src/flatten';
 import { checkQuote, groundingReport, ungroundedFields, verifyQuotes } from '../src/verify';
+import { locateQuote } from '../src/ocr';
 import { buildReadContent } from '../src/prompt';
 import { costMicros, modelFor } from '../src/models';
 
@@ -178,6 +179,203 @@ describe('column rules and numbers on a camera page', () => {
       matchedBy: 'ocr_confusion',
     });
     expect(check('$84,800.00', '<b>$4,800.00</b>').verified).toBe(false);
+  });
+});
+
+describe('a quote cited to a page the document does not have', () => {
+  /**
+   * Grainger's one-page scan (`eb-hingham-grainger-invoice-scan`) came back
+   * with every field cited to page 2. The quote is looked for on the pages the
+   * document has, and verifies only when exactly one of them holds it.
+   */
+  const onePage = ['INVOICE NUMBER: 9823373304\nAMOUNT DUE: 392.07\nPO NUMBER: WEB2454487473'];
+
+  it('verifies a quote found on the one page that exists, and names that page', () => {
+    const check = checkQuote('AMOUNT DUE: 392.07', 2, onePage);
+    expect(check).toMatchObject({ verified: true, matchedBy: 'exact', foundOnPage: 1 });
+    expect(check.reason).toMatch(/cited page 2 does not exist/);
+  });
+
+  it('attributes the field to that page and keeps the page the model cited', () => {
+    const fields = verifyQuotes(
+      flattenExtraction({
+        invoice_number: field('9823373304', '9823373304', 2),
+        po_number: field('WEB2454487473', 'WEB2454487473', 1),
+      }),
+      onePage,
+    );
+    const byPath = new Map(fields.map((f) => [f.fieldPath, f]));
+    expect(byPath.get('invoice_number')).toMatchObject({
+      sourcePage: 1,
+      citedPage: 2,
+      quoteVerified: true,
+      quoteMatch: 'exact',
+    });
+    // A citation that was right is left exactly as it was.
+    expect(byPath.get('po_number')?.citedPage).toBeUndefined();
+    expect(byPath.get('po_number')?.sourcePage).toBe(1);
+    expect(groundingReport(fields).pageCorrected).toBe(1);
+  });
+
+  it('refuses when two pages hold the quote: which one it came from would be a guess', () => {
+    const pages = ['Invoice 2105629\nTotal $4,191.50', 'Remit to\nTotal $4,191.50', 'Terms'];
+    const check = checkQuote('Total $4,191.50', 7, pages);
+    expect(check.verified).toBe(false);
+    expect(check.foundOnPage).toBeUndefined();
+    expect(check.reason).toMatch(/pages 1, 2/);
+    const [refused] = verifyQuotes(
+      flattenExtraction({ invoice_total: field('$4,191.50', 'Total $4,191.50', 7) }),
+      pages,
+    );
+    expect(refused).toMatchObject({ sourcePage: 7, quoteVerified: false });
+    expect(refused?.citedPage).toBeUndefined();
+  });
+
+  it('still refuses a wrong value, whatever page it cites', () => {
+    expect(checkQuote('AMOUNT DUE: 392.70', 2, onePage).verified).toBe(false);
+    expect(checkQuote('PO NUMBER: WEB2454487478', 3, onePage).verified).toBe(false);
+    expect(checkQuote('AMOUNT DUE: -392.07', 2, onePage).verified).toBe(false);
+  });
+
+  it('never searches when the cited page exists, even when the quote is on another', () => {
+    const pages = ['Claim ID: APDP-99812', 'page two'];
+    const check = checkQuote('Claim ID: APDP-99812', 2, pages);
+    expect(check.verified).toBe(false);
+    expect(check.foundOnPage).toBeUndefined();
+    expect(check.reason).toMatch(/not found on the cited page/);
+  });
+});
+
+describe('a table OCR wrote as HTML', () => {
+  // As Reducto wrote `eb-texas-facilities-po-degraded` and
+  // `eb-uillinois-rate-card-degraded`: one row per <tr>, one cell per <td>.
+  const texas = [
+    '<table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Start Date</th><th>End Date</th><th>Total</th></tr>' +
+      '<tr><td>Sit On It / Ideon (Exemplis)</td><td>2</td><td>EACH</td><td>$448.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$896.00</td></tr>' +
+      '<tr><td>2723Y.A142.B1--FC1-B17</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>' +
+      '<tr><td>(1):Oasis 1 EACH</td><td>$540.00</td><td>11/7/2019</td><td>12/6/2019</td><td>$540.00</td></tr></table>',
+  ];
+  const illinois = [
+    '<table><tr><th>Type of Vehicle</th><th>Rate/mile</th><th>Daily\nminimum</th></tr>' +
+      '<tr><td>Sedan - compact</td><td>40¢</td><td>$39</td><td>$175</td><td>$450</td></tr>' +
+      '<tr><td>Sport Utility Vehicle (SUV)</td><td>78¢</td><td>$73.</td><td>285</td><td>$730</td></tr></table>',
+  ];
+
+  it('verifies a row quoted as it reads, cells as the spaces between them', () => {
+    expect(checkQuote('2  EACH  $448.00  11/7/2019  12/6/2019  $896.00', 1, texas)).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+    expect(checkQuote('1  EACH  $540.00  11/7/2019  12/6/2019  $540.00', 1, texas)).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+    expect(checkQuote('40¢ $39 $175 $450', 1, illinois)).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+  });
+
+  it('refuses an invented row, a wrong cell, and cells taken from rows apart', () => {
+    expect(checkQuote('2 EACH $449.00', 1, texas).verified).toBe(false);
+    expect(
+      checkQuote('2  EACH  $448.00  11/7/2019  12/6/2019  $898.00', 1, texas).verified,
+    ).toBe(false);
+    expect(checkQuote('3 EACH $448.00', 1, texas).verified).toBe(false);
+    expect(checkQuote('40¢ $39 $175 $540', 1, illinois).verified).toBe(false);
+    // Sit On It's quantity with Oasis's price: both on the page, not together.
+    expect(checkQuote('Sit On It / Ideon (Exemplis) 2 EACH $540.00', 1, texas).verified).toBe(
+      false,
+    );
+  });
+
+  it('never glues two cells into one number', () => {
+    // "$39" and "$175" are two columns, not $39,175.
+    expect(checkQuote('$39175', 1, illinois).verified).toBe(false);
+    expect(checkQuote('$39,175', 1, illinois).verified).toBe(false);
+    // A cell ending in a stray point beside a cell that starts with a number.
+    expect(checkQuote('$73.285', 1, illinois).verified).toBe(false);
+    expect(checkQuote('Qty 2448.00', 1, texas).verified).toBe(false);
+    // Nor two numbers a space apart outside a table, which it used to.
+    expect(checkQuote('Qty 201', 1, ['Qty 20 1 Unit']).verified).toBe(false);
+    expect(checkQuote('$39175', 1, ['Daily $39 $175 weekly']).verified).toBe(false);
+  });
+
+  it('boxes a row quoted across the cells of one table block', () => {
+    const table = {
+      text: texas[0] as string,
+      page: 1,
+      bbox: [0.05, 0.4, 0.95, 0.7] as [number, number, number, number],
+      kind: 'Table',
+      confidence: 0.9,
+    };
+    expect(
+      locateQuote('2  EACH  $448.00  11/7/2019  12/6/2019  $896.00', 1, [table])?.bbox,
+    ).toEqual([0.05, 0.4, 0.95, 0.7]);
+    expect(locateQuote('2 EACH $449.00', 1, [table])).toBeUndefined();
+  });
+});
+
+describe('dashes and signs', () => {
+  const check = (quote: string, page: string) => checkQuote(quote, 1, [page]);
+
+  it('reads an en dash, an em dash, a minus and a non-breaking hyphen as a hyphen', () => {
+    // `eb-uillinois-rate-card-degraded`: the model wrote an en dash, the OCR a hyphen.
+    expect(check('Sedan – compact', '<td>Sedan - compact</td>')).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+    expect(check('Sedan — compact', 'Sedan - compact')).toMatchObject({ verified: true });
+    expect(check('AP‑BSC‑771', 'Appointment AP-BSC-771')).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+    expect(check('Credit −80.00', 'Credit -80.00')).toMatchObject({
+      verified: true,
+      matchedBy: 'separator',
+    });
+    expect(check('Sedan – compact', 'Sedan - subcompact').verified).toBe(false);
+  });
+
+  it('never verifies a negative amount against a positive one', () => {
+    // It used to: the punctuation tier dropped every `-`, the sign included.
+    expect(check('-80.00', 'Paid 80.00').verified).toBe(false);
+    expect(check('−80.00', 'Paid 80.00').verified).toBe(false);
+    expect(check('–80.00', 'Paid 80.00').verified).toBe(false);
+    expect(check('-$80.00', 'Paid $80.00').verified).toBe(false);
+    expect(check('$-80.00', 'Paid $80.00').verified).toBe(false);
+    expect(check('Adjustment -80.00', 'Adjustment 80.00').verified).toBe(false);
+    expect(check('-80.00', '<td>80.00</td><td>6.70</td>').verified).toBe(false);
+    expect(check('-8O.OO', 'Paid 80.00').verified).toBe(false);
+  });
+
+  it('never verifies a positive amount against a negative one', () => {
+    expect(check('80.00', 'ADJUSTMENT PROVIDER -80.00').verified).toBe(false);
+    expect(check('$80.00', 'Credit -$80.00').verified).toBe(false);
+    expect(check('80.00', 'Credit −80.00').verified).toBe(false);
+    expect(check('80.00', '<td>-80.00</td>').verified).toBe(false);
+    expect(check('Adjustment 80.00', 'Adjustment -80.00').verified).toBe(false);
+    expect(check('8O.OO', 'Credit -80.00').verified).toBe(false);
+    // A ledger's trailing minus is a sign too.
+    expect(check('80.00', 'Credit memo 80.00- applied').verified).toBe(false);
+  });
+
+  it('still verifies a sign quoted as printed, and a hyphen that joins rather than signs', () => {
+    expect(check('-80.00', 'ADJUSTMENT PROVIDER -80.00')).toMatchObject({
+      verified: true,
+      matchedBy: 'exact',
+    });
+    expect(check('−73.30', '<td>-73.30</td>')).toMatchObject({ verified: true });
+    expect(check('80.00-', 'Credit memo 80.00- applied')).toMatchObject({ verified: true });
+    // Not a sign: a hyphen between two words or two numbers.
+    expect(check('771', 'Appointment AP-BSC-771').verified).toBe(true);
+    expect(check('2638', 'NORWOOD, MA 02062-2638').verified).toBe(true);
+    expect(check('INV-271001', '<td>INV 271001</td><td>$30,025.00</td>')).toMatchObject({
+      verified: true,
+      matchedBy: 'punctuation',
+    });
+    // Nor is a dash with a space after it.
+    expect(check('010', 'DC BORDENTOWN, NJ - 010')).toMatchObject({ verified: true });
   });
 });
 
