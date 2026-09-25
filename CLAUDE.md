@@ -1402,4 +1402,8 @@ Two of the scans carry one and are stored without it.
 
 A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
 $0.45, image only) opened nothing. The two pages read as payment advices really
-are check stubs, and both scored below the floor.
+are check stubs, and both scored below the floor. It also found product
+specifications read as price agreements, so the classifier now says an agreement
+must fix a price, and that an effective date or "supersedes" does not make one.
+Re-asked ($0.39 for the 77 corpus documents, still 77 of 77; $0.18 for sixty of
+the scans), three of five specifications moved to `other`; the budgets did not.
