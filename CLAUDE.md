@@ -210,7 +210,7 @@ does):
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 | public | real public records nobody wrote for us | 97.9% / 97.9% | 98.9% | 10/10 |
-| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 79.7% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 98.5% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -308,7 +308,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 597 of 1,722 fields carry a
+About $0.0272 per document across 77 of them, and 622 of 1,722 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1383,11 +1383,19 @@ answers stand. The fourth is a product gap: a unit price printed `$6,721.8000`,
 which `parseMoneyToCents` will not read. `public_scanned` holds four scanned
 invoices and ExtractBench's degraded copies of six `public` documents, read
 through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
-79.7% grounding. Three things cost the grounding, and none is a wrong value.
-Grainger's one-page scan cites page 2 for every field, and its quotes failed
-again in two of three re-asks. Quotes of whole table rows do not match, because Reducto writes
-a table as HTML cells. And OCR misread a dash and a degraded price, which the
-check is right to refuse.
+79.7% grounding as first recorded, none of it a wrong value. The checker has
+since closed the gaps (98.5%). A quote that cites a page the document does not
+have is looked for on the pages it does have, and verifies only when exactly
+one holds it; the field is re-pointed there, with the model's page kept as
+`citedPage` in memory (Grainger's one-page scan cited page 2 for every field).
+From the `separator` tier on, a page is read as laid out (`asLaidOut`): table
+cells and rows are spaces, so a quoted table row matches Reducto's HTML cells,
+and every dash is `-`. Two numbers stay two (`$39 $175` is never `$39175`), and a
+sign is never lost: the punctuation tier used to verify `-80.00` against a page
+reading `80.00`, and plain substring matching `80.00` against `-80.00`; both are
+refused now. OCR misreads that disagree with the value (`$6;721:8000`) are still
+refused. Still open: a quote may begin inside a longer number (`$6,600` against
+`$6,600.00`), and `80.00` still verifies against `(80.00)`.
 
 Recording `public` found the upload door refusing three of the fourteen
 distinct documents as "active content (/AA)". The `/AA` was the start of their
