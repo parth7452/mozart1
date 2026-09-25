@@ -20,6 +20,7 @@ import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
+import { DisputeDeadline } from './dispute-deadline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
 import type { Viewer } from './case-list';
 import { AttachReadDocuments } from './unattached-documents';
@@ -561,6 +562,15 @@ export function CaseReview({
               deductionId={summary.deductionId}
               pairs={duplicates ?? []}
               mayAct={mayAct}
+            />
+
+            <DisputeDeadline
+              deductionId={summary.deductionId}
+              state={summary.state}
+              disputeDeadline={summary.disputeDeadline}
+              deadlineSet={workflow?.deadlineSet}
+              mayAct={mayAct}
+              today={today}
             />
 
             <CaseActions

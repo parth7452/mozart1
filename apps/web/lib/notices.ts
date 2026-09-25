@@ -1,5 +1,6 @@
 import { CASE_STATES } from '@recouple/core-domain';
 import { DOC_TYPES } from '@recouple/extraction';
+import { DEADLINE_BASIS_MAX_LENGTH } from '@recouple/pipeline';
 import { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from './upload-limits';
 
 // Re-exported so the routes keep one import for a limit and its sentence; the
@@ -260,6 +261,35 @@ export const NOTICES = {
   outcome_wrong_state: {
     tone: 'bad',
     text: 'this case is {0}, and an outcome is recorded on a case that was filed',
+  },
+
+  // --- a deadline a person enters (pilot E6) ---------------------------------
+  deadline_role: { tone: 'bad', text: 'your role can review cases but not set a deadline' },
+  deadline_set: { tone: 'good', text: 'recorded: this case is due {0}, with the basis you gave' },
+  deadline_already: {
+    tone: 'bad',
+    text: 'this case already has a deadline, and it stands — a printed one is evidence, and an entered one is not replaced. Nothing was changed.',
+  },
+  deadline_not_a_date: { tone: 'bad', text: 'choose the date the dispute window closes' },
+  deadline_in_the_past: {
+    tone: 'bad',
+    text: 'that date has passed — a window already closed is a case to decline or fight late, not a deadline to enter',
+  },
+  deadline_too_far: {
+    tone: 'bad',
+    text: `that date is more than two years out — check the year`,
+  },
+  deadline_basis_required: {
+    tone: 'bad',
+    text: 'say what the date is based on, like the agreement and its window — a deadline nobody can check is not one to rank by',
+  },
+  deadline_basis_too_long: {
+    tone: 'bad',
+    text: `that basis is {0} characters and this field holds ${DEADLINE_BASIS_MAX_LENGTH} — name the agreement and its window, not the whole clause`,
+  },
+  deadline_wrong_state: {
+    tone: 'bad',
+    text: 'this case is {0}, and a deadline is only entered on a case still open',
   },
 
   // --- declining ------------------------------------------------------------
@@ -837,6 +867,8 @@ const CLAIM_ID = /^[A-Za-z0-9][A-Za-z0-9 ._#/-]{0,63}$/;
  * is not shown at all — each of these keys has a wordless twin for that.
  */
 const SENTENCE = /^[A-Za-z0-9 ,.;()'’-]{1,200}$/;
+/** A calendar date as `YYYY-MM-DD`, which is how an entered deadline is stored. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function oneOf(values: readonly string[]): RegExp {
   return new RegExp(`^(${values.map((value) => value.replace(/_/g, ' ')).join('|')})$`);
@@ -866,6 +898,9 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   outcome_recorded: [oneOf(['won', 'partial', 'lost'])],
   outcome_amount_refused: [SENTENCE],
   outcome_wrong_state: [oneOf(CASE_STATES)],
+  deadline_set: [ISO_DATE],
+  deadline_basis_too_long: [COUNT],
+  deadline_wrong_state: [oneOf(CASE_STATES)],
   upload_read_as: [oneOf(DOC_TYPES)],
   upload_remittance_cases: [COUNT],
   open_held_cases: [COUNT],

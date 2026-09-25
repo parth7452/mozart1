@@ -1,4 +1,5 @@
 export * from './ports';
+export * from './deadline';
 export * from './steps';
 export * from './jobs';
 export * from './discovery';
