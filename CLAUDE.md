@@ -1424,9 +1424,25 @@ of the raw bytes, and random bytes in a compressed stream tripped it too:
 about 0.12 false hits per megabyte, so even odds on a 5 MB scan, and the 5 MB
 file made for the email checks is one of them. It now matches whole names, ended
 where pdf.js, MuPDF and PDFium end one, and decodes `#xx` escapes first, so
-`/J#53` is refused as `/JS` where the old check never saw it. The door still
-refuses any `/OpenAction`, even one that only picks the first page to show.
-Two of the scans carry one and are stored without it.
+`/J#53` is refused as `/JS` where the old check never saw it.
+
+**The door reads names where a reader reads them** (2026-09-25, no ADR, no
+migration). `pdf-names.ts` tokenizes the body — skipping literal and hex
+strings, comments and stream data, a stream running for its direct `/Length`
+else to the first `endstream` — and inflates every object stream (Flate, no
+predictors, under the bomb budget and a 64 MB text cap) and reads it the same
+way, so random bytes in an image no longer refuse a scan by chance and an action
+inside a compressed object stream is no longer invisible. Anything it cannot
+account for (an unterminated string, an object header inside skipped bytes, an
+object stream it cannot decode, any exception) falls back to the whole-file raw
+scan, which is stricter over the file's own bytes; and because the raw scan is
+blind inside object streams, a file that falls back **and** has one is refused
+as `malformed_pdf`. A destination-only `/OpenAction` (`[1 0 R /Fit]`, the
+founder's call) is allowed by `pdf-open-action.ts` when the value is an explicit
+destination array, directly or by a reference resolved in the body; an action
+dictionary of any kind, a name, a string, an unresolvable reference, or any
+indirect one in a file with object streams is refused as before. Checked against
+pdf.js only; Acrobat, Foxit and PDFKit are not verified.
 
 A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
 $0.45, image only) opened nothing. The two pages read as payment advices really
