@@ -282,6 +282,9 @@
       "revision": "f6180e917a050a84582e6366cff85b7dc1e84e58",
       "id": "short/hingham-grainger-invoice",
       "pdf": "docs/short/hingham-grainger-invoice.pdf",
+      "flattened": [
+        "/OpenAction"
+      ],
       "tags": [
         "source:real",
         "challenge:T3.b",
@@ -300,6 +303,9 @@
       "revision": "f6180e917a050a84582e6366cff85b7dc1e84e58",
       "id": "short/hingham-wbmason-invoice",
       "pdf": "docs/short/hingham-wbmason-invoice.pdf",
+      "flattened": [
+        "/OpenAction"
+      ],
       "tags": [
         "source:real",
         "challenge:T3.b",

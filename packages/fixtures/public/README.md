@@ -18,6 +18,12 @@ on the same revision and it writes the same files.
   only their remittance-advice pages: 4 of 4, and 5–6 of 6. The rest of each is
   the state's provider billing handbook explaining the advice's fields — a
   manual, not a remittance. Their degraded copies keep the same pages.
+- The two Hingham scans are stored without their `/OpenAction`, the
+  instruction a viewer follows when the file opens. Ours points at a page, but
+  the upload door refuses the key whatever it points at, so as published
+  neither scan can be uploaded. The script removes the door's keys from any
+  dictionary that carries them and records what it removed in `pages.json`
+  (`flattened`); these two are the only files it changed.
 - Nothing else is altered.
 
 ## The two suites
@@ -60,7 +66,14 @@ against that text, and left out if it is not there.
 - **Dates.** ExtractBench stores dates as ISO values. Our scorer compares a date
   as printed. So the ground truth is the page's own spelling of their date,
   kept only when the page prints it in exactly one spelling. A scan with no
-  text of its own gets no date.
+  text of its own gets no date. The spellings looked for are every month-first
+  one: numbers with `/`, `-` or `.`, two- or four-digit years, and month names
+  in full or short. The first import looked for fewer, missed Stephenville's
+  `01-May-24` in the invoice's header and kept `05/01/2024`, which is the lines'
+  tax date. The recording scored the model's `01-May-24` as wrong. The rule now
+  drops that date, as it always said it would. That is the one change made
+  after anything was recorded, and it was made to the spelling list, not to
+  an answer.
 - **Amounts** are their numbers in integer cents, negative where they are
   (a Medicaid credit prints `-80.00`).
 - **Not mapped:**
@@ -75,9 +88,33 @@ against that text, and left out if it is not there.
 - **Lines are matched by position.** Their order is the page's, and so is ours.
   A reader that splits or merges a line misses every line after it. That is a
   real cost, and it is measured.
-- **Scale.** Stephenville's 37-line invoice carries 115 of the `public` suite's
-  194 truth fields. Its line alignment therefore moves the suite's recall more
+- **Scale.** Stephenville's 37-line invoice carries 114 of the `public` suite's
+  193 truth fields. Its line alignment therefore moves the suite's recall more
   than any other document. Read the per-document rows, not only the subtotal.
+
+## First recording (2026-09-25)
+
+`public`, read through each PDF's own text layer: 97.9% recall and precision,
+98.9% of quotes found on the page, and 10 of 10 classified as the type we
+expected. It cost $0.54. The four misses:
+
+- **Both Medicaid advices** name the payer `DIVISION OF MEDICAID`. ExtractBench
+  says `MISSISSIPPI ENVISION MMIS`, the claims system printed above it. Both are
+  on the page, and the division is arguably the payer. Their answer stands.
+- **Oklahoma County's purchase order** names the buyer
+  `OK CO EMERGENCY MANAGEMENT`, the department that ordered, where their answer
+  is the county. Their answer stands.
+- **The same order's unit price** is printed `$6,721.8000`, and
+  `parseMoneyToCents` refuses four decimal places. The value is right and our
+  parser cannot read it. That is a product gap, not a reading error: unit
+  prices on purchase orders and price lists are often printed this way.
+
+Two quotes on the Southampton invoice were not found on the page because its
+file stores `$4,191.50 Invoice Total:`, value before label, while the page
+shows the label first. Both values are right. The check is right to refuse a
+quote the text layer does not contain.
+
+`public_scanned` is not recorded: it needs `REDUCTO_API_KEY`.
 
 ## What these documents are
 

@@ -280,10 +280,6 @@
         "kind": "text",
         "value": "INUS246402"
       },
-      "invoice_date": {
-        "kind": "date",
-        "value": "05/01/2024"
-      },
       "customer_name": {
         "kind": "text",
         "value": "Stephenville Police Dept.- TX"
@@ -737,7 +733,9 @@
         "value": 326651
       }
     },
-    "skipped": []
+    "skipped": [
+      "invoice_date: 2024-05-01 is not printed in exactly one spelling on the page"
+    ]
   },
   "eb-oklahoma-county-po": {
     "truth": {

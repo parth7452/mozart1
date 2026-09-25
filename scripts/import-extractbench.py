@@ -110,6 +110,47 @@ def keep_pages(data: bytes, pages: list[int] | None) -> bytes:
     return buffer.getvalue()
 
 
+# The keys `packages/ingest/src/sniff.ts` refuses a PDF for. The two Hingham
+# scans carry `/OpenAction [1 0 R /Fit]`, which only tells a viewer to show the
+# first page whole, and the door refuses the key whatever it points at, so a
+# customer would be told to flatten the file first. Here the key is removed
+# instead, so the suite measures reading rather than refusal. Three more files
+# were refused for `/AA` until the door read names whole: it was inside their
+# fonts' names (`/AAAAAB+Arial`), and there was no key to remove.
+ACTIVE_KEYS = ("/AA", "/OpenAction", "/JavaScript", "/JS", "/Launch", "/RichMedia", "/XFA")
+
+
+def flatten(data: bytes) -> tuple[bytes, list[str]]:
+    """The same pages with every action a viewer would run removed, and which keys went."""
+    reader = pypdf.PdfReader(io.BytesIO(data))
+    writer = pypdf.PdfWriter(clone_from=reader)
+    removed: set[str] = set()
+    seen: set[int] = set()
+
+    def scrub(node: object) -> None:
+        node = node.get_object() if hasattr(node, "get_object") else node
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, pypdf.generic.DictionaryObject):
+            for key in ACTIVE_KEYS:
+                if key in node:
+                    del node[key]
+                    removed.add(key)
+            for value in list(node.values()):
+                scrub(value)
+        elif isinstance(node, pypdf.generic.ArrayObject):
+            for value in node:
+                scrub(value)
+
+    scrub(writer._root_object)
+    if not removed:
+        return data, []
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue(), sorted(removed)
+
+
 def page_texts(data: bytes) -> list[str]:
     reader = pypdf.PdfReader(io.BytesIO(data))
     return [(page.extract_text() or "").strip() for page in reader.pages]
@@ -143,12 +184,21 @@ def printed_date(iso: str, text: str) -> str | None:
         return None
     m, d, y = day.month, day.day, day.year
     month = MONTHS[m - 1]
-    candidates = {
-        f"{m:02d}/{d:02d}/{y}", f"{m}/{d}/{y}", f"{m:02d}/{d:02d}/{y % 100:02d}", f"{m}/{d}/{y % 100:02d}",
-        f"{m:02d}-{d:02d}-{y}", f"{y}-{m:02d}-{d:02d}",
-        f"{month} {d}, {y}", f"{month[:3]} {d}, {y}", f"{d} {month} {y}", f"{d:02d}-{month[:3]}-{y}",
-        f"{d:02d}/{month[:3]}/{y}",
-    }
+    # Every month-first spelling, so a date the page prints two ways is seen
+    # as printed two ways. Day-first numbers are left out: this is a US corpus
+    # and `parsePrintedDate` is month-first too. The first list lacked the
+    # two-digit-year month names, so Stephenville's `01-May-24` beside its
+    # lines' `05/01/2024` went unseen and the wrong one was kept.
+    days = {f"{d}", f"{d:02d}"}
+    years = {f"{y}", f"{y % 100:02d}"}
+    months = {f"{m}", f"{m:02d}"}
+    names = {month, month[:3], f"{month[:3]}."}
+    candidates = {f"{y}-{m:02d}-{d:02d}", f"{y}/{m:02d}/{d:02d}"}
+    candidates |= {f"{mo}{sep}{da}{sep}{yr}" for mo in months for da in days for yr in years for sep in "/-."}
+    candidates |= {f"{na} {da}, {yr}" for na in names for da in days for yr in years}
+    candidates |= {f"{na} {da} {y}" for na in names for da in days}
+    candidates |= {f"{da} {na} {yr}" for na in names for da in days for yr in years}
+    candidates |= {f"{da}{sep}{month[:3]}{sep}{yr}" for da in days for yr in years for sep in "-/"}
     found = sorted(
         c for c in candidates
         if re.search(rf"(?<![0-9A-Za-z]){re.escape(c)}(?![0-9A-Za-z])", text, flags=re.IGNORECASE)
@@ -278,7 +328,7 @@ def main() -> None:
     for key, stem, doc_type, suite, pages in DOCUMENTS:
         record = records[stem]
         original = fetch(args.cache, f"docs/short/{stem}.pdf")
-        data = keep_pages(original, pages)
+        data, flattened = flatten(keep_pages(original, pages))
         (OUT / f"{key}.pdf").write_bytes(data)
         texts = page_texts(data)
 
@@ -309,6 +359,8 @@ def main() -> None:
                 "id": record["id"],
                 "pdf": record["pdf"],
                 **({"pagesKept": pages} if pages is not None else {}),
+                # What the upload door would have refused the original for.
+                **({"flattened": flattened} if flattened else {}),
                 "tags": record["tags"],
             },
         }
