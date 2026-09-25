@@ -209,9 +209,7 @@ describe('parseMoneyToCents', () => {
     expect(parseMoneyToCents('0.5000')).toBe(50);
     expect(parseMoneyToCents('.1000')).toBe(10);
     expect(parseMoneyToCents('12.34000000')).toBe(1_234);
-    // Three places once commas have said which mark groups thousands.
-    expect(parseMoneyToCents('1,234.500')).toBe(123_450);
-    expect(parseMoneyToCents('$1,000.000')).toBe(100_000);
+    expect(parseMoneyToCents('1,234.5000')).toBe(123_450);
   });
 
   it('refuses a fraction of a cent rather than rounding it', () => {
@@ -220,9 +218,11 @@ describe('parseMoneyToCents', () => {
     }
   });
 
-  it('refuses three places where they could be a thousands group', () => {
-    // `1.000` is a dollar, or a thousand with a point for the separator.
-    for (const text of ['1.000', '$12.500', '0.500', '1234.500']) {
+  it('refuses three places, even after a comma', () => {
+    // `1.000` is a dollar, or a thousand with a point for the separator. After
+    // a comma, `$1,500.000` is likelier `$1,500,000` with its last comma
+    // misread as a point than $1,500.00: a thousandth of the amount.
+    for (const text of ['1.000', '$12.500', '0.500', '1234.500', '1,234.500', '$1,500.000', '$1,000.000']) {
       expect(() => parseMoneyToCents(text), text).toThrow(/thousands group/);
     }
   });
@@ -250,16 +250,11 @@ describe('parseMoneyToCents', () => {
     );
   });
 
-  it('reads one zero past the cents only after a whole part grouped by commas', () => {
+  it('never reads exactly one zero past the cents, grouped by commas or not', () => {
     fc.assert(
       fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
-        const amount = cents(n);
-        const text = `${formatCents(amount)}0`;
-        if (Math.abs(n) >= 100_000) {
-          expect(parseMoneyToCents(text)).toBe(amount);
-        } else {
-          expect(() => parseMoneyToCents(text)).toThrow(/thousands group/);
-        }
+        const text = `${formatCents(cents(n))}0`;
+        expect(() => parseMoneyToCents(text)).toThrow(/thousands group/);
       }),
     );
   });

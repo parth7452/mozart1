@@ -308,7 +308,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 620 of 1,722 fields carry a
+About $0.0272 per document across 77 of them, and 622 of 1,722 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1384,21 +1384,31 @@ which `parseMoneyToCents` would not read (*A price past the cents*, below).
 `public_scanned` holds four scanned
 invoices and ExtractBench's degraded copies of six `public` documents, read
 through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
-79.7% grounding as first recorded. Three things cost the grounding, and none
-was a wrong value. Grainger's one-page scan cites page 2 for every field, and
-its quotes failed again in two of three re-asks. Quotes of whole table rows did
-not match, because Reducto writes a table as HTML cells. And OCR misread a
-degraded price, which the check is right to refuse. The first two were the
-checker's, and are fixed (*A quote is looked for where it can be*, below):
-98.5% now.
+79.7% grounding as first recorded, none of it a wrong value. The checker has
+since closed the gaps (98.5%). A quote that cites a page the document does not
+have is looked for on the pages it does have, and verifies only when exactly
+one holds it; the field is re-pointed there, with the model's page kept as
+`citedPage` and named on the extraction's `model_calls.detail` (Grainger's
+one-page scan cited page 2 for every field).
+From the `separator` tier on, a page is read as laid out (`asLaidOut`): table
+cells and rows are spaces, so a quoted table row matches Reducto's HTML cells,
+and every dash is `-`. Two numbers stay two (`$39 $175` is never `$39175`), and a
+sign is never lost: the punctuation tier used to verify `-80.00` against a page
+reading `80.00`, and plain substring matching `80.00` against `-80.00`; both are
+refused now. OCR misreads that disagree with the value (`$6;721:8000`) are still
+refused. Still open: a quote may begin inside a longer number (`$6,600` against
+`$6,600.00`), and `80.00` still verifies against `(80.00)`.
 
 **A price past the cents is read when the rest is zeros** (ADR 0049 proposed,
 no migration). `parseMoneyToCents` read two decimal places or none, so
 Oklahoma County's `$6,721.8000` — exactly 672,180 cents — was unreadable. It now
 reads digits past the cents when every one is `0`, and nothing is rounded:
-four or more places always, three only after a whole part grouped by commas
-(`1.000` could be a thousand with a point for the separator; `1,234.500`
-cannot). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
+four or more places, never three. `1.000` could be a thousand with a point
+for the separator, and after a comma `$1,500.000` is likelier `$1,500,000`
+with its last comma misread as a point than $1,500.00 — a thousandth of the
+amount, and a quote check cannot catch it, because the quote matches the
+misread page (the first version read three places after a comma; a review
+closed it). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
 and is still refused, and so is one decimal place (`6,721.8`): the quote check
 matches anywhere on the page, so a quote cut short of `$6,721.85` would verify.
 Every newly read form's two-place prefix already read as the same cents, so a
@@ -1415,48 +1425,47 @@ of the raw bytes, and random bytes in a compressed stream tripped it too:
 about 0.12 false hits per megabyte, so even odds on a 5 MB scan, and the 5 MB
 file made for the email checks is one of them. It now matches whole names, ended
 where pdf.js, MuPDF and PDFium end one, and decodes `#xx` escapes first, so
-`/J#53` is refused as `/JS` where the old check never saw it. The door still
-refuses any `/OpenAction`, even one that only picks the first page to show.
-Two of the scans carry one and are stored without it.
+`/J#53` is refused as `/JS` where the old check never saw it.
+
+**The door reads names where a reader reads them** (2026-09-25, no ADR, no
+migration). `pdf-names.ts` tokenizes the body — skipping literal and hex
+strings, comments and stream data, a stream running for its direct `/Length`
+else to the first `endstream` — and inflates every object stream (Flate, no
+predictors, under the bomb budget and a 64 MB text cap) and reads it the same
+way, so random bytes in an image no longer refuse a scan by chance and an action
+inside a compressed object stream is no longer invisible. Anything it cannot
+account for (an unterminated string, an object header inside skipped bytes, an
+object stream it cannot decode, any exception) falls back to the whole-file raw
+scan, which is stricter over the file's own bytes; and because the raw scan is
+blind inside object streams, a file that falls back **and** has one is refused
+as `malformed_pdf`. A destination-only `/OpenAction` (`[1 0 R /Fit]`, the
+founder's call) is allowed by `pdf-open-action.ts` when the value is an explicit
+destination array, directly or by a reference resolved in the body; an action
+dictionary of any kind, a name, a string, an unresolvable reference, or any
+indirect one in a file with object streams is refused as before. Checked against
+pdf.js only; Acrobat, Foxit and PDFKit are not verified.
 
 A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
 $0.45, image only) opened nothing. The two pages read as payment advices really
-are check stubs, and both scored below the floor.
+are check stubs, and both scored below the floor. It also found product
+specifications read as price agreements, so the classifier now says an agreement
+must fix a price, and that an effective date or "supersedes" does not make one.
+Re-asked ($0.39 for the 77 corpus documents, still 77 of 77; $0.18 for sixty of
+the scans), three of five specifications moved to `other`; the budgets did not.
 
-**A quote is looked for where it can be** (no ADR, no migration). Two gaps in
-`checkQuote`, both found by `public_scanned`. *A page past the end.* A quote
-cited to a page past the last page of the text layer is now looked for on
-every page in it, and accepted only when exactly one page holds it; on none or
-several it is refused as before, and a citation to a page in the layer is still
-checked there and nowhere else. The field is **moved**, not only marked:
-`sourcePage` becomes the page that holds the quote, because the reviewer's
-page, the OCR box, a packet's citation and a post-audit all follow it, and page
-2 of a one-page file sends them nowhere. The model's number is kept as
-`citedPage` and written onto the extraction's `model_calls.detail` (schema
-paths and page numbers only), so the correction is on the record;
-`extraction_results` has no column for it, and adding one is an append-only
-schema change with its own ADR. Moving a page is only as safe as the page
-numbers, and they were not: Reducto reports no page it found no text on, and
-the pipeline, `pagesFor` and the memory store all read the text layer by
-position, so after a duplex scan's blank back every later page answered to the
-number before its own. `textByPage` (`ocr.ts`) now builds it by page number,
-`''` for a page with no text, everywhere a text layer is made or read back.
-*Table cells.* `withTableCellsAsSpace` (`markup.ts`) reads `<table>`, `<tr>`,
-`<td>`, `<th>` and their kin as one space each, before entities are decoded, in
-the `separator` tier and every tier after it, and in `locateQuote`. A cell edge
-is exactly as strong as a space, which exposed two older holes. The looser
-tiers dropped every space, so "Qty 2 $448.00" verified an invented "$2448.00"
-and "Qty 20 S" an invented "Qty 205"; a gap between two digits now stays a gap
-in the punctuation and OCR tiers. And a quote a tier reduced to nothing
-verified against any page, since every page includes the empty string: "—" at
-the punctuation tier, `<b></b>` at the exact one, and `</td><td>` would have at
-the new one; an empty form now matches nothing. A dash drawn as a hyphen
-(`Sedan – compact`) was already accepted as punctuation and stays so;
-`$6;721:8000` is still refused. Across 1,722 fields, 28 moved from refused to
-verified and nothing else changed tier, page or box. `public_scanned` grounding
-rose 79.7% → 98.5% (Grainger 0% → 100%, Texas 37.5% → 100%, Illinois 75% →
-100%), `scanned` 99.95% → 100% (Crosswind's total, whose quote copied a cell OCR
-had glued), overall 96.8% → 99.2%, boxes 597 → 620, and the baseline was
-re-recorded for those three numbers only. `grounding.test.ts`, `ocr.test.ts`,
-`scanned-upload.test.ts` and `pipeline-on-postgres.test.ts` show a wrong value
-still fails through each new path and a blank page keeps its number.
+**A page keeps its number when the page before it is blank** (no ADR, no
+migration). Reducto reports no page it found no text on, and the pipeline,
+`pagesFor` and the memory store all read the text layer by position, so after a
+duplex scan's blank back every later page answered to the number before its
+own: a quote cited to page 3 was checked against page 2's slot, and once a
+citation past the end could be re-pointed, a right citation to page 3 could be
+stored as page 2 — the blank one — and marked verified. `textByPage` (`ocr.ts`)
+builds the layer by page number, `''` for a page with no text, wherever one is
+made or read back (`readablePayload`, `PostgresStore.pagesFor`, the memory
+store, `pnpm eval`, `pnpm record:cassettes`); no recorded cassette has a gap,
+so the eval does not move. And `extraction_results` has no column for the page
+the model named and `document` is not stored, so a re-pointed field would have
+lost it after the read; `buildExtractionResult` now names each one on the
+extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
+page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
+read a duplex scan through the pipeline and back out of Postgres.

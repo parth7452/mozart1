@@ -12,7 +12,7 @@
  */
 
 import type { DocumentPayload, ModelCallRecord } from './ports';
-import { withColumnRules, withTableCellsAsSpace } from './markup';
+import { asLaidOut } from './markup';
 
 /** A laid-out region of a page. Boxes are normalised [x0, y0, x1, y1] in 0..1. */
 export interface OcrBlock {
@@ -56,13 +56,14 @@ export class OcrError extends Error {
  * Reducto reports only the pages it found text on, so a duplex scan's blank
  * back comes back as no page at all. Read by position, as every caller did,
  * the page after a blank one moved up a place: a field quoted from page 3 was
- * checked against — and could be stored as — page 2, the blank one. A page
- * with no text is `''` here instead, so every page keeps its own number. A
- * blank page *after* the last one with text is simply past the end, which is
- * all `checkQuote` claims about such a page.
+ * checked against page 2's slot, and once a citation past the end could be
+ * moved to the one page holding its quote, a right citation to page 3 could be
+ * stored as page 2 — the blank one — and marked verified. A page with no text
+ * is `''` here instead, so every page keeps its own number. A blank page
+ * *after* the last one with text is simply past the end.
  *
- * A page number that is not a whole number from 1 is an error, not a page to
- * skip: `document_pages` refuses it too.
+ * A page number that is not a whole number from 1, or one given twice, is an
+ * error, not a page to skip: `document_pages` refuses both too.
  */
 export function textByPage(
   pages: readonly { readonly page: number; readonly text: string }[],
@@ -81,13 +82,14 @@ export function textByPage(
 }
 
 /**
- * As `checkQuote` reads a page: case and spacing folded, a column rule one
- * glyph whichever way it was drawn (`withColumnRules`) and a table cell's edge
- * a space (`withTableCellsAsSpace`), so a quote that verifies by its
- * separators can still be boxed.
+ * As `checkQuote`'s `separator` tier reads a page: case and spacing folded, a
+ * column rule one glyph whichever way it was drawn, a table's cells and rows
+ * the spaces they print as, and every dash a hyphen (`asLaidOut`), so a quote
+ * that verifies by its layout can still be boxed — a row quoted across the
+ * cells of a table block included.
  */
 function normalise(text: string): string {
-  return withColumnRules(withTableCellsAsSpace(text)).toLowerCase().replace(/\s+/g, ' ').trim();
+  return asLaidOut(text).toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**

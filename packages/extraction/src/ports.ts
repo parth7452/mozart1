@@ -79,11 +79,15 @@ export interface ExtractedField {
   readonly confidence: number;
   readonly sourcePage: number;
   /**
-   * The page the model cited, kept only when it named a page past the last
-   * page of the text layer and the quote was found on exactly one page in it.
-   * `sourcePage` is then that page, found by `verifyQuotes` rather than told to
-   * it, and this is the model's own number, so a wrong citation is said out
-   * loud rather than overwritten.
+   * The page the model cited, present only when it is not `sourcePage`: the
+   * model cited a page the document does not have, and the quote check found
+   * the quote on exactly one page it does (`verifyQuotes`). `sourcePage` is
+   * then that page, which is what a box, a reviewer and the stored row follow.
+   *
+   * `extraction_results` has no column for it, so the stored row carries the
+   * page the quote is on, and `document` is not stored at all. The model's own
+   * citation is kept on the extraction's `model_calls` row instead
+   * (`buildExtractionResult` names each moved field in `detail`).
    */
   readonly citedPage?: number;
   readonly sourceQuote: string;

@@ -138,9 +138,13 @@ const classifiedBySuite = new Map<
 >();
 const unsafeDetail: string[] = [];
 let boxedFields = 0;
+/**
+ * Fields cited to a page the document does not have, whose quote was found on
+ * exactly one page it does (`verifyQuotes`). Scored as verified on that page,
+ * and named here so a model that mis-cites is seen rather than absorbed.
+ */
+const pageCorrections: string[] = [];
 let totalFields = 0;
-/** Documents with a field cited past the last page of their text layer, and how many. */
-const citedPagesMissing = new Map<string, number>();
 
 for (const fixture of documents) {
   suiteOf.set(fixture.key, fixture.suite);
@@ -198,9 +202,14 @@ for (const fixture of documents) {
           return block === undefined ? field : { ...field, sourceBbox: block.bbox };
         });
   boxedFields += fields.filter((f) => f.sourceBbox !== null).length;
+  for (const field of fields) {
+    if (field.citedPage !== undefined) {
+      pageCorrections.push(
+        `${fixture.key} ${field.fieldPath}: cited page ${field.citedPage}, found on page ${field.sourcePage} alone`,
+      );
+    }
+  }
   totalFields += fields.length;
-  const moved = fields.filter((f) => f.citedPage !== undefined).length;
-  if (moved > 0) citedPagesMissing.set(fixture.key, moved);
   scores.push(scoreDocument({ key: fixture.key, truth: fixture.truth, fields }));
   recordedCostMicros += cassette?.call.costMicros ?? 0;
   recordedCostMicros += Math.round((cassette?.ocr?.credits ?? 0) * 1_000);
@@ -296,14 +305,11 @@ console.log(
 console.log(
   `${boxedFields} of ${totalFields} fields carry a bounding box a reviewer can follow`,
 );
-if (citedPagesMissing.size > 0) {
-  // Grounded, and counted as such above — but on a page the model did not
-  // name, so it is said here rather than left inside the rate.
-  const moved = [...citedPagesMissing.values()].reduce((sum, n) => sum + n, 0);
+if (pageCorrections.length > 0) {
   console.log(
-    `${moved} fields cited a page past the last page of their text layer and were found on ` +
-      `exactly one page in it: ${[...citedPagesMissing].map(([key, n]) => `${key} (${n})`).join(', ')}`,
+    `${pageCorrections.length} fields cited a page the document does not have and were found on exactly one it does:`,
   );
+  for (const line of pageCorrections) console.log(`  ${line}`);
 }
 
 const recordCommand = (suiteName: string) => `pnpm record:cassettes --suite ${suiteName}`;

@@ -2,7 +2,7 @@
   "key": "hl-case-02-remittance",
   "docType": "remittance_advice",
   "classifiedAs": "remittance_advice",
-  "classifierConfidence": 0.99,
+  "classifierConfidence": 0.98,
   "document": {
     "payer_name": {
       "value": "Cedar Point Grocers",
@@ -74,8 +74,8 @@
   },
   "classifier": {
     "model": "claude-haiku-4-5",
-    "promptSha256": "020f6a5020d45f77c58cff991a9afffb39be0d7f95f7723f5fa73b7bfe919afa",
+    "promptSha256": "dd5c8748355dab072d6da0d861645c57762f082fbd27c1b4fc10345b504c24b1",
     "temperature": 0,
-    "classifiedAt": "2026-09-24T18:43:01.446Z"
+    "classifiedAt": "2026-09-25T15:05:29.953Z"
   }
 }

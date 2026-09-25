@@ -78,26 +78,68 @@ export function withColumnRules(text: string): string {
 const COLUMN_RULE = /(^|\s)[|Il!¦│](?=\s|$)/g;
 
 /**
- * A table's cell and row boundaries, read as the space a reader sees there.
+ * A table's cell and row boundaries, as the space they print as.
  *
  * Reducto writes a table as HTML — `<tr><td>2</td><td>EACH</td><td>$448.00</td>`
- * — and the model quotes the row as the page shows it, cells apart:
- * `2  EACH  $448.00`. Every cell was on the page and the quote still failed,
- * because between two cells the text layer says `</td><td>`.
+ * — and the model, reading the page, quotes a row as the words it sees there,
+ * with spaces between them. `withoutInlineMarkup` keeps table markup on
+ * purpose (the classifier reads it), so every quote of more than one cell
+ * failed its check on nothing but the tags. A cell boundary is a column rule
+ * drawn as markup, and this does for it what `withColumnRules` does for a
+ * rule drawn as a glyph.
  *
- * Only table structure is rewritten (`table`, `caption`, `thead`, `tbody`,
- * `tfoot`, `tr`, `th`, `td`, `colgroup`, `col`, with or without attributes),
- * and each tag becomes one space, nothing more: a cell boundary is exactly as
- * strong as a space. So two numbers in adjacent cells stay two numbers, as two
- * numbers a space apart do (`verify.ts`), and a quote that joins them into one
- * is still refused.
+ * A row boundary is a space too, not a hard break: it is the table's line
+ * break, and a line break is whitespace everywhere else in the check. Reducto
+ * also splits one cell's wrapped text across rows — a part number printed on
+ * three lines of one cell comes back as three rows — and two rows' words can
+ * only join where they sit next to each other in reading order, exactly as two
+ * lines of plain text do. A quote that takes cells from rows that are not
+ * adjacent is still not on the page.
  *
- * Runs on text whose entities are not yet decoded, as `withoutInlineMarkup`
- * does its tags: `&lt;td&gt;` is the page printing "<td>", and stays text.
+ * Each tag becomes one space, never nothing, so two cells' words are never
+ * joined into one token. Only the table's own elements are rewritten; anything
+ * else in angle brackets stays, as it does in `withoutInlineMarkup`.
  */
-export function withTableCellsAsSpace(text: string): string {
+export function withTableCellsAsSpaces(text: string): string {
   return text.replace(TABLE_TAG, ' ');
 }
 
 const TABLE_TAG =
-  /<\/?(?:table|caption|thead|tbody|tfoot|tr|th|td|colgroup|col)(?:\s[^<>]*)?\/?>/gi;
+  /<\/?(?:table|caption|colgroup|col|thead|tbody|tfoot|tr|th|td)(?:\s[^<>]*)?\/?>/gi;
+
+/**
+ * Every dash as a hyphen: `-`.
+ *
+ * A dash is drawn several ways and read back several more. The model reading
+ * the Illinois rate card wrote "Sedan – compact" with an en dash where the OCR
+ * of the same page wrote a hyphen, and a typeset minus sign is U+2212, not the
+ * `-` a keyboard types. Folded for matching only: the hyphen, non-breaking
+ * hyphen, figure dash, en dash, em dash, horizontal bar, minus sign and their
+ * small and full-width forms.
+ *
+ * A minus sign stays in front of its number, so folding it keeps the sign
+ * where the check reads it: "−80.00" folds to "-80.00", never to "80.00".
+ */
+export function withDashesAsHyphens(text: string): string {
+  return text.replace(DASHES, '-');
+}
+
+/** Whether a character is a dash `withDashesAsHyphens` folds, or the hyphen-minus itself. */
+export function isDash(char: string | undefined): boolean {
+  return char !== undefined && ONE_DASH.test(char);
+}
+
+const DASH_CLASS = '[-\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]';
+const DASHES = new RegExp(DASH_CLASS, 'g');
+const ONE_DASH = new RegExp(`^${DASH_CLASS}$`);
+
+/**
+ * A page as it is laid out, for matching: table cells and rows as spaces,
+ * column rules as one glyph, dashes as hyphens. `checkQuote` reads a page this
+ * way from its `separator` tier on, and `locateQuote` boxes by it.
+ */
+export function asLaidOut(text: string): string {
+  // Cells first: a lone `I` in a cell of its own is a rule once the cell's
+  // tags are spaces, on the page exactly as in a quote of it.
+  return withDashesAsHyphens(withColumnRules(withTableCellsAsSpaces(text)));
+}
