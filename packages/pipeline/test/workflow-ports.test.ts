@@ -252,6 +252,9 @@ describe('the CaseWorkflowStore contract', () => {
         }
         return { eventId: 'evt-1' };
       },
+      async setDisputeDeadline() {
+        return { eventId: 'evt-2' };
+      },
       async getWorkflow() {
         return empty;
       },

@@ -2,12 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   MAX_RATIONALE_LENGTH,
   isCanonicalReasonCode,
+  isClosed,
   type CanonicalReasonCode,
   type CaseState,
 } from '@recouple/core-domain';
 import {
   CaseAlreadyDeclinedError,
   CaseNotVisibleError,
+  checkEnteredDeadline,
+  DeadlineAlreadySetError,
   DecisionNotForCaseError,
   DecisionNotFoundError,
   DuplicateApprovalError,
@@ -28,6 +31,7 @@ import {
   type CaseOutcome,
   type CaseWorkflow,
   type CaseWorkflowStore,
+  type DeadlineSetRecord,
   type HumanDecisionRecord,
   type OutcomeRecord,
   type PacketRecord,
@@ -80,12 +84,16 @@ export interface SeededCase {
   readonly deductionAmountCents: number;
   /** The notice first, then evidence — the order the packet keeps. */
   readonly documentIds?: readonly string[];
+  /** A deadline already on the case — printed, as far as this double knows. */
+  readonly disputeDeadline?: string;
 }
 
 interface CaseRow {
   state: CaseState;
   readonly deductionAmountCents: number;
   documentIds: string[];
+  disputeDeadline: string | undefined;
+  deadlineSet?: DeadlineSetRecord;
 }
 
 export class FakeWorkflowStore implements CaseWorkflowStore {
@@ -115,6 +123,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       state: input.state,
       deductionAmountCents: input.deductionAmountCents,
       documentIds: [...(input.documentIds ?? [])],
+      disputeDeadline: input.disputeDeadline,
     });
     return this;
   }
@@ -464,6 +473,30 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     return { eventId: outcome.eventId };
   }
 
+  async setDisputeDeadline(input: {
+    readonly deductionId: string;
+    readonly deadline: string;
+    readonly basis: string;
+    readonly setBy: string;
+  }): Promise<{ readonly eventId: string }> {
+    this.take('setDisputeDeadline', input);
+    const row = this.caseOf(input.deductionId);
+    if (!MAY_WRITE.has(this.roleOf(input.setBy))) {
+      throw new WrongRoleError(input.setBy, 'set a deadline', [...MAY_WRITE]);
+    }
+    if (isClosed(row.state)) {
+      throw new WrongCaseStateError(input.deductionId, 'set a deadline', row.state, []);
+    }
+    if (row.disputeDeadline !== undefined) {
+      throw new DeadlineAlreadySetError(input.deductionId, row.disputeDeadline);
+    }
+    const { deadline, basis } = checkEnteredDeadline(input.deductionId, input, this.now);
+    const eventId = randomUUID();
+    row.disputeDeadline = deadline;
+    row.deadlineSet = { eventId, deadline, basis, setBy: input.setBy, setAt: this.now };
+    return { eventId };
+  }
+
   async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
     this.calls.push({ method: 'getWorkflow', input: deductionId });
     const row = this.cases.get(deductionId);
@@ -513,6 +546,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       ...(approval === undefined ? {} : { approval }),
       ...(submission === undefined ? {} : { submission }),
       ...(outcome === undefined ? {} : { outcome }),
+      ...(row.deadlineSet === undefined ? {} : { deadlineSet: row.deadlineSet }),
     };
   }
 

@@ -974,6 +974,22 @@ export interface CaseWorkflow {
   readonly approval?: ApprovalRecord;
   readonly submission?: SubmissionRecord;
   readonly outcome?: OutcomeRecord;
+  /**
+   * The dispute deadline a person entered, and on what basis — absent when
+   * nobody did, which includes every case whose deadline was printed.
+   */
+  readonly deadlineSet?: DeadlineSetRecord;
+}
+
+/** One `case.deadline_set` event, read back (pilot E6). */
+export interface DeadlineSetRecord {
+  readonly eventId: string;
+  /** `YYYY-MM-DD`, as entered. */
+  readonly deadline: string;
+  /** Why this date, in the words of the person who entered it. */
+  readonly basis: string;
+  readonly setBy: string;
+  readonly setAt: Date;
 }
 
 /**
@@ -1108,6 +1124,32 @@ export interface CaseWorkflowStore {
     readonly recoveredCents: number;
     readonly recordedBy: string;
     readonly note?: string;
+  }): Promise<{ readonly eventId: string }>;
+
+  /**
+   * Records a dispute deadline a person entered, where none is recorded: sets
+   * `deductions.dispute_deadline` only while it is null and appends
+   * `case.deadline_set` naming who, the date and the basis — both, in one
+   * transaction, or neither (pilot E6).
+   *
+   * A printed deadline is evidence and is never overwritten, and neither is
+   * one a person entered before: a second is refused by name rather than
+   * replacing the first. The date and the basis are checked by
+   * `checkEnteredDeadline` before anything is written.
+   *
+   * @throws {DeadlineAlreadySetError} the case already has a deadline
+   * @throws {DeadlineOutOfRangeError} not a date, in the past, or absurdly far out
+   * @throws {DeadlineBasisRequiredError} the basis is empty
+   * @throws {DeadlineBasisTooLongError} the basis is too long
+   * @throws {WrongCaseStateError} the case is closed
+   * @throws {WrongRoleError} `setBy` may not write in the tenant
+   */
+  setDisputeDeadline(input: {
+    readonly deductionId: string;
+    /** `YYYY-MM-DD`. */
+    readonly deadline: string;
+    readonly basis: string;
+    readonly setBy: string;
   }): Promise<{ readonly eventId: string }>;
 
   /** Everything the case page shows, in one read. */
@@ -1459,6 +1501,58 @@ export class InvalidRecoveryAmountError extends CaseWorkflowError {
       `outcome refused for case ${deductionId}: ${outcome} with ${recoveredCents} cents — ${reason}`,
     );
     this.name = 'InvalidRecoveryAmountError';
+  }
+}
+
+/**
+ * The case already carries a dispute deadline, printed or entered, and an
+ * entered one never replaces it (pilot E6). Carries the one that stands.
+ */
+export class DeadlineAlreadySetError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly existing: string,
+  ) {
+    super(`deadline refused for case ${deductionId}: it already has one, ${existing}`);
+    this.name = 'DeadlineAlreadySetError';
+  }
+}
+
+/** Why an entered deadline was refused: no such date, gone already, or years out. */
+export type DeadlineRefusal = 'not_a_date' | 'in_the_past' | 'too_far_out';
+
+/** An entered deadline that is not a date, is in the past, or is absurdly far out. */
+export class DeadlineOutOfRangeError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly deadline: string,
+    readonly refusal: DeadlineRefusal,
+  ) {
+    super(`deadline refused for case ${deductionId}: ${refusal.replace(/_/g, ' ')}`);
+    this.name = 'DeadlineOutOfRangeError';
+  }
+}
+
+/** An entered deadline with no basis: a date nobody can check. */
+export class DeadlineBasisRequiredError extends CaseWorkflowError {
+  constructor(readonly deductionId: string) {
+    super(`deadline refused for case ${deductionId}: say what the date is based on`);
+    this.name = 'DeadlineBasisRequiredError';
+  }
+}
+
+/** A basis longer than the store keeps. Refused, never cut. */
+export class DeadlineBasisTooLongError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string,
+    readonly length: number,
+    readonly maxLength: number,
+  ) {
+    super(
+      `deadline refused for case ${deductionId}: the basis is ${length} characters, ` +
+        `at most ${maxLength}`,
+    );
+    this.name = 'DeadlineBasisTooLongError';
   }
 }
 

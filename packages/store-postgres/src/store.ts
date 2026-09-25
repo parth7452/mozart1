@@ -4240,6 +4240,15 @@ export class PostgresStore
     return this.withTenant((client) => workflow.recordOutcome(client, this.tenant, input));
   }
 
+  async setDisputeDeadline(input: {
+    readonly deductionId: string;
+    readonly deadline: string;
+    readonly basis: string;
+    readonly setBy: string;
+  }): Promise<{ readonly eventId: string }> {
+    return this.withTenant((client) => workflow.setDisputeDeadline(client, this.tenant, input));
+  }
+
   /** Everything the case page shows, in one transaction under one tenant's claims. */
   async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
     return this.withTenant((client) => workflow.getWorkflow(client, deductionId));

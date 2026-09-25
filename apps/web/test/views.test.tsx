@@ -2322,3 +2322,71 @@ describe('a merged pair, on either case (ADR 0042)', () => {
     }
   });
 });
+
+describe('a dispute deadline a person enters (pilot E6)', () => {
+  const base = {
+    documents: [document()],
+    viewer,
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+  };
+  const ACTION = 'action="/cases/11111111-2222-3333-4444-555555555555/deadline"';
+
+  function render(
+    props: Partial<Parameters<typeof CaseReview>[0]> & { summary: CaseSummary },
+  ): string {
+    return renderToStaticMarkup(
+      <CaseReview {...base} mayAct={true} viewerUserId={SECOND_ANALYST} {...props} />,
+    );
+  }
+
+  it('offers a writer the form on an open case with no deadline, date and basis both required', () => {
+    const html = render({ summary: summary({ state: 'classified', disputeDeadline: undefined }) });
+    expect(html).toContain(ACTION);
+    expect(html).toContain('No dispute deadline');
+    const input = (name: string): string =>
+      html.match(new RegExp(`<input[^>]*name="${name}"[^>]*>`))?.[0] ?? '';
+    expect(input('deadline')).toContain('type="date"');
+    expect(input('deadline')).toContain('required=""');
+    // Yesterday in UTC to two years out: the store's own bounds.
+    expect(input('deadline')).toContain('min="2026-09-17"');
+    expect(input('deadline')).toContain('max="2028-09-17"');
+    expect(input('basis')).toContain('required=""');
+    expect(input('basis')).toContain('maxLength="280"');
+  });
+
+  it('offers nothing where a deadline is printed, to a reader, or on a closed case', () => {
+    expect(render({ summary: summary({ state: 'classified' }) })).not.toContain(ACTION);
+    expect(
+      render({ summary: summary({ state: 'classified', disputeDeadline: undefined }), mayAct: false }),
+    ).not.toContain(ACTION);
+    for (const state of ['won', 'merged'] as const) {
+      expect(render({ summary: summary({ state, disputeDeadline: undefined }) })).not.toContain(
+        ACTION,
+      );
+    }
+  });
+
+  it('tells every reader an entered deadline was entered, and on what basis', () => {
+    const html = render({
+      summary: summary({ state: 'classified', disputeDeadline: '2026-11-25' }),
+      mayAct: false,
+      workflow: {
+        deductionId: '11111111-2222-3333-4444-555555555555',
+        state: 'classified',
+        deadlineSet: {
+          eventId: '42',
+          deadline: '2026-11-25',
+          basis: 'Sysco vendor agreement: 60 days from deduction date',
+          setBy: PREPARER,
+          setAt: new Date('2026-09-26T10:00:00Z'),
+        },
+      },
+    });
+    expect(html).not.toContain(ACTION);
+    expect(html).toContain('entered by a person, not printed on a document');
+    expect(html).toContain('Sysco vendor agreement: 60 days from deduction date');
+  });
+});

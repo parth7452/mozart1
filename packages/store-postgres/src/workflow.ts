@@ -35,6 +35,8 @@ import type { PoolClient } from 'pg';
 import {
   applyTransition,
   buildPacketNarrative,
+  CASE_STATES,
+  isClosed,
   isCanonicalReasonCode,
   MAX_RATIONALE_LENGTH,
   packetContentHash,
@@ -48,7 +50,9 @@ import {
   CaseAlreadyDeclinedError,
   CaseNotVisibleError,
   CaseWorkflowError,
+  checkEnteredDeadline,
   ConfirmationNumberRequiredError,
+  DeadlineAlreadySetError,
   DecisionNotForCaseError,
   DecisionNotFoundError,
   DuplicateApprovalError,
@@ -74,6 +78,7 @@ import {
   type CaseMerges,
   type CaseOutcome,
   type CaseWorkflow,
+  type DeadlineSetRecord,
   type DuplicateCandidateCase,
   type DuplicateVerdict,
   type DuplicateVerdictRecord,
@@ -110,6 +115,8 @@ export const HUMAN_MODEL_VERSION = 'human';
 const WRITER_ROLES = ['owner', 'approver', 'analyst'] as const;
 /** Who `app.enforce_separation_of_duties()` lets approve (migration 0005). */
 const APPROVER_ROLES = ['owner', 'approver'] as const;
+/** The states a deadline may be entered in: every one that is not closed. */
+const OPEN_STATES: readonly CaseState[] = CASE_STATES.filter((state) => !isClosed(state));
 
 // ---------------------------------------------------------------------------
 // Refusals only this store can reach
@@ -1100,6 +1107,98 @@ export async function recordOutcome(
 }
 
 // ---------------------------------------------------------------------------
+// A deadline a person enters (pilot E6)
+// ---------------------------------------------------------------------------
+
+/** The event an entered deadline leaves on the case. One place, so the read and the write agree. */
+const DEADLINE_SET = 'case.deadline_set';
+
+/**
+ * Sets `dispute_deadline` where none is recorded, and says who and why.
+ *
+ * `lockCase` holds the row, so two people entering a deadline at once cannot
+ * both read it as null; the UPDATE says `dispute_deadline is null` as well,
+ * so the column the statement changes is the one the check read even if that
+ * ever stopped being true. The update is gated by `tenant_update`
+ * (`app.member_may_write()`, migration 0010); `deductions` is not append-only
+ * and nothing guards this column, so no migration is needed. The event is on
+ * `deduction_events`, append-only, whose `created_by` names the caller too.
+ */
+export async function setDisputeDeadline(
+  client: PoolClient,
+  tenant: TenantContext,
+  input: {
+    readonly deductionId: string;
+    readonly deadline: string;
+    readonly basis: string;
+    readonly setBy: string;
+  },
+): Promise<{ readonly eventId: string }> {
+  requireCaller(input.setBy, tenant.userId, 'set a deadline');
+  const existing = await lockCase(
+    client,
+    input.deductionId,
+    'set a deadline',
+    input.setBy,
+    WRITER_ROLES,
+  );
+  if (isClosed(existing.state)) {
+    throw new WrongCaseStateError(input.deductionId, 'set a deadline', existing.state, OPEN_STATES);
+  }
+  // Printed or entered, the deadline on the case stands. A printed one is
+  // evidence, and an entered one replaced by a second would leave the queue
+  // ranked by whichever person typed last.
+  if (existing.disputeDeadline !== undefined) {
+    throw new DeadlineAlreadySetError(input.deductionId, existing.disputeDeadline);
+  }
+  const { deadline, basis } = checkEnteredDeadline(input.deductionId, input, new Date());
+
+  const { rowCount } = await client.query(
+    `update deductions set dispute_deadline = $2::date, updated_at = now()
+      where id = $1 and dispute_deadline is null`,
+    [input.deductionId, deadline],
+  );
+  if (rowCount !== 1) {
+    throw new Error(
+      `case ${input.deductionId} did not take a deadline: ${rowCount ?? 0} rows updated`,
+    );
+  }
+  const eventId = await appendEvent(client, tenant, input.deductionId, DEADLINE_SET, {
+    dispute_deadline: deadline,
+    basis,
+    set_by: input.setBy,
+  });
+  return { eventId };
+}
+
+/** The `case.deadline_set` on a case, if a person entered one. */
+async function readDeadlineSet(
+  client: PoolClient,
+  deductionId: string,
+): Promise<DeadlineSetRecord | undefined> {
+  const { rows } = await client.query<{
+    id: string;
+    payload: Record<string, unknown>;
+    event_time: Date | string;
+  }>(
+    `select id::text as id, payload, event_time
+       from deduction_events
+      where deduction_id = $1 and event_type = $2
+      order by id asc limit 1`,
+    [deductionId, DEADLINE_SET],
+  );
+  const row = rows[0];
+  if (row === undefined) return undefined;
+  return {
+    eventId: row.id,
+    deadline: String(row.payload.dispute_deadline ?? ''),
+    basis: String(row.payload.basis ?? ''),
+    setBy: String(row.payload.set_by ?? ''),
+    setAt: new Date(row.event_time),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The read behind the case page
 // ---------------------------------------------------------------------------
 
@@ -1284,7 +1383,9 @@ export async function getWorkflow(
     [deductionId, HUMAN_PROVIDER],
   );
   const decisionRow = decisionRows[0];
-  if (decisionRow === undefined) return { deductionId, state: found.state };
+  const deadlineSet = await readDeadlineSet(client, deductionId);
+  const entered = deadlineSet !== undefined ? { deadlineSet } : {};
+  if (decisionRow === undefined) return { deductionId, state: found.state, ...entered };
   const decision = toDecision(decisionRow);
 
   const approval = await readApproval(client, decision.decisionId);
@@ -1334,6 +1435,7 @@ export async function getWorkflow(
     ...(approval !== undefined ? { approval } : {}),
     ...(submission !== undefined ? { submission } : {}),
     ...(outcome !== undefined ? { outcome } : {}),
+    ...entered,
   };
 }
 

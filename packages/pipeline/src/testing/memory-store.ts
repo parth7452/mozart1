@@ -23,10 +23,12 @@ import { randomUUID } from 'node:crypto';
 import {
   applyTransition,
   buildPacketNarrative,
+  CASE_STATES,
   cents,
   DEFAULT_MIN_CLASSIFICATION_CONFIDENCE,
   identifierMatchKey,
   isCanonicalReasonCode,
+  isClosed,
   MAX_RATIONALE_LENGTH,
   packetContentHash,
   PacketError,
@@ -49,6 +51,7 @@ import {
   CaseNotVisibleError,
   CaseWorkflowError,
   ConfirmationNumberRequiredError,
+  DeadlineAlreadySetError,
   DecisionNotForCaseError,
   DecisionNotFoundError,
   DuplicateApprovalError,
@@ -75,6 +78,7 @@ import type {
   CaseRecord,
   CaseWorkflow,
   CaseWorkflowStore,
+  DeadlineSetRecord,
   DeclinedLine,
   DiscoveredVia,
   HumanDecisionRecord,
@@ -102,6 +106,7 @@ import {
   LineProvenanceUnknownError,
 } from '../ports';
 import { DuplicateCaseError } from '../steps';
+import { checkEnteredDeadline } from '../deadline';
 import {
   DOCUMENT_HELD,
   DOCUMENT_HOLD_RELEASED,
@@ -114,6 +119,9 @@ import {
 
 /** A membership role, as `memberships.role` spells it. */
 export type MembershipRole = 'owner' | 'approver' | 'analyst' | 'read_only' | 'accountant_guest';
+
+/** The states a deadline may be entered in: every one that is not closed. */
+const OPEN_STATES: readonly CaseState[] = CASE_STATES.filter((state) => !isClosed(state));
 
 /** Who `app.member_may_write()` lets write (migration 0010). */
 const WRITER_ROLES: readonly MembershipRole[] = ['owner', 'approver', 'analyst'];
@@ -222,6 +230,8 @@ export class InMemoryStore
   readonly approvals: (ApprovalRecord & { readonly deductionId: string })[] = [];
   readonly submissions: (SubmissionRecord & { readonly deductionId: string })[] = [];
   readonly outcomes: OutcomeRecord[] = [];
+  /** Every `case.deadline_set`, as `getWorkflow` reads it back (pilot E6). */
+  readonly deadlinesSet: (DeadlineSetRecord & { readonly deductionId: string })[] = [];
   /** What `declineCase` leaves behind: the id and the case, and nothing else. */
   readonly declinedCandidates: Array<{ declinedCandidateId: string; deductionId: string }> = [];
 
@@ -1367,6 +1377,48 @@ export class InMemoryStore
     return { eventId };
   }
 
+  async setDisputeDeadline(input: {
+    readonly deductionId: string;
+    readonly deadline: string;
+    readonly basis: string;
+    readonly setBy: string;
+  }): Promise<{ readonly eventId: string }> {
+    const existing = this.caseOrThrow(input.deductionId);
+    this.requireWriter(existing.orgId, input.setBy, 'set a deadline');
+    if (isClosed(existing.state)) {
+      throw new WrongCaseStateError(
+        input.deductionId,
+        'set a deadline',
+        existing.state,
+        OPEN_STATES,
+      );
+    }
+    // Printed or entered, the one on the case stands: an entered deadline is
+    // only ever where none was recorded.
+    if (existing.disputeDeadline !== undefined) {
+      throw new DeadlineAlreadySetError(input.deductionId, existing.disputeDeadline);
+    }
+    const { deadline, basis } = checkEnteredDeadline(input.deductionId, input, new Date());
+
+    const eventId = String(this.events.length + 1);
+    this.events.push({
+      orgId: existing.orgId,
+      deductionId: input.deductionId,
+      eventType: 'case.deadline_set',
+      payload: { dispute_deadline: deadline, basis, set_by: input.setBy },
+    });
+    this.deadlinesSet.push({
+      eventId,
+      deductionId: input.deductionId,
+      deadline,
+      basis,
+      setBy: input.setBy,
+      setAt: new Date(),
+    });
+    this.cases.set(input.deductionId, { ...existing, disputeDeadline: deadline });
+    return { eventId };
+  }
+
   async getWorkflow(deductionId: string): Promise<CaseWorkflow | undefined> {
     const existing = this.cases.get(deductionId);
     if (existing === undefined) return undefined;
@@ -1390,6 +1442,7 @@ export class InMemoryStore
         ? undefined
         : this.submissions.find((s) => s.decisionId === decision.decisionId);
     const outcome = this.outcomes.filter((o) => o.deductionId === deductionId).at(-1);
+    const deadlineSet = this.deadlinesSet.find((d) => d.deductionId === deductionId);
 
     // Each part is rebuilt into exactly the port's shape rather than handed
     // over as it is stored: the rows here carry a little extra (the org, the
@@ -1436,6 +1489,17 @@ export class InMemoryStore
           }
         : {}),
       ...(outcome !== undefined ? { outcome } : {}),
+      ...(deadlineSet !== undefined
+        ? {
+            deadlineSet: {
+              eventId: deadlineSet.eventId,
+              deadline: deadlineSet.deadline,
+              basis: deadlineSet.basis,
+              setBy: deadlineSet.setBy,
+              setAt: deadlineSet.setAt,
+            },
+          }
+        : {}),
     };
   }
 }
