@@ -210,7 +210,7 @@ does):
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 | public | real public records nobody wrote for us | 98.4% / 98.4% | 98.9% | 10/10 |
-| public_scanned | the same records scanned or degraded, read through OCR | 95.5% / 95.5% | 78.6% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 95.5% / 95.5% | 97.4% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -308,7 +308,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 597 of 1,722 fields carry a
+About $0.0272 per document across 77 of them, and 622 of 1,722 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1384,19 +1384,30 @@ which `parseMoneyToCents` would not read (*A price past the cents*, below).
 `public_scanned` holds four scanned
 invoices and ExtractBench's degraded copies of six `public` documents, read
 through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
-79.7% grounding. Three things cost the grounding, and none is a wrong value.
-Grainger's one-page scan cites page 2 for every field, and its quotes failed
-again in two of three re-asks. Quotes of whole table rows do not match, because Reducto writes
-a table as HTML cells. And OCR misread a dash and a degraded price, which the
-check is right to refuse.
+79.7% grounding as first recorded, none of it a wrong value. The checker has
+since closed the gaps (98.5%). A quote that cites a page the document does not
+have is looked for on the pages it does have, and verifies only when exactly
+one holds it; the field is re-pointed there, with the model's page kept as
+`citedPage` in memory (Grainger's one-page scan cited page 2 for every field).
+From the `separator` tier on, a page is read as laid out (`asLaidOut`): table
+cells and rows are spaces, so a quoted table row matches Reducto's HTML cells,
+and every dash is `-`. Two numbers stay two (`$39 $175` is never `$39175`), and a
+sign is never lost: the punctuation tier used to verify `-80.00` against a page
+reading `80.00`, and plain substring matching `80.00` against `-80.00`; both are
+refused now. OCR misreads that disagree with the value (`$6;721:8000`) are still
+refused. Still open: a quote may begin inside a longer number (`$6,600` against
+`$6,600.00`), and `80.00` still verifies against `(80.00)`.
 
 **A price past the cents is read when the rest is zeros** (no ADR, no
 migration). `parseMoneyToCents` read two decimal places or none, so
 Oklahoma County's `$6,721.8000` — exactly 672,180 cents — was unreadable. It now
 reads digits past the cents when every one is `0`, and nothing is rounded:
-four or more places always, three only after a whole part grouped by commas
-(`1.000` could be a thousand with a point for the separator; `1,234.500`
-cannot). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
+four or more places, never three. `1.000` could be a thousand with a point
+for the separator, and after a comma `$1,500.000` is likelier `$1,500,000`
+with its last comma misread as a point than $1,500.00 — a thousandth of the
+amount, and a quote check cannot catch it, because the quote matches the
+misread page (the first version read three places after a comma; a review
+closed it). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
 and is still refused, and so is one decimal place (`6,721.8`): the quote check
 matches anywhere on the page, so a quote cut short of `$6,721.85` would verify.
 Every newly read form's two-place prefix already read as the same cents, so a
@@ -1416,8 +1427,8 @@ the quantities check divides at the printed price and never calls a line whose
 amount is the gap priced and rounded once a contradiction; the PO comparison is
 exact (`$0.0125` against `$0.0130` differs though both store as a cent); and
 every message prints `$0.0125`. Amounts stay strict — a sub-cent deduction is
-still refused — and three places with no comma grouping (`$1.250`) are still a
-possible thousands group and go to a person. No recorded document prints a
+still refused — and three places (`$1.250`, `$1,500.000`) are never read, as
+for amounts: they could be a thousands group, and go to a person. No recorded document prints a
 sub-cent price, so no eval number moved.
 
 **An amount is verified only when the page prints it whole, to the cent** (ADR
@@ -1435,7 +1446,8 @@ before this passed on its quote alone. Measured across all 542 recorded money fi
 change, both quotes that were only a label (`hl-case-02-remittance`
 `payment_total`, "Net payment", and `eb-hingham-wbmason-invoice-scan`
 `invoice_total`, "Total Due:"), so `held_out` grounding is 99.1% and
-`public_scanned` 78.6%, and the baseline records both. Nothing gated on
+`public_scanned` 97.4% (98.5% once the quote checker read tables and pages,
+before this), and the baseline records both. Nothing gated on
 `quoteVerified` before and nothing does now — a case still opens at the amount
 printed — so what changed is what the reviewer is told before approving;
 holding a document whose case amount is not printed whole is a separate
@@ -1448,10 +1460,30 @@ of the raw bytes, and random bytes in a compressed stream tripped it too:
 about 0.12 false hits per megabyte, so even odds on a 5 MB scan, and the 5 MB
 file made for the email checks is one of them. It now matches whole names, ended
 where pdf.js, MuPDF and PDFium end one, and decodes `#xx` escapes first, so
-`/J#53` is refused as `/JS` where the old check never saw it. The door still
-refuses any `/OpenAction`, even one that only picks the first page to show.
-Two of the scans carry one and are stored without it.
+`/J#53` is refused as `/JS` where the old check never saw it.
+
+**The door reads names where a reader reads them** (2026-09-25, no ADR, no
+migration). `pdf-names.ts` tokenizes the body — skipping literal and hex
+strings, comments and stream data, a stream running for its direct `/Length`
+else to the first `endstream` — and inflates every object stream (Flate, no
+predictors, under the bomb budget and a 64 MB text cap) and reads it the same
+way, so random bytes in an image no longer refuse a scan by chance and an action
+inside a compressed object stream is no longer invisible. Anything it cannot
+account for (an unterminated string, an object header inside skipped bytes, an
+object stream it cannot decode, any exception) falls back to the whole-file raw
+scan, which is stricter over the file's own bytes; and because the raw scan is
+blind inside object streams, a file that falls back **and** has one is refused
+as `malformed_pdf`. A destination-only `/OpenAction` (`[1 0 R /Fit]`, the
+founder's call) is allowed by `pdf-open-action.ts` when the value is an explicit
+destination array, directly or by a reference resolved in the body; an action
+dictionary of any kind, a name, a string, an unresolvable reference, or any
+indirect one in a file with object streams is refused as before. Checked against
+pdf.js only; Acrobat, Foxit and PDFKit are not verified.
 
 A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
 $0.45, image only) opened nothing. The two pages read as payment advices really
-are check stubs, and both scored below the floor.
+are check stubs, and both scored below the floor. It also found product
+specifications read as price agreements, so the classifier now says an agreement
+must fix a price, and that an effective date or "supersedes" does not make one.
+Re-asked ($0.39 for the 77 corpus documents, still 77 of 77; $0.18 for sixty of
+the scans), three of five specifications moved to `other`; the budgets did not.

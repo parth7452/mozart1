@@ -136,7 +136,6 @@ interface PrintedNumber {
   readonly whole: string;
   /** Every digit after the point exactly as printed; `''` when there is none. */
   readonly fraction: string;
-  readonly groupedByCommas: boolean;
 }
 
 function readPrinted(text: string): PrintedNumber {
@@ -195,7 +194,7 @@ function readPrinted(text: string): PrintedNumber {
   if (whole === '' && fractionPart === '') {
     throw new MoneyError(`cannot parse money from ${JSON.stringify(original)}`);
   }
-  return { negative, whole, fraction: fractionPart, groupedByCommas: wholePart.includes(',') };
+  return { negative, whole, fraction: fractionPart };
 }
 
 /**
@@ -215,7 +214,7 @@ function readPrinted(text: string): PrintedNumber {
 export function parseMoneyToCents(text: string): Cents {
   const printed = readPrinted(text);
   const fraction =
-    printed.fraction === '' ? '00' : centsOfFraction(printed.fraction, printed.groupedByCommas, text);
+    printed.fraction === '' ? '00' : centsOfFraction(printed.fraction, text);
   const magnitude = Number(`${printed.whole === '' ? '0' : printed.whole}${fraction}`);
   if (!Number.isSafeInteger(magnitude)) {
     throw new MoneyError(`money out of safe integer range: ${JSON.stringify(text)}`);
@@ -232,15 +231,21 @@ export function parseMoneyToCents(text: string): Cents {
  * A digit past the second that is not `0` is a fraction of a cent, which
  * integer cents cannot hold (invariant 3); it is refused, never rounded.
  *
- * Three places are read only after a whole part grouped by commas (see
- * `mayBeThousandsGroup`). Four or more places cannot be a group at all.
+ * Three places are never read. `1.000` could be one dollar or, with a point
+ * for a thousands separator, a thousand, since a thousands group is always
+ * exactly three digits. A comma before it does not settle that: `$1,500.000`
+ * is far more likely `$1,500,000` with its last comma misread as a point, by
+ * OCR or by the reader, than $1,500.00, and reading it would price a case at a
+ * thousandth of its value — a quote check cannot catch it, because the quote
+ * matches the misread page. Four or more places cannot be a group at all
+ * (`mayBeThousandsGroup`).
  *
  * One place (`6,721.8`) is still refused. It is lossless as written, but a
  * quote cut short of `$6,721.85` reads that way. Every form read here instead
  * ends with zeros after two places whose value was already read, so a quote
  * cut short of it reads the same cents it always did.
  */
-function centsOfFraction(fractionPart: string, groupedByCommas: boolean, original: string): string {
+function centsOfFraction(fractionPart: string, original: string): string {
   if (fractionPart.length === 2) return fractionPart;
   const printed = JSON.stringify(original);
   if (fractionPart.length < 2) {
@@ -252,7 +257,7 @@ function centsOfFraction(fractionPart: string, groupedByCommas: boolean, origina
         'a digit past the cents that is not 0 is a fraction of a cent, which is not rounded',
     );
   }
-  if (mayBeThousandsGroup(fractionPart, groupedByCommas)) {
+  if (mayBeThousandsGroup(fractionPart)) {
     throw new MoneyError(
       `expected two decimal places in ${printed}, got 3: ` +
         'three digits after a point could be a thousands group',
@@ -262,14 +267,13 @@ function centsOfFraction(fractionPart: string, groupedByCommas: boolean, origina
 }
 
 /**
- * Whether three digits after a point could be a thousands group instead.
- *
- * `1.000` could be one dollar or, with a point for a thousands separator, a
- * thousand, and a thousands group is always exactly three digits; `1,234.500`
- * has already said which mark groups thousands.
+ * Whether three digits after a point could be a thousands group instead —
+ * which they always could, commas before them or not (see `centsOfFraction`).
+ * An amount and a unit price refuse them alike: `$1,500.000` misread from
+ * `$1,500,000` is as wrong a price as it is an amount.
  */
-function mayBeThousandsGroup(fraction: string, groupedByCommas: boolean): boolean {
-  return fraction.length === 3 && !groupedByCommas;
+function mayBeThousandsGroup(fraction: string): boolean {
+  return fraction.length === 3;
 }
 
 /**
@@ -301,8 +305,8 @@ export interface UnitPrice {
  * Every rule `parseMoneyToCents` has, except that a digit past the cents is
  * kept rather than refused: the price is stored rounded half-up to the cent,
  * and its exact digits are kept for `extendedCents`. One decimal place is
- * still refused, and three are read only where they could not be a thousands
- * group — `$1.250` could be a price of $1,250.
+ * still refused, and so are three places, which could be a thousands group —
+ * `$1.250` could be a price of $1,250.
  */
 export function parseUnitPrice(text: string): UnitPrice {
   const printed = readPrinted(text);
@@ -310,7 +314,7 @@ export function parseUnitPrice(text: string): UnitPrice {
   if (printed.fraction.length === 1) {
     throw new MoneyError(`expected two decimal places in ${quoted}, got 1`);
   }
-  if (mayBeThousandsGroup(printed.fraction, printed.groupedByCommas)) {
+  if (mayBeThousandsGroup(printed.fraction)) {
     throw new MoneyError(
       `expected two decimal places in ${quoted}, got 3: ` +
         'three digits after a point could be a thousands group',
@@ -427,8 +431,8 @@ export function formatUnitPrice(price: UnitPrice): string {
   const whole = magnitude / scale;
   let fraction = (magnitude % scale).toString().padStart(price.places, '0');
   fraction = fraction.replace(/0+$/, '').padEnd(2, '0');
-  // `$1.235` could be read back as a price of $1,235; `$1.2350` cannot.
-  if (fraction.length === 3 && whole < 1000n) fraction = `${fraction}0`;
+  // Three places are never read back (`mayBeThousandsGroup`); four are.
+  if (fraction.length === 3) fraction = `${fraction}0`;
   return `${negative ? '-' : ''}$${whole.toLocaleString('en-US')}.${fraction}`;
 }
 

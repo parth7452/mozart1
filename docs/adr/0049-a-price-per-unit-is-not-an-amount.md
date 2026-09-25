@@ -94,10 +94,12 @@ price.** The founder's decision.
    agree on every other rule.
 
 5. **What is still refused.** A unit price printed to one place (`$6,721.8`),
-   because a quote cut short of two places reads that way. Three places without
-   a comma-grouped whole part (`$1.250`, `$3.459`, `$0.125`), because three
-   digits after a point could be a thousands group and `$1.250` could be a
-   price of $1,250. Four places (`$1.2500`, `$3.4590`) are read. A refused price
+   because a quote cut short of two places reads that way. Three places, with
+   or without a comma before them (`$1.250`, `$3.459`, `$1,500.000`), exactly
+   as for an amount: three digits after a point could be a thousands group, so
+   `$1.250` could be a price of $1,250, and `$1,500.000` is likelier
+   `$1,500,000` with its last comma misread. Four places (`$1.2500`,
+   `$3.4590`) are read. A refused price
    is a blocking finding for a person, as before.
 
 6. **Nothing billable changes.** The contingency fee is computed on recovered

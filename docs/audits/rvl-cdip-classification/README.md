@@ -35,6 +35,27 @@ invoices, specifications, résumés and so on. Most are from the 1980s and
   the classifier that an agreement names a price is a later change, and it
   would need the whole corpus re-asked.
 
+## Re-run after the agreement wording changed (2026-09-25)
+
+The classifier was then told that an agreement must fix a price, that an
+effective date or "supersedes" does not make one, and that a media buy plan
+or marketing budget is not a promotion agreement. Sixty of the rows were asked
+again, six classes of ten, for $0.18. The 77 documents of the recorded corpus
+were re-asked too ($0.39), and every one still reads as its expected type.
+
+| Rows | Before | After |
+| --- | --- | --- |
+| Specification (70–79) | 5 `price_agreement`, 1 `routing_guide`, 4 `other` | 2 `price_agreement` (73, 77), 8 `other` |
+| Budget (100–109) | 2 `promo_agreement`, 1 `price_agreement`, 1 `remittance_advice`, 1 `correspondence`, 5 `other` | unchanged |
+| Invoice (110–119) | 6 `invoice` | 7 `invoice`: row 111, "Purchase Order Invoice", now reads as an invoice |
+| Advertisement (40–49) | 4 `correspondence`, 6 `other` | 10 `other` |
+| Form (10–19), presentation (120–129) | | same types; confidences moved |
+
+So the wording fixed three of the five specifications, and did nothing for the
+budgets: the media buy schedule (101) and the two other budgets still read as
+agreements. Still none of the 60 was read as a deduction notice or a payment
+advice at or above the 0.95 floor.
+
 ## What was sent, and how that differs from production
 
 - **Dataset.** [`nielsr/rvl_cdip_10_examples_per_class`](https://huggingface.co/datasets/nielsr/rvl_cdip_10_examples_per_class),

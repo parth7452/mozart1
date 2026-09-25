@@ -79,7 +79,9 @@ claim an amount check it cannot see.
 - **The eval.** It re-grades every recorded quote on replay, with no
   re-recording and no spend. Exactly the two label quotes change:
   - `held_out` grounding falls from 100% to 99.1%.
-  - `public_scanned` grounding falls from 79.7% to 78.6%.
+  - `public_scanned` grounding falls from 98.5% to 97.4%. It was 79.7% to
+    78.6% when first measured; the quote checker's page and table fixes,
+    merged the same afternoon, raised both figures and moved nothing else.
   - Nothing else moves: recall, precision and classification are unchanged,
     because they score values, not quotes.
 
