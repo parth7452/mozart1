@@ -131,8 +131,10 @@ export function allocateCents(amount: Cents, weights: readonly number[]): Cents[
  * arithmetic gives us no way to check it). USD only in V1.
  *
  * Accepts: `$3,120.00`, `3120`, `3,120.00 USD`, `(1,234.56)` and `-1,234.56`
- * (both negative), a trailing `CR`/`DR`. Rejects anything it cannot read
- * unambiguously rather than guessing a value that will be billed on.
+ * (both negative), a trailing `CR`/`DR`, and a unit price printed past the
+ * cents in zeros (`$6,721.8000`, see `centsOfFraction`). Rejects anything it
+ * cannot read unambiguously rather than guessing a value that will be billed
+ * on — a fraction of a cent (`$0.0125`) included.
  */
 export function parseMoneyToCents(text: string): Cents {
   const original = text;
@@ -191,15 +193,9 @@ export function parseMoneyToCents(text: string): Cents {
     throw new MoneyError(`cannot parse money from ${JSON.stringify(original)}`);
   }
 
-  // Two decimal places, or none. Three would mean we are guessing.
   let fraction = '00';
   if (fractionPart !== undefined && fractionPart !== '') {
-    if (fractionPart.length !== 2) {
-      throw new MoneyError(
-        `expected two decimal places in ${JSON.stringify(original)}, got ${fractionPart.length}`,
-      );
-    }
-    fraction = fractionPart;
+    fraction = centsOfFraction(fractionPart, wholePart.includes(','), original);
   }
 
   const magnitude = Number(`${whole === '' ? '0' : whole}${fraction}`);
@@ -207,6 +203,48 @@ export function parseMoneyToCents(text: string): Cents {
     throw new MoneyError(`money out of safe integer range: ${JSON.stringify(original)}`);
   }
   return cents(negative ? -magnitude : magnitude);
+}
+
+/**
+ * The two cent digits of a printed fraction, or a refusal.
+ *
+ * Two decimal places are cents. More are read only when every digit past the
+ * second is `0`, so the amount is exactly what the first two say:
+ * `$6,721.8000` on a purchase order is 672,180 cents, and nothing is rounded.
+ * A digit past the second that is not `0` is a fraction of a cent, which
+ * integer cents cannot hold (invariant 3); it is refused, never rounded.
+ *
+ * Three places are read only after a whole part grouped by commas. `1.000`
+ * could be one dollar or, with a point for a thousands separator, a thousand,
+ * and a thousands group is always exactly three digits; `1,234.500` has
+ * already said which mark groups thousands. Four or more places cannot be a
+ * group at all.
+ *
+ * One place (`6,721.8`) is still refused. It is lossless as written, but the
+ * quote check matches a quote anywhere on the page, so a quote cut short of
+ * `$6,721.85` verifies and would read as $6,721.80. Every form read here
+ * instead ends with zeros after two places whose value was already read, so a
+ * quote cut short of it reads the same cents it always did.
+ */
+function centsOfFraction(fractionPart: string, groupedByCommas: boolean, original: string): string {
+  if (fractionPart.length === 2) return fractionPart;
+  const printed = JSON.stringify(original);
+  if (fractionPart.length < 2) {
+    throw new MoneyError(`expected two decimal places in ${printed}, got ${fractionPart.length}`);
+  }
+  if (!/^0+$/.test(fractionPart.slice(2))) {
+    throw new MoneyError(
+      `expected two decimal places in ${printed}, got ${fractionPart.length}: ` +
+        'a digit past the cents that is not 0 is a fraction of a cent, which is not rounded',
+    );
+  }
+  if (fractionPart.length === 3 && !groupedByCommas) {
+    throw new MoneyError(
+      `expected two decimal places in ${printed}, got 3: ` +
+        'three digits after a point could be a thousands group',
+    );
+  }
+  return fractionPart.slice(0, 2);
 }
 
 export function formatCents(amount: Cents): string {
