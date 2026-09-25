@@ -199,6 +199,131 @@ describe('parseMoneyToCents', () => {
     expect(() => parseMoneyToCents('.')).toThrow(MoneyError);
   });
 
+  it('reads a unit price printed past the cents in zeros', () => {
+    // Oklahoma County's purchase order (public suite, eb-oklahoma-county-po).
+    expect(parseMoneyToCents('$6,721.8000')).toBe(672_180);
+    expect(parseMoneyToCents('6721.8000')).toBe(672_180);
+    expect(parseMoneyToCents('(6,721.8000)')).toBe(-672_180);
+    expect(parseMoneyToCents('6,721.8000 CR')).toBe(-672_180);
+    expect(parseMoneyToCents('$1.0000')).toBe(100);
+    expect(parseMoneyToCents('0.5000')).toBe(50);
+    expect(parseMoneyToCents('.1000')).toBe(10);
+    expect(parseMoneyToCents('12.34000000')).toBe(1_234);
+    // Three places once commas have said which mark groups thousands.
+    expect(parseMoneyToCents('1,234.500')).toBe(123_450);
+    expect(parseMoneyToCents('$1,000.000')).toBe(100_000);
+  });
+
+  it('refuses a fraction of a cent rather than rounding it', () => {
+    for (const text of ['$0.0125', '6,721.8050', '1,234.501', '12.3450', '0.00001']) {
+      expect(() => parseMoneyToCents(text), text).toThrow(/fraction of a cent/);
+    }
+  });
+
+  it('refuses three places where they could be a thousands group', () => {
+    // `1.000` is a dollar, or a thousand with a point for the separator.
+    for (const text of ['1.000', '$12.500', '0.500', '1234.500']) {
+      expect(() => parseMoneyToCents(text), text).toThrow(/thousands group/);
+    }
+  });
+
+  it('refuses one decimal place, which a quote cut short of two would look like', () => {
+    for (const text of ['6,721.8', '1800.5', '$0.5', '.5']) {
+      expect(() => parseMoneyToCents(text), text).toThrow(/two decimal places/);
+    }
+  });
+
+  it('reads zeros past the cents as the same cents, with or without separators', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }),
+        fc.integer({ min: 2, max: 8 }),
+        (n, zeros) => {
+          const amount = cents(n);
+          const plain = `${n < 0 ? '-' : ''}${Math.floor(Math.abs(n) / 100)}.${String(
+            Math.abs(n) % 100,
+          ).padStart(2, '0')}`;
+          expect(parseMoneyToCents(formatCents(amount) + '0'.repeat(zeros))).toBe(amount);
+          expect(parseMoneyToCents(plain + '0'.repeat(zeros))).toBe(amount);
+        },
+      ),
+    );
+  });
+
+  it('reads one zero past the cents only after a whole part grouped by commas', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
+        const amount = cents(n);
+        const text = `${formatCents(amount)}0`;
+        if (Math.abs(n) >= 100_000) {
+          expect(parseMoneyToCents(text)).toBe(amount);
+        } else {
+          expect(() => parseMoneyToCents(text)).toThrow(/thousands group/);
+        }
+      }),
+    );
+  });
+
+  it('refuses any digit past the cents that is not zero', () => {
+    const digits = fc.array(fc.integer({ min: 0, max: 9 }), { minLength: 1, maxLength: 6 });
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 9_000_000_000 }),
+        digits,
+        fc.integer({ min: 1, max: 9 }),
+        digits,
+        (n, before, nonZero, after) => {
+          const tail = [...before, nonZero, ...after].join('');
+          const text = formatCents(cents(n)) + tail;
+          expect(() => parseMoneyToCents(text), text).toThrow(/fraction of a cent/);
+        },
+      ),
+    );
+  });
+
+  it('reads a quote cut anywhere after the cents as the same cents, or not at all', () => {
+    // The quote check matches a quote anywhere on the page, so a quote cut
+    // short still verifies. Past the cents, a cut can cost the read but never
+    // change the amount.
+    fc.assert(
+      fc.property(
+        fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }),
+        fc.integer({ min: 0, max: 8 }),
+        (n, zeros) => {
+          const amount = cents(n);
+          const formatted = formatCents(amount);
+          const printed = formatted + '0'.repeat(zeros);
+          for (let end = formatted.length; end <= printed.length; end += 1) {
+            const quoted = printed.slice(0, end);
+            let read: number | undefined;
+            try {
+              read = parseMoneyToCents(quoted);
+            } catch (error) {
+              expect(error).toBeInstanceOf(MoneyError);
+            }
+            if (read !== undefined) expect(read, quoted).toBe(amount);
+          }
+        },
+      ),
+    );
+  });
+
+  it('refuses one decimal place for any amount', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 90_000_000 }),
+        fc.integer({ min: 0, max: 9 }),
+        (whole, digit) => {
+          const withCommas = whole.toLocaleString('en-US');
+          expect(() => parseMoneyToCents(`$${withCommas}.${digit}`)).toThrow(
+            /two decimal places/,
+          );
+          expect(() => parseMoneyToCents(`${whole}.${digit}`)).toThrow(/two decimal places/);
+        },
+      ),
+    );
+  });
+
   it('round-trips anything we format', () => {
     fc.assert(
       fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {

@@ -134,7 +134,7 @@ append-only tables.
 
 | Package | Remember |
 | --- | --- |
-| `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
+| `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee. `parseMoneyToCents` reads digits past the cents only when they are all `0`, never rounds a fraction of a cent, and never reads one decimal place |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
@@ -209,8 +209,8 @@ does):
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
-| public | real public records nobody wrote for us | 97.9% / 97.9% | 98.9% | 10/10 |
-| public_scanned | the same records scanned or degraded, read through OCR | 93.9% / 93.9% | 79.7% | 10/10 |
+| public | real public records nobody wrote for us | 98.4% / 98.4% | 98.9% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 95.5% / 95.5% | 79.7% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -1379,8 +1379,9 @@ maps their verified answers onto our fields by fixed rules and never supplies
 one; `packages/fixtures/public/README.md` has the rules and every field left
 out. Recorded for $0.54: 97.9% recall and precision, 98.9% grounding, 10 of 10
 classified. Three misses are arguable names (two payers, one buyer), and their
-answers stand. The fourth is a product gap: a unit price printed `$6,721.8000`,
-which `parseMoneyToCents` will not read. `public_scanned` holds four scanned
+answers stand. The fourth was a product gap: a unit price printed `$6,721.8000`,
+which `parseMoneyToCents` would not read (*A price past the cents*, below).
+`public_scanned` holds four scanned
 invoices and ExtractBench's degraded copies of six `public` documents, read
 through Reducto ($0.31): 93.9% recall and precision, 10 of 10 classified, and
 79.7% grounding. Three things cost the grounding, and none is a wrong value.
@@ -1388,6 +1389,22 @@ Grainger's one-page scan cites page 2 for every field, and its quotes failed
 again in two of three re-asks. Quotes of whole table rows do not match, because Reducto writes
 a table as HTML cells. And OCR misread a dash and a degraded price, which the
 check is right to refuse.
+
+**A price past the cents is read when the rest is zeros** (ADR 0049 proposed,
+no migration). `parseMoneyToCents` read two decimal places or none, so
+Oklahoma County's `$6,721.8000` — exactly 672,180 cents — was unreadable. It now
+reads digits past the cents when every one is `0`, and nothing is rounded:
+four or more places always, three only after a whole part grouped by commas
+(`1.000` could be a thousand with a point for the separator; `1,234.500`
+cannot). A non-zero digit past the cents (`$0.0125`) is a fraction of a cent
+and is still refused, and so is one decimal place (`6,721.8`): the quote check
+matches anywhere on the page, so a quote cut short of `$6,721.85` would verify.
+Every newly read form's two-place prefix already read as the same cents, so a
+quote cut short anywhere past the cents can cost a read but never change an
+amount, which a property test holds. Both Oklahoma documents now score their unit price: `public` rose
+to 98.4% and `public_scanned` to 95.5%, and no other suite moved. Whether a
+true sub-cent unit price should be held as integer micro-dollars — a rate, not
+an amount — is ADR 0049, a proposal for the founder with nothing built.
 
 Recording `public` found the upload door refusing three of the fourteen
 distinct documents as "active content (/AA)". The `/AA` was the start of their
