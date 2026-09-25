@@ -551,14 +551,34 @@ describe('an amount on the page, to the cent', () => {
     expect(check('Total $1,275.00', 'Total $1, 275.00', amount('$1,275.00')).verified).toBe(true);
   });
 
-  it('keeps a sign printed as −, a dash, a trailing minus or a spaced minus', () => {
-    for (const page of ['Deduction −$6.70', 'Deduction –$6.70', 'Deduction 6.70-', 'Deduction - $6.70']) {
+  it('keeps a sign printed as −, a dash touching the number or a trailing minus', () => {
+    for (const page of ['Deduction −$6.70', 'Deduction –$6.70', 'Deduction -6.70', 'Deduction 6.70-']) {
       expect(check(page, page, amount('$6.70')).verified, page).toBe(false);
       expect(check(page, page, amount('-6.70')).verified, page).toBe(true);
     }
     // A range and a year span are not negative numbers.
     expect(check('6.70-7.00', 'Rate 6.70-7.00', amount('7.00')).verified).toBe(true);
     expect(check('5-$6.70', 'Line 5-$6.70', amount('$6.70')).verified).toBe(true);
+  });
+
+  it('reads a dash set apart by a space either way: it may be a separator or an empty cell', () => {
+    // A label and its amount, separated by a dash: the amount is positive.
+    for (const page of ['Deduction - $500.00', 'Short pay – $500.00', 'Total — $500.00']) {
+      expect(check('$500.00', page, amount('$500.00')), page).toMatchObject({
+        verified: true,
+        amountPrintedWhole: true,
+      });
+      // A ledger may mean it as a minus, so that reading is on the page too.
+      expect(check(page, page, amount('-$500.00')).verified, page).toBe(true);
+      // Either way it is still this number and no other.
+      expect(check('$500.00', page, amount('$50.00')).verified, page).toBe(false);
+    }
+    // An empty cell printed "-" to the left of an amount, in a text row and as
+    // Reducto's cells read as laid out.
+    const row = 'INV 1001 1,275.00 - 6.70 1,268.30';
+    expect(check('6.70', row, amount('6.70')).verified).toBe(true);
+    const cells = '<table><tr><td>INV 1001</td><td>1,275.00</td><td>-</td><td>6.70</td><td>1,268.30</td></tr></table>';
+    expect(check(row, cells, amount('6.70')).verified).toBe(true);
   });
 
   it('still reads an amount OCR spelled with the letter O, and only as that amount', () => {

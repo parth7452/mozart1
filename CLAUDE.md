@@ -1395,8 +1395,9 @@ and every dash is `-`. Two numbers stay two (`$39 $175` is never `$39175`), and 
 sign is never lost: the punctuation tier used to verify `-80.00` against a page
 reading `80.00`, and plain substring matching `80.00` against `-80.00`; both are
 refused now. OCR misreads that disagree with the value (`$6;721:8000`) are still
-refused. Still open: a quote may begin inside a longer number (`$6,600` against
-`$6,600.00`), and `80.00` still verifies against `(80.00)`.
+refused. For a money field both remaining gaps are closed by ADR 0050 (below):
+a quote beginning inside a longer number and `80.00` against `(80.00)` are
+refused. For any other field a quote may still begin inside a longer number.
 
 **A price past the cents is read when the rest is zeros** (no ADR, no
 migration). `parseMoneyToCents` read two decimal places or none, so
@@ -1438,7 +1439,9 @@ read as $6,721.00, and a quote of "Net payment" verified whatever amount stood
 beside it. For a money field it now also requires the quote to print the value
 and the page to print it whole — a number read to its own ends, inside the
 quoted span — equal to the cent, sign included, and a unit price digit for
-digit. A number that cannot be read to the cent fails; a printed `-` is not a
+digit. A dash touching the number is a minus; one set apart by a space
+(`Deduction - $500.00`, an empty `-` cell beside an amount) may be a separator,
+so it is read both ways. A number that cannot be read to the cent fails; a printed `-` is not a
 number and keeps its text verdict; a page with no text layer stays `null`. The
 case page's badge for a refused money field says **amount not on page**; a pass
 still says "quote found", because only the verdict is stored and a row read
