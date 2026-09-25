@@ -78,6 +78,18 @@ export interface ExtractedField {
   readonly value: unknown;
   readonly confidence: number;
   readonly sourcePage: number;
+  /**
+   * The page the model cited, present only when it is not `sourcePage`: the
+   * model cited a page the document does not have, and the quote check found
+   * the quote on exactly one page it does (`verifyQuotes`). `sourcePage` is
+   * then that page, which is what a box, a reviewer and the stored row follow.
+   *
+   * In memory only. `extraction_results` has no column for it, so the stored
+   * row carries the page the quote is on; the model's own citation stays in
+   * the extraction's `document`, which this read reassembled from the model's
+   * answer and which is never rewritten.
+   */
+  readonly citedPage?: number;
   readonly sourceQuote: string;
   readonly sourceBbox: readonly number[] | null;
   /**
