@@ -7,8 +7,10 @@ const config: NextConfig = {
   // external stops the bundler trying to trace it into a client chunk.
   serverExternalPackages: ['pg'],
   // The upload route checks `content-length` before it parses, but a server
-  // action has no such hook — this is the backstop for one.
-  experimental: { serverActions: { bodySizeLimit: '26mb' } },
+  // action has no such hook — this is the backstop for one. The platform
+  // delivers no body over 4.5 MB anyway (`lib/upload-limits.ts`), so a limit
+  // above that promised nothing.
+  experimental: { serverActions: { bodySizeLimit: '5mb' } },
 };
 
 export default config;

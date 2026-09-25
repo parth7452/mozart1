@@ -16,7 +16,8 @@ import {
 } from '@recouple/store-postgres';
 import { displaysInline } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
-import { DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
+import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
+import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
 import { CaseTimeline } from './case-timeline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
@@ -546,16 +547,12 @@ export function CaseReview({
                   agreement, the invoice they short-paid. It is read the same way the notice was,
                   and attached to this case.
                 </p>
-                <form action="/upload" method="post" encType="multipart/form-data">
-                  {/* The case this belongs to travels with the file rather than
-                      being inferred later: a document with no case is the thing
-                      that sits unread forever. */}
-                  <input type="hidden" name="attachToCase" value={summary.deductionId} />
-                  <input type="file" name="file" required />
-                  <button className="primary" type="submit">
-                    Attach to this case
-                  </button>
-                </form>
+                <MultiUpload
+                  attachToCase={summary.deductionId}
+                  inputId="evidence-file"
+                  buttonLabel="Attach to this case"
+                  notices={browserUploadNotices()}
+                />
                 <AttachReadDocuments deductionId={summary.deductionId} documents={attachable ?? []} />
               </div>
             ) : null}
