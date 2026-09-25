@@ -72,7 +72,7 @@ import {
   type OcrBlock,
   type OcrResult,
 } from '@recouple/extraction';
-import { acceptEmailBody, acceptUpload } from '@recouple/ingest';
+import { RejectedUploadError, acceptEmailBody, acceptUpload } from '@recouple/ingest';
 import { everyDocument } from '@recouple/fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -202,6 +202,25 @@ function payloadFor(fixture: (typeof everything)[number]): DocumentPayload {
   };
 }
 
+/**
+ * The payload, or nothing when the front door refuses the file. A fixture
+ * production would turn away is not recorded, and the refusal is reported
+ * rather than ending a paid run partway through its documents.
+ */
+function admitted(fixture: (typeof everything)[number], step: string): DocumentPayload | undefined {
+  try {
+    return payloadFor(fixture);
+  } catch (error) {
+    if (!(error instanceof RejectedUploadError)) throw error;
+    console.error(
+      `  ${step.padEnd(9)} REFUSED   the front door turned it away (${error.code}): ` +
+        `${error.message}. Nothing was recorded for it.`,
+    );
+    process.exitCode = 1;
+    return undefined;
+  }
+}
+
 /** A page that arrives with no text of its own: a scan, a photograph. */
 const needsOcr = (fixture: (typeof everything)[number]): boolean =>
   fixture.pageText.length === 0 || fixture.pageText.every((t) => t.trim() === '');
@@ -234,8 +253,10 @@ if (classifyOnly) {
       continue;
     }
     const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const base = admitted(fixture, 'classify');
+    if (base === undefined) continue;
     const payload: DocumentPayload = {
-      ...payloadFor(fixture),
+      ...base,
       ...(ocrPages !== undefined ? { pageText: ocrPages, pageTextSource: 'ocr' as const } : {}),
     };
     try {
@@ -302,8 +323,10 @@ if (extractOnly) {
       continue;
     }
     const ocrPages = recorded.ocr?.pages.map((page) => page.text);
+    const base = admitted(fixture, 'extract');
+    if (base === undefined) continue;
     const payload: DocumentPayload = {
-      ...payloadFor(fixture),
+      ...base,
       ...(ocrPages !== undefined ? { pageText: ocrPages, pageTextSource: 'ocr' as const } : {}),
     };
     try {
@@ -386,9 +409,11 @@ let totalMicros = 0;
 let mismatches = 0;
 
 for (const fixture of documents) {
-  let payload = payloadFor(fixture);
-
   process.stdout.write(`\n=== ${fixture.key} (${fixture.filename})\n`);
+
+  const admittedPayload = admitted(fixture, 'upload');
+  if (admittedPayload === undefined) continue;
+  let payload = admittedPayload;
 
   // A document with no text layer gets one, so its quotes can be checked.
   let ocrResult: OcrResult | undefined;
