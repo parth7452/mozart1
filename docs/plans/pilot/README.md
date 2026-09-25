@@ -83,7 +83,7 @@ Each of these is live in production.
 | Q1 | **Most cases have no dispute deadline.** Remittance-line and QuickBooks cases never get one, and about 65% of the fixture notices print none | Put the customer's per-payer windows in the onboarding notes. The queue falls back to age |
 | Q2 | **The decide form offers 20 of the 47 canonical codes.** Short-dated, unsaleables, detention, missed appointment, routing guide and administrative fee are in the taxonomy but not on the form. There is no billback code at all | Use "Something else" and say what it is in the rationale |
 | Q3 | **Duplicate F1:** a notice and then its remittance line open two cases that are never listed as a pair | Watch for them by hand. Do not quote coverage numbers to a customer yet |
-| Q4 | **Onboarding is manual:** four SQL inserts plus a dashboard invitation per person. The invitation link lands on a signed-out page | The runbook (E8) and a welcome email that says "then sign in from the form" |
+| Q4 | **Onboarding is manual:** four SQL inserts plus a dashboard invitation per person. The invitation link lands on a signed-out page | The runbook ([E8](../../ONBOARDING.md)) and a welcome email that says "then sign in from the form" |
 
 ### Limits to tell the customer: not fixed in 68 hours
 
@@ -128,7 +128,7 @@ PR with `pnpm verify` green.
 | E5 | **Expose the existing codes** the pilot verticals need on the decide form. No change to the taxonomy: new codes such as billbacks are ADR-tracked, in Phase 2 task 04 | 1h | Codes and labels in `case-actions.tsx` |
 | E6 | **A deadline a person enters**, only where none is recorded, with a `case.deadline_set` event naming who entered it and on what basis. A printed deadline is never overwritten | 3–4h | Remittance and QuickBooks cases can carry a deadline |
 | E7 | **Duplicate F1**: also append `case.possible_duplicate`, plus a one-off backfill (`docs/audits/duplicate-counting/`). No migration | 3h | The notice-then-remittance repro is listed as a pair |
-| E8 | **An onboarding runbook**: one parameterised SQL block (organisation, settings, users, memberships, the customer's payers as debtors), the dashboard invitation, `pnpm link:retailer` for the aliases, and the welcome email | 2h | The test workspace is rebuilt from it with no edits |
+| E8 | **An onboarding runbook** ([`docs/ONBOARDING.md`](../../ONBOARDING.md)): one parameterised SQL block (organisation, settings, users, memberships, the customer's payers as debtors), the dashboard invitation, `pnpm link:retailer` for the aliases, and the welcome email | 2h | The test workspace is rebuilt from it with no edits |
 
 Founder on Saturday: run VERIFY-CHECKLIST **§2** (sign-in), **§4** (a second
 workspace, which becomes the dry-run workspace) and **§3** (read-only). Add
