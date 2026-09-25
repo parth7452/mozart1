@@ -95,8 +95,11 @@ about 12–15 cents for the 42-row remittance.
 - Disconnect really ends our access at Intuit;
 - connecting again after a revoke works.
 
-That last point is one of the two things ADR 0039 left open. Nothing here has
-yet met a live Intuit consent or revoke.
+That last point is one of the two things ADR 0039 left open. **Run on
+2026-09-24.** The sandbox connection was disconnected from the app at 18:47
+UTC, and Intuit confirmed the revoke. At 19:00 a production company was
+connected through the app on the production keys, and its first sync finished
+three seconds later.
 
 **Who:** the workspace **owner**, in your own workspace. The company is the
 QuickBooks **sandbox** company.
@@ -273,9 +276,11 @@ select provider_account_id as company_id,
 
 ### After this passes: Intuit production keys
 
-Until Intuit grants production keys, only sandbox companies can connect. The
-application is in the Intuit Developer portal, under your app's production
-settings. What it asks for:
+**Done.** Intuit's production keys have been on Vercel Production since
+2026-09-24, and a production company is connected. The rest of this section
+is kept as a record of what the application asked for. The application is in
+the Intuit Developer portal, under your app's production settings. What it
+asks for:
 
 - a verified developer profile and email;
 - **an end-user licence agreement (terms) URL** and **a privacy policy URL**;
@@ -301,10 +306,10 @@ Values that already exist (`docs/qbo-credentials.md`):
 **The hosting IP question needs me.** Vercel does not give fixed IP
 addresses. Ask me before you answer that one.
 
-**What is missing: the terms page.**
+**The two pages.**
 
-- **The privacy policy is done** (you, 2026-09-25). The terms page is not
-  confirmed yet. Neither lives in this repository.
+- **Both are done** (you): the privacy policy and the terms. Neither lives in
+  this repository.
 - Both must be **public** (readable without signing in) and at stable
   addresses. They should sit on the same domain as the app, for example
   `https://mozart.financial/privacy` and `https://mozart.financial/terms`.
@@ -1110,9 +1115,9 @@ not change the money; it is in the list below.
 None of these is fixed in this PR. Each needs a decision or its own change;
 2 and 3 were fixed by another change the same day.
 
-1. ~~**Email-in is not wired** (§5).~~ **Built** under ADR 0047: an address,
-   the webhook, the job, Settings → Email and the sweep. Migration 0034 is in
-   production; it waits for your Postmark setup.
+1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
+   0047: an address, the webhook, the job, Settings → Email and the sweep.
+   §5.1–5.5 ran that day.
 2. ~~**A case page opens as "404" once there are more than 100 newer
    cases.**~~ **Fixed** by
    [parth7452/mozart1#71](https://github.com/parth7452/mozart1/pull/71): a
@@ -1134,5 +1139,5 @@ None of these is fixed in this PR. Each needs a decision or its own change;
    disconnect.
 8. **No sign-out button and no workspace switcher.** Both are workable for
    now (see *Before you start*), but a customer will notice.
-9. **The terms page is not confirmed** (§1). The privacy policy is done
-   (2026-09-25); Intuit's production keys need both.
+9. ~~**No privacy policy or terms page** (§1).~~ **Both done**, and Intuit's
+   production keys have been on Vercel Production since 2026-09-24.

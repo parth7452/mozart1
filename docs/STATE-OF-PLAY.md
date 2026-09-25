@@ -40,6 +40,13 @@ Verified on the deployed app, not only in tests:
   `by_email`. **Open a case from it** opened DN-2609-003 for $2,000.00 with
   `confirmed_by` on `case.discovered`, `document.hold_released`, and no
   further model call
+- **QuickBooks on production keys** (ADR 0039), 2026-09-24. The sandbox
+  connection was disconnected from Settings → QuickBooks at 18:47 UTC, and
+  Intuit confirmed the revoke. Intuit's production keys went onto Vercel
+  Production at 18:57. At 19:00 a production company was connected through
+  the app, and its first sync finished three seconds later. The sandbox
+  connection's tokens had already been refreshed, and re-sealed through the
+  live KMS, eight times since 2026-09-22
 
 The scanner runs as its own container on Fly, with clamd bound to loopback
 behind a token-checked HTTPS endpoint (ADR 0018). Verified directly: a clean
@@ -71,7 +78,6 @@ The gap between *it worked once* and *it works*:
 
 | | What would prove it |
 | --- | --- |
-| **QuickBooks connect** (ADR 0039, migration 0030) | Deployed, and 0030 applied and read back on 2026-09-23. What would prove it: the founder connects the sandbox company from Settings → QuickBooks, the first sync arrives in minutes, Disconnect revokes at Intuit, and Connect again works. Nothing here has met a live Intuit consent or revoke |
 | **Roles** | A `read_only` member is refused an upload and a decline in the UI. The DB policy enforces it and a Postgres test proves it refuses; nobody has watched it happen |
 | **A second tenant** | Two orgs, each seeing only their own cases, through the app rather than through SQL |
 | **Email-in's failure paths** (ADR 0047) | The main path is live (above). Not yet exercised: forged `X-Spam-*` and `Authentication-Results` headers, an unaligned sender, an iPhone photo, mail over the size limit, a non-token recipient, a wrong secret's 401 being retried, and `pnpm sweep:inbound` against a real failure. Each is in `docs/VERIFY-CHECKLIST.md` §5.6–5.8 and comes before any customer is given an address |
@@ -88,7 +94,6 @@ screen should say, and the query or log line that proves it.
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
 | Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
-| Production QuickBooks keys | **you** | Intuit's production-keys assessment. The privacy page is done (2026-09-25); the terms page is not confirmed. Until then only sandbox companies can connect |
 
 ## Where the phases stand
 
@@ -178,9 +183,10 @@ bookkeeping no longer needs `--record-baseline`, which rewrites the file.
 
 ## Next
 
-1. **Click through QuickBooks connect** against the sandbox: Connect, first
+1. ~~**Click through QuickBooks connect** against the sandbox: Connect, first
    sync, Disconnect (and confirm Intuit's revoke), Connect again. Only then the
-   production QBO keys.
+   production QBO keys.~~ **done** (2026-09-24), ending on a production
+   company connected with the production keys.
 2. ~~**Coverage and ledger anomalies on a page.**~~ **done** — `/coverage`: a
    rate per channel over the last 12 months, the month-by-channel table, and
    the ledger sync's runs and anomalies per connection.

@@ -231,8 +231,10 @@ Worth saying before you are asked:
 Everything above started with somebody uploading a notice. Most short-pays never
 arrive that way — they are only in the ledger. Signed in as the workspace's
 **owner**, open **Settings → QuickBooks** and press **Connect QuickBooks**.
-Intuit asks you to sign in and pick the sandbox company; you come back to the
-same page.
+Intuit asks you to sign in and pick the company; you come back to the same
+page. Production runs on Intuit's production keys (since 2026-09-24), so it
+has to be a real QuickBooks company: a sandbox company connects only on a
+deployment with Development keys.
 
 - **It reads, and never writes.** The accounting scope Intuit grants would
   allow writing; nothing in the product does. Write-back is Phase 4, behind the

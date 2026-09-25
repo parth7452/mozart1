@@ -782,7 +782,9 @@ no member to act as means no store, and the run row still says
 `not_configured`. `pnpm link:qbo` places the first token set from `.env` with
 the **real** cipher and no flag that changes that; `docs/qbo-credentials.md` is
 the once-per-deployment AWS setup written for somebody who does not work in AWS.
-Nothing here has met a live KMS or a live Intuit rotation.
+Both have since been met. The sandbox connection's tokens were refreshed, and
+sealed through the live KMS, eight times between 2026-09-22 and 2026-09-24, a
+new row each time.
 
 **A ledger window is anchored on what was paid** (ADR 0035, migration 0027).
 The first production sync (2026-09-22) examined 12 invoices, found nothing and
@@ -979,7 +981,12 @@ per-org unique is gone and the partial index is there, `app.member_is_owner()`
 is pinned, not definer, and executable by `app_rw` and `app_ro` alone, the
 policies read as written, the request roles still hold nothing, and the one
 existing connection — made by the owner — is enabled with its six credential
-rows. Nothing here has met a live Intuit consent or revoke yet.
+rows. Both have since been met, on 2026-09-24. That connection was
+disconnected from the app at 18:47 UTC, and Intuit confirmed the revoke. The
+production keys went onto Vercel at 18:57. At 19:00 a production company was
+connected through the app (`environment: production` on its
+`accounting_connection.connected` row), and its first sync finished three
+seconds later.
 
 **Coverage is on a page** (`/coverage`, no ADR, no migration). What we found and
 what we filed, per channel: a card per channel with its trailing-12-month rate,
