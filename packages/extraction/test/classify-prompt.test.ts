@@ -52,6 +52,58 @@ describe('the classifier prompt', () => {
     expect(prompt).toContain('Promotional allowances and deal terms are promo_agreement.');
   });
 
+  it('asks an agreement to name a price, and sends a dated page with none to other', () => {
+    // The rules added after a one-time check of scanned office papers
+    // (docs/audits/rvl-cdip-classification/): five of ten product
+    // specifications read as price_agreement at 0.75–0.85 on an effective date
+    // and "supersedes" alone, with no price on the page, and three of ten
+    // budgets, one a media buy schedule, read as promo_agreement or
+    // price_agreement. Neither type opens a case; the cost is a page extracted
+    // as the wrong kind of evidence. Removing a rule is allowed; doing it
+    // without this failing is not.
+    const defs = definitions();
+    const prompt = words(CLASSIFY_SYSTEM);
+
+    // A price agreement names a price.
+    expect(defs.get('price_agreement')).toMatch(
+      /It must fix at least one price, rate, fee, discount or allowance that one party will charge or pay another; a document that names none is not one/,
+    );
+    // A specification with only an effective date on it is other.
+    expect(prompt).toContain(
+      'An effective date, a revision number or "supersedes" does not make a document an agreement: a product or technical specification carries them too, and is other.',
+    );
+    expect(prompt).toContain(
+      'A budget, an internal cost plan, or a schedule of costs that is not an agreement between two parties is other as well, even when every line has an amount',
+    );
+    // A media buy plan is not a promo agreement, which a seller and its buyer
+    // or retailer agree between them.
+    expect(defs.get('promo_agreement')).toMatch(
+      /^an agreement between a seller and a buyer or retailer about a promotion, deal or allowance/,
+    );
+    expect(defs.get('promo_agreement')).toMatch(
+      /An advertising or media buy plan, or a marketing budget, is not one/,
+    );
+    // The tightening must not push out an agreement nobody signed: a published
+    // price list or rate sheet fixes a price for whoever buys under it.
+    expect(defs.get('price_agreement')).toMatch(/a price list/);
+    expect(prompt).toContain('A price list or rate sheet is a price_agreement, signed or not');
+  });
+
+  it('expects an agreement only of a fixture whose page prints a price', () => {
+    // The corpus has to say what the prompt says, or the eval grades the
+    // prompt against answers it forbids. Only a page with a text layer can be
+    // read here, so a scan or a photograph is not checked by this.
+    const printed = everyDocument().filter(
+      (d) =>
+        (d.docType === 'price_agreement' || d.docType === 'promo_agreement') &&
+        d.pageText.some((t) => t.trim() !== ''),
+    );
+    expect(printed.length).toBeGreaterThan(0);
+    const price = /[$€£]\s?\d|\d\s?¢/;
+    const priceless = printed.filter((d) => !price.test(d.pageText.join('\n'))).map((d) => d.key);
+    expect(priceless).toEqual([]);
+  });
+
   it('is written as rules, not as the fixtures it was corrected against', () => {
     // A definition that names a fixture's party, identifier or amount passes the
     // eval by remembering the answer. It says nothing about the next page, and
