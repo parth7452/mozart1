@@ -12,12 +12,18 @@
 
 import {
   MoneyError,
+  compareUnitPrices,
+  extendedCents,
   formatCents,
+  formatUnitPrice,
   parseMoneyToCents,
-  shortageCents,
+  parseUnitPrice,
+  shortageCentsAt,
   subCents,
   sumCents,
+  unitsAtPrice,
   type Cents,
+  type UnitPrice,
 } from '@recouple/core-domain';
 import type { FieldValue } from './field';
 import type {
@@ -83,6 +89,34 @@ export interface Reconciliation {
 function valueOf<T>(field: FieldValue<T | null> | null | undefined): T | undefined {
   if (field === null || field === undefined) return undefined;
   return field.value ?? undefined;
+}
+
+/**
+ * Parses a unit price (ADR 0049), turning a failure into a finding the way
+ * `money` does. The whole `UnitPrice` comes back, not its stored cents: every
+ * check below multiplies or compares the price the page printed, so `$0.0125`
+ * a pound is never checked as `$0.01`.
+ */
+function unitPrice(
+  field: FieldValue<string | null> | null | undefined,
+  fieldPath: string,
+  findings: Finding[],
+): UnitPrice | undefined {
+  const text = valueOf(field);
+  if (text === undefined) return undefined;
+  try {
+    return parseUnitPrice(text);
+  } catch (error) {
+    findings.push({
+      code: 'unparseable_amount',
+      severity: 'blocking',
+      message: `could not read ${JSON.stringify(text)} as a unit price: ${
+        error instanceof MoneyError ? error.message : 'unknown error'
+      }`,
+      fieldPath,
+    });
+    return undefined;
+  }
 }
 
 /** Parses a money field, turning a failure into a finding instead of a throw. */
@@ -335,7 +369,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
 
     const qtyInvoiced = valueOf(line.qty_invoiced);
     const qtyReceived = valueOf(line.qty_received);
-    const unitCost = money(line.unit_cost, `${path}.unit_cost`, findings);
+    const unitCost = unitPrice(line.unit_cost, `${path}.unit_cost`, findings);
 
     let expected: Cents | null = null;
     let verdict: LineVerdict = 'not_checkable';
@@ -358,21 +392,31 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
     // Only when the division is exact: a deduction that is not a unit count
     // times a unit cost (a price variance, a partial credit, a flat fee) has no
     // quotient to compare, and says nothing here rather than guessing.
+    //
+    // The division is at the printed price (ADR 0049), never at the cents it is
+    // stored as: $125.00 at `$0.0125` is 10,000 pounds, not 12,500. And an
+    // amount that is exactly the gap priced and rounded once is never a
+    // contradiction, whatever else it divides into: at `$0.0050`, one unit is
+    // rounded to 1 cent, and 1 cent also divides into 2 units.
     if (
       qtyInvoiced !== undefined &&
       qtyReceived !== undefined &&
       unitCost !== undefined &&
-      unitCost > 0 &&
+      unitCost.units > 0n &&
       claimed !== undefined
     ) {
-      const impliedUnits = claimed / unitCost;
+      const impliedUnits = unitsAtPrice(claimed, unitCost);
       const statedGap = Math.abs(qtyInvoiced - qtyReceived);
-      if (Number.isInteger(impliedUnits) && impliedUnits !== statedGap) {
+      if (
+        impliedUnits !== undefined &&
+        impliedUnits !== statedGap &&
+        !(Number.isSafeInteger(statedGap) && extendedCents(statedGap, unitCost) === claimed)
+      ) {
         findings.push({
           code: 'quantities_contradict_the_amount',
           severity: 'blocking',
           message:
-            `${sku}: ${formatCents(claimed)} deducted at ${formatCents(unitCost)} each is ` +
+            `${sku}: ${formatCents(claimed)} deducted at ${formatUnitPrice(unitCost)} each is ` +
             `${impliedUnits} unit${impliedUnits === 1 ? '' : 's'}, but the line says ` +
             `${qtyInvoiced} invoiced and ${qtyReceived} received, a gap of ${statedGap}. ` +
             'The quantities and the amount on this line cannot both be right',
@@ -390,7 +434,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
           fieldPath: path,
         });
       } else {
-        expected = shortageCents(qtyInvoiced, qtyReceived, unitCost);
+        expected = shortageCentsAt(qtyInvoiced, qtyReceived, unitCost);
         if (claimed !== undefined) {
           verdict = expected === claimed ? 'matches' : 'differs';
           if (verdict === 'differs') {
@@ -398,7 +442,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
               code: 'line_arithmetic_differs',
               severity: claimed > expected ? 'supports_dispute' : 'warning',
               message:
-                `${sku}: (${qtyInvoiced} invoiced − ${qtyReceived} received) × ${formatCents(unitCost)} = ` +
+                `${sku}: (${qtyInvoiced} invoiced − ${qtyReceived} received) × ${formatUnitPrice(unitCost)} = ` +
                 `${formatCents(expected)}, but ${formatCents(claimed)} was deducted`,
               fieldPath: path,
             });
@@ -477,13 +521,20 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
       if (sku === undefined) return;
       const poLine = poBySku.get(normaliseSku(sku));
       if (poLine === undefined) return;
-      const noticeCost = money(line.unit_cost, `lines[${index}].unit_cost`, findings);
-      const poCost = money(poLine.unit_cost, `po.lines.unit_cost`, findings);
-      if (noticeCost !== undefined && poCost !== undefined && noticeCost !== poCost) {
+      // Two printed prices, compared exactly (ADR 0049): `$0.0125` against a PO
+      // at `$0.0130` is the deal-rate difference a billback turns on, though
+      // both are stored as 1 cent.
+      const noticeCost = unitPrice(line.unit_cost, `lines[${index}].unit_cost`, findings);
+      const poCost = unitPrice(poLine.unit_cost, `po.lines.unit_cost`, findings);
+      if (
+        noticeCost !== undefined &&
+        poCost !== undefined &&
+        compareUnitPrices(noticeCost, poCost) !== 0
+      ) {
         findings.push({
           code: 'unit_cost_differs_from_po',
           severity: 'supports_dispute',
-          message: `${sku}: the deduction uses ${formatCents(noticeCost)} but the PO agreed ${formatCents(poCost)}`,
+          message: `${sku}: the deduction uses ${formatUnitPrice(noticeCost)} but the PO agreed ${formatUnitPrice(poCost)}`,
           fieldPath: `lines[${index}].unit_cost`,
         });
       }

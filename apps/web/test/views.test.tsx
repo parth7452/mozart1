@@ -1111,6 +1111,26 @@ describe('the review page', () => {
     expect(html).toContain('not checked');
   });
 
+  it('says of a money field whether its amount is on the page, not only its quote', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview documents={[document()]} mayAct={false}
+        viewer={viewer}
+        summary={summary()}
+        fields={[
+          field({ fieldPath: 'deduction_total', quoteVerified: true }),
+          field({ fieldPath: 'lines[0].unit_cost', quoteVerified: false }),
+        ]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    // A label quoted for an amount is on the page; the amount is what has to be.
+    expect(html).toContain('amount found');
+    expect(html).toContain('amount not on page');
+    expect(html).not.toContain('quote not found');
+  });
+
   it('offers no approve button, because approving is not a thing this page can do', () => {
     const html = renderToStaticMarkup(
       <CaseReview documents={[document()]} mayAct={false}

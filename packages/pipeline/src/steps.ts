@@ -19,6 +19,7 @@ import {
   CorrespondenceSchema,
   DeductionNoticeSchema,
   InvoiceSchema,
+  isMoneyFieldPath,
   locateQuote,
   OcrError,
   PurchaseOrderSchema,
@@ -2388,8 +2389,9 @@ function valueAtPath(document: unknown, path: readonly PropertyKey[]): unknown {
  * reconciliation is still worth doing and the gap is still worth saying.
  */
 function isMoneyField(fieldPath: string): boolean {
-  const leaf = fieldPath.split('.').at(-1) ?? fieldPath;
-  return leaf === 'unit_cost' || leaf.includes('_amount') || leaf.includes('_total');
+  // The same rule the quote check reads an amount by (ADR 0050), so a field
+  // is money in one place and not another nowhere.
+  return isMoneyFieldPath(fieldPath);
 }
 
 /**

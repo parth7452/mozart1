@@ -269,3 +269,119 @@ describe('model roles and cost', () => {
     expect(costMicros('some-future-model', { inputTokens: 1_000, outputTokens: 1_000 })).toBe(0);
   });
 });
+
+/**
+ * A money field is verified only when the page prints its amount whole,
+ * identical to the cent, where it was quoted (ADR 0050).
+ */
+describe('an amount on the page, to the cent', () => {
+  const amount = (value: string) => ({ kind: 'amount' as const, value });
+  const price = (value: string) => ({ kind: 'unit_price' as const, value });
+  const check = (quote: string, page: string, money: Parameters<typeof checkQuote>[3]) =>
+    checkQuote(quote, 1, [page], money);
+
+  it('refuses a quote cut short of the number the page prints', () => {
+    // The founder's case: "$6,721" is on a page printing "$6,721.85", and would read as $6,721.00.
+    const cut = check('$6,721', 'Unit price $6,721.85 each', amount('$6,721'));
+    expect(cut).toMatchObject({ verified: false, amountPrintedWhole: false });
+    expect(cut.reason).toMatch(/not printed there whole, to the cent/);
+    expect(check('721.85', 'Unit price $6,721.85 each', amount('721.85')).verified).toBe(false);
+    expect(check('$1,234.5', 'Total $1,234.56', amount('$1,234.5'))).toMatchObject({
+      verified: false,
+      reason: expect.stringMatching(/cannot be read to the cent/),
+    });
+    // Without the value the quote check alone would have passed all three.
+    expect(check('$6,721', 'Unit price $6,721.85 each', undefined).verified).toBe(true);
+  });
+
+  it('refuses a quote that is only a label, whatever the amount beside it', () => {
+    // hl-case-02-remittance and eb-hingham-wbmason-invoice-scan both quote this way.
+    expect(check('Net payment', 'Net payment $17,100.00', amount('$17,100.00'))).toMatchObject({
+      verified: false,
+      amountPrintedWhole: false,
+    });
+    expect(check('Total Due:', 'Total Due: 47.29', amount('47.29')).verified).toBe(false);
+  });
+
+  it('refuses a value the quote and the page do not print', () => {
+    expect(check('Total $1,275.00', 'Total $1,275.00', amount('$1,257.00')).verified).toBe(false);
+    expect(check('Total $1,275.00', 'Total $1,275.00', amount('$1,275.01')).verified).toBe(false);
+  });
+
+  it('verifies the amount printed whole, however much of the row the quote takes', () => {
+    expect(check('$3,120.00', 'Total Deduction: $3,120.00', amount('$3,120.00'))).toMatchObject({
+      verified: true,
+      matchedBy: 'exact',
+      amountPrintedWhole: true,
+    });
+    const row = '2 EACH $448.00 11/7/2019 12/6/2019 $896.00';
+    expect(check(row, `ITEM 1 ${row}`, price('$448.00')).amountPrintedWhole).toBe(true);
+    expect(
+      check('TOTALS $1,075,775.00 $12,478.00$1,063,297.00', 'TOTALS $1,075,775.00 $12,478.00$1,063,297.00', amount('$1,063,297.00')).verified,
+    ).toBe(true);
+    // A full stop after the amount is not part of it.
+    expect(check('$450.00 withheld.', 'CB-203: $450.00 withheld.', amount('$450.00')).verified).toBe(true);
+  });
+
+  it('reads trailing zeros past the cents as the same amount, and nothing else', () => {
+    expect(check('$6,721.8000', 'EACH $6,721.8000 $6,721.80', price('$6,721.8000')).verified).toBe(true);
+    expect(check('$6,721.80', 'EACH $6,721.8000', amount('$6,721.80')).verified).toBe(true);
+    expect(check('$6,721.80', 'EACH $6,721.8050', amount('$6,721.80')).verified).toBe(false);
+  });
+
+  it('compares a unit price at its printed digits, never its stored cent', () => {
+    expect(check('$0.0125', 'Deal price $0.0125 / lb', price('$0.0125')).verified).toBe(true);
+    // Both store as 1 cent, but $0.01 is not the price the page printed.
+    expect(check('$0.01', 'Deal price $0.0125 / lb', price('$0.01')).verified).toBe(false);
+  });
+
+  it('keeps the sign: a minus, parentheses or CR', () => {
+    expect(check('-6.70', 'Adjustment -6.70', amount('-6.70')).verified).toBe(true);
+    expect(check('6.70', 'Adjustment -6.70', amount('6.70')).verified).toBe(false);
+    expect(check('(1,234.56)', 'Credit (1,234.56)', amount('-1,234.56')).verified).toBe(true);
+    expect(check('1,234.56 CR', 'Credit 1,234.56 CR', amount('(1,234.56)')).verified).toBe(true);
+    // A hyphen that joins words or leads a column is not a minus.
+    expect(check('CB-203 $450.00', 'CB-203 $450.00', amount('$450.00')).verified).toBe(true);
+    expect(check('Total----$1,275.00', 'Total----$1,275.00', amount('$1,275.00')).verified).toBe(true);
+  });
+
+  it('still reads an amount OCR spelled with the letter O, and only as that amount', () => {
+    expect(check('$600.00', 'Deduction $6OO.OO', amount('$600.00'))).toMatchObject({
+      verified: true,
+      matchedBy: 'ocr_confusion',
+      amountPrintedWhole: true,
+    });
+    expect(check('$600', 'Deduction $6OO.OO', amount('$600')).verified).toBe(true);
+    expect(check('$60.00', 'Deduction $6OO.OO', amount('$60.00')).verified).toBe(false);
+  });
+
+  it('leaves a value that is not money, and a page with no text, as they were', () => {
+    // A printed dash is no deduction on the line; there is no amount to find.
+    expect(check('-', 'INV-1 $500.00 - $500.00', amount('-'))).toEqual({ verified: true, matchedBy: 'exact' });
+    expect(checkQuote('$6,721', 1, undefined, amount('$6,721'))).toEqual({
+      verified: null,
+      reason: 'no text layer',
+    });
+  });
+
+  it('applies to money fields only, by the path the pipeline uses', () => {
+    const verified = verifyQuotes(
+      flattenExtraction({
+        payment_total: field('$17,100.00', 'Net payment'),
+        payment_reference: field('Net payment', 'Net payment'),
+        lines: [{ unit_cost: field('$0.01', '$0.0125'), deduction_amount: field('$125.00', '$125.00') }],
+      }),
+      ['Net payment $17,100.00 at $0.0125 is $125.00'],
+    );
+    const byPath = Object.fromEntries(verified.map((f) => [f.fieldPath, f]));
+    expect(byPath['payment_total']).toMatchObject({ quoteVerified: false, amountPrintedWhole: false });
+    expect(byPath['payment_total']?.quoteMatch).toBeUndefined();
+    expect(byPath['payment_reference']).toMatchObject({ quoteVerified: true });
+    expect(byPath['payment_reference']?.amountPrintedWhole).toBeUndefined();
+    expect(byPath['lines[0].unit_cost']).toMatchObject({ quoteVerified: false });
+    expect(byPath['lines[0].deduction_amount']).toMatchObject({
+      quoteVerified: true,
+      amountPrintedWhole: true,
+    });
+  });
+});

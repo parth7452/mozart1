@@ -91,6 +91,12 @@ export interface ExtractedField {
    * no text layer to check against (a scan), which is not the same as false.
    */
   readonly quoteVerified: boolean | null;
+  /**
+   * For a money field whose value reads as money: whether the page prints that
+   * amount whole, to the cent, where it was quoted (ADR 0050). When false,
+   * `quoteVerified` is false too, whether or not the quote's text was found.
+   */
+  readonly amountPrintedWhole?: boolean;
 }
 
 export interface ExtractionResult {
