@@ -1,0 +1,1152 @@
+{
+  "eb-ms-medicaid-ra-adjustments": {
+    "truth": {
+      "payer_name": {
+        "kind": "text",
+        "value": "MISSISSIPPI ENVISION MMIS"
+      },
+      "payment_reference": {
+        "kind": "text",
+        "value": "04957561"
+      },
+      "payment_date": {
+        "kind": "date",
+        "value": "01/07/08"
+      },
+      "lines[0].gross_amount": {
+        "kind": "money_cents",
+        "value": -8000
+      },
+      "lines[0].net_amount": {
+        "kind": "money_cents",
+        "value": -7330
+      },
+      "lines[1].gross_amount": {
+        "kind": "money_cents",
+        "value": 8000
+      },
+      "lines[1].net_amount": {
+        "kind": "money_cents",
+        "value": 7330
+      },
+      "lines[1].reason_code": {
+        "kind": "text",
+        "value": "3222"
+      }
+    },
+    "skipped": []
+  },
+  "eb-ms-medicaid-ra-paid-denied": {
+    "truth": {
+      "payer_name": {
+        "kind": "text",
+        "value": "MISSISSIPPI ENVISION MMIS"
+      },
+      "lines[0].gross_amount": {
+        "kind": "money_cents",
+        "value": 18123
+      },
+      "lines[0].net_amount": {
+        "kind": "money_cents",
+        "value": 17217
+      },
+      "lines[1].gross_amount": {
+        "kind": "money_cents",
+        "value": 16128
+      },
+      "lines[1].net_amount": {
+        "kind": "money_cents",
+        "value": 14954
+      },
+      "lines[1].reason_code": {
+        "kind": "text",
+        "value": "0132 0439"
+      },
+      "lines[2].gross_amount": {
+        "kind": "money_cents",
+        "value": 696477
+      },
+      "lines[2].net_amount": {
+        "kind": "money_cents",
+        "value": 240966
+      },
+      "lines[2].reason_code": {
+        "kind": "text",
+        "value": "0674"
+      }
+    },
+    "skipped": [
+      "payment_reference, payment_date, payment_total: 2 payments on one advice"
+    ]
+  },
+  "eb-grafton-isotrope-invoice": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "19503"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "09/03/2024"
+      },
+      "po_number": {
+        "kind": "text",
+        "value": "Dish 160R Upton St"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "Town of Grafton, Mass."
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 400000
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 400000
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 400000
+      }
+    },
+    "skipped": []
+  },
+  "eb-mission-tyler-invoice": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "025-479686"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "10/01/2024"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "CITY OF MISSION"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 16213007
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 75969
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 75969
+      },
+      "lines[1].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 315000
+      },
+      "lines[1].extended_amount": {
+        "kind": "money_cents",
+        "value": 315000
+      },
+      "lines[2].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[2].extended_amount": {
+        "kind": "money_cents",
+        "value": 190785
+      },
+      "lines[3].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[3].extended_amount": {
+        "kind": "money_cents",
+        "value": 1687875
+      },
+      "lines[4].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[4].extended_amount": {
+        "kind": "money_cents",
+        "value": 5701123
+      },
+      "lines[5].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[5].extended_amount": {
+        "kind": "money_cents",
+        "value": 4984630
+      },
+      "lines[6].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[6].extended_amount": {
+        "kind": "money_cents",
+        "value": 3158190
+      },
+      "lines[7].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[7].extended_amount": {
+        "kind": "money_cents",
+        "value": 99435
+      }
+    },
+    "skipped": []
+  },
+  "eb-southampton-york-invoice": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "2105629"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "04/30/2021"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "Hampton Bays Water District"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 419150
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 8
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 9500
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 76000
+      },
+      "lines[1].qty": {
+        "kind": "int",
+        "value": 12
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 27500
+      },
+      "lines[1].extended_amount": {
+        "kind": "money_cents",
+        "value": 330000
+      },
+      "lines[2].qty": {
+        "kind": "int",
+        "value": 20
+      },
+      "lines[2].unit_cost": {
+        "kind": "money_cents",
+        "value": 150
+      },
+      "lines[2].extended_amount": {
+        "kind": "money_cents",
+        "value": 3000
+      },
+      "lines[3].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[3].extended_amount": {
+        "kind": "money_cents",
+        "value": 10150
+      }
+    },
+    "skipped": []
+  },
+  "eb-stephenville-axon-invoice": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "INUS246402"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "05/01/2024"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "Stephenville Police Dept.- TX"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 6721525
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[1].qty": {
+        "kind": "int",
+        "value": 34
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 90000
+      },
+      "lines[1].extended_amount": {
+        "kind": "money_cents",
+        "value": 612000
+      },
+      "lines[2].qty": {
+        "kind": "int",
+        "value": 34
+      },
+      "lines[2].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[2].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[3].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[3].unit_cost": {
+        "kind": "money_cents",
+        "value": 234000
+      },
+      "lines[3].extended_amount": {
+        "kind": "money_cents",
+        "value": 655200
+      },
+      "lines[4].qty": {
+        "kind": "int",
+        "value": 42
+      },
+      "lines[4].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[4].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[5].qty": {
+        "kind": "int",
+        "value": 45
+      },
+      "lines[5].unit_cost": {
+        "kind": "money_cents",
+        "value": 52090
+      },
+      "lines[5].extended_amount": {
+        "kind": "money_cents",
+        "value": 468810
+      },
+      "lines[6].qty": {
+        "kind": "int",
+        "value": 46
+      },
+      "lines[6].unit_cost": {
+        "kind": "money_cents",
+        "value": 55125
+      },
+      "lines[6].extended_amount": {
+        "kind": "money_cents",
+        "value": 507150
+      },
+      "lines[7].qty": {
+        "kind": "int",
+        "value": 46
+      },
+      "lines[7].unit_cost": {
+        "kind": "money_cents",
+        "value": 57133
+      },
+      "lines[7].extended_amount": {
+        "kind": "money_cents",
+        "value": 525624
+      },
+      "lines[8].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[8].unit_cost": {
+        "kind": "money_cents",
+        "value": 52090
+      },
+      "lines[8].extended_amount": {
+        "kind": "money_cents",
+        "value": 10418
+      },
+      "lines[9].qty": {
+        "kind": "int",
+        "value": 45
+      },
+      "lines[9].unit_cost": {
+        "kind": "money_cents",
+        "value": 144000
+      },
+      "lines[9].extended_amount": {
+        "kind": "money_cents",
+        "value": 1296000
+      },
+      "lines[10].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[10].unit_cost": {
+        "kind": "money_cents",
+        "value": 49693
+      },
+      "lines[10].extended_amount": {
+        "kind": "money_cents",
+        "value": 59632
+      },
+      "lines[11].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[11].unit_cost": {
+        "kind": "money_cents",
+        "value": 62510
+      },
+      "lines[11].extended_amount": {
+        "kind": "money_cents",
+        "value": 75012
+      },
+      "lines[12].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[12].unit_cost": {
+        "kind": "money_cents",
+        "value": 64797
+      },
+      "lines[12].extended_amount": {
+        "kind": "money_cents",
+        "value": 77756
+      },
+      "lines[13].qty": {
+        "kind": "int",
+        "value": 5
+      },
+      "lines[13].unit_cost": {
+        "kind": "money_cents",
+        "value": 23386
+      },
+      "lines[13].extended_amount": {
+        "kind": "money_cents",
+        "value": 23386
+      },
+      "lines[14].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[14].unit_cost": {
+        "kind": "money_cents",
+        "value": 101557
+      },
+      "lines[14].extended_amount": {
+        "kind": "money_cents",
+        "value": 313839
+      },
+      "lines[15].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[15].unit_cost": {
+        "kind": "money_cents",
+        "value": 101557
+      },
+      "lines[15].extended_amount": {
+        "kind": "money_cents",
+        "value": 313839
+      },
+      "lines[16].qty": {
+        "kind": "int",
+        "value": 2
+      },
+      "lines[16].unit_cost": {
+        "kind": "money_cents",
+        "value": 175000
+      },
+      "lines[16].extended_amount": {
+        "kind": "money_cents",
+        "value": 70000
+      },
+      "lines[17].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[17].unit_cost": {
+        "kind": "money_cents",
+        "value": 175020
+      },
+      "lines[17].extended_amount": {
+        "kind": "money_cents",
+        "value": 35004
+      },
+      "lines[18].qty": {
+        "kind": "int",
+        "value": 45
+      },
+      "lines[18].unit_cost": {
+        "kind": "money_cents",
+        "value": 19507
+      },
+      "lines[18].extended_amount": {
+        "kind": "money_cents",
+        "value": 175563
+      },
+      "lines[19].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[19].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[19].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[20].qty": {
+        "kind": "int",
+        "value": 50
+      },
+      "lines[20].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[20].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[21].qty": {
+        "kind": "int",
+        "value": 5
+      },
+      "lines[21].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[21].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[22].qty": {
+        "kind": "int",
+        "value": 5
+      },
+      "lines[22].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[22].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[23].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[23].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[23].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[24].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[24].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[24].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[25].qty": {
+        "kind": "int",
+        "value": 6
+      },
+      "lines[25].unit_cost": {
+        "kind": "money_cents",
+        "value": 4390
+      },
+      "lines[25].extended_amount": {
+        "kind": "money_cents",
+        "value": 5268
+      },
+      "lines[26].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[26].unit_cost": {
+        "kind": "money_cents",
+        "value": 37156
+      },
+      "lines[26].extended_amount": {
+        "kind": "money_cents",
+        "value": 114822
+      },
+      "lines[27].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[27].unit_cost": {
+        "kind": "money_cents",
+        "value": 1269
+      },
+      "lines[27].extended_amount": {
+        "kind": "money_cents",
+        "value": 3922
+      },
+      "lines[28].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[28].unit_cost": {
+        "kind": "money_cents",
+        "value": 23612
+      },
+      "lines[28].extended_amount": {
+        "kind": "money_cents",
+        "value": 72967
+      },
+      "lines[29].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[29].unit_cost": {
+        "kind": "money_cents",
+        "value": 5890
+      },
+      "lines[29].extended_amount": {
+        "kind": "money_cents",
+        "value": 18202
+      },
+      "lines[30].qty": {
+        "kind": "int",
+        "value": 5
+      },
+      "lines[30].unit_cost": {
+        "kind": "money_cents",
+        "value": 15024
+      },
+      "lines[30].extended_amount": {
+        "kind": "money_cents",
+        "value": 15024
+      },
+      "lines[31].qty": {
+        "kind": "int",
+        "value": 5
+      },
+      "lines[31].unit_cost": {
+        "kind": "money_cents",
+        "value": 15591
+      },
+      "lines[31].extended_amount": {
+        "kind": "money_cents",
+        "value": 15591
+      },
+      "lines[32].qty": {
+        "kind": "int",
+        "value": 28
+      },
+      "lines[32].unit_cost": {
+        "kind": "money_cents",
+        "value": 86323
+      },
+      "lines[32].extended_amount": {
+        "kind": "money_cents",
+        "value": 533523
+      },
+      "lines[33].qty": {
+        "kind": "int",
+        "value": 4
+      },
+      "lines[33].unit_cost": {
+        "kind": "money_cents",
+        "value": 414000
+      },
+      "lines[33].extended_amount": {
+        "kind": "money_cents",
+        "value": 331201
+      },
+      "lines[34].qty": {
+        "kind": "int",
+        "value": 50
+      },
+      "lines[34].unit_cost": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[34].extended_amount": {
+        "kind": "money_cents",
+        "value": 0
+      },
+      "lines[35].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[35].unit_cost": {
+        "kind": "money_cents",
+        "value": 21073
+      },
+      "lines[35].extended_amount": {
+        "kind": "money_cents",
+        "value": 65121
+      },
+      "lines[36].qty": {
+        "kind": "int",
+        "value": 14
+      },
+      "lines[36].unit_cost": {
+        "kind": "money_cents",
+        "value": 105703
+      },
+      "lines[36].extended_amount": {
+        "kind": "money_cents",
+        "value": 326651
+      }
+    },
+    "skipped": []
+  },
+  "eb-oklahoma-county-po": {
+    "truth": {
+      "po_number": {
+        "kind": "text",
+        "value": "22601904"
+      },
+      "po_date": {
+        "kind": "date",
+        "value": "08/28/2025"
+      },
+      "buyer_name": {
+        "kind": "text",
+        "value": "Oklahoma County"
+      },
+      "lines[0].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 672180
+      }
+    },
+    "skipped": []
+  },
+  "eb-texas-facilities-po": {
+    "truth": {
+      "po_number": {
+        "kind": "text",
+        "value": "303-0-0317"
+      },
+      "po_date": {
+        "kind": "date",
+        "value": "11/7/2019"
+      },
+      "buyer_name": {
+        "kind": "text",
+        "value": "TEXAS FACILITIES COMMISSION"
+      },
+      "lines[0].qty_ordered": {
+        "kind": "int",
+        "value": 2
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 44800
+      },
+      "lines[1].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 54000
+      },
+      "lines[2].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[2].unit_cost": {
+        "kind": "money_cents",
+        "value": 61000
+      },
+      "lines[3].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[3].unit_cost": {
+        "kind": "money_cents",
+        "value": 16500
+      }
+    },
+    "skipped": []
+  },
+  "eb-uillinois-rate-card": {
+    "truth": {
+      "effective_from": {
+        "kind": "date",
+        "value": "January 2, 2024"
+      }
+    },
+    "skipped": []
+  },
+  "eb-utah-fleet-rates": {
+    "truth": {},
+    "skipped": [
+      "effective_from: 'Fiscal Year 2024' names no date"
+    ]
+  },
+  "eb-aclu-cdw-invoice-scan": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "NF67652"
+      },
+      "po_number": {
+        "kind": "text",
+        "value": "95055"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "SUDBURY PUBLIC SCHOOLS"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 1198925
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 455
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 2635
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 1198925
+      }
+    },
+    "skipped": [
+      "invoice_date: 2014-07-19 has no page text to show how it is printed"
+    ]
+  },
+  "eb-fort-bend-invoice-scan": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "44920"
+      },
+      "po_number": {
+        "kind": "text",
+        "value": "212706"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "FORT BEND COUNTY EMS"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 215000
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 180000
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 180000
+      },
+      "lines[1].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 35000
+      },
+      "lines[1].extended_amount": {
+        "kind": "money_cents",
+        "value": 35000
+      }
+    },
+    "skipped": [
+      "invoice_date: 2022-05-18 has no page text to show how it is printed"
+    ]
+  },
+  "eb-hingham-grainger-invoice-scan": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "9823373304"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "08/30/2023"
+      },
+      "po_number": {
+        "kind": "text",
+        "value": "WEB2454487473"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "HINGHAM TOWN HALL SELECTMEN"
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 39207
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 39207
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 39207
+      }
+    },
+    "skipped": []
+  },
+  "eb-hingham-wbmason-invoice-scan": {
+    "truth": {
+      "invoice_number": {
+        "kind": "text",
+        "value": "253661463"
+      },
+      "invoice_date": {
+        "kind": "date",
+        "value": "04/16/2025"
+      },
+      "customer_name": {
+        "kind": "text",
+        "value": "HINGHAM-ZONING DEPT."
+      },
+      "invoice_total": {
+        "kind": "money_cents",
+        "value": 4729
+      },
+      "lines[0].qty": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 4729
+      },
+      "lines[0].extended_amount": {
+        "kind": "money_cents",
+        "value": 4729
+      }
+    },
+    "skipped": []
+  },
+  "eb-ms-medicaid-ra-adjustments-degraded": {
+    "truth": {
+      "payer_name": {
+        "kind": "text",
+        "value": "MISSISSIPPI ENVISION MMIS"
+      },
+      "payment_reference": {
+        "kind": "text",
+        "value": "04957561"
+      },
+      "payment_date": {
+        "kind": "date",
+        "value": "01/07/08"
+      },
+      "lines[0].gross_amount": {
+        "kind": "money_cents",
+        "value": -8000
+      },
+      "lines[0].net_amount": {
+        "kind": "money_cents",
+        "value": -7330
+      },
+      "lines[1].gross_amount": {
+        "kind": "money_cents",
+        "value": 8000
+      },
+      "lines[1].net_amount": {
+        "kind": "money_cents",
+        "value": 7330
+      },
+      "lines[1].reason_code": {
+        "kind": "text",
+        "value": "3222"
+      }
+    },
+    "skipped": []
+  },
+  "eb-ms-medicaid-ra-paid-denied-degraded": {
+    "truth": {
+      "payer_name": {
+        "kind": "text",
+        "value": "MISSISSIPPI ENVISION MMIS"
+      },
+      "lines[0].gross_amount": {
+        "kind": "money_cents",
+        "value": 18123
+      },
+      "lines[0].net_amount": {
+        "kind": "money_cents",
+        "value": 17217
+      },
+      "lines[1].gross_amount": {
+        "kind": "money_cents",
+        "value": 16128
+      },
+      "lines[1].net_amount": {
+        "kind": "money_cents",
+        "value": 14954
+      },
+      "lines[1].reason_code": {
+        "kind": "text",
+        "value": "0132 0439"
+      },
+      "lines[2].gross_amount": {
+        "kind": "money_cents",
+        "value": 696477
+      },
+      "lines[2].net_amount": {
+        "kind": "money_cents",
+        "value": 240966
+      },
+      "lines[2].reason_code": {
+        "kind": "text",
+        "value": "0674"
+      }
+    },
+    "skipped": [
+      "payment_reference, payment_date, payment_total: 2 payments on one advice"
+    ]
+  },
+  "eb-oklahoma-county-po-degraded": {
+    "truth": {
+      "po_number": {
+        "kind": "text",
+        "value": "22601904"
+      },
+      "po_date": {
+        "kind": "date",
+        "value": "08/28/2025"
+      },
+      "buyer_name": {
+        "kind": "text",
+        "value": "Oklahoma County"
+      },
+      "lines[0].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 672180
+      }
+    },
+    "skipped": []
+  },
+  "eb-texas-facilities-po-degraded": {
+    "truth": {
+      "po_number": {
+        "kind": "text",
+        "value": "303-0-0317"
+      },
+      "po_date": {
+        "kind": "date",
+        "value": "11/7/2019"
+      },
+      "buyer_name": {
+        "kind": "text",
+        "value": "TEXAS FACILITIES COMMISSION"
+      },
+      "lines[0].qty_ordered": {
+        "kind": "int",
+        "value": 2
+      },
+      "lines[0].unit_cost": {
+        "kind": "money_cents",
+        "value": 44800
+      },
+      "lines[1].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[1].unit_cost": {
+        "kind": "money_cents",
+        "value": 54000
+      },
+      "lines[2].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[2].unit_cost": {
+        "kind": "money_cents",
+        "value": 61000
+      },
+      "lines[3].qty_ordered": {
+        "kind": "int",
+        "value": 1
+      },
+      "lines[3].unit_cost": {
+        "kind": "money_cents",
+        "value": 16500
+      }
+    },
+    "skipped": []
+  },
+  "eb-uillinois-rate-card-degraded": {
+    "truth": {
+      "effective_from": {
+        "kind": "date",
+        "value": "January 2, 2024"
+      }
+    },
+    "skipped": []
+  },
+  "eb-utah-fleet-rates-degraded": {
+    "truth": {},
+    "skipped": [
+      "effective_from: 'Fiscal Year 2024' names no date"
+    ]
+  }
+}

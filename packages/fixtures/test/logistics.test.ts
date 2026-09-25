@@ -108,6 +108,11 @@ describe('every suite reaches the recorder and the eval gate', () => {
       'formats',
       'held_out',
       'logistics',
+      // Real documents from public records, with ExtractBench's verified
+      // answers; `public_scanned` is the same source read through OCR
+      // (`public.ts`).
+      'public',
+      'public_scanned',
       'scanned',
     ]);
   });

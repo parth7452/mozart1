@@ -24,6 +24,7 @@ import { logisticsDocuments } from './logistics';
 import { customerDocuments } from './customer';
 import { formatsDocuments } from './formats';
 import { pendingDocuments } from './pending';
+import { publicDocuments } from './public';
 
 const corpusDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'corpus');
 
@@ -214,5 +215,6 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...logisticsDocuments(),
     ...customerDocuments(),
     ...formatsDocuments(),
+    ...publicDocuments(),
   ];
 }
