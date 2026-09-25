@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deflateSync } from 'node:zlib';
-import { allFixtureDocuments, formatsDocuments, renderTextPdf } from '@recouple/fixtures';
+import { allFixtureDocuments, formatsDocuments, publicDocuments, renderTextPdf } from '@recouple/fixtures';
 import {
   ALLOWED_MIME_TYPES,
   MAX_UPLOAD_BYTES,
@@ -94,6 +94,73 @@ describe('PDF inspection', () => {
     }
   });
 
+  describe('active content is a whole name, the way a reader parses it', () => {
+    const body = (dictionary: string) =>
+      new Uint8Array(
+        Buffer.from(`%PDF-1.4\n1 0 obj\n${dictionary}\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1'),
+      );
+
+    it('does not mistake a font or a metadata key for an action', () => {
+      // Three real invoices and a purchase order were refused as "active
+      // content (/AA)" for nothing but their fonts: a subset font's name is six
+      // capitals and a plus, and `AAAAAB+Arial` begins with `AA`. macOS writes
+      // `/AAPL:Keywords`. Neither does anything when the file is opened.
+      for (const dictionary of [
+        '<< /Type /Font /Subtype /TrueType /BaseFont /AAAAAB+Arial,BoldItalic >>',
+        '<< /Type /FontDescriptor /FontName/AAAAAA+IDAutomationHC39M/ItalicAngle 0 >>',
+        '<< /CMapName /AAAAFL+Arial def >>',
+        '<< /BaseFont /JSKQWE+Helvetica /Encoding /XFAVUT+Symbol >>',
+        '<< /Producer (Quartz PDFContext) /AAPL:Keywords [ (remittance) ] >>',
+        '<< /Title (What /JavaScriptish means) /LaunchDate (2026-09-25) >>',
+      ]) {
+        expect(inspectPdf(body(dictionary)).activeContent, dictionary).toEqual([]);
+        expect(() => acceptUpload(body(dictionary), 'invoice.pdf'), dictionary).not.toThrow();
+      }
+    });
+
+    it('refuses the additional-actions key however the next token begins', () => {
+      for (const dictionary of [
+        '<< /Type /Page /AA << /O 5 0 R >> >>',
+        '<< /Type /Page /AA 5 0 R >>',
+        '<< /Type /Page /AA<</C 5 0 R>> >>',
+        '<< /Type /Page /AA\n5 0 R >>',
+        '<< /Type /Page /AA[5 0 R] >>',
+        '<< /Type /Page /AA/Foo >>',
+        '<< /Type /Page /AA%comment\n5 0 R >>',
+        // Chrome's reader (PDFium) splits a name at 0xFF, so it reads this key
+        // as `/AA`.
+        '<< /Type /Page /AA\xff<< /O 5 0 R >> >>',
+      ]) {
+        expect(inspectPdf(body(dictionary)).activeContent, dictionary).toEqual(['/AA']);
+      }
+      // And at the very end of the file.
+      expect(inspectPdf(new Uint8Array(Buffer.from('%PDF-1.4\n<< /AA', 'latin1'))).activeContent).toEqual([
+        '/AA',
+      ]);
+    });
+
+    it('decodes a name spelled in hex before comparing it', () => {
+      // `#53` is `S`: a reader runs `/J#53` as `/JS`. The substring match never
+      // saw these at all.
+      expect(inspectPdf(body('<< /S /Java#53cript /J#53 (app.alert\\(1\\)) >>')).activeContent).toEqual([
+        '/JavaScript',
+        '/JS',
+      ]);
+      expect(inspectPdf(body('<< /Type /Catalog /Open#41ction 5 0 R >>')).activeContent).toEqual([
+        '/OpenAction',
+      ]);
+      expect(inspectPdf(body('<< /Type /Page /#41#41 << /O 5 0 R >> >>')).activeContent).toEqual(['/AA']);
+    });
+
+    it('still refuses an attachment reached only through the name tree', () => {
+      // An embedded file stream's `/Type` is optional, so the name tree may be
+      // the only place `EmbeddedFile` is spelled.
+      const dictionary = '<< /Type /Catalog /Names << /EmbeddedFiles << /Names [(a.exe) 5 0 R] >> >> >>';
+      expect(inspectPdf(body(dictionary)).activeContent).toEqual(['/EmbeddedFiles']);
+      expect(() => acceptUpload(body(dictionary), 'invoice.pdf')).toThrow(RejectedUploadError);
+    });
+  });
+
   it('catches a decompression bomb that a size cap would wave through', () => {
     // 64 MB of zeros deflates to a few kilobytes: small on disk, ruinous in a
     // renderer. This is exactly the file a size limit cannot see.
@@ -150,6 +217,21 @@ describe('the fixture corpus', () => {
       expect(accepted.pageCount, document.key).toBe(document.pageText.length);
       expect(accepted.requiresSplit, document.key).toBe(false);
       expect(accepted.warnings, document.key).toEqual([]);
+    }
+  });
+
+  it('passes real documents nobody wrote for us', () => {
+    // The `public` suites: real municipal invoices, purchase orders and
+    // Medicaid advices, as their authors' software wrote them. Three were
+    // refused for their fonts' names until active content was read as a whole
+    // name. Two scans are stored without a view-on-open instruction, which the
+    // door refuses whatever it points at (`pages.json` names what was removed).
+    for (const document of publicDocuments()) {
+      const accepted = acceptUpload(document.bytes, document.filename);
+      expect(accepted.mimeType, document.key).toBe('application/pdf');
+      if (document.suite === 'public') {
+        expect(accepted.pageCount, document.key).toBe(document.pageText.length);
+      }
     }
   });
 });

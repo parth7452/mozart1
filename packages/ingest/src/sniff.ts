@@ -92,16 +92,51 @@ export function sha256(bytes: Uint8Array): string {
 
 // --- PDF inspection ---------------------------------------------------------
 
+/**
+ * Names that make a PDF do something rather than show something. Each is
+ * matched as a whole name, the way a reader parses it: `/AA` is the start of
+ * a subset font's name (`/AAAAAB+Arial`, ISO 32000-1 §9.6.4) and of Apple's
+ * `/AAPL:Keywords`, and a substring match refused ordinary invoices for their
+ * fonts. `/EmbeddedFiles`, the attachments' name tree, is listed because the
+ * substring match caught it through `/EmbeddedFile`.
+ */
 const PDF_ACTIVE_CONTENT = [
   '/JavaScript',
   '/JS',
   '/Launch',
   '/EmbeddedFile',
+  '/EmbeddedFiles',
   '/OpenAction',
   '/AA',
   '/RichMedia',
   '/XFA',
 ];
+
+/**
+ * A name runs from its `/` to the next whitespace or delimiter (ISO 32000-1
+ * §7.3.5), which is where pdf.js and MuPDF end one. PDFium also reads `0xFF`
+ * as whitespace, so it ends a name here too: a byte one reader splits on and
+ * we do not is a key that reader runs and we never saw.
+ */
+const PDF_NAME = /\/[^\x00\t\n\f\r ()<>[\]{}/%\xFF]*/g;
+
+/**
+ * The active-content names this PDF carries, in the list's order.
+ *
+ * `#` and two hex digits stand for one character inside a name, so `/J#53` is
+ * `/JS` to a reader and is decoded before it is compared.
+ */
+function activeContentOf(latin1: string): string[] {
+  const wanted = new Set(PDF_ACTIVE_CONTENT);
+  const found = new Set<string>();
+  for (const [raw] of latin1.matchAll(PDF_NAME)) {
+    const name = raw.includes('#')
+      ? raw.replace(/#([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+      : raw;
+    if (wanted.has(name)) found.add(name);
+  }
+  return PDF_ACTIVE_CONTENT.filter((marker) => found.has(marker));
+}
 
 export interface PdfInspection {
   readonly encrypted: boolean;
@@ -142,7 +177,7 @@ export function inspectPdf(
   const trailerIndex = Math.max(latin1.lastIndexOf('trailer'), 0);
   const encrypted = latin1.includes('/Encrypt') && latin1.indexOf('/Encrypt') >= trailerIndex - 4096;
 
-  const activeContent = PDF_ACTIVE_CONTENT.filter((marker) => latin1.includes(marker));
+  const activeContent = activeContentOf(latin1);
   const pageCount = (latin1.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
 
   let inflatedBytes = 0;
