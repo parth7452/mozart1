@@ -135,7 +135,7 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee |
-| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
 | `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
@@ -194,7 +194,7 @@ with every invariant verified there, and email-in through Postmark (ADR 0047),
 live since 2026-09-25 on `in.mozart.financial`: its first message, from Gmail,
 was held by email and opened by a person (`docs/VERIFY-CHECKLIST.md` §5).
 
-Nine recorded suites, every one of them scored
+Ten recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -209,6 +209,7 @@ does):
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
+| public | real public records nobody wrote for us | 97.9% / 97.9% | 98.9% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -223,8 +224,9 @@ the one command a baseline may never be moved with. A suite the baseline *has*
 measured is never skipped: if its cassettes are missing or short, the run
 fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
-($0.39, OCR through Reducto for the twelve photographs), and `formats` on
-2026-09-24 ($0.10), so `pendingSuites` is empty.
+($0.39, OCR through Reducto for the twelve photographs), `formats` on
+2026-09-24 ($0.10) and `public` on 2026-09-25 ($0.54). `pendingSuites` names
+one suite, `public_scanned`, which needs `REDUCTO_API_KEY`.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -290,7 +292,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 57/57. Before `customer`, the two field
+Classification is 67/67. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -305,7 +307,7 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0241 per document across 57 of them, and 428 of 1,133 fields carry a
+About $0.0275 per document across 67 of them, and 428 of 1,508 fields carry a
 bounding box a reviewer can follow. Extraction streams with a 32,000
 output-token budget because a dense document costs ~250 output tokens per row —
 roughly 120 rows before a read is cut off, at which point it fails loudly rather
@@ -1367,3 +1369,31 @@ across two rows ("Deviated price" / "billback") come back joined, and a joined
 quote is not on the page. That is this format's real cost, measured. With it,
 Phase 1's fixture list is complete. Real customer documents would still be worth
 more than all of them.
+
+**Real documents nobody wrote for us** (2026-09-25, no ADR, no migration).
+`public` is ten documents from ExtractBench (Apache 2.0, a pinned revision):
+two Medicaid remittance advices, four municipal invoices, two government
+purchase orders and two public rate schedules. `scripts/import-extractbench.py`
+maps their verified answers onto our fields by fixed rules and never supplies
+one; `packages/fixtures/public/README.md` has the rules and every field left
+out. Recorded for $0.54: 97.9% recall and precision, 98.9% grounding, 10 of 10
+classified. Three misses are arguable names (two payers, one buyer), and their
+answers stand. The fourth is a product gap: a unit price printed `$6,721.8000`,
+which `parseMoneyToCents` will not read. `public_scanned` holds four scanned
+invoices and ExtractBench's degraded copies of six `public` documents. It waits
+on `REDUCTO_API_KEY`.
+
+Recording `public` found the upload door refusing three of the fourteen
+distinct documents as "active content (/AA)". The `/AA` was the start of their
+fonts' names (`/AAAAAB+Arial`). `inspectPdf` matched its markers as substrings
+of the raw bytes, and random bytes in a compressed stream tripped it too:
+about 0.12 false hits per megabyte, so even odds on a 5 MB scan, and the 5 MB
+file made for the email checks is one of them. It now matches whole names, ended
+where pdf.js, MuPDF and PDFium end one, and decodes `#xx` escapes first, so
+`/J#53` is refused as `/JS` where the old check never saw it. The door still
+refuses any `/OpenAction`, even one that only picks the first page to show.
+Two of the scans carry one and are stored without it.
+
+A one-time check of 160 RVL-CDIP office scans (`docs/audits/rvl-cdip-classification/`,
+$0.45, image only) opened nothing. The two pages read as payment advices really
+are check stubs, and both scored below the floor.

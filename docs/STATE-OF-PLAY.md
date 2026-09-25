@@ -93,7 +93,7 @@ screen should say, and the query or log line that proves it.
 
 | Blocker | Who | Why it matters |
 | --- | --- | --- |
-| Real customer documents | **you** | Every fixture is synthetic. See *What not to claim* |
+| Real customer documents | **you** | No fixture is a customer's. See *What not to claim* |
 
 ## Where the phases stand
 
@@ -159,23 +159,27 @@ from a case page at all.
 
 ## Evals
 
-A **15-document synthetic "customer" pack** (staffing and logistics) has
-arrived. It is the next eval suite, scored separately like the others — never
-blended into the existing five.
+Ten recorded suites, each scored separately and never blended (the table is in
+`CLAUDE.md`). The newest, `public` (2026-09-25), is the first built from real
+documents: ten public records from ExtractBench, scored against ExtractBench's
+verified answers. 97.9% recall and precision, 10 of 10 classified. Recording it
+found the upload door refusing three real invoices and orders for their fonts'
+names; that is fixed. Its scanned half, `public_scanned`, is the one suite
+still pending, and it needs `REDUCTO_API_KEY`.
 
-`authored_pending` joins `logistics` and `customer` as a suite with fixtures and
-no cassettes. All three are named in `baseline.json`'s `pendingSuites`, which
-`pnpm eval --record-pending` refreshes without touching a metric row — the
-bookkeeping no longer needs `--record-baseline`, which rewrites the file.
+A one-time check of 160 scanned office papers (RVL-CDIP) opened no case: the
+two pages read as payment advices really are check stubs, and both scored
+below the floor (`docs/audits/rvl-cdip-classification/`).
 
 ## What not to claim yet
 
 - **A recovery rate.** One case in production carries a filing and a `partial`
   outcome — the Phase 3 end-to-end run. One case is not a rate, and no fee has
   been invoiced (Phase 4).
-- **Every fixture is synthetic**, including the new 15-document pack. The eval
-  numbers — 100% recall, 100% precision, 99.8% grounding — measure documents we
-  generated or were given as labelled test data. They are a floor, not a result.
+- **No fixture is a customer's.** Every suite is synthetic except `public`,
+  which is ten government and Medicaid records, none of them a deduction. The
+  eval numbers measure documents we generated or took from public test sets.
+  They are a floor, not a result.
 - **The OCR starter pack stamps every page `SYNTHETIC TRAINING SAMPLE`**, and
   its own README warns that marker can become a shortcut feature. A classifier
   scoring 100% on it may have learned the watermark. LOG-001 carries no such
