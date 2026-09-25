@@ -197,6 +197,38 @@ None of the seven invariants moves for the pilot.
 person's approval. Measure analyst minutes per case in week one: that number,
 not the software, sets how fast the other 16 can come on.
 
+## Miscellaneous: after the MVP, not before
+
+Parked on 2026-09-25 so they stay off the MVP's critical path. Each wants a
+faster plan than a week when it is picked up.
+
+- **Uploads of any size, including whole folders (~10 GB).** Vercel caps a
+  request at 4.5 MB and document bytes live in Postgres (ADR 0014). It needs
+  direct-to-storage upload, an ADR for where unscanned bytes sit, and a queue
+  that unpacks folders and zips.
+- **OneDrive / SharePoint sync.** Read-only through Microsoft Graph, with the
+  customer's admin granting specific folders, tokens sealed like QuickBooks',
+  and a new `uploads.source` (a migration and an ADR).
+- **Sort before reading, so a large dump does not pay to read everything.**
+  In order:
+  1. free filters: duplicate hashes, file type and size, keywords;
+  2. first-page classification only;
+  3. Jev in shadow.
+
+  A skipped file is recorded and sampled, and when unsure the file is read in
+  full, because a wrong skip loses a deduction without anyone noticing.
+- **DocJev** ([jerryjliu/docjev](https://github.com/jerryjliu/docjev),
+  Apache-2.0). Free local OCR (LiteParse) plus Jev to classify **and split**
+  multi-document packets. It would run as a small Python service used for
+  sorting and splitting only; Reducto stays the text for full reads. It needs:
+  - a TypeSafe key, and a DPA, because TypeSafe becomes a sub-processor;
+  - an ADR under STRATEGY §6.6;
+  - Jev and Claude cassettes, and shadow mode first.
+
+  First step: a one-day spike over our 77 recorded documents and the pilot's
+  real ones. Its published accuracy is 40 public PDFs and 8 packets, with no
+  deductions and no scans.
+
 ## Decisions needed now
 
 1. **The operating model.** We recommend done-with-you for pilots 1–5: our
