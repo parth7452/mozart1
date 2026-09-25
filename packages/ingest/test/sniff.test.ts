@@ -369,6 +369,29 @@ describe('names are read where a reader reads them', () => {
       expect(refused(bytes)).toBe('active_content_pdf');
     });
 
+    it('a file forced to fall back while an action hides in an object stream', () => {
+      // One unterminated string sends the file to the raw scan, which cannot
+      // see inside compressed object streams. So a file that falls back and has
+      // one is refused, rather than read as blind as every file used to be.
+      const hidden = compressedPdf(1, `/OpenAction ${JS_ACTION}`);
+      const bytes = new Uint8Array(Buffer.concat([Buffer.from(hidden), Buffer.from('\n(never closed', 'latin1')]));
+      const inspection = inspectPdf(bytes);
+      expect(inspection.nameScan).toBe('raw');
+      expect(inspection.activeContent).toEqual([]);
+      expect(inspection.objectStreamsUnread).toBe(true);
+      expect(refused(bytes)).toBe('malformed_pdf');
+    });
+
+    it('a file that falls back with no object stream is judged by the raw scan, as before', () => {
+      const bytes = new Uint8Array(
+        Buffer.concat([Buffer.from(classicPdf(onePage())), Buffer.from('\n(never closed', 'latin1')]),
+      );
+      const inspection = inspectPdf(bytes);
+      expect(inspection.nameScan).toBe('raw');
+      expect(inspection.objectStreamsUnread).toBe(false);
+      expect(refused(bytes)).toBe('accepted');
+    });
+
     it('a hex-escaped /AA inside an object stream', () => {
       const bytes = compressedPdf(3, '/#41#41 << /O 5 0 R >>');
       expect(verdict(bytes)).toMatchObject({ blocks: ['/AA'], scan: 'tokenized' });

@@ -129,7 +129,12 @@ const PDF_NAME = /\/[^\x00\t\n\f\r ()<>[\]{}/%\xFF]*/g;
  * `/JS` to a reader and is decoded before it is compared.
  */
 function activeContentOf(latin1: string): string[] {
-  const wanted = new Set(PDF_ACTIVE_CONTENT);
+  const found = namesIn(latin1, new Set(PDF_ACTIVE_CONTENT));
+  return PDF_ACTIVE_CONTENT.filter((marker) => found.has(marker));
+}
+
+/** Which of `wanted` appear anywhere in the bytes as whole, decoded names. */
+function namesIn(latin1: string, wanted: ReadonlySet<string>): Set<string> {
   const found = new Set<string>();
   for (const [raw] of latin1.matchAll(PDF_NAME)) {
     const name = raw.includes('#')
@@ -137,8 +142,11 @@ function activeContentOf(latin1: string): string[] {
       : raw;
     if (wanted.has(name)) found.add(name);
   }
-  return PDF_ACTIVE_CONTENT.filter((marker) => found.has(marker));
+  return found;
 }
+
+/** The names that mark an object stream, `/Type /ObjStm` or its `/First`. */
+const OBJECT_STREAM_NAMES: ReadonlySet<string> = new Set(['/ObjStm', '/First']);
 
 export interface PdfInspection {
   readonly encrypted: boolean;
@@ -156,6 +164,13 @@ export interface PdfInspection {
    */
   readonly nameScan: 'tokenized' | 'raw';
   readonly rawScanReason?: string;
+  /**
+   * True when the raw scan decided and the file has object streams. The raw
+   * scan cannot see inside them, and a file can be built to fall back on
+   * purpose (one unterminated string), so such a file is refused rather than
+   * read blind (`malformed_pdf`).
+   */
+  readonly objectStreamsUnread: boolean;
   readonly objectStreamsDecoded: number;
   readonly pageCount: number;
   readonly inflatedBytes: number;
@@ -187,7 +202,10 @@ function activeContentIn(
   bytes: Uint8Array,
   latin1: string,
   inflateBudget: number,
-): Pick<PdfInspection, 'activeContent' | 'allowedOpenActions' | 'nameScan' | 'rawScanReason' | 'objectStreamsDecoded'> {
+): Pick<
+  PdfInspection,
+  'activeContent' | 'allowedOpenActions' | 'nameScan' | 'rawScanReason' | 'objectStreamsUnread' | 'objectStreamsDecoded'
+> {
   const scan = scanPdfNames(bytes, latin1, {
     wanted: PDF_ACTIVE_CONTENT_SET,
     valued: OPEN_ACTION,
@@ -199,6 +217,7 @@ function activeContentIn(
       allowedOpenActions: [],
       nameScan: 'raw',
       rawScanReason: scan.reason,
+      objectStreamsUnread: namesIn(latin1, OBJECT_STREAM_NAMES).size > 0,
       objectStreamsDecoded: 0,
     };
   }
@@ -219,6 +238,7 @@ function activeContentIn(
     activeContent: PDF_ACTIVE_CONTENT.filter((marker) => blocking.has(marker)),
     allowedOpenActions,
     nameScan: 'tokenized',
+    objectStreamsUnread: false,
     objectStreamsDecoded: scan.objectStreams,
   };
 }
@@ -384,6 +404,13 @@ export function acceptUpload(
       throw new RejectedUploadError(
         'active_content_pdf',
         `${filename} carries active content (${inspection.activeContent.join(', ')}): it must be flattened before ingest`,
+      );
+    }
+    if (inspection.objectStreamsUnread) {
+      throw new RejectedUploadError(
+        'malformed_pdf',
+        `${filename} could not be read the way a PDF reader reads it (${inspection.rawScanReason ?? 'unknown'}) ` +
+          'and has compressed object streams, so what it would run cannot be checked: re-save or print it to PDF',
       );
     }
     pageCount = inspection.pageCount;
