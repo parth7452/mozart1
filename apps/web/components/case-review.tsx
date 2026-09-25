@@ -49,15 +49,17 @@ function orderOf(docType: string | null): number {
  * one means unverifiable, the other means the reading is probably wrong.
  *
  * A money field is checked for more than its quote: the page has to print the
- * amount itself, whole and to the cent, where it was quoted (ADR 0050). So its
- * badge names the amount, since a quote can be on the page and the amount not.
+ * amount itself, whole and to the cent, where it was quoted (ADR 0050). So a
+ * refusal names the amount, since a quote can be on the page and the amount
+ * not. A pass says only "quote found": only the verdict is stored, and a row
+ * read before ADR 0050 passed without its amount being looked for.
  */
 export function markFor(
   verified: boolean | null,
   fieldPath?: string,
 ): { label: string; tone: string } {
   const money = fieldPath !== undefined && isMoneyFieldPath(fieldPath);
-  if (verified === true) return { label: money ? 'amount found' : 'quote found', tone: 'verified' };
+  if (verified === true) return { label: 'quote found', tone: 'verified' };
   if (verified === false) {
     return { label: money ? 'amount not on page' : 'quote not found', tone: 'unverified' };
   }

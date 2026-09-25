@@ -540,6 +540,34 @@ describe('a unit price printed past the cent', () => {
     expect(codes(same.findings)).not.toContain('unit_cost_differs_from_po');
   });
 
+  it('reports a cent of rounding as arithmetic, never as miscounted quantities', () => {
+    // 1,001 at $0.0050 is $5.005: $5.00 also divides into 1,000 units, but it
+    // is a payer rounding differently, not a different quantity.
+    for (const [price, qty, deducted] of [
+      ['$0.0050', 1_001, '$5.00'],
+      ['$0.0050', 5, '$0.02'],
+      ['$0.0125', 2, '$0.02'],
+    ] as const) {
+      const result = reconcileNotice({ notice: pricedNotice(price, qty, 0, deducted) });
+      expect(codes(blockingFindings(result)), `${qty} at ${price}`).toEqual([]);
+      expect(codes(result.findings), `${qty} at ${price}`).toContain('line_arithmetic_differs');
+    }
+  });
+
+  it('reconciles an overage too large to price without throwing', () => {
+    const result = reconcileNotice({ notice: pricedNotice('$1.00', 0, 9_000_000_000_000_000, '$1.00') });
+    expect(codes(result.findings)).toContain('overage_not_shortage');
+    expect(codes(result.findings)).toContain('quantities_contradict_the_amount');
+  });
+
+  it('refuses a negative unit price as a finding, never an exception', () => {
+    for (const price of ['($0.0125)', '-$0.0125', '(0.05)']) {
+      const result = reconcileNotice({ notice: pricedNotice(price, 10, 0, '$0.13') });
+      const finding = blockingFindings(result).find((f) => f.code === 'unparseable_amount');
+      expect(finding?.message, price).toMatch(/cannot be negative/);
+    }
+  });
+
   it('still refuses a unit price it cannot read, as a blocking finding', () => {
     const result = reconcileNotice({ notice: pricedNotice('$1.250', 100, 0, '$125.00') });
     const finding = blockingFindings(result).find((f) => f.code === 'unparseable_amount');

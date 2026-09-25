@@ -345,6 +345,24 @@ describe('an amount on the page, to the cent', () => {
     expect(check('Total----$1,275.00', 'Total----$1,275.00', amount('$1,275.00')).verified).toBe(true);
   });
 
+  it('reads a dot leader and a spaced thousands comma as part of the row, not the number', () => {
+    const leader = 'Net payment..........1,275.00';
+    expect(check(leader, leader, amount('$1,275.00')).verified).toBe(true);
+    expect(check(leader, leader, amount('$275.00')).verified).toBe(false);
+    expect(check('Amt.1,275.00', 'Amt.1,275.00', amount('$275.00')).verified).toBe(false);
+    expect(check('Total $1,275.00', 'Total $1, 275.00', amount('$1,275.00')).verified).toBe(true);
+  });
+
+  it('keeps a sign printed as −, a dash, a trailing minus or a spaced minus', () => {
+    for (const page of ['Deduction −$6.70', 'Deduction –$6.70', 'Deduction 6.70-', 'Deduction - $6.70']) {
+      expect(check(page, page, amount('$6.70')).verified, page).toBe(false);
+      expect(check(page, page, amount('-6.70')).verified, page).toBe(true);
+    }
+    // A range and a year span are not negative numbers.
+    expect(check('6.70-7.00', 'Rate 6.70-7.00', amount('7.00')).verified).toBe(true);
+    expect(check('5-$6.70', 'Line 5-$6.70', amount('$6.70')).verified).toBe(true);
+  });
+
   it('still reads an amount OCR spelled with the letter O, and only as that amount', () => {
     expect(check('$600.00', 'Deduction $6OO.OO', amount('$600.00'))).toMatchObject({
       verified: true,

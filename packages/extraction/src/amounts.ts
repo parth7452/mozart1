@@ -52,27 +52,39 @@ export interface PrintedAmount {
  * Every number printed in `text`, each read whole.
  *
  * A number is the longest run of digits in which a `.` or `,` counts only
- * between two digits, so "$6,721" is never read out of "$6,721.85" and a full
- * stop after "$1,275.00." is not part of it. Around it: a `$` (and one space
- * after it), accounting parentheses when both are there, a trailing `CR`/`DR`,
- * and a minus only when it stands alone — the hyphen in "CB-203", "5-$6.70"
- * or a leader of dashes is not a sign.
+ * between two digits, so "$6,721" is never read out of "$6,721.85", a full
+ * stop after "$1,275.00." is not part of it, and neither is the last point of
+ * a dot leader ("Net payment....1,275.00" is $1,275.00, never $275.00). A
+ * comma followed by a space and a three-digit group is still a thousands
+ * separator ("$1, 275.00"), as the quote check's punctuation tier reads it.
+ *
+ * Around it: a `$` (and one space after it), accounting parentheses when both
+ * are there, a trailing `CR`/`DR`, a minus before it — ASCII, `−` (U+2212) or
+ * a dash, standing alone rather than joining a word ("CB-203") or leading a
+ * row of dashes — and a minus after it that starts no other number ("6.70-",
+ * as remittances print a deduction). A sign is kept, never dropped: a value
+ * without it is a different number.
  */
 export function printedAmounts(text: string): PrintedAmount[] {
-  const pattern =
-    /(\()?((?<![\p{L}\p{N}-])-)?(\$ ?)?((?<![\p{L}\p{N}-])-)?(\d+(?:[.,]\d+)*|\.\d+)(\))?(\s?(?:cr|dr)\b)?/giu;
+  const minus = '[-\u2212\u2012-\u2014]';
+  const pattern = new RegExp(
+    `(\\()?((?<![\\p{L}\\p{N}\\-\\u2212\\u2012-\\u2014])${minus} ?)?(?:(\\$ ?)(${minus})?)?` +
+      `(\\d+(?:(?:[.,]|, (?=\\d{3}(?!\\d)))\\d+)*|(?<![\\d.])\\.\\d+(?![.,]?\\d))` +
+      `(\\))?(${minus}(?![\\d.,$]))?(\\s?(?:cr|dr)\\b)?`,
+    'giu',
+  );
   const found: PrintedAmount[] = [];
   for (const match of text.matchAll(pattern)) {
-    const [whole, open, minusBefore, dollar, minusAfter, digits, close, credit] = match;
+    const [whole, open, minusBefore, dollar, minusAfter, digits, close, minusTrailing, credit] = match;
     if (digits === undefined) continue;
     // Parentheses only in pairs: "(5" is 5, and so is "5)".
     const paired = open !== undefined && close !== undefined;
+    const negative = [minusBefore, minusAfter, minusTrailing].some((m) => m !== undefined);
     const printed =
       (paired ? '(' : '') +
-      (minusBefore ?? '') +
+      (negative ? '-' : '') +
       (dollar ?? '') +
-      (minusAfter ?? '') +
-      digits +
+      digits.replace(/\s/g, '') +
       (paired ? ')' : '') +
       (credit ?? '');
     const start = match.index + (open !== undefined && !paired ? 1 : 0);

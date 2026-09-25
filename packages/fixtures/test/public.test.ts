@@ -2,7 +2,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DOC_TYPES, describeFields, schemaFor, templatePath, type DocType } from '@recouple/extraction';
+import { parseMoneyToCents } from '@recouple/core-domain';
+import {
+  DOC_TYPES,
+  describeFields,
+  printedAmounts,
+  schemaFor,
+  templatePath,
+  type DocType,
+} from '@recouple/extraction';
 import { publicDocuments } from '../src/public';
 
 /**
@@ -19,13 +27,18 @@ const REVISION = 'f6180e917a050a84582e6366cff85b7dc1e84e58';
 
 const squash = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
 
-function moneyForms(cents: number): string[] {
-  const units = Math.abs(cents) / 100;
-  const plain = units.toFixed(2);
-  const grouped = units.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return Number.isInteger(units)
-    ? [plain, grouped, units.toLocaleString('en-US')]
-    : [plain, grouped];
+/**
+ * Whether the page prints this many cents as a number read whole (ADR 0050):
+ * a truth of 1 cent is not "on the page" because `0.01` begins `0.0125`.
+ */
+function printsCents(pageText: string, cents: number): boolean {
+  return printedAmounts(squash(pageText)).some((n) => {
+    try {
+      return Math.abs(parseMoneyToCents(n.text)) === Math.abs(cents);
+    } catch {
+      return false;
+    }
+  });
 }
 
 const byKey = new Map(publicDocuments().map((d) => [d.key, d] as const));
@@ -78,13 +91,12 @@ describe('the public suites', () => {
   it('asserts only text that is on the page, and amounts as they are printed', () => {
     for (const document of clean) {
       const page = squash(document.pageText.join('\n'));
-      const compact = document.pageText.join('\n').replace(/ /g, '');
       for (const [fieldPath, expectation] of Object.entries(document.truth)) {
         if (expectation.kind === 'text' || expectation.kind === 'date') {
           expect(page.includes(squash(expectation.value)), `${document.key}: ${fieldPath}`).toBe(true);
         } else if (expectation.kind === 'money_cents') {
           expect(
-            moneyForms(expectation.value).some((form) => compact.includes(form)),
+            printsCents(document.pageText.join('\n'), expectation.value),
             `${document.key}: ${fieldPath} = ${expectation.value}¢`,
           ).toBe(true);
         }

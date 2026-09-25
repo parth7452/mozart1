@@ -1429,8 +1429,9 @@ and the page to print it whole — a number read to its own ends, inside the
 quoted span — equal to the cent, sign included, and a unit price digit for
 digit. A number that cannot be read to the cent fails; a printed `-` is not a
 number and keeps its text verdict; a page with no text layer stays `null`. The
-case page's badge for a money field says **amount found** / **amount not on
-page**. Measured across all 542 recorded money fields first: exactly two
+case page's badge for a refused money field says **amount not on page**; a pass
+still says "quote found", because only the verdict is stored and a row read
+before this passed on its quote alone. Measured across all 542 recorded money fields first: exactly two
 change, both quotes that were only a label (`hl-case-02-remittance`
 `payment_total`, "Net payment", and `eb-hingham-wbmason-invoice-scan`
 `invoice_total`, "Total Due:"), so `held_out` grounding is 99.1% and

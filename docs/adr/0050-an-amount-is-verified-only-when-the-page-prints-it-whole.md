@@ -38,12 +38,19 @@ money field, `checkQuote` also requires the amount itself:
 2. **The page prints it whole, where it was quoted.** A number on the page must
    overlap the quoted span and equal the value, read to its own ends: the
    longest run of digits, with a `.` or `,` counted only between two digits.
-   `$6,721` is never read out of `$6,721.85`, and the full stop in
-   `$1,275.00.` is not part of the number.
+   `$6,721` is never read out of `$6,721.85`. The full stop in `$1,275.00.` is
+   not part of the number, and neither is the last point of a dot leader:
+   `Net payment....1,275.00` prints $1,275.00, not $275.00.
 3. **It is identical to the cent.** An amount is compared as cents, so
    `$6,721.80` equals a printed `$6,721.8000` and nothing else. The sign counts:
-   a minus that stands alone, accounting parentheses in a pair, or `CR`/`DR`.
-   The hyphen in `CB-203` and a leader of dashes are not signs. A unit price is
+   - a minus that stands alone, whether ASCII, `−` or a dash;
+   - a minus after the number that starts no other number (`6.70-`);
+   - accounting parentheses in a pair;
+   - `CR`/`DR`.
+
+   The hyphen in `CB-203`, a range like `6.70-7.00` and a leader of dashes are
+   not signs. A page's sign is never dropped: a value without it is a different
+   number. A unit price is
    compared at its printed digits (ADR 0049): `$0.01` read off a page printing
    `$0.0125` is refused, though both are stored as 1 cent.
 4. **A number that cannot be read to the cent fails.** A value such as
@@ -60,10 +67,12 @@ money field, `checkQuote` also requires the amount itself:
    as before, and not `false`.
 
 A field that fails any of these is `quoteVerified: false`, with
-`amountPrintedWhole: false` and a reason naming the value. The case page's badge
-for a money field reads **amount found** or **amount not on page** rather than
-quote found / not found, since the quote can be on the page while the amount is
-not.
+`amountPrintedWhole: false` and a reason naming the value. On the case page, a
+refused money field's badge reads **amount not on page**, not "quote not
+found", because the quote can be on the page while the amount is not. A pass
+still reads "quote found". Only the verdict is stored, and a row read before
+this decision passed without anyone looking for its amount, so the page cannot
+claim an amount check it cannot see.
 
 ## Consequences
 
@@ -79,8 +88,10 @@ not.
   baseline that still reads 100% would be measuring the old definition.
 - **Stored rows.** A new read writes the stricter verdict to
   `extraction_results.quote_verified`. Rows already stored keep theirs, because
-  the table is append-only. No migration: the new flag and its reason are not
-  stored, only the verdict is.
+  the table is append-only. No migration: `amountPrintedWhole` and its reason
+  are not stored, only the verdict is. Storing the flag, so that a pass could
+  say "amount found", would take a column and so a migration. That is a
+  follow-up.
 - **What it does not do.** Nothing in the product gated on `quoteVerified`
   before this, and nothing does now. A case still opens with the amount the
   notice or the remittance line printed. What changes is what the reviewer is

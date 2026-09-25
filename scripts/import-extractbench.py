@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from decimal import ROUND_HALF_UP, Decimal
 import io
 import json
 import os
@@ -165,15 +166,24 @@ def on_page(value: str, text: str) -> bool:
 
 
 def money_on_page(amount: float, text: str) -> bool:
+    # A number read whole (ADR 0050): "0.01" is not on a page printing "0.0125".
     forms = {f"{abs(amount):,.2f}", f"{abs(amount):.2f}"}
     if float(amount).is_integer():
         forms |= {f"{abs(int(amount)):,}"}
     compact = text.replace(" ", "")
-    return any(form in compact for form in forms)
+    # Zeros past the cents are the same amount ("6,721.80" in "6,721.8000").
+    def whole(form: str) -> str:
+        zeros = "0*" if "." in form else ""
+        return rf"(?<![\d.,]){re.escape(form)}{zeros}(?!\d|[.,]\d)"
+
+    return any(re.search(whole(form), compact) for form in forms)
 
 
 def cents(amount: float) -> int:
-    return int(round(amount * 100))
+    # Half-up on the decimal as written, never on a binary float (ADR 0049):
+    # round(0.025 * 100) is 2, and parseUnitPrice("$0.0250") is 3.
+    exact = Decimal(str(amount)) * 100
+    return int(exact.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def printed_date(iso: str, text: str) -> str | None:

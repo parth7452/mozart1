@@ -1111,7 +1111,7 @@ describe('the review page', () => {
     expect(html).toContain('not checked');
   });
 
-  it('says of a money field whether its amount is on the page, not only its quote', () => {
+  it('says of a refused money field that its amount is not on the page', () => {
     const html = renderToStaticMarkup(
       <CaseReview documents={[document()]} mayAct={false}
         viewer={viewer}
@@ -1126,9 +1126,12 @@ describe('the review page', () => {
       />,
     );
     // A label quoted for an amount is on the page; the amount is what has to be.
-    expect(html).toContain('amount found');
     expect(html).toContain('amount not on page');
     expect(html).not.toContain('quote not found');
+    // A stored pass cannot say its amount was looked for: rows read before
+    // ADR 0050 passed on their quote alone.
+    expect(html).toContain('quote found');
+    expect(html).not.toContain('amount found');
   });
 
   it('offers no approve button, because approving is not a thing this page can do', () => {

@@ -358,6 +358,19 @@ export function extendedCents(quantity: number, price: UnitPrice): Cents {
 }
 
 /**
+ * Whether `amount` is within a cent of `quantity` at the printed price, exact
+ * (`BigInt`, never thrown past the safe-integer range). A payer that truncates
+ * or rounds half-even can print a line a cent from our half-up total; that is
+ * a rounding difference, never a different quantity.
+ */
+export function withinACentAt(quantity: number, price: UnitPrice, amount: Cents): boolean {
+  if (!Number.isSafeInteger(quantity)) return false;
+  const scale = 10n ** BigInt(price.places);
+  const difference = BigInt(amount) * scale - BigInt(quantity) * price.units * 100n;
+  return (difference < 0n ? -difference : difference) < scale;
+}
+
+/**
  * Shortage maths at a printed unit price: `(invoiced − received) × price`,
  * with `shortageCents`'s refusals, rounded once at the end (`extendedCents`).
  */

@@ -13,7 +13,6 @@
 import {
   MoneyError,
   compareUnitPrices,
-  extendedCents,
   formatCents,
   formatUnitPrice,
   parseMoneyToCents,
@@ -22,6 +21,7 @@ import {
   subCents,
   sumCents,
   unitsAtPrice,
+  withinACentAt,
   type Cents,
   type UnitPrice,
 } from '@recouple/core-domain';
@@ -105,7 +105,18 @@ function unitPrice(
   const text = valueOf(field);
   if (text === undefined) return undefined;
   try {
-    return parseUnitPrice(text);
+    const price = parseUnitPrice(text);
+    if (price.units < 0n) {
+      // A negative price per unit is not a price a line can be checked at.
+      findings.push({
+        code: 'unparseable_amount',
+        severity: 'blocking',
+        message: `could not read ${JSON.stringify(text)} as a unit price: a unit price cannot be negative`,
+        fieldPath,
+      });
+      return undefined;
+    }
+    return price;
   } catch (error) {
     findings.push({
       code: 'unparseable_amount',
@@ -395,9 +406,11 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
     //
     // The division is at the printed price (ADR 0049), never at the cents it is
     // stored as: $125.00 at `$0.0125` is 10,000 pounds, not 12,500. And an
-    // amount that is exactly the gap priced and rounded once is never a
-    // contradiction, whatever else it divides into: at `$0.0050`, one unit is
-    // rounded to 1 cent, and 1 cent also divides into 2 units.
+    // amount within a cent of the gap at the printed price is never a
+    // contradiction, whatever else it divides into: at `$0.0050`, 1,001 units
+    // are $5.005, which a payer may print as $5.00 or $5.01, and $5.00 also
+    // divides into 1,000. Below a cent a unit, a rounding difference is not a
+    // miscounted quantity; the arithmetic check below still reports it.
     if (
       qtyInvoiced !== undefined &&
       qtyReceived !== undefined &&
@@ -410,7 +423,7 @@ export function reconcileNotice(input: ReconcileInput): Reconciliation {
       if (
         impliedUnits !== undefined &&
         impliedUnits !== statedGap &&
-        !(Number.isSafeInteger(statedGap) && extendedCents(statedGap, unitCost) === claimed)
+        !withinACentAt(statedGap, unitCost, claimed)
       ) {
         findings.push({
           code: 'quantities_contradict_the_amount',
