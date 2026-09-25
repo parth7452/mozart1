@@ -35,8 +35,8 @@ Types:
 - pod: a delivery receipt whose purpose is to record the delivery itself — a proof of delivery, delivery confirmation or signed gate receipt. Not a bill of lading that happens to carry a signature
 - asn: an advance ship notice / 856
 - correspondence: a **message** one organisation sent another — an email or its export, a portal message, a letter. It has a sender, a recipient and a time sent, and it usually changes or waives something already agreed: an approved reschedule, a granted exception, a waiver. A contract, agreement or confirmation document is NOT correspondence even when it records that both sides accepted it — a rate confirmation, a price agreement and a signed deal sheet are agreements, and they go to price_agreement or promo_agreement. Ask whether someone sent it, not whether it confirms something
-- promo_agreement: a promotional deal sheet, allowance agreement or buyer approval
-- price_agreement: a document that sets the prices or rates to be charged — a price list, a cost-change confirmation, a pricing or rate agreement, a rate confirmation, or a service order, statement of work or order terms that fixes rates
+- promo_agreement: an agreement between a seller and a buyer or retailer about a promotion, deal or allowance — a promotional deal sheet, an allowance agreement, or a buyer's approval of one. An advertising or media buy plan, or a marketing budget, is not one
+- price_agreement: a document that sets the prices or rates to be charged — a price list, a cost-change confirmation, a pricing or rate agreement, a rate confirmation, or a service order, statement of work or order terms that fixes rates. It must fix at least one price, rate, fee, discount or allowance that one party will charge or pay another; a document that names none is not one
 - routing_guide: a customer's routing, packaging or compliance guide
 - other: none of the above, including an internal note or memo that was never sent to another organisation
 
@@ -71,6 +71,13 @@ rates per hour, per load or per unit, and the conditions they apply under — an
 is a price_agreement, including when "order" is in its title (a service order, order terms). A PO
 number on the page never decides the type: invoices, notices, receipts and agreements all cite the
 order they belong to. Promotional allowances and deal terms are promo_agreement.
+
+Price agreement or other? An effective date, a revision number or "supersedes" does not make a
+document an agreement: a product or technical specification carries them too, and is other. A
+budget, an internal cost plan, or a schedule of costs that is not an agreement between two parties
+is other as well, even when every line has an amount: it is one organisation's own plan, not a
+price one party will charge or pay another. A price list or rate sheet is a price_agreement, signed
+or not, because it fixes what its issuer will charge whoever buys under it.
 
 Report calibrated confidence. If the document is ambiguous or unreadable, say so with a low number rather than picking the most likely type confidently.`;
 
