@@ -11,7 +11,13 @@ import {
   formatCents,
   MoneyError,
   shortageCents,
+  shortageCentsAt,
   parseMoneyToCents,
+  parseUnitPrice,
+  extendedCents,
+  unitsAtPrice,
+  compareUnitPrices,
+  formatUnitPrice,
   sumCents,
 } from '../src/money';
 
@@ -324,6 +330,203 @@ describe('parseMoneyToCents', () => {
       fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
         const amount = cents(n);
         expect(parseMoneyToCents(formatCents(amount))).toBe(amount);
+      }),
+    );
+  });
+});
+
+/**
+ * A unit price (ADR 0049). The founder's rule: store it rounded half-up to the
+ * cent, and do a line's arithmetic on the printed price, rounded once.
+ */
+describe('parseUnitPrice', () => {
+  /** A price as a page prints it: whole dollars, two cent digits, then more. */
+  const printedPrice = fc
+    .record({
+      whole: fc.integer({ min: 0, max: 9_000_000 }),
+      centDigits: fc.integer({ min: 0, max: 99 }),
+      tail: fc.array(fc.integer({ min: 0, max: 9 }), { minLength: 2, maxLength: 7 }),
+      commas: fc.boolean(),
+    })
+    .map(({ whole, centDigits, tail, commas }) => ({
+      whole,
+      centDigits,
+      tail,
+      text: `$${commas ? whole.toLocaleString('en-US') : String(whole)}.${String(centDigits).padStart(2, '0')}${tail.join('')}`,
+    }));
+
+  it('stores the founder\'s example, $0.0125, as $0.01', () => {
+    const price = parseUnitPrice('$0.0125');
+    expect(price.cents).toBe(1);
+    expect(price.rounded).toBe(true);
+  });
+
+  it('rounds half-up to the cent', () => {
+    expect(parseUnitPrice('$0.0150').cents).toBe(2);
+    expect(parseUnitPrice('$0.0149').cents).toBe(1);
+    expect(parseUnitPrice('$0.0199').cents).toBe(2);
+    expect(parseUnitPrice('$0.0050').cents).toBe(1);
+    expect(parseUnitPrice('$0.0049').cents).toBe(0);
+    expect(parseUnitPrice('$3.4590').cents).toBe(346);
+    expect(parseUnitPrice('$1,234.5651').cents).toBe(123_457);
+    expect(parseUnitPrice('(0.0150)').cents).toBe(-2);
+  });
+
+  it('reads a price in whole cents exactly as parseMoneyToCents does', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }),
+        fc.integer({ min: 0, max: 6 }),
+        (n, zeros) => {
+          const text = formatCents(cents(n)) + (zeros === 1 ? '00' : '0'.repeat(zeros));
+          const price = parseUnitPrice(text);
+          expect(price.cents).toBe(parseMoneyToCents(text));
+          expect(price.rounded).toBe(false);
+        },
+      ),
+    );
+  });
+
+  it('rounds any price half-up on its first digit past the cents', () => {
+    fc.assert(
+      fc.property(printedPrice, ({ whole, centDigits, tail, text }) => {
+        fc.pre(!text.includes(',') || whole >= 1000);
+        const expected = whole * 100 + centDigits + ((tail[0] ?? 0) >= 5 ? 1 : 0);
+        const price = parseUnitPrice(text);
+        expect(price.cents, text).toBe(expected);
+        expect(price.rounded, text).toBe(tail.some((d) => d !== 0));
+      }),
+    );
+  });
+
+  it('refuses what parseMoneyToCents refuses, except a fraction of a cent', () => {
+    for (const text of ['', '$', '.', 'three thousand', '1,23.45', '12,3456', '6,721.8', '1800.5']) {
+      expect(() => parseUnitPrice(text), text).toThrow(MoneyError);
+    }
+    // Three places are a thousands group as often as they are a price.
+    for (const text of ['$1.250', '$3.459', '0.125', '1.000']) {
+      expect(() => parseUnitPrice(text), text).toThrow(/thousands group/);
+    }
+    // Even after a thousands comma: `$1,500.000` is likelier `$1,500,000` misread.
+    expect(() => parseUnitPrice('$1,234.567')).toThrow(/thousands group/);
+    expect(parseUnitPrice('$1,234.5670').cents).toBe(123_457);
+  });
+});
+
+describe('arithmetic at a printed unit price', () => {
+  const anyPrice = fc
+    .record({
+      units: fc.bigInt({ min: 0n, max: 10_000_000_000n }),
+      places: fc.integer({ min: 2, max: 7 }),
+    })
+    .map(({ units, places }) => {
+      const scale = 10n ** BigInt(places);
+      const text = `${(units / scale).toString()}.${(units % scale).toString().padStart(places, '0')}`;
+      return { text, price: parseUnitPrice(places === 3 ? `${text}0` : text) };
+    });
+
+  it('prices the founder\'s line at the printed price: 10,000 lb at $0.0125 is $125.00', () => {
+    const price = parseUnitPrice('$0.0125');
+    expect(extendedCents(10_000, price)).toBe(12_500);
+    expect(shortageCentsAt(10_000, 0, price)).toBe(12_500);
+    // Never the stored cent times the quantity, which would be $100.00.
+    expect(shortageCentsAt(10_000, 0, price)).not.toBe(shortageCents(10_000, 0, price.cents));
+  });
+
+  it('rounds the line total once, half-up', () => {
+    const price = parseUnitPrice('$0.0125');
+    expect(extendedCents(3, price)).toBe(4); // $0.0375
+    expect(extendedCents(333, price)).toBe(416); // $4.1625
+    expect(extendedCents(2, price)).toBe(3); // $0.025
+  });
+
+  it('is within half a cent of the exact product, and exact when the price is whole cents', () => {
+    fc.assert(
+      // A price up to $100m and a quantity up to 100,000 keep every product in
+      // range; past it, `extendedCents` refuses (below) rather than wrapping.
+      fc.property(anyPrice, fc.integer({ min: 0, max: 100_000 }), ({ price }, quantity) => {
+        const total = extendedCents(quantity, price);
+        const scale = 10n ** BigInt(price.places);
+        const exact = BigInt(quantity) * price.units * 100n;
+        const error = BigInt(total) * scale - exact;
+        expect(2n * (error < 0n ? -error : error) <= scale).toBe(true);
+        if (!price.rounded) expect(total).toBe(quantity * price.cents);
+      }),
+    );
+  });
+
+  it('refuses a line total it cannot hold exactly', () => {
+    expect(() => extendedCents(999_999, parseUnitPrice('90072082.62'))).toThrow(
+      /999999 at \$90,072,082\.62 is out of the safe integer range/,
+    );
+    expect(() => extendedCents(1.5, parseUnitPrice('$0.0125'))).toThrow(/integer/);
+  });
+
+  it('agrees with shortageCents whenever the price is whole cents', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 100_000 }),
+        fc.integer({ min: 0, max: 100_000 }),
+        fc.integer({ min: 0, max: 10_000_000 }),
+        (invoiced, received, unitCost) => {
+          fc.pre(received <= invoiced);
+          const price = parseUnitPrice(formatCents(cents(unitCost)));
+          expect(shortageCentsAt(invoiced, received, price)).toBe(
+            shortageCents(invoiced, received, cents(unitCost)),
+          );
+        },
+      ),
+    );
+  });
+
+  it('refuses what shortageCents refuses', () => {
+    const price = parseUnitPrice('$0.0125');
+    expect(() => shortageCentsAt(25, 30, price)).toThrow(/overage/);
+    expect(() => shortageCentsAt(1.5, 0, price)).toThrow(MoneyError);
+    expect(() => shortageCentsAt(-1, 0, price)).toThrow(MoneyError);
+    expect(() => shortageCentsAt(1, 0, parseUnitPrice('(0.0125)'))).toThrow(/negative/);
+  });
+
+  it('counts whole units at a printed price, exactly', () => {
+    const price = parseUnitPrice('$0.0125');
+    expect(unitsAtPrice(cents(12_500), price)).toBe(10_000);
+    expect(unitsAtPrice(cents(416), price)).toBeUndefined();
+    expect(unitsAtPrice(cents(100), parseUnitPrice('0.00'))).toBeUndefined();
+    fc.assert(
+      fc.property(anyPrice, fc.integer({ min: 1, max: 100_000 }), ({ price }, quantity) => {
+        fc.pre(price.units > 0n && (BigInt(quantity) * price.units * 100n) % 10n ** BigInt(price.places) === 0n);
+        expect(unitsAtPrice(extendedCents(quantity, price), price)).toBe(quantity);
+      }),
+    );
+  });
+
+  it('compares printed prices exactly, not their stored cents', () => {
+    const agreed = parseUnitPrice('$0.0149');
+    const used = parseUnitPrice('$0.0125');
+    expect(agreed.cents).toBe(used.cents);
+    expect(compareUnitPrices(used, agreed)).toBeLessThan(0);
+    expect(compareUnitPrices(parseUnitPrice('$6,721.80'), parseUnitPrice('$6,721.8000'))).toBe(0);
+    fc.assert(
+      fc.property(anyPrice, anyPrice, ({ price: a }, { price: b }) => {
+        const left = a.units * 10n ** BigInt(b.places);
+        const right = b.units * 10n ** BigInt(a.places);
+        expect(Math.sign(compareUnitPrices(a, b))).toBe(left === right ? 0 : left < right ? -1 : 1);
+        expect(compareUnitPrices(a, b)).toBe(-compareUnitPrices(b, a) || 0);
+      }),
+    );
+  });
+
+  it('writes a price the way the page did, and reads it back unchanged', () => {
+    expect(formatUnitPrice(parseUnitPrice('$0.0125'))).toBe('$0.0125');
+    expect(formatUnitPrice(parseUnitPrice('$6,721.8000'))).toBe('$6,721.80');
+    expect(formatUnitPrice(parseUnitPrice('1.2350'))).toBe('$1.2350');
+    expect(formatUnitPrice(parseUnitPrice('1234.5670'))).toBe('$1,234.5670');
+    expect(formatUnitPrice(parseUnitPrice('(0.0125)'))).toBe('-$0.0125');
+    fc.assert(
+      fc.property(anyPrice, ({ price }) => {
+        const again = parseUnitPrice(formatUnitPrice(price));
+        expect(compareUnitPrices(again, price)).toBe(0);
+        expect(again.cents).toBe(price.cents);
       }),
     );
   });

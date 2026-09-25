@@ -468,3 +468,110 @@ describe('quantities that contradict the amount beside them', () => {
     expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
   });
 });
+
+/**
+ * A unit price printed past the cent (ADR 0049). It is stored rounded half-up
+ * to the cent, and every check works at the price the page printed, so a line
+ * that is right is never made wrong by the rounding.
+ */
+describe('a unit price printed past the cent', () => {
+  /** The Walmart notice, re-priced as a deviated-price line by the pound. */
+  function pricedNotice(unitCost: string, invoiced: number, received: number, deducted: string) {
+    const notice = structuredClone(expected<DeductionNotice>('walmart-apdp-notice'));
+    const line = notice.lines[0] as unknown as Record<string, { value: unknown }>;
+    line.unit_cost!.value = unitCost;
+    line.qty_invoiced!.value = invoiced;
+    line.qty_received!.value = received;
+    line.deduction_amount!.value = deducted;
+    (notice as unknown as Record<string, { value: unknown }>).deduction_total!.value = deducted;
+    return notice;
+  }
+
+  it('prices 10,000 lb at $0.0125 as $125.00, identical to the page', () => {
+    const result = reconcileNotice({ notice: pricedNotice('$0.0125', 10_000, 0, '$125.00') });
+    expect(result.lines[0]?.expectedShortageCents).toBe(12_500);
+    expect(result.lines[0]?.verdict).toBe('matches');
+    expect(codes(result.findings)).not.toContain('line_arithmetic_differs');
+    expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
+    expect(codes(result.findings)).not.toContain('unparseable_amount');
+  });
+
+  it('never checks the line at the stored cent, which would invent a $25 over-deduction', () => {
+    const result = reconcileNotice({ notice: pricedNotice('$0.0125', 10_000, 0, '$125.00') });
+    expect(disputeSupport(result)).toHaveLength(0);
+    expect(blockingFindings(result)).toHaveLength(0);
+  });
+
+  it('rounds the line total once, half-up, and prints the price as the page did', () => {
+    // 3 lb at $0.0125 is $0.0375, rounded once to $0.04; $0.05 is a cent over.
+    const matching = reconcileNotice({ notice: pricedNotice('$0.0125', 3, 0, '$0.04') });
+    expect(matching.lines[0]?.verdict).toBe('matches');
+    const over = reconcileNotice({ notice: pricedNotice('$0.0125', 3, 0, '$0.05') });
+    const finding = over.findings.find((f) => f.code === 'line_arithmetic_differs');
+    expect(finding?.severity).toBe('supports_dispute');
+    expect(finding?.message).toContain('× $0.0125 = $0.04, but $0.05 was deducted');
+  });
+
+  it('does not call a line rounded to the cent a contradiction of its quantities', () => {
+    // One unit at $0.0050 rounds to 1 cent, and 1 cent also divides into two.
+    const result = reconcileNotice({ notice: pricedNotice('$0.0050', 1, 0, '$0.01') });
+    expect(codes(result.findings)).not.toContain('quantities_contradict_the_amount');
+    expect(result.lines[0]?.verdict).toBe('matches');
+  });
+
+  it('still catches quantities the amount contradicts, at the printed price', () => {
+    // $125.00 at $0.0125 is 10,000 lb, but the line says a gap of 8,000.
+    const result = reconcileNotice({ notice: pricedNotice('$0.0125', 8_000, 0, '$125.00') });
+    const finding = blockingFindings(result).find((f) => f.code === 'quantities_contradict_the_amount');
+    expect(finding?.message).toContain('$125.00 deducted at $0.0125 each is 10000 units');
+  });
+
+  it('compares a PO price exactly, though both prices are stored as one cent', () => {
+    const notice = pricedNotice('$0.0125', 10_000, 0, '$125.00');
+    const po = structuredClone(expected<PurchaseOrder>('walmart-po'));
+    const poLine = po.lines[0] as unknown as Record<string, { value: unknown }>;
+    poLine.unit_cost!.value = '$0.0130';
+    const differs = reconcileNotice({ notice, po });
+    const finding = disputeSupport(differs).find((f) => f.code === 'unit_cost_differs_from_po');
+    expect(finding?.message).toContain('the deduction uses $0.0125 but the PO agreed $0.0130');
+
+    poLine.unit_cost!.value = '$0.012500';
+    const same = reconcileNotice({ notice, po });
+    expect(codes(same.findings)).not.toContain('unit_cost_differs_from_po');
+  });
+
+  it('reports a cent of rounding as arithmetic, never as miscounted quantities', () => {
+    // 1,001 at $0.0050 is $5.005: $5.00 also divides into 1,000 units, but it
+    // is a payer rounding differently, not a different quantity.
+    for (const [price, qty, deducted] of [
+      ['$0.0050', 1_001, '$5.00'],
+      ['$0.0050', 5, '$0.02'],
+      ['$0.0125', 2, '$0.02'],
+    ] as const) {
+      const result = reconcileNotice({ notice: pricedNotice(price, qty, 0, deducted) });
+      expect(codes(blockingFindings(result)), `${qty} at ${price}`).toEqual([]);
+      expect(codes(result.findings), `${qty} at ${price}`).toContain('line_arithmetic_differs');
+    }
+  });
+
+  it('reconciles an overage too large to price without throwing', () => {
+    const result = reconcileNotice({ notice: pricedNotice('$1.00', 0, 9_000_000_000_000_000, '$1.00') });
+    expect(codes(result.findings)).toContain('overage_not_shortage');
+    expect(codes(result.findings)).toContain('quantities_contradict_the_amount');
+  });
+
+  it('refuses a negative unit price as a finding, never an exception', () => {
+    for (const price of ['($0.0125)', '-$0.0125', '(0.05)']) {
+      const result = reconcileNotice({ notice: pricedNotice(price, 10, 0, '$0.13') });
+      const finding = blockingFindings(result).find((f) => f.code === 'unparseable_amount');
+      expect(finding?.message, price).toMatch(/cannot be negative/);
+    }
+  });
+
+  it('still refuses a unit price it cannot read, as a blocking finding', () => {
+    const result = reconcileNotice({ notice: pricedNotice('$1.250', 100, 0, '$125.00') });
+    const finding = blockingFindings(result).find((f) => f.code === 'unparseable_amount');
+    expect(finding?.fieldPath).toBe('lines[0].unit_cost');
+    expect(finding?.message).toMatch(/thousands group/);
+  });
+});

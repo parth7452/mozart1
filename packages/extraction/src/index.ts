@@ -8,6 +8,7 @@ export * from './paths';
 export * from './wire';
 export * from './restore';
 export * from './verify';
+export * from './amounts';
 export * from './ocr';
 export * from './reducto';
 export * from './reconcile';

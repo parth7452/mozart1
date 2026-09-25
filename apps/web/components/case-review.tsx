@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { Finding, Reconciliation } from '@recouple/extraction';
+import { isMoneyFieldPath, type Finding, type Reconciliation } from '@recouple/extraction';
 import type {
   CaseMerges,
   CaseWorkflow,
@@ -47,10 +47,22 @@ function orderOf(docType: string | null): number {
  * Three answers, not two. "No text to check against" is a different claim from
  * "checked and the quote was not there", and a reviewer is owed the difference —
  * one means unverifiable, the other means the reading is probably wrong.
+ *
+ * A money field is checked for more than its quote: the page has to print the
+ * amount itself, whole and to the cent, where it was quoted (ADR 0050). So a
+ * refusal names the amount, since a quote can be on the page and the amount
+ * not. A pass says only "quote found": only the verdict is stored, and a row
+ * read before ADR 0050 passed without its amount being looked for.
  */
-export function markFor(verified: boolean | null): { label: string; tone: string } {
+export function markFor(
+  verified: boolean | null,
+  fieldPath?: string,
+): { label: string; tone: string } {
+  const money = fieldPath !== undefined && isMoneyFieldPath(fieldPath);
   if (verified === true) return { label: 'quote found', tone: 'verified' };
-  if (verified === false) return { label: 'quote not found', tone: 'unverified' };
+  if (verified === false) {
+    return { label: money ? 'amount not on page' : 'quote not found', tone: 'unverified' };
+  }
   return { label: 'not checked', tone: 'unchecked' };
 }
 
@@ -489,7 +501,7 @@ export function CaseReview({
                   )}
                   <dl className="fields">
                     {shown.map((field) => {
-                      const mark = markFor(field.quoteVerified);
+                      const mark = markFor(field.quoteVerified, field.fieldPath);
                       return (
                         <div key={`${documentId}:${field.fieldPath}`}>
                           <dt>{fieldLabel(field.fieldPath)}</dt>

@@ -7,6 +7,15 @@
  * value, and it is caught before a human ever sees the field.
  */
 
+import {
+  amountPrintedWhole,
+  foldNumberGlyphs,
+  moneyKindOf,
+  readsAsMoney,
+  spansOf,
+  type MoneyKind,
+  type Span,
+} from './amounts';
 import { asLaidOut, isDash, withoutInlineMarkup } from './markup';
 import type { ExtractedField } from './ports';
 
@@ -171,13 +180,35 @@ export interface QuoteCheck {
    * holds the quote. Absent on every other answer.
    */
   readonly foundOnPage?: number;
+  /**
+   * For a money field whose value has a digit in it: whether the page prints
+   * that amount whole, to the cent, where it was quoted (ADR 0050). Absent for
+   * any other field, and when there was no text to check against.
+   */
+  readonly amountPrintedWhole?: boolean;
+}
+
+/** The value a money field reports, for `checkQuote` to find on the page. */
+export interface MoneyToFind {
+  readonly kind: MoneyKind;
+  readonly value: string;
+}
+
+/**
+ * One page's answer: the tier that found the quote, and the page and quote as
+ * that tier read them — with where the quote sits in the page when the tier
+ * keeps positions (`exact`, `separator`), for the amount check (ADR 0050).
+ */
+interface PageMatch {
+  readonly matchedBy: QuoteMatch;
+  readonly reason?: string;
+  readonly pageAsRead: string;
+  readonly quoteAsRead: string;
+  readonly positioned: boolean;
 }
 
 /** One page's answer: the tier that found the quote, or nothing. */
-function matchOnPage(
-  quote: string,
-  page: string,
-): { readonly matchedBy: QuoteMatch; readonly reason?: string } | undefined {
+function matchOnPage(quote: string, page: string): PageMatch | undefined {
   // Bold is presentation too, and so is `&amp;`. The Reducto adapter already
   // removes both from every text layer it writes; the check does it again
   // because a page stored before it did is read back by any later read of that
@@ -187,7 +218,12 @@ function matchOnPage(
   const unmarked = withoutInlineMarkup(page);
   const quotedUnmarked = withoutInlineMarkup(quote);
   if (occursWithItsSign(normalise(unmarked), normalise(quotedUnmarked), 'page')) {
-    return { matchedBy: 'exact' };
+    return {
+      matchedBy: 'exact',
+      pageAsRead: normalise(unmarked),
+      quoteAsRead: normalise(quotedUnmarked),
+      positioned: true,
+    };
   }
   // Layout next, and every tier after this one reads the text as laid out
   // (`asLaidOut`): a column rule is one glyph, however it was drawn, and
@@ -202,18 +238,72 @@ function matchOnPage(
       reason:
         'matched once the layout was read as spacing: column rules (|, I, l) as one glyph, ' +
         'table cells as spaces, and every dash as a hyphen',
+      pageAsRead: normalise(onPage),
+      quoteAsRead: normalise(quoted),
+      positioned: true,
     };
   }
+  // Past this point the quote's position in the page's own text is lost, so
+  // an amount may be printed anywhere on the page — but still whole.
   if (occursWithItsSign(alphanumeric(onPage), alphanumeric(quoted), 'marked')) {
-    return { matchedBy: 'punctuation', reason: 'matched ignoring punctuation' };
+    return {
+      matchedBy: 'punctuation',
+      reason: 'matched ignoring punctuation',
+      pageAsRead: normalise(onPage),
+      quoteAsRead: normalise(quoted),
+      positioned: false,
+    };
   }
   if (occursWithItsSign(glyphFolded(onPage), glyphFolded(quoted), 'marked')) {
     return {
       matchedBy: 'ocr_confusion',
       reason: 'matched only after allowing for glyphs OCR confuses (O/0, I/1, S/5)',
+      pageAsRead: foldNumberGlyphs(normalise(onPage)),
+      quoteAsRead: foldNumberGlyphs(normalise(quoted)),
+      positioned: false,
     };
   }
   return undefined;
+}
+
+/**
+ * The answer for a quote found on a page, once a money field's amount has been
+ * looked for there too (ADR 0050). Finding the quote is not enough when the
+ * quote is only a label, or stops short of the number the page prints: the
+ * quote must print the value, and the page must print it whole, inside the
+ * quoted span, equal to the cent.
+ */
+function withAmount(found: QuoteCheck, match: PageMatch, money: MoneyToFind | undefined): QuoteCheck {
+  // A value with no digit in it ("-" on a line with no deduction) is not a
+  // number, so there is no amount to find; its quote stands as it is.
+  if (money === undefined || !/\d/.test(money.value)) return found;
+  // A number we cannot read to the cent ("$1,234.5") cannot be identical to
+  // the cent to anything on the page.
+  if (!readsAsMoney(money.kind, money.value)) {
+    return {
+      verified: false,
+      amountPrintedWhole: false,
+      reason: `the quote is on the page, but ${JSON.stringify(money.value)} cannot be read to the cent`,
+    };
+  }
+  const spans: readonly Span[] | 'anywhere' = match.positioned
+    ? spansOf(match.pageAsRead, match.quoteAsRead)
+    : 'anywhere';
+  const whole = amountPrintedWhole({
+    kind: money.kind,
+    value: money.value,
+    quote: match.quoteAsRead,
+    page: match.pageAsRead,
+    spans,
+  });
+  if (whole) return { ...found, amountPrintedWhole: true };
+  return {
+    verified: false,
+    amountPrintedWhole: false,
+    reason:
+      `the quote is on the page, but ${JSON.stringify(money.value)} is not printed there ` +
+      'whole, to the cent',
+  };
 }
 
 /**
@@ -235,6 +325,7 @@ export function checkQuote(
   quote: string,
   sourcePage: number,
   pageText: readonly string[] | undefined,
+  money?: MoneyToFind,
 ): QuoteCheck {
   if (pageText === undefined || pageText.length === 0) {
     return { verified: null, reason: 'no text layer' };
@@ -245,7 +336,12 @@ export function checkQuote(
     if (match === undefined) {
       return { verified: false, reason: 'quote not found on the cited page' };
     }
-    return { verified: true, ...match };
+    const found: QuoteCheck = {
+      verified: true,
+      matchedBy: match.matchedBy,
+      ...(match.reason === undefined ? {} : { reason: match.reason }),
+    };
+    return withAmount(found, match, money);
   }
 
   const holding = pageText.flatMap((text, index) => {
@@ -255,7 +351,7 @@ export function checkQuote(
   const [only] = holding;
   const pages = pageText.length === 1 ? 'one page' : `${pageText.length} pages`;
   if (holding.length === 1 && only !== undefined) {
-    return {
+    const found: QuoteCheck = {
       verified: true,
       matchedBy: only.match.matchedBy,
       foundOnPage: only.page,
@@ -264,6 +360,7 @@ export function checkQuote(
         `the quote is on page ${only.page} and no other` +
         (only.match.reason === undefined ? '' : `, ${only.match.reason}`),
     };
+    return withAmount(found, only.match, money);
   }
   if (holding.length > 1) {
     return {
@@ -291,13 +388,21 @@ export function verifyQuotes(
   pageText: readonly string[] | undefined,
 ): ExtractedField[] {
   return fields.map((field) => {
-    const check = checkQuote(field.sourceQuote, field.sourcePage, pageText);
+    const kind = moneyKindOf(field.fieldPath);
+    const money =
+      kind !== undefined && typeof field.value === 'string' ? { kind, value: field.value } : undefined;
+    const check = checkQuote(field.sourceQuote, field.sourcePage, pageText, money);
     const moved = check.foundOnPage !== undefined && check.foundOnPage !== field.sourcePage;
     return {
       ...field,
       quoteVerified: check.verified,
-      ...(check.matchedBy !== undefined ? { quoteMatch: check.matchedBy } : {}),
+      ...(check.verified === true && check.matchedBy !== undefined
+        ? { quoteMatch: check.matchedBy }
+        : {}),
       ...(moved ? { sourcePage: check.foundOnPage, citedPage: field.sourcePage } : {}),
+      ...(check.amountPrintedWhole !== undefined
+        ? { amountPrintedWhole: check.amountPrintedWhole }
+        : {}),
     };
   });
 }

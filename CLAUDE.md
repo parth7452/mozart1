@@ -134,9 +134,9 @@ append-only tables.
 
 | Package | Remember |
 | --- | --- |
-| `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee. `parseMoneyToCents` reads digits past the cents only when they are all `0`, never rounds a fraction of a cent, and never reads one decimal place |
+| `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee. `parseMoneyToCents` reads digits past the cents only when they are all `0`, never rounds a fraction of a cent, and never reads one decimal place. A unit price is `parseUnitPrice`'s: stored rounded half-up to the cent, and multiplied or compared only at the digits the page printed (`shortageCentsAt`, `compareUnitPrices`), never at its stored cent (ADR 0049) |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
-| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to. A money field (`moneyKindOf`: `unit_cost`, `*_amount*`, `*_total*`) is quote-verified only when the page prints its value whole, to the cent, where it was quoted — a label or a number cut short is not (ADR 0050) |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
@@ -201,7 +201,7 @@ does):
 | Suite | What it measures | Recall / precision | Grounding | Classification |
 | --- | --- | --- | --- | --- |
 | authored | does the pipeline work | 100% / 100% | 100% | 8/8 |
-| held_out | does it generalise | 100% / 100% | 100% | 12/12 |
+| held_out | does it generalise | 100% / 100% | 99.1% | 12/12 |
 | scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
 | dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
@@ -210,7 +210,7 @@ does):
 | customer | simulated camera pages, on staffing and freight | 98.8% / 98.8% | 98.2% | 15/15 |
 | formats | a distributor's merged-cell chargeback and an EDI 812 printout | 100% / 100% | 96.9% | 2/2 |
 | public | real public records nobody wrote for us | 98.4% / 98.4% | 98.9% | 10/10 |
-| public_scanned | the same records scanned or degraded, read through OCR | 95.5% / 95.5% | 98.5% | 10/10 |
+| public_scanned | the same records scanned or degraded, read through OCR | 95.5% / 95.5% | 97.4% | 10/10 |
 
 `customer` is fifteen documents across three cases — two staffing, one freight —
 twelve of them simulated camera photographs. It is the market the product is
@@ -1398,8 +1398,8 @@ refused now. OCR misreads that disagree with the value (`$6;721:8000`) are still
 refused. Still open: a quote may begin inside a longer number (`$6,600` against
 `$6,600.00`), and `80.00` still verifies against `(80.00)`.
 
-**A price past the cents is read when the rest is zeros** (ADR 0049 proposed,
-no migration). `parseMoneyToCents` read two decimal places or none, so
+**A price past the cents is read when the rest is zeros** (no ADR, no
+migration). `parseMoneyToCents` read two decimal places or none, so
 Oklahoma County's `$6,721.8000` — exactly 672,180 cents — was unreadable. It now
 reads digits past the cents when every one is `0`, and nothing is rounded:
 four or more places, never three. `1.000` could be a thousand with a point
@@ -1413,9 +1413,45 @@ matches anywhere on the page, so a quote cut short of `$6,721.85` would verify.
 Every newly read form's two-place prefix already read as the same cents, so a
 quote cut short anywhere past the cents can cost a read but never change an
 amount, which a property test holds. Both Oklahoma documents now score their unit price: `public` rose
-to 98.4% and `public_scanned` to 95.5%, and no other suite moved. Whether a
-true sub-cent unit price should be held as integer micro-dollars — a rate, not
-an amount — is ADR 0049, a proposal for the founder with nothing built.
+to 98.4% and `public_scanned` to 95.5%, and no other suite moved.
+
+**A unit price is stored to the cent and checked at the price printed** (ADR
+0049, no migration). The founder's decision, the same day: a unit price printed
+past the cent is stored rounded half-up (`$0.0125` is $0.01, `$0.0150` $0.02),
+and a line's arithmetic uses the printed price, rounded once at the end.
+`parseUnitPrice` returns both — the stored `cents` and the page's own digits —
+and `reconcile.ts` reads every `unit_cost` with it: `shortageCentsAt` makes
+10,000 lb at `$0.0125` $125.00, identical to the page, where the stored cent
+would have made it $100.00 and flagged a correct line as a $25 over-deduction;
+the quantities check divides at the printed price and never calls a line whose
+amount is the gap priced and rounded once a contradiction; the PO comparison is
+exact (`$0.0125` against `$0.0130` differs though both store as a cent); and
+every message prints `$0.0125`. Amounts stay strict — a sub-cent deduction is
+still refused — and three places (`$1.250`, `$1,500.000`) are never read, as
+for amounts: they could be a thousands group, and go to a person. No recorded document prints a
+sub-cent price, so no eval number moved.
+
+**An amount is verified only when the page prints it whole, to the cent** (ADR
+0050, no migration). `checkQuote` asked whether the quoted text was on the
+page, never whether the value was: `$6,721` verified against `$6,721.85` and
+read as $6,721.00, and a quote of "Net payment" verified whatever amount stood
+beside it. For a money field it now also requires the quote to print the value
+and the page to print it whole — a number read to its own ends, inside the
+quoted span — equal to the cent, sign included, and a unit price digit for
+digit. A number that cannot be read to the cent fails; a printed `-` is not a
+number and keeps its text verdict; a page with no text layer stays `null`. The
+case page's badge for a refused money field says **amount not on page**; a pass
+still says "quote found", because only the verdict is stored and a row read
+before this passed on its quote alone. Measured across all 542 recorded money fields first: exactly two
+change, both quotes that were only a label (`hl-case-02-remittance`
+`payment_total`, "Net payment", and `eb-hingham-wbmason-invoice-scan`
+`invoice_total`, "Total Due:"), so `held_out` grounding is 99.1% and
+`public_scanned` 97.4% (98.5% once the quote checker read tables and pages,
+before this), and the baseline records both. Nothing gated on
+`quoteVerified` before and nothing does now — a case still opens at the amount
+printed — so what changed is what the reviewer is told before approving;
+holding a document whose case amount is not printed whole is a separate
+decision.
 
 Recording `public` found the upload door refusing three of the fourteen
 distinct documents as "active content (/AA)". The `/AA` was the start of their
