@@ -128,9 +128,10 @@ describe('PDF inspection', () => {
         '<< /Type /Page /AA[5 0 R] >>',
         '<< /Type /Page /AA/Foo >>',
         '<< /Type /Page /AA%comment\n5 0 R >>',
-        // Chrome's reader (PDFium) splits a name at 0xFF, so it reads this key
-        // as `/AA`.
+        // Chrome's reader (PDFium) splits a name at 0xFF and at 0x80, so it
+        // reads each of these keys as `/AA`.
         '<< /Type /Page /AA\xff<< /O 5 0 R >> >>',
+        '<< /Type /Page /AA\x80<< /O 5 0 R >> >>',
       ]) {
         expect(inspectPdf(body(dictionary)).activeContent, dictionary).toEqual(['/AA']);
       }
@@ -265,7 +266,7 @@ function refused(bytes: Uint8Array): string {
 
 /** Whether a whole name appears anywhere in the raw bytes, as the old scan read them. */
 const rawlyNames = (bytes: Uint8Array, name: string): boolean =>
-  new RegExp(`${name.replace('/', '\\/')}(?![^\\x00\\t\\n\\f\\r ()<>[\\]{}/%\\xFF])`).test(
+  new RegExp(`${name.replace('/', '\\/')}(?![^\\x00\\t\\n\\f\\r ()<>[\\]{}/%\\x80\\xFF])`).test(
     Buffer.from(bytes).toString('latin1'),
   );
 
@@ -390,6 +391,18 @@ describe('names are read where a reader reads them', () => {
       expect(inspection.nameScan).toBe('raw');
       expect(inspection.objectStreamsUnread).toBe(false);
       expect(refused(bytes)).toBe('accepted');
+    });
+
+    it('an /AA ended by 0x80 in a file the raw scan judges', () => {
+      // PDFium ends a name at 0x80, so Chrome runs this key; the fallback must see it too.
+      const bytes = new Uint8Array(
+        Buffer.concat([
+          Buffer.from(classicPdf(onePage('/AA\x80<< /O 5 0 R >>'))),
+          Buffer.from('\n(never closed', 'latin1'),
+        ]),
+      );
+      expect(inspectPdf(bytes)).toMatchObject({ nameScan: 'raw', activeContent: ['/AA'] });
+      expect(refused(bytes)).toBe('active_content_pdf');
     });
 
     it('a hex-escaped /AA inside an object stream', () => {

@@ -116,11 +116,11 @@ const PDF_ACTIVE_CONTENT = [
 
 /**
  * A name runs from its `/` to the next whitespace or delimiter (ISO 32000-1
- * §7.3.5), which is where pdf.js and MuPDF end one. PDFium also reads `0xFF`
- * as whitespace, so it ends a name here too: a byte one reader splits on and
- * we do not is a key that reader runs and we never saw.
+ * §7.3.5), which is where pdf.js and MuPDF end one. PDFium also reads `0x80`
+ * and `0xFF` as whitespace, so they end a name here too: a byte one reader
+ * splits on and we do not is a key that reader runs and we never saw.
  */
-const PDF_NAME = /\/[^\x00\t\n\f\r ()<>[\]{}/%\xFF]*/g;
+const PDF_NAME = /\/[^\x00\t\n\f\r ()<>[\]{}/%\x80\xFF]*/g;
 
 /**
  * The active-content names this PDF carries, in the list's order.
