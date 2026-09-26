@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Applies every migration to a scratch database, then runs the invariant, RLS
-# and separation-of-duties suites. Any failure exits non-zero, so this is safe
+# and separation-of-duties suites, and last the onboarding runbook's SQL
+# (scripts/check-onboarding-sql.sh). Any failure exits non-zero, so this is safe
 # as a CI gate.
 #
 #   TEST_DATABASE_URL=postgres://…/recouple_test RECOUPLE_TEST_DATABASE=1 ./scripts/db-test.sh
@@ -57,3 +58,12 @@ done
 
 echo
 echo "database invariants: all suites passed"
+
+# The onboarding runbook's SQL (docs/ONBOARDING.md and
+# docs/onboarding/create-workspace.sql) against the schema just applied, so a
+# migration that breaks a block the founder pastes into production fails here
+# rather than on the day a customer is onboarded. It runs the same guard
+# before it connects, and rolls back everything it writes.
+echo
+echo "== onboarding runbook SQL"
+TEST_DATABASE_URL="$TEST_DATABASE_URL" "$ROOT/scripts/check-onboarding-sql.sh"

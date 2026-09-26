@@ -75,7 +75,7 @@ Nothing else is needed.
 
 Do **2** first (sign-in; it needs migration 0035 and the hook, see its
 *Before you start*), then **4** (make the test workspace), then **2.7**,
-**3**, **1**, **6**, **7**, **8**, **9** and **10**. **5** waits for your Postmark
+**3**, **1**, **6**, **7**, **8**, **9**, **10** and **11**. **5** waits for your Postmark
 setup; see its first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
@@ -823,6 +823,10 @@ pasted into the SQL editor, arrived cut short twice and was refused whole, so
 the workspace was made with 4.1's inserts instead, the last one changed to add you as
 `owner` and `<TESTER_B_EMAIL>` as `analyst` (a case can be prepared and
 approved here; no debtors yet). ONBOARDING §1's read-back was then all `true`.
+The block has since moved out of the page into its own file,
+`docs/onboarding/create-workspace.sql`, to be pasted whole from GitHub's
+**Raw** view and checked by its last line (`$onboard$;`) before **Run**; it
+has not yet been run from there.
 Tester B's `hl-case-01-notice.pdf` opened DN-2609-001, $600.00, Harbor Lane
 Markets *not matched*, 16 seconds after the upload, for $0.026. Each
 workspace's case address gave the 404 in the other. Because you belong to
@@ -1137,11 +1141,18 @@ select d.id, d.state, d.deduction_amount_cents, d.retailer_name_as_printed, d.de
   decline**.
 - **You should see:** the notice "recorded: this case is logged as declined,
   not discarded".
+- **Then, after reloading the page without the notice:** a **declined** pill
+  beside the state (which stays `classified`: a decline moves no state), and
+  under *What has happened* a **Declined, not fought** entry with the reason
+  in words, the amount, anything you ticked as missing and your note, by
+  "you". Neither **Dispute this deduction** nor **Not worth fighting?** is
+  offered any more.
 - Two things to know:
   - A decline is permanent.
-  - **Once that notice is gone, the case page shows no trace of the decline**
-    (a gap noted below). The proof is that the case leaves the queue, plus
-    this query:
+  - The case also leaves the queue, the case list's OPEN CASES and deadline
+    figures no longer count it (the note under OPEN CASES says how many
+    declined cases it leaves out), and its ledger row carries the same
+    **declined** pill. The row itself, by this query:
     ```sql
     select reason, estimated_recoverable_cents, discovered_from, provenance_kind, decided_by, decided_at
       from declined_candidates where deduction_id = '<OTHER_CASE_ID>';  -- discovered_from 'erp_sync', provenance_kind 'observed'
@@ -1158,14 +1169,16 @@ two are then merged (ADR 0042), and the merge can be undone.
 **Where:** the **test workspace**, as tester B. A merge and its undo are
 permanent records.
 
-**Two orders matter:**
+**Upload the notice from the case list's "Add a document" form**, not from a
+case page's "Add evidence". "Add evidence" files it on that case instead of
+opening one.
 
-1. **Upload the remittance first, then the notice.** In the other order the
-   app still opens both cases, but it doesn't list them as a pair (a gap
-   noted below).
-2. **Upload the notice from the case list's "Add a document" form**, not from
-   a case page's "Add evidence". "Add evidence" files it on that case instead
-   of opening one.
+**Either order lists the pair.** Until pilot E7
+([parth7452/mozart1#104](https://github.com/parth7452/mozart1/pull/104)) a
+notice uploaded *before* its remittance opened both cases and never listed
+them as a pair. The steps below go remittance first; 7.1b is the other order,
+the one E7 fixed. A file is read once per workspace, so choose one order: run
+7.1 and 7.2, **or** 7.1b.
 
 **Pre-check** (must return no rows):
 
@@ -1202,6 +1215,22 @@ select d.id, o.slug, d.filename from documents d join organizations o on o.id = 
   select d.claim_id, e.payload, e.observed_at from deduction_events e join deductions d on d.id = e.deduction_id
    where e.event_type = 'case.possible_duplicate' and d.org_id = (select id from organizations where slug = 'test-tenant-b');
   ```
+
+**7.1b The other order: the notice first, then the remittance** (instead of
+7.1 and 7.2).
+
+- **Do:** **Add a document** (on the case list) → `hl-case-02-notice.pdf` →
+  **Read them**, then reload. Then **Add a document** →
+  `hl-case-02-remittance.pdf` → **Read them**, and reload after 1–2 minutes
+  (if the remittance is held, press **Open a case from it**, as in 7.1).
+- **You should see:** both cases, **DN-2609-002** and
+  **SIM-PAY-2609-002:INV-260802**, each $900.00, and the **Possible
+  duplicates** card on the case list with the two side by side.
+- **Proof:** 7.2's query returns one row, on the remittance's case, whose
+  payload names the notice's case.
+- In 7.3 the older case carries on, so in this order it is **DN-2609-002**
+  that survives: press **Same deduction — merge them** on the remittance's
+  case, and read 7.3 and 7.4 with the two claim ids swapped.
 
 **7.3 Say they are the same.**
 
@@ -1320,10 +1349,11 @@ select payload->'counts' as counts from deduction_events
  where event_type = 'remittance.lines_processed' and payload->>'document_id' = '<DOC>' limit 1;
 ```
 
-In the last query, expect 12 lines `opened`. The 30 lines that were paid in
-full are likely to show as `unreadable` rather than `not_short_paid`. That
-is a known quirk of how this page prints a dash for "no deduction". It does
-not change the money; it is in the list below.
+In the last query, expect `{"opened": 12, "not_short_paid": 30}`. The 30
+lines paid in full print a dash for their deduction, which is read as no
+amount, so each is priced by gross less net and comes to nothing. A run
+before this was fixed (2026-09-26) showed them as `unreadable`; see item 6
+in the list below.
 
 ---
 
@@ -1444,10 +1474,131 @@ one comes, check that:
 
 ---
 
+## 11. The packet a payer receives, and uploads at their limits
+
+**What it proves:** pilot E1, E2, E3 and E6 in the product rather than in
+tests. Twenty files go up from one selection, a file too large to deliver is
+refused with our sentence rather than Vercel's page, a packet can be assembled
+again after evidence arrives and only the latest can be approved, a deadline
+can be entered on a case that printed none, and the letter and the zip are what
+a payer would be sent.
+
+**Where:** the **test workspace** (checklist 4), with two people: tester B
+(`analyst`) prepares, and you (`owner`) approve. Everything here is permanent.
+
+**You need:**
+
+- **20 different small files** (PDFs or images, each under 4 MB). The fixture
+  PDFs in `packages/fixtures/corpus/` will do. A file already uploaded to the
+  test workspace is not read again, so use ones it has not seen. Each is read:
+  allow about 50–60 cents.
+- **One PDF larger than 6 MB.** Any will do: it is never sent.
+- **A case with a decision and no packet** — DN-2609-001 from checklist 4 once
+  11.3 has decided it.
+
+**11.1 Twenty files in one selection (E3).**
+
+- **Do:** as tester B, on the case list, **Add a document** → select all 20
+  files in the one file picker → **Read them**.
+- **You should see:** the button counting "Sending 1 of 20…" upward, and then
+  one line per file, each with its own answer. Nothing is sent twice, and a
+  file with no answer stops the batch with the rest marked not sent.
+- **Proof:** one row, `source` `web_upload` with `count` 20, and its first
+  and last `received_at` both within the last few minutes:
+  ```sql
+  select u.source, count(*), min(u.received_at), max(u.received_at)
+    from uploads u join organizations o on o.id = u.org_id
+   where o.slug = 'test-tenant-b' and u.received_at > now() - interval '15 minutes'
+   group by u.source;
+  ```
+
+**11.2 A 6 MB PDF (E2).**
+
+- **Do:** **Add a document** → the 6 MB PDF → **Read them**.
+- **You should see:** our sentence, starting "that file is larger than 4 MB,
+  which is as much as one upload can carry, so it was not sent", and not
+  Vercel's `FUNCTION_PAYLOAD_TOO_LARGE` page.
+- **Proof:** the refusal is shown in the browser, before anything is sent.
+  11.1's query, run again, still counts 20, provided nothing else was
+  uploaded to the test workspace in between.
+
+**11.3 Decide, and enter a deadline (E5, E6).**
+
+- **Do:** as tester B, open DN-2609-001. The reason list under **Why this
+  deduction is invalid** is grouped by kind and reads in words. Choose one,
+  write a line for the approver, and **Decide to dispute**. If the case shows
+  **No dispute deadline**, enter a date, a basis such as "test: 60 days from
+  deduction date", and **Record the deadline**.
+- **You should see:** the **Assemble the packet** card; and the deadline, once
+  recorded, on the case with no form left to change it.
+- **Proof** (replace `<CASE>` with the case id from the address bar):
+  ```sql
+  select e.payload, e.observed_at from deduction_events e
+   where e.deduction_id = '<CASE>' and e.event_type = 'case.deadline_set';   -- dispute_deadline, basis, set_by
+  ```
+
+**11.4 Assemble, attach, assemble again (E1).**
+
+- **Do:** as tester B, **Assemble the packet**. Note the 12 characters after
+  "The packet ·". Then **Add evidence** on the case with one file it does not
+  hold, wait for it to be read, and press **Assemble again**.
+- **You should see:** a new packet with a different 12-character hash, whose
+  enclosures list names the new file.
+- **Proof:** two rows for the one decision, the newer one with one more file:
+  ```sql
+  select encode(content_hash, 'hex') as hash, cardinality(file_document_ids) as files, created_at
+    from packets where deduction_id = '<CASE>' order by created_at;
+  ```
+
+**11.5 Only the latest packet can be approved (E1).**
+
+- **Do:** as you (owner), open the case in **two tabs**. In the first, leave
+  the page as it is. As tester B, press **Assemble again** once more (attach
+  another file first, since identical contents are refused). Then, in your
+  first tab, **Approve** the packet that page still shows.
+- **You should see:** "that packet was assembled again since this page
+  loaded, and only the latest one can be approved — nothing was approved;
+  check packet … below and approve that". Reload, and approve the packet now
+  shown.
+- **Proof:** exactly one approval, naming the newest packet:
+  ```sql
+  select encode(a.packet_hash, 'hex') = (
+           select encode(content_hash, 'hex') from packets
+            where deduction_id = '<CASE>' order by created_at desc limit 1) as names_latest,
+         a.approved_at
+    from approvals a join decisions d on d.id = a.decision_id
+   where d.deduction_id = '<CASE>';
+  ```
+
+**11.6 The printable letter (E1).** Do it once before 11.5's approval and once
+after.
+
+- **Do:** on the packet card, **Printable letter**. Print preview it.
+- **You should see:**
+  - "From:" the test workspace's name, exactly as its `organizations.name`;
+  - "To:" the payer (the matched debtor, else the name printed on the notice:
+    "Harbor Lane Markets" for DN-2609-001). "(not recorded)" there means the
+    case has neither, which is worth a note if it happens on a real case;
+  - the claim id, the invoice number or numbers, the amount and the dates;
+  - "Reason for dispute:" in words, with no underscores;
+  - the numbered enclosures;
+  - before approval, "Draft — awaiting approval. Not for sending." on screen
+    and in the print preview; after approval, no draft mark.
+
+**11.7 All enclosures (E1).**
+
+- **Do:** on the packet card, **All enclosures (.zip)**, and open the zip.
+- **You should see:** one file per enclosure, named `01-…`, `02-…` and so on,
+  in the letter's enclosure order, each one opening as the document it names.
+- **Proof:** the number of files in the zip equals `files` on the newest row of
+  11.4's query.
+
+---
+
 ## Found while writing this
 
-Struck items are fixed, and each says what fixed it. The rest each need a
-decision or their own change.
+Struck items are fixed; each says what fixed it, with a link where one PR
+did. The rest each need a decision or a change of their own.
 
 1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
    0047: an address, the webhook, the job, Settings → Email and the sweep.
@@ -1461,16 +1612,45 @@ decision or their own change.
    (`/login?denied=…`).~~ **Fixed** by
    [parth7452/mozart1#68](https://github.com/parth7452/mozart1/pull/68): the
    page now shows only its own messages.
-4. **A duplicate raised by a remittance line is never listed.** If the notice
-   arrives *before* the remittance, both cases open, but they never appear
-   under Possible duplicates (§7).
-5. **A decline leaves no trace on the case page** once its notice is gone
-   (§6).
-6. **A line with a printed dash is counted as "unreadable"** rather than
-   "paid in full" (§8). There is no money impact.
-7. **Coverage shows a misleading reason** when a sync is refused because the
+4. ~~**A duplicate raised by a remittance line is never listed.** If the
+   notice arrives *before* the remittance, both cases open, but they never
+   appear under Possible duplicates (§7).~~ **Fixed** by pilot E7
+   ([parth7452/mozart1#104](https://github.com/parth7452/mozart1/pull/104)):
+   the remittance line's case now names its possible duplicate, and §7.1b
+   checks that order. Pairs opened before it merged are listed only once
+   `pnpm link:duplicates --org <slug> --as <member email>` has run against
+   each production workspace (`--dry-run` first).
+5. ~~**A decline leaves no trace on the case page** once its notice is gone
+   (§6).~~ **Fixed** by
+   [parth7452/mozart1#119](https://github.com/parth7452/mozart1/pull/119)
+   (2026-09-26): the case page reads the decline back,
+   shows a **declined** pill beside the state and a **Declined, not fought**
+   entry under *What has happened*, and no longer offers Decide, Decline or
+   a deadline on it. `declineCase` now also refuses a case a decision names
+   or whose state is past `classified`, so a hand-made POST cannot decline a
+   case that is being fought.
+6. ~~**A line with a printed dash is counted as "unreadable"** rather than
+   "paid in full" (§8).~~ **Fixed** on 2026-09-26 by
+   [parth7452/mozart1#117](https://github.com/parth7452/mozart1/pull/117): a deduction column printing only a dash
+   (`-`, `–`, `—`, `$ -`) is read as no amount (`printsNoAmount`), so the
+   line is priced by gross less net as ADR 0028 §2 says. "No money impact"
+   held for this page only: a dash line whose gross exceeded its net was
+   dropped as `unreadable` too, a short-pay nothing showed a person. It now
+   opens at the subtraction, over the tolerance floor, and its case page
+   warns that the page printed a dash. A dash on a line that shares its
+   invoice's gross and net with another line is still refused its share
+   (ADR 0048 §4).
+7. ~~**Coverage shows a misleading reason** when a sync is refused because the
    connection was disconnected mid-run. It blames the member rather than the
-   disconnect.
+   disconnect.~~ **Fixed** by
+   [parth7452/mozart1#116](https://github.com/parth7452/mozart1/pull/116)
+   (2026-09-26): the page reads the run's class, so
+   `LedgerConnectionDisabledError` says the connection was disconnected before
+   the run began, `LedgerSyncRefusedError` keeps the member sentence, and any
+   other refusal blames nobody. Settings → QuickBooks's last-sync line says the
+   same. A disconnect that lands while a run is reading still ends `failed`
+   (`QboAuthError`) and reads as QuickBooks refusing the connection; telling
+   that apart is a follow-up.
 8. ~~**No sign-out button and no workspace switcher.**~~ **Both done**
    (pilot E4): **Sign out** and **Switch workspace** are in the sidebar (see
    *Before you start*, items 2 and 4).

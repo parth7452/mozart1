@@ -47,10 +47,14 @@ import { DOC_TYPES, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
+  AlreadyDeclinedError,
   CaseAlreadyDeclinedError,
+  CaseMergedAwayError,
+  CaseNotDeclinableError,
   CaseNotVisibleError,
   CaseWorkflowError,
   ConfirmationNumberRequiredError,
+  DECLINABLE_STATES,
   DeadlineAlreadySetError,
   DecisionNotForCaseError,
   DecisionNotFoundError,
@@ -80,6 +84,7 @@ import type {
   CaseWorkflow,
   CaseWorkflowStore,
   DeadlineSetRecord,
+  DeclineRecord,
   DeclinedLine,
   DiscoveredVia,
   HumanDecisionRecord,
@@ -233,8 +238,8 @@ export class InMemoryStore
   readonly outcomes: OutcomeRecord[] = [];
   /** Every `case.deadline_set`, as `getWorkflow` reads it back (pilot E6). */
   readonly deadlinesSet: (DeadlineSetRecord & { readonly deductionId: string })[] = [];
-  /** What `declineCase` leaves behind: the id and the case, and nothing else. */
-  readonly declinedCandidates: Array<{ declinedCandidateId: string; deductionId: string }> = [];
+  /** What `declineCase` leaves behind: the decline, as `getWorkflow` reads it back. */
+  readonly declinedCandidates: (DeclineRecord & { readonly deductionId: string })[] = [];
 
   async findDocumentByHash(orgId: string, sha256: string): Promise<StoredDocument | undefined> {
     return [...this.documents.values()].find((d) => d.orgId === orgId && d.sha256 === sha256);
@@ -591,7 +596,9 @@ export class InMemoryStore
       }));
 
     // The probable branch's candidates: every case of this tenant's filed
-    // against this invoice, whatever opened it.
+    // against this invoice, whatever opened it. This store models no merges,
+    // so a case's invoice rows are its own; Postgres reads a merged-away
+    // case's as its survivor's (ADR 0042 §10, audit F5).
     const knownDeductions: KnownDeduction[] = [];
     if (input.invoiceNumber !== undefined) {
       const key = identifierMatchKey(input.invoiceNumber);
@@ -937,19 +944,72 @@ export class InMemoryStore
    * Just enough of a decline for the rule that follows from it.
    *
    * `PostgresStore.declineCase` writes a `declined_candidates` row with what
-   * the case was worth and what was missing (STRATEGY ADD-1); none of that is
-   * modelled here. What is modelled is the one thing the workflow reads it
-   * for — a case we chose not to fight is not a case to dispute — so
-   * `CaseAlreadyDeclinedError` is a rule both stores are held to by the
-   * contract suite rather than one only Postgres has.
+   * the case was worth and what was missing (STRATEGY ADD-1), and derives the
+   * channel from the notice; the channel is not modelled here. What is
+   * modelled is what the workflow reads it for — a case we chose not to fight
+   * is not a case to dispute, and the case page says it was declined — so
+   * `CaseAlreadyDeclinedError` and `getWorkflow`'s `decline` are rules both
+   * stores are held to by the contract suite rather than ones only Postgres
+   * has. The amount is the case's, as there, and a case with none is a fault
+   * rather than a zero-dollar decline (`deduction_amount_cents` is NOT NULL).
+   *
+   * The refusals are Postgres's, in its order: a merged-away case, a case a
+   * decision names, a state past {@link DECLINABLE_STATES}, and a second
+   * decline — each by the class `PostgresStore.declineCase` raises, before
+   * anything is recorded.
    *
    * Not a method of `CaseWorkflowStore` — that port has no `declineCase`. Like
    * `addMember` and `addOrg`, this is a seam a test sets the world up through,
    * named after the `PostgresStore` method whose effect it stands in for.
    */
-  declineCase(deductionId: string): { readonly declinedCandidateId: string } {
+  declineCase(
+    deductionId: string,
+    input: {
+      readonly reason?: string;
+      readonly decidedBy?: string;
+      readonly missingEvidence?: readonly string[];
+      readonly detail?: string;
+    } = {},
+  ): { readonly declinedCandidateId: string } {
+    const existing = this.caseOrThrow(deductionId);
+    if (existing.state === 'merged') {
+      throw new CaseMergedAwayError(deductionId, 'declined_candidates');
+    }
+    // The earliest, as Postgres picks it: decisions are kept in the order made.
+    const decision = this.decisions.find((d) => d.deductionId === deductionId);
+    if (decision !== undefined) {
+      throw new CaseNotDeclinableError(deductionId, existing.state, decision.decisionId);
+    }
+    if (!(DECLINABLE_STATES as readonly CaseState[]).includes(existing.state)) {
+      throw new CaseNotDeclinableError(deductionId, existing.state);
+    }
+    const estimatedRecoverableCents = existing.deductionAmountCents;
+    if (estimatedRecoverableCents === undefined || !Number.isSafeInteger(estimatedRecoverableCents)) {
+      throw new Error(
+        `deduction_amount_cents is ${String(estimatedRecoverableCents)} on case ${deductionId}, ` +
+          'which is not an exact amount to decline',
+      );
+    }
+    const standing = this.declinedCandidates.find((d) => d.deductionId === deductionId);
+    if (standing !== undefined) {
+      throw new AlreadyDeclinedError(
+        deductionId,
+        standing.declinedCandidateId,
+        standing.decidedAt.toISOString(),
+      );
+    }
     const declinedCandidateId = randomUUID();
-    this.declinedCandidates.push({ declinedCandidateId, deductionId });
+    this.declinedCandidates.push({
+      declinedCandidateId,
+      deductionId,
+      reason: input.reason ?? 'below_economic_floor',
+      estimatedRecoverableCents,
+      missingEvidence: input.missingEvidence ?? [],
+      ...(input.detail !== undefined ? { detail: input.detail } : {}),
+      decidedBy: input.decidedBy ?? 'analyst',
+      decidedByVersion: 'human/v1',
+      decidedAt: new Date(),
+    });
     return { declinedCandidateId };
   }
 
@@ -1472,6 +1532,8 @@ export class InMemoryStore
         : this.submissions.find((s) => s.decisionId === decision.decisionId);
     const outcome = this.outcomes.filter((o) => o.deductionId === deductionId).at(-1);
     const deadlineSet = this.deadlinesSet.find((d) => d.deductionId === deductionId);
+    // The first decline stands, as in Postgres.
+    const decline = this.declinedCandidates.find((d) => d.deductionId === deductionId);
 
     // Each part is rebuilt into exactly the port's shape rather than handed
     // over as it is stored: the rows here carry a little extra (the org, the
@@ -1526,6 +1588,20 @@ export class InMemoryStore
               basis: deadlineSet.basis,
               setBy: deadlineSet.setBy,
               setAt: deadlineSet.setAt,
+            },
+          }
+        : {}),
+      ...(decline !== undefined
+        ? {
+            decline: {
+              declinedCandidateId: decline.declinedCandidateId,
+              reason: decline.reason,
+              estimatedRecoverableCents: decline.estimatedRecoverableCents,
+              missingEvidence: decline.missingEvidence,
+              ...(decline.detail !== undefined ? { detail: decline.detail } : {}),
+              decidedBy: decline.decidedBy,
+              decidedByVersion: decline.decidedByVersion,
+              decidedAt: decline.decidedAt,
             },
           }
         : {}),

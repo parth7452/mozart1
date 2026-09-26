@@ -80,6 +80,7 @@ import {
   type CaseOutcome,
   type CaseWorkflow,
   type DeadlineSetRecord,
+  type DeclineRecord,
   type DuplicateCandidateCase,
   type DuplicateVerdict,
   type DuplicateVerdictRecord,
@@ -542,7 +543,7 @@ export async function recordHumanDecision(
   // above is what makes this read and the insert below one decision, the same
   // way `declineCase` does it from the other side.
   const { rows: declined } = await client.query<{ id: string }>(
-    `select id from declined_candidates where deduction_id = $1 order by decided_at asc limit 1`,
+    `select id from declined_candidates where deduction_id = $1 order by decided_at asc, id asc limit 1`,
     [input.deductionId],
   );
   const standing = declined[0];
@@ -1248,6 +1249,50 @@ async function readDeadlineSet(
   };
 }
 
+/**
+ * The decline that names a case, if anybody declined it.
+ *
+ * Read from `declined_candidates` rather than the `case.declined` event: the
+ * table is what the decide guard and `declineCase` read, and the only place the
+ * reviewer's `detail` is kept. The earliest row, with the id breaking a tie,
+ * because the first decline stands.
+ */
+async function readDecline(
+  client: PoolClient,
+  deductionId: string,
+): Promise<DeclineRecord | undefined> {
+  const { rows } = await client.query<{
+    id: string;
+    reason: string;
+    cents: string;
+    missing_evidence: string[] | null;
+    detail: string | null;
+    decided_by: string;
+    decided_by_version: string;
+    decided_at: Date | string;
+  }>(
+    `select id, reason::text as reason, estimated_recoverable_cents::text as cents,
+            missing_evidence, detail, decided_by, decided_by_version, decided_at
+       from declined_candidates
+      where deduction_id = $1
+      order by decided_at asc, id asc
+      limit 1`,
+    [deductionId],
+  );
+  const row = rows[0];
+  if (row === undefined) return undefined;
+  return {
+    declinedCandidateId: row.id,
+    reason: row.reason,
+    estimatedRecoverableCents: exactCents(row.cents, 'estimated_recoverable_cents'),
+    missingEvidence: row.missing_evidence ?? [],
+    ...(row.detail !== null ? { detail: row.detail } : {}),
+    decidedBy: row.decided_by,
+    decidedByVersion: row.decided_by_version,
+    decidedAt: new Date(row.decided_at),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The read behind the case page
 // ---------------------------------------------------------------------------
@@ -1434,7 +1479,11 @@ export async function getWorkflow(
   );
   const decisionRow = decisionRows[0];
   const deadlineSet = await readDeadlineSet(client, deductionId);
-  const entered = deadlineSet !== undefined ? { deadlineSet } : {};
+  const decline = await readDecline(client, deductionId);
+  const entered = {
+    ...(deadlineSet !== undefined ? { deadlineSet } : {}),
+    ...(decline !== undefined ? { decline } : {}),
+  };
   if (decisionRow === undefined) return { deductionId, state: found.state, ...entered };
   const decision = toDecision(decisionRow);
 
