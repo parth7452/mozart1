@@ -261,7 +261,26 @@ export class ClaudeExtractor implements Extractor {
         effort: this.config.effort ?? 'medium',
       },
     });
-    return stream.finalMessage();
+    // The SDK parses the structured output when the message stops, and a reply
+    // cut off at `max_tokens` is unterminated JSON: `finalMessage` then throws
+    // "Failed to parse structured output" before any `stop_reason` can be read,
+    // and the read was recorded as an `error` costing nothing. The snapshot the
+    // stream builds says why it stopped and what it used, so a reply that
+    // stopped at the budget or was refused is answered from it, with no parsed
+    // output, and every other failure is thrown as it was.
+    let snapshot: Anthropic.Message | undefined;
+    stream.on('streamEvent', (_event, message) => {
+      snapshot = message;
+    });
+    try {
+      return await stream.finalMessage();
+    } catch (error) {
+      const stopped = snapshot?.stop_reason;
+      if (snapshot !== undefined && (stopped === 'max_tokens' || stopped === 'refusal')) {
+        return { ...snapshot, parsed_output: null };
+      }
+      throw error;
+    }
   }
 
   /** The blocks every call of a read shares: document, text layer, instruction. */

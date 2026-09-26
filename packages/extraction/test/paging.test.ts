@@ -284,24 +284,46 @@ interface StubReply {
   readonly usage?: Record<string, number>;
 }
 
-/** Every request the extractor made, and a client that answers from `reply`. */
-function stubClient(reply: (params: Record<string, unknown>, call: number) => StubReply | Error) {
+/**
+ * Every request the extractor made, and a client that answers from `reply` the
+ * way the SDK's `MessageStream` does: each stream event hands its listeners the
+ * message snapshot, and `finalMessage` parses the structured output, so a reply
+ * that stopped short of its JSON (cut off, or refused) throws "Failed to parse
+ * structured output" there, as the real one did on the first recording.
+ * `sdkResolvesCutOff` is the other shape: a message with no parsed output.
+ */
+function stubClient(
+  reply: (params: Record<string, unknown>, call: number) => StubReply | Error,
+  options: { readonly sdkResolvesCutOff?: boolean } = {},
+) {
   const requests: Record<string, unknown>[] = [];
   const client = {
     messages: {
       stream(params: Record<string, unknown>) {
         requests.push(params);
         const answer = reply(params, requests.length);
+        const listeners: ((event: unknown, snapshot: unknown) => void)[] = [];
         return {
+          on(name: string, listener: (event: unknown, snapshot: unknown) => void) {
+            if (name === 'streamEvent') listeners.push(listener);
+            return this;
+          },
           finalMessage: async () => {
             if (answer instanceof Error) throw answer;
-            return {
+            const snapshot = {
               stop_reason: answer.stop_reason,
               stop_details: null,
               usage: answer.usage ?? { input_tokens: 1_000, output_tokens: 2_000 },
-              parsed_output:
-                answer.stop_reason === 'end_turn' ? { fields: answer.fields ?? [] } : null,
             };
+            for (const listener of listeners) listener({ type: 'message_delta' }, snapshot);
+            if (answer.stop_reason === 'end_turn') {
+              return { ...snapshot, parsed_output: { fields: answer.fields ?? [] } };
+            }
+            if (options.sdkResolvesCutOff === true) return { ...snapshot, parsed_output: null };
+            throw new Error(
+              'Failed to parse structured output: Error: Failed to parse structured output as JSON: ' +
+                'Unterminated string in JSON at position 48026',
+            );
           },
         };
       },
@@ -477,6 +499,67 @@ describe('ClaudeExtractor with paging', () => {
       /split the document and retry/,
     );
     expect(stub.requests).toHaveLength(1);
+  });
+
+  it('reads the cut-off from the stream when the SDK cannot parse the reply, and records its cost', async () => {
+    // The shape the first recording met: before this, the SDK's parse error
+    // was the read's error, with no stop_reason and no cost recorded.
+    const stub = stubClient(() => cutOff);
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5', paging: false });
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'schema_mismatch',
+      detail: 'stop_reason=max_tokens',
+      costMicros: costMicros('claude-sonnet-5', { inputTokens: 9_000, outputTokens: 32_000 }),
+    });
+  });
+
+  it('pages a cut-off the SDK resolves with no parsed output, too', async () => {
+    const stub = stubClient(
+      (params, call) =>
+        call === 1
+          ? cutOff
+          : { stop_reason: 'end_turn', fields: perfectPart(rangeAsked(params) as PageRange) },
+      { sdkResolvesCutOff: true },
+    );
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    const result = await extractor.extract(payload(), 'remittance_advice');
+    expect(result.validated).toBe(true);
+    expect(stub.requests).toHaveLength(4);
+  });
+
+  it('reports a refused first read as a refusal, not a parse error', async () => {
+    const stub = stubClient(() => ({ stop_reason: 'refusal' }));
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    await expect(extractor.extract(payload(), 'remittance_advice')).rejects.toBeInstanceOf(
+      ModelRefusalError,
+    );
+    expect(stub.requests).toHaveLength(1);
+  });
+
+  it('still throws a reply that finished and would not parse, as an error', async () => {
+    const client = {
+      messages: {
+        stream() {
+          const listeners: ((event: unknown, snapshot: unknown) => void)[] = [];
+          return {
+            on(_: string, listener: (event: unknown, snapshot: unknown) => void) {
+              listeners.push(listener);
+              return this;
+            },
+            finalMessage: async () => {
+              for (const l of listeners) l({}, { stop_reason: 'end_turn', usage: {} });
+              throw new Error('Failed to parse structured output: bad JSON');
+            },
+          };
+        },
+      },
+    } as unknown as Anthropic;
+    const extractor = new ClaudeExtractor({ client, model: 'claude-sonnet-5' });
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ExtractionError);
+    expect((error as ExtractionError).call.outcome).toBe('error');
+    expect((error as Error).message).toMatch(/Failed to parse structured output/);
   });
 
   it('reads a document that ran out in two-page parts, and joins every row in page order', async () => {
