@@ -422,16 +422,13 @@ After that, you can safely turn off open sign-ups.
 
 **Run once, 2026-09-26** (00:30–01:44 UTC), in your own workspace: 2.1–2.6
 passed. The owner, the approver, the read-only tester and tester B (§4) each
-reached the case list, and R1 and R3 read `true` and `linked` for all four. A
-never-invited address got the same green notice and no email, and both the
-Vercel log and Supabase's auth log said `otp_disabled` (HTTP 422), before and
-after open sign-ups were switched off at 01:43 UTC; the owner still got in
-afterwards. Two things did not go as written. Both dashboard invitations (2.4,
-and tester B's in 4.1) went to Gmail's **spam** folder: that is Supabase's
-default "You've been invited" template, not the branded sign-in email, which
-reached the inbox every time. And the sign-ins in 2.1, 2.3, 2.4 and 2.6 were
-done in a headless browser with each link read from the inbox; 2.2, the
-invitation in 2.4 and the switch in 2.5 were done by hand.
+reached the case list, with R1 `true` and R3 `linked` for all four. A
+never-invited address got the same green notice and no email: both logs said
+`otp_disabled` (HTTP 422), before and after sign-ups were switched off at
+01:43 UTC, and the owner still got in afterwards. **Both dashboard invitations
+went to Gmail's spam folder** (Supabase's default "You've been invited" email;
+the branded sign-in email always reached the inbox). Claude ran 2.1, 2.3, 2.4
+and 2.6 in an automated browser; you did 2.2, the 2.4 invitation and 2.5.
 
 **R1 — who is invited where.** The last column becomes `true` once that
 person has reached the app.
@@ -561,21 +558,15 @@ actions, and it refuses them if a reader's browser sends one anyway. The
 database refuses them too; the automated tests prove that part.
 
 **Run once, 2026-09-26**: 3.1–3.4 passed. The read-only tester saw no upload
-control on the case list, and on all seven case pages the only form was
-**Sign out**; Coverage opened, and Settings → QuickBooks had no buttons. 3.4
-ran in the test workspace, but not quite as written: tester B had been made
-`read_only` before the forms were opened, so the upload and decline forms a
-writer gets in that workspace (neither has a hidden field) were submitted from
-tester B's own session, which is what a stale tab sends. Both were refused
-with the notices below, "your role can review documents but not add them" and
-"your role can review cases but not decide them". The workspace still held
-one document (the upload was `hl-case-04-notice.pdf`, which it had never
-stored, so a refusal that failed could not hide behind de-duplication),
-`declined_candidates` still held none, and no model was called. The page's
-own upload script was not exercised. Tester B is `analyst` again. The wording
-has moved since this was written: the upload form is now **Add documents** /
-**Read them** (several files, up to 4 MB each), and the case page's card
-titles show in capitals.
+form, none of the three cards in 3.2 on any of the seven cases, and no buttons
+in Settings → QuickBooks. 3.4 ran in the test workspace in a different order:
+tester B was made read-only first, and a copy of each form was then sent from
+tester B's session, which is the same request a stale tab sends. Both were
+refused with the notices below; the workspace still held one document (the
+upload was `hl-case-04-notice.pdf`, new to it, so a failed refusal would have
+shown) and no decline. The upload button's in-page behaviour was not tested.
+Tester B is `analyst` again. The upload form now reads **Add documents** /
+**Read them** and takes several files of up to 4 MB each.
 
 **Who:** the read-only person from 2.4, in your workspace for 3.1–3.3. The
 forced refusal (3.4) is done in the test workspace from checklist 4.
@@ -585,7 +576,7 @@ forced refusal (3.4) is done in the test workspace from checklist 4.
 - **Do:** sign in as the read-only person.
 - **You should see:**
   - **no** "＋ Add a document" button at the top;
-  - **no** "Add a document" / **Read it** form at the bottom;
+  - **no** "Add documents" / **Read them** form at the bottom;
   - the "What to work on next" queue and the "Deduction ledger", both
     visible;
   - "Read Only" as the role in the sidebar.
@@ -611,8 +602,8 @@ The app hides the forms from a reader, so the only way to see the refusal is
 to open a form while you can still write, then lose the right to write before
 you submit it.
 
-1. As tester B (an analyst), open the case list. The **Read it** form is
-   there. Choose `hl-case-01-notice.pdf` in it, but **don't press Read it
+1. As tester B (an analyst), open the case list. The **Read them** form is
+   there. Choose `hl-case-01-notice.pdf` in it, but **don't press Read them
    yet**.
 2. **WRITE:** make tester B read-only:
    ```sql
@@ -621,7 +612,7 @@ you submit it.
     where m.org_id = o.id and m.user_id = u.id
       and o.slug = 'test-tenant-b' and lower(u.email) = lower('<TESTER_B_EMAIL>');
    ```
-3. Back in the same tab, press **Read it**.
+3. Back in the same tab, press **Read them**.
    - **You should see:** the red notice "your role can review documents but
      not add them".
    - **Proof:** the document count for workspace B has not changed:
@@ -651,19 +642,16 @@ you submit it.
 SQL, sees only its own cases and cannot open yours. This checklist also
 creates the **test workspace** used by 3, 7 and 8.
 
-**Run once, 2026-09-26**: 4.1–4.4 passed. The workspace was made with the four
-inserts below rather than `docs/ONBOARDING.md` §1's block: pasted into the SQL
-editor, the block arrived cut short twice and was refused whole, so nothing
-was written, and the runbook's read-back of the result was all `true`. Its
-members are you as `owner` and `parthpahuja+tenantb@gmail.com` as `analyst`,
-so a case can be prepared and approved here, and it has no payers. Tester B's
-`hl-case-01-notice.pdf` opened DN-2609-001 for $600.00, Harbor Lane Markets
-*not matched*, under "No deadline printed", 17 seconds after the upload, for
-$0.026 of model calls. Each workspace's case address gave "404 — This page
-could not be found." in the other. Because you belong to both, **Switch
-workspace** appeared in your sidebar: switching to Test Tenant B showed
-DN-2609-001 and none of your cases, and switching back restored them. **Sign
-out** returned to the sign-in page.
+**Run once, 2026-09-26**: 4.1–4.4 passed. `docs/ONBOARDING.md` §1's block,
+pasted into the SQL editor, arrived cut short twice and was refused whole, so
+the workspace was made with 4.1's inserts instead, the last one changed to add you as
+`owner` and `<TESTER_B_EMAIL>` as `analyst` (a case can be prepared and
+approved here; no debtors yet). ONBOARDING §1's read-back was then all `true`.
+Tester B's `hl-case-01-notice.pdf` opened DN-2609-001, $600.00, Harbor Lane
+Markets *not matched*, 16 seconds after the upload, for $0.026. Each
+workspace's case address gave the 404 in the other. Because you belong to
+both, **Switch workspace** appeared in your sidebar and moved you between
+them; **Sign out** returned to the sign-in page.
 
 **4.1 Create "Test Tenant B" and its member.** (**WRITE** — all four are
 needed. The settings row is required: without it, nothing in that workspace
@@ -708,7 +696,7 @@ Then, in the Supabase dashboard: Authentication → Users → **Add user** →
 **4.3 Give B a case of its own.**
 
 - **Do:** as tester B, use **Add a document** → choose `hl-case-01-notice.pdf`
-  → **Read it**.
+  → **Read them**.
 - **You should see:** the green notice "that document is being read…".
   After 1–2 minutes, reload: a case **DN-2609-001**, $600.00, "Harbor Lane
   Markets" marked *not matched*, in the queue under "No deadline printed".
@@ -1012,7 +1000,7 @@ select d.id, o.slug, d.filename from documents d join organizations o on o.id = 
 
 **7.1 The remittance.**
 
-- **Do:** **Add a document** → `hl-case-02-remittance.pdf` → **Read it**.
+- **Do:** **Add a document** → `hl-case-02-remittance.pdf` → **Read them**.
   Reload after 1–2 minutes.
 - **You should see:** a case **SIM-PAY-2609-002:INV-260802**, $900.00, "Cedar
   Point Grocers".
@@ -1025,7 +1013,7 @@ select d.id, o.slug, d.filename from documents d join organizations o on o.id = 
 **7.2 The notice.**
 
 - **Do:** **Add a document** (on the case list) → `hl-case-02-notice.pdf` →
-  **Read it**, then reload.
+  **Read them**, then reload.
 - **You should see:**
   - a second case, **DN-2609-002**, also $900.00;
   - a **Possible duplicates** card on the case list with the two side by
@@ -1098,7 +1086,7 @@ plan allows.
 **8.1 Upload it.**
 
 - **Do:** **Add a document** → `crosswind-dense-remittance-scan.jpg` →
-  **Read it**. Note the time.
+  **Read them**. Note the time.
 - **You should see:** the green notice starting "that document is being read.
   A deduction notice, or a remittance with a short payment, opens its case
   here within a couple of minutes…".
