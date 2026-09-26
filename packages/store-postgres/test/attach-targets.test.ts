@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { closeAllPools, PostgresStore } from '../src/store';
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 /**

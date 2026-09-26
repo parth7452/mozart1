@@ -23,7 +23,7 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * `packages/pipeline/test/deadline.test.ts`.
  */
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 const BASIS = 'Sysco vendor agreement: 60 days from deduction date';

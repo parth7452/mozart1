@@ -176,6 +176,15 @@ below the floor (`docs/audits/rvl-cdip-classification/`).
 
 ## What not to claim yet
 
+- **That production holds only real tenants.** On 2026-09-25 at 22:46 UTC the
+  integration tests ran against production as its owner and left 72 test
+  organizations, 103 `@example.test` users, 507 cases, 19 documents, 17 debtors
+  and 7 ledger connections. They are append-only, so they stay; each sits in its
+  own organization under RLS, and the six enabled connections were disabled by
+  hand. Any count across the whole fleet includes them. The tests now read
+  `TEST_DATABASE_URL`, never `DATABASE_URL`, and a guard refuses any test run
+  that could reach a database that is not a throwaway
+  (`docs/audits/tests-against-production/`).
 - **A recovery rate.** One case in production carries a filing and a `partial`
   outcome — the Phase 3 end-to-end run. One case is not a rate, and no fee has
   been invoiced (Phase 4).

@@ -20,11 +20,11 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * prove — that it holds *between two connections*, which is what two machines
  * look like from here.
  *
- * `pnpm db:test` prepares the database; without `DATABASE_URL` there is nothing
+ * `pnpm db:test` prepares the database; without `TEST_DATABASE_URL` there is nothing
  * to test against.
  */
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 describeDb('one document’s read, held in the database', () => {

@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm --silent typecheck && pnpm --silent test"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm --silent typecheck && env -u DATABASE_URL pnpm --silent test"
           }
         ]
       }

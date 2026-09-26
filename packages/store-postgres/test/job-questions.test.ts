@@ -19,10 +19,10 @@ import { closeAllPools, PostgresStore, sessionPool } from '../src/store';
  * meant a second copy of that transaction discipline for the app to keep in
  * step; these assertions came with them unchanged.
  *
- * `pnpm db:test` prepares the database; without DATABASE_URL there is nothing
+ * `pnpm db:test` prepares the database; without TEST_DATABASE_URL there is nothing
  * to test against and these skip themselves.
  */
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 describeDb('the two questions a job asks the database', () => {
