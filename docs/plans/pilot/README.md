@@ -198,10 +198,12 @@ everything and changes nothing.
   Supabase admin API, and the service role never goes in a request path
   (invariant 6).
 - **Dense remittances**: paging them.
-- **More file types**: XLSX/CSV import. TIFF and HEIC are in (ADR 0054).
+- **More file types**: XLSX/CSV import (proposed in
+  [ADR 0056](../../adr/0056-a-spreadsheet-row-is-a-document-line.md)). TIFF and HEIC are in (ADR 0054).
 - **Duplicates F2–F5**: each needs an ADR.
 - **Large files**: direct-to-storage upload needs an ADR, because it is a new
-  place where unscanned bytes sit.
+  place where unscanned bytes sit. Proposed in
+  [ADR 0055](../../adr/0055-large-uploads-go-direct-to-storage.md), awaiting the founder.
 
 None of the seven invariants moves for the pilot.
 
