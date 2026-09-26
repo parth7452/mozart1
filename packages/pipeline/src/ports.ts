@@ -979,6 +979,34 @@ export interface CaseWorkflow {
    * nobody did, which includes every case whose deadline was printed.
    */
   readonly deadlineSet?: DeadlineSetRecord;
+  /**
+   * The decline that says this case is not being fought — absent when nobody
+   * declined it. A decline moves no state (ADR 0043), so without this the page
+   * would read a declined case as an untouched `classified` one.
+   */
+  readonly decline?: DeclineRecord;
+}
+
+/**
+ * The `declined_candidates` row that names a case, read back.
+ *
+ * The first decline stands, the same rule `AlreadyDeclinedError` and the
+ * decide guard hold to, so this is the earliest row. `reason` and
+ * `missingEvidence` are strings here because their lists live in
+ * `store-postgres`, which depends on this package and not the reverse.
+ */
+export interface DeclineRecord {
+  readonly declinedCandidateId: string;
+  readonly reason: string;
+  /** What the case was worth when it was declined, integer cents (invariant 3). */
+  readonly estimatedRecoverableCents: number;
+  readonly missingEvidence: readonly string[];
+  /** The reviewer's own words, when they gave any. Kept only on the row. */
+  readonly detail?: string;
+  /** Who declined it, as the route recorded them: an email, not a user id. */
+  readonly decidedBy: string;
+  readonly decidedByVersion: string;
+  readonly decidedAt: Date;
 }
 
 /** One `case.deadline_set` event, read back (pilot E6). */

@@ -44,6 +44,11 @@ export interface CaseActionsProps {
   readonly state: CaseState;
   /** One `getWorkflow` read. Each part is absent until it has happened. */
   readonly workflow: CaseWorkflow | undefined;
+  /**
+   * Whether a decline names this case. Defaults to the workflow's answer; the
+   * page passes its own, which also reads the summary's flag.
+   */
+  readonly declined?: boolean;
   /** Whether this member's role may write at all (`owner`, `approver`, `analyst`). */
   readonly mayAct: boolean;
   /** Whether this member's role may approve (`owner`, `approver`). */
@@ -70,6 +75,7 @@ export function CaseActions({
   deductionId,
   state,
   workflow,
+  declined = workflow?.decline !== undefined,
   mayAct,
   mayApprove,
   viewerUserId,
@@ -84,8 +90,10 @@ export function CaseActions({
   return (
     <>
       {/* 1. Decide to dispute. Beside the decline card and against it: a case
-          is fought or it is logged as declined, never both. */}
-      {state === 'classified' && decision === undefined && mayAct ? (
+          is fought or it is logged as declined, never both — so not offered
+          once it was declined, which the store refuses as
+          `CaseAlreadyDeclinedError` anyway. */}
+      {state === 'classified' && decision === undefined && !declined && mayAct ? (
         <div className="card act" style={{ marginTop: 18 }}>
           <h2 className="section" style={{ marginTop: 0 }}>
             Dispute this deduction

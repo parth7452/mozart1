@@ -521,6 +521,28 @@ function workflowContract(
       expect((await h.store(h.analyst).getWorkflow(deductionId))?.decision).toBeUndefined();
     });
 
+    // A decline moves no state, so without this the case page read a declined
+    // case as an untouched `classified` one once the notice was gone.
+    it('says on the workflow that a case was declined, and says nothing when it was not', async () => {
+      const deductionId = await h.newCase(45_600);
+      const before = await h.store(h.reader).getWorkflow(deductionId);
+      expect(before).toBeDefined();
+      expect(before !== undefined && 'decline' in before).toBe(false);
+
+      await h.decline(deductionId);
+      const after = await h.store(h.reader).getWorkflow(deductionId);
+      expect(after?.state).toBe('classified');
+      expect(after?.decline).toMatchObject({
+        reason: 'below_economic_floor',
+        estimatedRecoverableCents: 45_600,
+        missingEvidence: [],
+        decidedBy: 'analyst',
+        decidedByVersion: 'human/v1',
+      });
+      expect(after?.decline?.decidedAt).toBeInstanceOf(Date);
+      expect(after?.decline !== undefined && 'detail' in after.decline).toBe(false);
+    });
+
     // The wedge this suite exists to keep shut. `decisions` is append-only and
     // the packet is assembled later, so a rationale accepted here and refused
     // by `packets.narrative` would leave the case in `analyst_review` with

@@ -1137,11 +1137,18 @@ select d.id, d.state, d.deduction_amount_cents, d.retailer_name_as_printed, d.de
   decline**.
 - **You should see:** the notice "recorded: this case is logged as declined,
   not discarded".
+- **Then, after reloading the page without the notice:** a **declined** pill
+  beside the state (which stays `classified`: a decline moves no state), and
+  under *What has happened* a **Declined, not fought** entry with the reason
+  in words, the amount, anything you ticked as missing and your note, by
+  "you". Neither **Dispute this deduction** nor **Not worth fighting?** is
+  offered any more.
 - Two things to know:
   - A decline is permanent.
-  - **Once that notice is gone, the case page shows no trace of the decline**
-    (a gap noted below). The proof is that the case leaves the queue, plus
-    this query:
+  - The case also leaves the queue, the case list's OPEN CASES and deadline
+    figures no longer count it (the note under OPEN CASES says how many
+    declined cases it leaves out), and its ledger row carries the same
+    **declined** pill. The row itself, by this query:
     ```sql
     select reason, estimated_recoverable_cents, discovered_from, provenance_kind, decided_by, decided_at
       from declined_candidates where deduction_id = '<OTHER_CASE_ID>';  -- discovered_from 'erp_sync', provenance_kind 'observed'
@@ -1447,7 +1454,7 @@ one comes, check that:
 ## Found while writing this
 
 None of these is fixed in this PR. Each needs a decision or its own change;
-2 and 3 were fixed by another change the same day.
+2 and 3 were fixed by another change the same day, and 5 later.
 
 1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
    0047: an address, the webhook, the job, Settings → Email and the sweep.
@@ -1464,8 +1471,13 @@ None of these is fixed in this PR. Each needs a decision or its own change;
 4. **A duplicate raised by a remittance line is never listed.** If the notice
    arrives *before* the remittance, both cases open, but they never appear
    under Possible duplicates (§7).
-5. **A decline leaves no trace on the case page** once its notice is gone
-   (§6).
+5. ~~**A decline leaves no trace on the case page** once its notice is gone
+   (§6).~~ **Fixed** (2026-09-26): the case page reads the decline back,
+   shows a **declined** pill beside the state and a **Declined, not fought**
+   entry under *What has happened*, and no longer offers Decide, Decline or
+   a deadline on it. `declineCase` now also refuses a case a decision names
+   or whose state is past `classified`, so a hand-made POST cannot decline a
+   case that is being fought.
 6. **A line with a printed dash is counted as "unreadable"** rather than
    "paid in full" (§8). There is no money impact.
 7. **Coverage shows a misleading reason** when a sync is refused because the

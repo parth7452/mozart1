@@ -196,7 +196,12 @@ export function CaseList({
           <div className="metric">
             <span className="metric-label">OPEN CASES</span>
             <strong>{metrics.openCount.toLocaleString('en-US')}</strong>
-            <span className="metric-note">Working toward an outcome</span>
+            <span className="metric-note">
+              {metrics.declinedCount === 0
+                ? 'Working toward an outcome'
+                : `Working toward an outcome · ${metrics.declinedCount.toLocaleString('en-US')} ` +
+                  'declined, not counted'}
+            </span>
           </div>
           <div className="metric">
             <span className="metric-label">APPROVAL STAGE</span>

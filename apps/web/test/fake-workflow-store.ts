@@ -33,6 +33,7 @@ import {
   type CaseWorkflow,
   type CaseWorkflowStore,
   type DeadlineSetRecord,
+  type DeclineRecord,
   type HumanDecisionRecord,
   type OutcomeRecord,
   type PacketRecord,
@@ -103,6 +104,8 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
   private readonly cases = new Map<string, CaseRow>();
   /** Cases already logged as declined, by the row that logged them. */
   private readonly declined = new Map<string, string>();
+  /** What `getWorkflow` reads back for a seeded decline, when a test gave it. */
+  private readonly declines = new Map<string, DeclineRecord>();
   private readonly roles = new Map<string, string>();
   private readonly decisions = new Map<string, HumanDecisionRecord>();
   private readonly packets = new Map<string, PacketRecord>();
@@ -141,9 +144,19 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     return this;
   }
 
-  /** A case already in the counterfactual log, which cannot then be disputed. */
-  seedDecline(deductionId: string, declinedCandidateId: string): this {
+  /**
+   * A case already in the counterfactual log, which cannot then be disputed.
+   * With `record`, `getWorkflow` reads the decline back as the real store does.
+   */
+  seedDecline(
+    deductionId: string,
+    declinedCandidateId: string,
+    record?: Omit<DeclineRecord, 'declinedCandidateId'>,
+  ): this {
     this.declined.set(deductionId, declinedCandidateId);
+    if (record !== undefined) {
+      this.declines.set(deductionId, { declinedCandidateId, ...record });
+    }
     return this;
   }
 
@@ -580,6 +593,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     const outcome = [...this.outcomes.values()].find(
       (candidate) => candidate.deductionId === deductionId,
     );
+    const decline = this.declines.get(deductionId);
 
     return {
       deductionId,
@@ -590,6 +604,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
       ...(submission === undefined ? {} : { submission }),
       ...(outcome === undefined ? {} : { outcome }),
       ...(row.deadlineSet === undefined ? {} : { deadlineSet: row.deadlineSet }),
+      ...(decline === undefined ? {} : { decline }),
     };
   }
 

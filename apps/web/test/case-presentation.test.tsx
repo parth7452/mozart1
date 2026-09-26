@@ -35,6 +35,7 @@ describe('ledger presentation', () => {
       openCount: 5,
       approvalStageCount: 1,
       deadlineCount: 2,
+      declinedCount: 0,
     });
     expect(caseMetrics([])).toEqual({
       caseCount: 0,
@@ -42,6 +43,7 @@ describe('ledger presentation', () => {
       openCount: 0,
       approvalStageCount: 0,
       deadlineCount: 0,
+      declinedCount: 0,
     });
   });
   it('counts a case merged into another neither as open nor in the total (ADR 0042)', () => {
@@ -53,6 +55,43 @@ describe('ledger presentation', () => {
       caseCount: 2,
       totalCents: 42_150,
       openCount: 1,
+    });
+  });
+
+  it('counts a declined case as decided, not open, and keeps its dollars in the total', () => {
+    // A decline moves no state (ADR 0043), so a declined case still reads
+    // `classified`; the store splits it out with the review queue's own
+    // predicate, and the figures leave it out of open work as the queue does.
+    const open = row({ deductionId: 'open', disputeDeadline: '2026-09-21' });
+    const declinedDue = row({
+      deductionId: 'declined-due',
+      deductionAmountCents: 50_000,
+      disputeDeadline: '2026-09-21',
+      declined: true,
+    });
+    const declinedApproval = row({
+      deductionId: 'declined-approval',
+      deductionAmountCents: 7_000,
+      state: 'awaiting_approval',
+      disputeDeadline: '2026-09-22',
+      declined: true,
+    });
+    const declinedMerged = row({
+      deductionId: 'declined-merged',
+      deductionAmountCents: 900,
+      state: 'merged',
+      declined: true,
+    });
+    expect(
+      caseMetrics(tallyOf([open, declinedDue, declinedApproval, declinedMerged], today)),
+    ).toEqual({
+      caseCount: 4,
+      // Every deduction that was withheld, the merged-away copy aside.
+      totalCents: 12_345 + 50_000 + 7_000,
+      openCount: 1,
+      approvalStageCount: 0,
+      deadlineCount: 1,
+      declinedCount: 2,
     });
   });
 

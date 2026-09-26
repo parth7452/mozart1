@@ -45,7 +45,9 @@ Ordered by how likely they are to happen with real customers.
   case's state, so a case declined as "Same deduction, already handled" still
   counts as open and in the deadlines, although the review queue drops it. No
   migration is needed to leave declined cases out and to show a line counting
-  the pairs next to the figures.
+  the pairs next to the figures. *Declined cases: fixed 2026-09-26* — the tally
+  splits them out with the queue's own predicate (`DECLINED_SQL`) and the
+  figures leave them out of open work; the pairs line is still open.
 - **A declined copy wins the merge.** `app.merge_work_rank()` counts a decline
   as work, so the copy a person declined as a duplicate survives, and the
   deduction drops out of every queue. Leave `duplicate_of_other` declines out
