@@ -7,7 +7,7 @@
  * (ADR 0047, context item 8), so the 25 MB this used to say was a promise a
  * 5–25 MB file met with Vercel's bare error page rather than our sentence. The
  * file limit is set so that the file plus its multipart framing stays under the
- * platform's body limit, and `upload-limits.test.tsx` holds that sum.
+ * platform's body limit, and `test/multi-upload.test.tsx` holds that sum.
  *
  * A larger file needs somewhere to go that is not a function body —
  * direct-to-storage upload — and that is a new place unscanned bytes sit, so
@@ -33,6 +33,6 @@ export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
  * What the upload forms offer in the file picker: the types the door accepts
  * (`ALLOWED_MIME_TYPES` in `@recouple/ingest`) and nothing else. The door
  * checks magic bytes whatever this says; this only stops the picker offering a
- * TIFF the door will refuse.
+ * file the door will refuse. TIFF since ADR 0054, HEIC and HEIF since its §5.
  */
-export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp';
+export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.heic,.heif';

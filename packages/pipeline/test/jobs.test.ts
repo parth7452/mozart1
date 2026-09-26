@@ -691,6 +691,78 @@ describe('two deliveries of the same document at the same time', () => {
     expect(stopped[0]?.haltedBecause).toBeNull();
   });
 
+  it('tells an attachment that arrives mid-read the truth, and files it when asked again', async () => {
+    // The same bytes uploaded to a second case while the first upload's read
+    // is running. This delivery cannot file anything yet — nothing is recorded
+    // — so it says `beingRead`, and deciding to ask again is the runtime
+    // binding's (`readDocumentSteps` in apps/web). Asked again after the first
+    // read, it files that reading on its case and reads nothing.
+    const { store, deps } = harness();
+    const caseA = await store.openCase({ orgId: ORG, claimId: 'FIRST-CLAIM' });
+    const caseB = await store.openCase({ orgId: ORG, claimId: 'SECOND-CLAIM' });
+
+    let openTheGate = (): void => undefined;
+    const firstReadIsInside = new Promise<void>((resolve) => {
+      openTheGate = resolve;
+    });
+    const realClassifier = deps.classifier;
+    let classifyCalls = 0;
+    const gated: JobDeps = {
+      ...deps,
+      classifier: {
+        async classify(document: DocumentPayload) {
+          classifyCalls += 1;
+          if (classifyCalls === 1) await firstReadIsInside;
+          return realClassifier.classify(document);
+        },
+      },
+    };
+
+    const ingested = await ingestForJob(gated, upload(fixtureFor('carrier-bol.pdf')));
+    const forCase = (attachToCase: string) => ({
+      documentId: ingested.documentId,
+      orgId: ORG,
+      actor: ACTOR,
+      attachToCase,
+    });
+
+    const firstRead = readDocumentJob(gated, forCase(caseA.deductionId));
+    await new Promise((resolve) => setImmediate(resolve));
+    const overlapping = await readDocumentJob(gated, forCase(caseB.deductionId));
+    openTheGate();
+    const first = await firstRead;
+
+    expect(overlapping).toMatchObject({
+      beingRead: true,
+      filedFromRecord: false,
+      deductionId: null,
+      docType: null,
+    });
+    expect(first).toMatchObject({ alreadyRead: false, deductionId: caseA.deductionId });
+    const callsAfterFirstRead = store.modelCalls.length;
+    expect(store.links.filter((l) => l.deductionId === caseB.deductionId)).toEqual([]);
+
+    const retried = await readDocumentJob(gated, forCase(caseB.deductionId));
+
+    expect(retried).toMatchObject({
+      alreadyRead: true,
+      filedFromRecord: true,
+      beingRead: false,
+      deductionId: caseB.deductionId,
+      docType: 'bol',
+    });
+    expect(store.modelCalls).toHaveLength(callsAfterFirstRead);
+    expect(store.extractions.filter((e) => e.documentId === ingested.documentId)).toHaveLength(1);
+    expect(store.events.filter((e) => e.deductionId === caseB.deductionId)).toEqual([
+      {
+        orgId: ORG,
+        deductionId: caseB.deductionId,
+        eventType: 'evidence.attached',
+        payload: { document_id: ingested.documentId, doc_type: 'bol', read_again: false },
+      },
+    ]);
+  });
+
   it('releases the document when a read fails, rather than sealing it shut', async () => {
     // A claim that outlived its holder would make one failed delivery enough to
     // make a document permanently unreadable — a worse failure than the one it

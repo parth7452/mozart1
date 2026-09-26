@@ -101,6 +101,14 @@ deduction, and inventing a case for it would be worse than silence.
 
 We never ask the model for the difference. `RemittanceAdviceSchema` is unchanged.
 
+**Note (2026-09-26, no migration).** "Prints one" means prints an amount. A
+deduction column printing only a dash (`-`, `–`, `—`, `$ -`) prints none
+(`printsNoAmount` in `core-domain`), so the line goes to the subtraction:
+`not_short_paid` when gross equals net, a case at `gross − net` when it does
+not. It used to be `unreadable`, which dropped the 30 paid-in-full lines of the
+dense advice there and would have dropped a real short-pay printed beside a
+dash. `parseMoneyToCents` still refuses a dash; it is never zero cents.
+
 ### 3. Tolerance: two columns on `org_settings`, and a direction
 
 ```

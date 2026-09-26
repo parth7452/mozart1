@@ -6,6 +6,7 @@ export * from './prompt';
 export * from './flatten';
 export * from './paths';
 export * from './wire';
+export * from './paging';
 export * from './restore';
 export * from './verify';
 export * from './amounts';

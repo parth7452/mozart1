@@ -1,3 +1,4 @@
+import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
 import type { LedgerSyncAnomalyKind, LedgerSyncOutcome } from '@recouple/store-postgres';
 
 /**
@@ -81,6 +82,14 @@ export const OUTCOME_LABELS: Readonly<Record<LedgerSyncOutcome, { label: string;
  * What a run's error class means for the person reading, by the class's
  * literal name (the errors carry literal names so a minified build records the
  * same ones). The class name itself is shown as well, for whoever investigates.
+ *
+ * `refused` carries two classes, and they send a person to different places
+ * (`syncLedgerJob`, packages/pipeline/src/ledger-job.ts):
+ * `LedgerConnectionDisabledError` when the connection was disconnected between
+ * the fan-out listing it and the run starting, and `LedgerSyncRefusedError`
+ * when the member the run acts as may no longer write. Migration 0024's column
+ * comment says `refused` means only the second; it predates the disabled path.
+ * A refusal with any other class blames nobody.
  */
 export function errorClassGuide(errorClass: string | undefined, outcome: LedgerSyncOutcome): string {
   if (outcome === 'completed') return '';
@@ -88,7 +97,14 @@ export function errorClassGuide(errorClass: string | undefined, outcome: LedgerS
     return 'This deployment could not reach QuickBooks — something it needs is not set up. The run row does not record which.';
   }
   if (outcome === 'refused') {
-    return 'The member this connection syncs as can no longer write in this workspace. Reconnect as a current owner.';
+    switch (errorClass) {
+      case LEDGER_CONNECTION_DISABLED:
+        return 'This connection was disconnected before the run began, so nothing was read. If it should still be connected, connect it again from Settings → QuickBooks.';
+      case LEDGER_SYNC_REFUSED:
+        return 'The member this connection syncs as can no longer write in this workspace. Reconnect as a current owner.';
+      default:
+        return 'Nothing was read. An engineer should look at the logs for this run.';
+    }
   }
   switch (errorClass) {
     case 'QboAuthError':

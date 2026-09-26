@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { AlreadyDeclinedError, ProvenanceUnknownError } from '@recouple/store-postgres';
+import {
+  AlreadyDeclinedError,
+  CaseNotDeclinableError,
+  ProvenanceUnknownError,
+} from '@recouple/store-postgres';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { DECLINE_DETAIL_MAX_LENGTH, NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
@@ -305,6 +309,50 @@ describe('declining a case from the web', () => {
     const to = location(response);
     expect(to.pathname).toBe(`/cases/${CASE_ID}`);
     expect(said(response)).toBe('this case was already declined; the first decline stands');
+    expect(store.closed).toBe(1);
+  });
+
+  // Fought or declined, never both. The page offers the card only on a
+  // classified case nobody decided; a crafted POST on a case awaiting approval
+  // or already filed reaches the store, which refuses it before writing
+  // anything (`decline-case.test.ts` counts the rows on Postgres). The route's
+  // part is to say so, in the state's own words, rather than 500.
+  it.each([
+    ['awaiting_approval', 'awaiting approval'],
+    ['submitted', 'submitted'],
+  ] as const)('says a %s case was not declined, and why', async (state, words) => {
+    const store = harness.store as RouteTestStore;
+    store.throws = new CaseNotDeclinableError(CASE_ID, state);
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    const to = location(response);
+    expect(to.pathname).toBe(`/cases/${CASE_ID}`);
+    expect(to.searchParams.get('decline')).toBe('decline_wrong_state');
+    expect(said(response)).toBe(
+      `this case was not declined: it is ${words}, and a case is declined before anybody ` +
+        'decides to fight it. The case is untouched.',
+    );
+    // Not the success sentence, and not a fault for the logs.
+    expect(said(response)).not.toMatch(/logged as declined/);
+    expect(logged).toHaveLength(0);
+    expect(store.calls).toHaveLength(1);
+    expect(store.closed).toBe(1);
+  });
+
+  it('says a case with a decision was not declined, whatever its state', async () => {
+    const store = harness.store as RouteTestStore;
+    store.throws = new CaseNotDeclinableError(
+      CASE_ID,
+      'classified',
+      '55555555-5555-5555-5555-555555555555',
+    );
+
+    const response = await POST(declineRequest(), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(location(response).searchParams.get('decline')).toBe('decline_decided');
+    expect(said(response)).toMatch(/a decision to dispute it is already recorded/);
+    expect(said(response)).toMatch(/The case is untouched/);
     expect(store.closed).toBe(1);
   });
 

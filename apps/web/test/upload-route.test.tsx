@@ -17,6 +17,7 @@ import {
   type StoredDocument,
 } from '@recouple/pipeline';
 import { InngestRunner, type UploadRunner } from '../lib/pipeline';
+import { attachReadKey, parseReadRequested } from '../lib/inngest';
 import { NextRequest } from 'next/server';
 import {
   AlwaysCleanScanner,
@@ -622,6 +623,47 @@ describe('uploading where the read runs as a job', () => {
     const to = new URL(response.headers.get('location') as string);
     expect(to.pathname).toBe(`/cases/${existing.deductionId}`);
     expect(said(response)).toMatch(/being read/);
+  });
+
+  it('keys an upload to a second case on that case, so the first upload’s window does not swallow it', async () => {
+    // The same bytes, uploaded on case A and then on case B before A's read has
+    // recorded anything. Both dedupe to one document and nothing is on record,
+    // so both are queued. Keyed on the document alone, B's event carried A's
+    // key and the runtime's idempotency window dropped it, while the reviewer
+    // on B was told it was being read for B.
+    const store = harness.store as RouteTestStore;
+    const caseA = await store.openCase({ orgId: ORG_ID });
+    const caseB = await store.openCase({ orgId: ORG_ID });
+
+    await POST(uploadRequest(notice.bytes, notice.filename, caseA.deductionId));
+    const response = await POST(uploadRequest(notice.bytes, notice.filename, caseB.deductionId));
+
+    expect(store.documents.size).toBe(1);
+    const documentId = [...store.documents.keys()][0] as string;
+    expect(sent.map((e) => e.data.documentId)).toEqual([documentId, documentId]);
+    expect(sent.map((e) => e.data.attachToCase)).toEqual([caseA.deductionId, caseB.deductionId]);
+    expect(sent[0]?.data.readKey).toBe(attachReadKey(documentId, caseA.deductionId));
+    expect(sent[1]?.data.readKey).toBe(attachReadKey(documentId, caseB.deductionId));
+    expect(sent[1]?.data.readKey).not.toBe(sent[0]?.data.readKey);
+    expect(sent[1]?.data.readKey).not.toBe(documentId);
+    // Still an event this app would accept from the queue.
+    expect(parseReadRequested(sent[1]?.data).readKey).toBe(sent[1]?.data.readKey);
+    expect(store.modelCalls).toHaveLength(0);
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(
+      `/cases/${caseB.deductionId}`,
+    );
+    expect(said(response)).toMatch(/being read/);
+  });
+
+  it('keys two uploads of the same bytes to the same case alike, so a redelivery is one read', async () => {
+    const store = harness.store as RouteTestStore;
+    const existing = await store.openCase({ orgId: ORG_ID });
+
+    await POST(uploadRequest(notice.bytes, notice.filename, existing.deductionId));
+    await POST(uploadRequest(notice.bytes, notice.filename, existing.deductionId));
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.data.readKey).toBe(sent[0]?.data.readKey);
   });
 });
 

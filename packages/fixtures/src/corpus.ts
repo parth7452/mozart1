@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { authoredDocuments, type FixtureDocument, type TruthExpectation } from './cases';
 import { scannedDocuments } from './scans';
-import { denseDocuments } from './dense';
+import { denseDocuments, densePagedDocuments } from './dense';
 import { emailBodyDocuments } from './email-body';
 import { logisticsDocuments } from './logistics';
 import { customerDocuments } from './customer';
@@ -211,6 +211,7 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...corpusDocuments(),
     ...scannedDocuments(),
     ...denseDocuments(),
+    ...densePagedDocuments(),
     ...emailBodyDocuments(),
     ...logisticsDocuments(),
     ...customerDocuments(),

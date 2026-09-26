@@ -304,6 +304,17 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this case was already declined; the first decline stands',
   },
+  // Fought or declined, never both. The page offers the decline card only on
+  // a classified case nobody has decided; these are what a stale form or a
+  // hand-made POST meets instead (`CaseNotDeclinableError`). Nothing written.
+  decline_decided: {
+    tone: 'bad',
+    text: 'this case was not declined: a decision to dispute it is already recorded, and a case is fought or declined, never both. The case is untouched.',
+  },
+  decline_wrong_state: {
+    tone: 'bad',
+    text: 'this case was not declined: it is {0}, and a case is declined before anybody decides to fight it. The case is untouched.',
+  },
   decline_no_notice: {
     // Nothing was recorded. A decline is counted against the channel that found
     // the deduction, and a case with no notice document has nothing on it that
@@ -950,6 +961,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   approve_superseded: [SHORT_HASH],
   submit_confirmation_too_long: [COUNT],
   decline_detail_too_long: [COUNT],
+  decline_wrong_state: [oneOf(CASE_STATES)],
   submit_wrong_state: [oneOf(CASE_STATES)],
   outcome_note_too_long: [COUNT],
   outcome_recorded: [oneOf(['won', 'partial', 'lost'])],

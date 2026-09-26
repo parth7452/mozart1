@@ -759,7 +759,14 @@ describe('the store’s named refusals, as a reviewer meets them', () => {
     // moves the one number the counterfactual log exists to produce.
     store()
       .seedCase({ deductionId: CASE_ID, state: 'classified', deductionAmountCents: AMOUNT_CENTS })
-      .seedDecline(CASE_ID, '12121212-1111-2222-3333-444444444444');
+      .seedDecline(CASE_ID, '12121212-1111-2222-3333-444444444444', {
+        reason: 'below_economic_floor',
+        estimatedRecoverableCents: AMOUNT_CENTS,
+        missingEvidence: [],
+        decidedBy: 'reviewer@example.test',
+        decidedByVersion: 'human/v1',
+        decidedAt: new Date('2026-09-20T09:30:00Z'),
+      });
 
     const response = await decide(
       post('decide', { reason: 'shortage_quantity', rationale: 'worth fighting after all' }),
@@ -767,6 +774,10 @@ describe('the store’s named refusals, as a reviewer meets them', () => {
     );
     expect(response.status).toBe(303);
     expect(said(response)).toMatch(/the decline stands/);
+    // And the case still reads as declined, with no decision beside it.
+    const after = await store().getWorkflow(CASE_ID);
+    expect(after?.decline?.declinedCandidateId).toBe('12121212-1111-2222-3333-444444444444');
+    expect(after?.decision).toBeUndefined();
   });
 
   it('says how long a rationale may be rather than storing a truncated one', async () => {

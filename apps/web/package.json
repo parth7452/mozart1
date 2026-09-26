@@ -12,6 +12,7 @@
   "dependencies": {
     "@recouple/core-domain": "workspace:*",
     "@recouple/crypto": "workspace:*",
+    "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
     "@recouple/qbo": "workspace:*",
     "@recouple/store-postgres": "workspace:*",

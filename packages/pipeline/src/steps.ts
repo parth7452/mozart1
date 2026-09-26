@@ -10,6 +10,7 @@ import {
   applyTransition,
   identifierMatchKey,
   parseMoneyToCents,
+  printsNoAmount,
   resolveIdentity,
   subCents,
   tryParsePrintedDate,
@@ -46,6 +47,7 @@ import {
   RejectedUploadError,
   type ScanVerdict,
 } from '@recouple/ingest';
+import { describeRendition, renderForReading, renditionFilename } from '@recouple/ingest/rendition';
 import type {
   CaseRecord,
   IngestSource,
@@ -270,6 +272,19 @@ interface ReadableDocument {
   readonly payload: DocumentPayloadShape;
   readonly blocks: readonly OcrBlock[];
   readonly calls: readonly ModelCallRecord[];
+  /**
+   * `rendition image/tiff→application/pdf 3p` when the reader was sent a
+   * rendition rather than the stored bytes (ADR 0054), for every model call
+   * the read makes to carry on its `detail`. Types and a count only.
+   */
+  readonly rendition?: string;
+}
+
+/** A call made over a readable document, told when that document was a rendition. */
+function withRendition(call: ModelCallRecord, readable: Pick<ReadableDocument, 'rendition'>): ModelCallRecord {
+  if (readable.rendition === undefined) return call;
+  const detail = call.detail === undefined ? readable.rendition : `${readable.rendition}; ${call.detail}`;
+  return { ...call, detail };
 }
 
 async function readablePayload(
@@ -280,25 +295,35 @@ async function readablePayload(
   // The gate. Nothing below this line runs on an unscanned or unclean file.
   assertScannedClean(verdict, document.documentId);
 
+  // After the gate, never before: a rendition decodes the file, and nothing
+  // decodes a file the scanner has not called clean. For every type but TIFF
+  // this is the stored bytes; for a TIFF it is a PNG or a PDF made here, in
+  // memory, and never stored (ADR 0054). Reducto, the classifier and the
+  // extractor all read the same rendition, so the boxes fall on the pixels the
+  // model saw.
+  const rendition = await renderForReading(document.bytes, document.mimeType);
+  const renditionNote = describeRendition(rendition);
+
   let pageText = document.pageText ?? (await deps.store.pagesFor(document.documentId));
   let textSource: 'embedded' | 'ocr' = 'embedded';
   let blocks: readonly OcrBlock[] = [];
   const calls: ModelCallRecord[] = [];
+  const noted = renditionNote === undefined ? {} : { rendition: renditionNote };
 
   const payload = {
     documentId: document.documentId,
     orgId: document.orgId,
-    filename: document.filename,
-    mimeType: document.mimeType,
-    base64: Buffer.from(document.bytes).toString('base64'),
-    byteSize: document.byteSize,
+    filename: renditionFilename(document.filename, rendition),
+    mimeType: rendition.mimeType,
+    base64: Buffer.from(rendition.bytes).toString('base64'),
+    byteSize: rendition.bytes.byteLength,
   };
 
   const needsOcr = pageText === undefined || pageText.length === 0 || pageText.every((t) => t.trim() === '');
   if (needsOcr && deps.ocr !== undefined) {
     try {
       const result = await deps.ocr.ocr(payload);
-      calls.push(result.call);
+      calls.push(withRendition(result.call, noted));
       await deps.store.recordPages(document.documentId, result.pages);
       pageText = textByPage(result.pages);
       textSource = 'ocr';
@@ -307,7 +332,7 @@ async function readablePayload(
       if (error instanceof OcrError) {
         // A failed read is still a read that cost something, and a recorded
         // failure is the difference between "unverifiable" and "unexplained".
-        calls.push(error.call);
+        calls.push(withRendition(error.call, noted));
       } else {
         throw error;
       }
@@ -321,6 +346,7 @@ async function readablePayload(
     },
     blocks,
     calls,
+    ...noted,
   };
 }
 
@@ -363,7 +389,7 @@ export async function classifyDocument(
   deps: PipelineDeps,
 ): Promise<ClassifyResult> {
   const readable = await readablePayload(document, deps);
-  const result = await deps.classifier.classify(readable.payload);
+  const result = await classifyReadable(readable, deps);
   for (const call of [...readable.calls, result.call]) {
     await deps.store.recordModelCall(call);
   }
@@ -399,7 +425,20 @@ async function readExtraction(
   deps: PipelineDeps,
 ): Promise<ExtractionResult> {
   const extracted = await deps.extractor.extract(readable.payload, docType);
-  return { ...extracted, fields: attachBoxes(extracted.fields, readable.blocks) };
+  return {
+    ...extracted,
+    call: withRendition(extracted.call, readable),
+    fields: attachBoxes(extracted.fields, readable.blocks),
+  };
+}
+
+/** The classification, its call told when the document was a rendition. */
+async function classifyReadable(
+  readable: ReadableDocument,
+  deps: PipelineDeps,
+): Promise<ClassifyResult> {
+  const result = await deps.classifier.classify(readable.payload);
+  return { ...result, call: withRendition(result.call, readable) };
 }
 
 async function recordExtraction(
@@ -882,7 +921,7 @@ export async function readDocument(
   // the stored text and so never calls OCR, would arrive with no boxes at all.
   const readable = await readablePayload(document, deps);
 
-  const classification = await deps.classifier.classify(readable.payload);
+  const classification = await classifyReadable(readable, deps);
 
   const extraction = await readExtraction(readable, classification.docType, deps);
 
@@ -1366,6 +1405,18 @@ function fieldWasPrinted(document: unknown, ...path: readonly string[]): boolean
   return typeof text === 'string' && text.trim() !== '';
 }
 
+/**
+ * Whether a line prints a deduction amount of its own. A dash in the column is
+ * none (`printsNoAmount`): a paid-in-full line prints `-` there, and read as
+ * money it would be a line we cannot price, where the line prices itself by
+ * `gross − net` (ADR 0028 §2, VERIFY-CHECKLIST found while writing #6).
+ */
+function printsOwnDeduction(line: unknown): boolean {
+  if (!fieldWasPrinted(line, 'deduction_amount')) return false;
+  const text = fieldValue(line, ['deduction_amount', 'value']);
+  return !(typeof text === 'string' && printsNoAmount(text));
+}
+
 /** What became of one line of a remittance advice. */
 export type RemittanceLineOutcome =
   /** Over the floor, no recent case for this invoice: a new case. */
@@ -1440,14 +1491,20 @@ export const DECLINED_BY_TOLERANCE = 'remittance_tolerance';
  *
  * A field the page printed and we could not read comes back as a problem rather
  * than as an absence, and the caller reports the line as unreadable: a deduction
- * we cannot price is not a deduction of nothing.
+ * we cannot price is not a deduction of nothing. A dash in the deduction column
+ * is not such a field: it prints no amount (`printsOwnDeduction`), so the line
+ * falls to `gross − net` — paid in full when the two are equal, a short-pay
+ * when they are not, and unreadable only when it prints no gross or net to
+ * check it by. Both callers that precompute a whole advice's short-pays (the
+ * line loop, and `remittanceLineOfCase` for `legacyOwner`) get that answer
+ * from here, through `lineShortPays`.
  */
 function shortPayOnLine(
   line: unknown,
 ):
   | { readonly cents: Cents; readonly basis: 'printed' | 'gross_minus_net' }
   | { readonly problem: string } {
-  if (fieldWasPrinted(line, 'deduction_amount')) {
+  if (printsOwnDeduction(line)) {
     const printed = printedMoneyCents(line, 'deduction_amount');
     if (printed === undefined) {
       return { problem: 'the line prints a deduction amount that will not parse as money' };
@@ -1460,7 +1517,9 @@ function shortPayOnLine(
   if (!grossPrinted || !netPrinted) {
     return {
       problem:
-        'the line prints no deduction amount, and ' +
+        (fieldWasPrinted(line, 'deduction_amount')
+          ? 'the line prints a dash for its deduction, and '
+          : 'the line prints no deduction amount, and ') +
         (grossPrinted ? 'no net paid' : netPrinted ? 'no gross' : 'neither a gross nor a net paid') +
         ' to subtract one from',
     };
@@ -1570,7 +1629,7 @@ export async function openCasesFromRemittance(
   // Each line's short-pay, up front, so which line of a repeated invoice owns a
   // case opened under the old key does not depend on the order lines are
   // processed in (ADR 0048 §3).
-  const shortPays = rows.map((row) => shortPayOnLine(row));
+  const shortPays = lineShortPays(rows, keys);
   // Cases this advice opened. Its own lines are never candidates for each
   // other, exact or probable (ADR 0048 §2).
   const openedHere = new Set<string>();
@@ -1589,20 +1648,12 @@ export async function openCasesFromRemittance(
     };
 
     const key = keys[index];
-    if (key?.sharesGrossAndNet === true && !fieldWasPrinted(line, 'deduction_amount')) {
-      // `gross − net` here is the whole invoice's short-pay, which another line
-      // of this advice also claims. Given to every line it would count the same
-      // dollars once per line (ADR 0048 §4).
-      note({
-        outcome: 'unreadable',
-        detail:
-          'the line repeats its invoice\'s gross and net alongside another line of this advice ' +
-          'and prints no deduction of its own, so its share of the short-pay cannot be told',
-      });
-      continue;
+    // A line that repeats its invoice's gross and net and prints no deduction of
+    // its own comes back as a problem here, from `lineShortPays` (ADR 0048 §4).
+    const shortPay = shortPays[index];
+    if (shortPay === undefined) {
+      throw new Error(`remittance: no short-pay was computed for line ${index}`);
     }
-
-    const shortPay = shortPays[index] ?? shortPayOnLine(line);
     if ('problem' in shortPay) {
       note({ outcome: 'unreadable', detail: shortPay.problem });
       continue;
@@ -1942,6 +1993,36 @@ function lineClaimIds(
       sharesGrossAndNet,
     };
   });
+}
+
+/**
+ * Every line's short-pay over a whole advice, with ADR 0048 §4 applied: a line
+ * that repeats its invoice's gross and net beside another line of the advice,
+ * and prints no deduction of its own — none at all, or a dash
+ * (`printsOwnDeduction`) — is a problem, not `gross − net`. That difference is
+ * the whole invoice's short-pay, which another line also claims; given to every
+ * line it would count the same dollars once per line.
+ *
+ * Both the line loop and `legacyOwner` read this one array, so a line that
+ * cannot claim a share cannot own a case opened under the old key either.
+ * Were it only the loop's rule, a dash or blank line printed ahead of the line
+ * that prints the deduction would own the legacy case by amount, be refused as
+ * unreadable, and leave the real line to open a second case for the same
+ * dollars (found in review, 2026-09-26).
+ */
+function lineShortPays(
+  rows: readonly unknown[],
+  keys: readonly (LineKey | undefined)[],
+): readonly ReturnType<typeof shortPayOnLine>[] {
+  return rows.map((row, index) =>
+    keys[index]?.sharesGrossAndNet === true && !printsOwnDeduction(row)
+      ? {
+          problem:
+            "the line repeats its invoice's gross and net alongside another line of this advice " +
+            'and prints no deduction of its own, so its share of the short-pay cannot be told',
+        }
+      : shortPayOnLine(row),
+  );
 }
 
 /**
@@ -2484,7 +2565,7 @@ async function remittanceLineOfCase(
     // line that owns it by amount (ADR 0048 §3).
     let index = keys.findIndex((key) => key?.claimId === record.claimId);
     if (index === -1) {
-      const shortPays = rows.map((row) => shortPayOnLine(row));
+      const shortPays = lineShortPays(rows, keys);
       const legacy = keys.find((key) => key?.legacyClaimId === record.claimId);
       index =
         legacy === undefined || record.deductionAmountCents === undefined

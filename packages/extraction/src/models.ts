@@ -84,10 +84,17 @@ const RATES: Record<string, Rate> = {
 /** Cached input reads at roughly a tenth of the input rate. */
 const CACHE_READ_MULTIPLIER = 0.1;
 
+/** A write to the five-minute cache costs a quarter more than plain input. */
+const CACHE_WRITE_MULTIPLIER = 1.25;
+
 export interface TokenUsage {
+  /** The whole prompt: full-price input, cache reads and cache writes. */
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** The part of `inputTokens` read from the cache. */
   readonly cachedTokens?: number;
+  /** The part of `inputTokens` written to the cache (ADR 0053's paged reads). */
+  readonly cacheWriteTokens?: number;
 }
 
 /**
@@ -99,10 +106,12 @@ export function costMicros(model: string, usage: TokenUsage): number {
   const rate = RATES[model];
   if (rate === undefined) return 0;
   const cached = usage.cachedTokens ?? 0;
-  const uncachedInput = Math.max(0, usage.inputTokens - cached);
+  const written = usage.cacheWriteTokens ?? 0;
+  const uncachedInput = Math.max(0, usage.inputTokens - cached - written);
   return Math.ceil(
     uncachedInput * rate.inputMicros +
       cached * rate.inputMicros * CACHE_READ_MULTIPLIER +
+      written * rate.inputMicros * CACHE_WRITE_MULTIPLIER +
       usage.outputTokens * rate.outputMicros,
   );
 }

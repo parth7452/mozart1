@@ -251,6 +251,15 @@ export class LedgerConnectionNotFoundError extends Error {
 }
 
 /**
+ * The names `syncLedgerJob` writes to `ledger_sync_runs.error_class` for a
+ * refusal. Exported as constants so a reader of that column (the coverage page,
+ * Settings → QuickBooks) compares against the class's own name rather than a
+ * copy of it; the classes below set `name` from them.
+ */
+export const LEDGER_SYNC_REFUSED = 'LedgerSyncRefusedError';
+export const LEDGER_CONNECTION_DISABLED = 'LedgerConnectionDisabledError';
+
+/**
  * The member this connection acts as may no longer write in this org.
  *
  * Instantiated only for its name, which is what goes in `error_class`: the
@@ -259,7 +268,7 @@ export class LedgerConnectionNotFoundError extends Error {
 export class LedgerSyncRefusedError extends Error {
   constructor(orgId: string, userId: string) {
     super(`user ${userId} may no longer write in org ${orgId}`);
-    this.name = 'LedgerSyncRefusedError';
+    this.name = LEDGER_SYNC_REFUSED;
   }
 }
 
@@ -267,7 +276,7 @@ export class LedgerSyncRefusedError extends Error {
 export class LedgerConnectionDisabledError extends Error {
   constructor(readonly connectionId: string) {
     super(`accounting connection ${connectionId} is disabled`);
-    this.name = 'LedgerConnectionDisabledError';
+    this.name = LEDGER_CONNECTION_DISABLED;
   }
 }
 

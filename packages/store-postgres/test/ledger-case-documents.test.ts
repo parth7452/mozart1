@@ -111,6 +111,9 @@ describeDb('the documents of a case the ledger sync opened', () => {
         role: 'notice',
         read: false,
         readForCase: false,
+        // Nothing scans it, and it is served: our own code wrote every byte
+        // of it, and its arrival says so (`servingRefusal`).
+        servingRefusal: null,
       },
     ]);
     // And it has no fields, which is why the list cannot come from them.

@@ -7,6 +7,7 @@ import {
   type LedgerRunRow,
   type LedgerSyncHealth,
 } from '@recouple/store-postgres';
+import { LedgerConnectionDisabledError, LedgerSyncRefusedError } from '@recouple/pipeline';
 import { CoveragePage } from '../components/coverage-report';
 import {
   ANOMALY_GUIDE,
@@ -247,6 +248,26 @@ describe('the coverage page', () => {
     expect(html).toContain('Reconnect as a current owner');
     expect(html).toContain('No sync has run since 2026-09-21 07:00 UTC');
   });
+
+  it('says a run refused because the connection was disconnected was a disconnect, not the member', () => {
+    const html = page({
+      ledger: {
+        runs: [
+          run({
+            runId: 'r1',
+            outcome: 'refused',
+            errorClass: 'LedgerConnectionDisabledError',
+            startedAt: '2026-09-22T07:00:00.000Z',
+          }),
+        ],
+        findings: [],
+      },
+    });
+    expect(html).toContain('This connection was disconnected before the run began');
+    expect(html).toContain('(LedgerConnectionDisabledError)');
+    expect(html).not.toContain('Reconnect as a current owner');
+    expect(html).not.toContain('can no longer write');
+  });
 });
 
 describe('the words the page uses', () => {
@@ -265,6 +286,29 @@ describe('the words the page uses', () => {
     expect(errorClassGuide(undefined, 'completed')).toBe('');
     expect(errorClassGuide('SomethingNew', 'failed')).toMatch(/engineer should look/);
     expect(errorClassGuide('QboRequestFailed', 'failed')).toMatch(/next daily run tries again/);
+  });
+
+  it('tells the two refusals apart, and blames nobody for one it does not know', () => {
+    const disconnected = errorClassGuide('LedgerConnectionDisabledError', 'refused');
+    expect(disconnected).toMatch(/disconnected/);
+    expect(disconnected).not.toMatch(/member|current owner/);
+    expect(errorClassGuide('LedgerSyncRefusedError', 'refused')).toMatch(/Reconnect as a current owner/);
+    for (const unknown of [undefined, 'SomethingNew']) {
+      const guide = errorClassGuide(unknown, 'refused');
+      expect(guide, String(unknown)).not.toMatch(/member|current owner/);
+      expect(guide, String(unknown)).toMatch(/engineer should look/);
+    }
+  });
+
+  it('reads the refusal classes by the names the job writes, so a rename cannot slip past', () => {
+    const disabled = new LedgerConnectionDisabledError('conn-1').name;
+    const refused = new LedgerSyncRefusedError('org-1', 'user-1').name;
+    const fallback = errorClassGuide('SomethingNew', 'refused');
+    expect(errorClassGuide(disabled, 'refused')).toMatch(/disconnected/);
+    expect(errorClassGuide(refused, 'refused')).toMatch(/current owner/);
+    expect(errorClassGuide(disabled, 'refused')).not.toBe(errorClassGuide(refused, 'refused'));
+    expect(errorClassGuide(disabled, 'refused')).not.toBe(fallback);
+    expect(errorClassGuide(refused, 'refused')).not.toBe(fallback);
   });
 
   it('names channels, and shows one it does not know verbatim', () => {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { CaseWorkflow } from '@recouple/pipeline';
+import { declineReasonLabel, missingEvidenceLabel } from '../lib/decline-labels';
 import { money } from '../lib/format';
 
 /**
@@ -26,11 +27,22 @@ export function who(userId: string, viewerUserId: string): string {
   return userId === viewerUserId ? 'you' : userId.slice(0, 8);
 }
 
+/**
+ * Who declined it. A decline records the session's email rather than a user id
+ * (the decline route's `decidedBy`), so `who` does not apply: "you" when it is
+ * this reviewer's address, compared without case, and the address otherwise.
+ */
+export function whoByEmail(email: string, viewerEmail: string): string {
+  return viewerEmail !== '' && email.toLowerCase() === viewerEmail.toLowerCase() ? 'you' : email;
+}
+
 interface Entry {
   readonly key: string;
   readonly what: string;
   readonly detail: ReactNode;
   readonly by: string;
+  /** When it happened, for the order; `when` is the same instant, spelled out. */
+  readonly at: Date;
   readonly when: string;
 }
 
@@ -42,16 +54,23 @@ interface Entry {
  * an empty timeline says nothing has been done rather than that something is
  * pending.
  *
- * Every piece of text here is escaped by React — the rationale and the note are
- * typed by a person, and the packet's narrative quotes somebody else's
- * document.
+ * Sorted by time rather than by kind: a case declined before the rule that a
+ * decided case cannot be declined existed may carry both, and the record reads
+ * in the order the two were done.
+ *
+ * Every piece of text here is escaped by React — the rationale, the note and a
+ * decline's detail are typed by a person, and the packet's narrative quotes
+ * somebody else's document.
  */
 export function CaseTimeline({
   workflow,
   viewerUserId,
+  viewerEmail = '',
 }: {
   readonly workflow: CaseWorkflow | undefined;
   readonly viewerUserId: string;
+  /** Who is looking, by the address a decline records its author under. */
+  readonly viewerEmail?: string;
 }) {
   const entries: Entry[] = [];
 
@@ -67,7 +86,31 @@ export function CaseTimeline({
         </>
       ),
       by: who(decision.preparedBy, viewerUserId),
+      at: decision.decidedAt,
       when: at(decision.decidedAt),
+    });
+  }
+
+  // A decline moves no state (ADR 0043), so without this entry a declined
+  // case read "nothing yet" once the notice that said so was gone.
+  const decline = workflow?.decline;
+  if (decline !== undefined) {
+    entries.push({
+      key: 'decline',
+      what: 'Declined, not fought',
+      detail: (
+        <>
+          {`${declineReasonLabel(decline.reason)} · ${money(decline.estimatedRecoverableCents)} ` +
+            'not pursued' +
+            (decline.missingEvidence.length === 0
+              ? ''
+              : ` · missing: ${decline.missingEvidence.map(missingEvidenceLabel).join(', ')}`)}
+          {decline.detail === undefined ? null : <span className="said">{decline.detail}</span>}
+        </>
+      ),
+      by: whoByEmail(decline.decidedBy, viewerEmail),
+      at: decline.decidedAt,
+      when: at(decline.decidedAt),
     });
   }
 
@@ -84,6 +127,7 @@ export function CaseTimeline({
         </>
       ),
       by: who(packet.assembledBy, viewerUserId),
+      at: packet.assembledAt,
       when: at(packet.assembledAt),
     });
   }
@@ -100,6 +144,7 @@ export function CaseTimeline({
         </>
       ),
       by: who(approval.approverId, viewerUserId),
+      at: approval.approvedAt,
       when: at(approval.approvedAt),
     });
   }
@@ -119,6 +164,7 @@ export function CaseTimeline({
       // approval above names the person who authorised it, which is the one
       // the gate cares about.
       by: '',
+      at: submission.submittedAt,
       when: at(submission.submittedAt),
     });
   }
@@ -135,9 +181,12 @@ export function CaseTimeline({
         </>
       ),
       by: who(outcome.recordedBy, viewerUserId),
+      at: outcome.recordedAt,
       when: at(outcome.recordedAt),
     });
   }
+  // Stable, so two acts at the same instant keep the order they are pushed in.
+  entries.sort((a, b) => a.at.getTime() - b.at.getTime());
 
   return (
     <div className="card" style={{ marginTop: 18 }}>

@@ -51,4 +51,28 @@ describe('reason words', () => {
     }
     expect(DISPUTE_REASONS.map(([code]) => code)).toEqual([...DISPUTE_REASON_CODES]);
   });
+
+  // Pilot E5 put these on the form for the pilot verticals, after pilot E1 had
+  // moved the list here. `views.test.tsx` renders whatever the list holds, so a
+  // merge that dropped one would pass there; it fails here.
+  it('keeps the eleven codes pilot E5 added on the form', () => {
+    const pilot = [
+      'shortage_carton',
+      'shortage_pallet',
+      'compliance_early_delivery',
+      'compliance_appointment_missed',
+      'compliance_routing_guide',
+      'return_unsaleable',
+      'promo_duplicate_allowance',
+      'detention_or_layover',
+      'quality_expired_short_dated',
+      'quality_spec_mismatch',
+      'administrative_fee',
+    ] as const;
+    const offered: readonly string[] = DISPUTE_REASON_CODES;
+    for (const code of pilot) {
+      expect(isCanonicalReasonCode(code), code).toBe(true);
+      expect(offered, code).toContain(code);
+    }
+  });
 });

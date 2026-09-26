@@ -55,8 +55,10 @@ jobs:
         run: pnpm typecheck
 
       # Applies the migrations, which the Postgres integration tests then run
-      # against — so this has to come before `pnpm test`.
-      - name: database invariants (approval gate, append-only, RLS)
+      # against — so this has to come before `pnpm test`. It ends with
+      # scripts/check-onboarding-sql.sh, the onboarding runbook's SQL against
+      # the same scratch database.
+      - name: database invariants (approval gate, append-only, RLS, onboarding SQL)
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pnpm db:test

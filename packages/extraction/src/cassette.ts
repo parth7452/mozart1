@@ -159,6 +159,11 @@ export interface Cassette {
     readonly outputTokens: number;
     readonly costMicros: number;
     readonly latencyMs: number;
+    /**
+     * The call record's `detail`, when it had one: how a paged read (ADR 0053)
+     * was asked for and joined. Ranges and paths only; replay does not read it.
+     */
+    readonly detail?: string;
   };
   /**
    * Present when the document had no text layer of its own and was OCR'd. The

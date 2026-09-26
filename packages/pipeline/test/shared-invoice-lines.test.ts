@@ -225,6 +225,33 @@ describe('LOG-202 read as the two lines it prints', () => {
     expect(store.cases.size).toBe(0);
   });
 
+  it('refuses the whole invoice to lines that each print a dash for their deduction', async () => {
+    // A dash is no deduction of its own, so `gross − net` is again the whole
+    // invoice's $800 on both lines, and given to each it would count $1,600.
+    const { store, deps } = harness(() => twoLines('-', '-'));
+    const result = await processUpload(upload(), deps);
+
+    expect(result.remittance?.lines.map((l) => l.outcome)).toEqual(['unreadable', 'unreadable']);
+    expect(result.remittance?.lines[0]?.detail).toContain('repeats its invoice');
+    expect(result.remittance?.lines[1]?.detail).toContain('repeats its invoice');
+    expect(store.cases.size).toBe(0);
+  });
+
+  it('counts a dash beside the whole deduction as nothing, and the shared invoice adds up', async () => {
+    const { store, deps } = harness(() => twoLines('$800.00', '-'));
+    const result = await processUpload(upload(), deps);
+
+    expect(result.remittance?.lines.map((l) => l.outcome)).toEqual(['opened', 'unreadable']);
+    expect(store.cases.size).toBe(1);
+    const opened = result.remittance?.opened[0];
+    expect(opened?.deductionAmountCents).toBe(80_000);
+
+    const reconciliation = await reconcileCase(opened?.deductionId ?? '', deps);
+    expect(reconciliation?.findings.filter((f) => f.severity === 'blocking')).toEqual([]);
+    expect(reconciliation?.lines[0]?.verdict).toBe('matches');
+    expect(reconciliation?.findings.map((f) => f.code)).toContain('remittance_invoice_shared');
+  });
+
   it('blocks a case whose shared invoice does not add up across its lines', async () => {
     // $500 + $200 against $800 withheld.
     const { deps } = harness(() => twoLines('$500.00', '$200.00'));
@@ -291,6 +318,54 @@ describe('a case opened under the key the whole invoice used to share', () => {
     const reconciliation = await reconcileCase(legacy, deps);
     expect(reconciliation?.claimedTotalCents).toBe(50_000);
     expect(reconciliation?.findings.map((f) => f.code)).not.toContain('remittance_line_not_found');
+  });
+
+  /**
+   * The first line repeats the invoice's gross and net and prints no deduction
+   * of its own, so `gross − net` on it is the whole $800 — the legacy case's
+   * amount. It cannot claim that share (ADR 0048 §4), so it cannot own the case
+   * either: the line that prints $800 does, and merges into it.
+   */
+  async function ownedPastTheFirstLine(first: string | null) {
+    const { store, deps } = harness(() => twoLines(first, '$800.00'));
+    const legacy = await legacyCase(store, 80_000);
+
+    const result = await processUpload(upload(), deps);
+
+    expect(result.remittance?.lines.map((l) => l.outcome)).toEqual(['unreadable', 'merged']);
+    expect(result.remittance?.lines[0]?.detail).toContain('repeats its invoice');
+    expect(result.remittance?.lines[1]?.deductionId).toBe(legacy);
+    expect(result.remittance?.opened).toEqual([]);
+    expect(store.cases.size).toBe(1);
+
+    // And it reconciles against that line, not the one ahead of it.
+    const reconciliation = await reconcileCase(legacy, deps);
+    expect(reconciliation?.claimedTotalCents).toBe(80_000);
+    expect(reconciliation?.lines.map((l) => l.reasonCode)).toEqual(['CB-202-B']);
+    expect(reconciliation?.findings.map((f) => f.code)).not.toContain(
+      'remittance_line_dash_but_short_paid',
+    );
+    return reconciliation;
+  }
+
+  it('is the line that prints the deduction when a line printing a dash comes first', async () => {
+    const reconciliation = await ownedPastTheFirstLine('-');
+
+    expect(reconciliation?.lines[0]?.verdict).toBe('matches');
+    expect(reconciliation?.findings.filter((f) => f.severity !== 'info')).toEqual([]);
+    expect(reconciliation?.findings.map((f) => f.code)).toContain('remittance_invoice_shared');
+  });
+
+  it('is the line that prints the deduction when a line printing nothing comes first', async () => {
+    const reconciliation = await ownedPastTheFirstLine(null);
+
+    // A sibling that prints no deduction at all may be the one the page got
+    // wrong, so the shared invoice does not add up by the lines' own columns —
+    // the reconciler's rule, unchanged here. It is named against the case's own
+    // line, which is the point: the case is the $800 line's.
+    expect(reconciliation?.findings.map((f) => [f.code, f.fieldPath])).toEqual([
+      ['remittance_line_does_not_add_up', 'lines[1]'],
+    ]);
   });
 
   it('is named on every line when its amount is none of theirs', async () => {

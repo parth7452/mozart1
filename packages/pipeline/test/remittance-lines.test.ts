@@ -17,8 +17,11 @@
  * in, so the arithmetic under test is the arithmetic that runs in production.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { buildExtractionResult, type ExtractionResult } from '@recouple/extraction';
+import { buildExtractionResult, type Cassette, type ExtractionResult } from '@recouple/extraction';
 import { everyDocument, type FixtureDocument, type TruthExpectation } from '@recouple/fixtures';
 import {
   DuplicateCaseError,
@@ -344,6 +347,74 @@ describe('a line that is not a deduction', () => {
     expect(store.cases.size).toBe(0);
   });
 
+  it.each(['-', '\u2013', '\u2014', '$ -'])(
+    'reads a deduction column printing %j as no amount, so a line paid in full is not short-paid',
+    async (dash) => {
+      const { store, deps, stored } = await harness();
+      const read = await openCasesFromRemittance(
+        stored,
+        extractionOf(
+          advice([
+            line({
+              invoice_number: 'INV-1',
+              gross_amount: '$500.00',
+              deduction_amount: dash,
+              net_amount: '$500.00',
+            }),
+          ]),
+        ),
+        deps,
+      );
+      // VERIFY-CHECKLIST found while writing #6: this was `unreadable`.
+      expect(outcomes(read.lines)).toEqual({ not_short_paid: 1 });
+      expect(read.lines[0]?.amountCents).toBe(0);
+      expect(store.cases.size).toBe(0);
+    },
+  );
+
+  it('opens a line that prints a dash but was paid short, at gross less net', async () => {
+    const { store, deps, stored } = await harness();
+    const read = await openCasesFromRemittance(
+      stored,
+      extractionOf(
+        advice([
+          line({
+            invoice_number: 'INV-1',
+            gross_amount: '$500.00',
+            deduction_amount: '-',
+            net_amount: '$400.00',
+          }),
+        ]),
+      ),
+      deps,
+    );
+    // The page's own columns say $100.00 was withheld. Dropped as unreadable it
+    // was a deduction nothing showed a person.
+    expect(outcomes(read.lines)).toEqual({ opened: 1 });
+    expect(read.opened[0]?.deductionAmountCents).toBe(10_000);
+    const discovered = store.events.find((e) => e.eventType === 'case.discovered');
+    expect(discovered?.payload['amount_basis']).toBe('gross_minus_net');
+  });
+
+  it('still calls a dash with nothing to subtract unreadable', async () => {
+    const { store, deps, stored } = await harness();
+    const read = await openCasesFromRemittance(
+      stored,
+      extractionOf(
+        advice([
+          line({ invoice_number: 'INV-1', deduction_amount: '-' }),
+          line({ invoice_number: 'INV-2', gross_amount: '$500.00', deduction_amount: '-' }),
+        ]),
+      ),
+      deps,
+    );
+    expect(outcomes(read.lines)).toEqual({ unreadable: 2 });
+    expect(read.lines[0]?.detail).toContain('prints a dash for its deduction');
+    expect(read.lines[0]?.detail).toContain('neither a gross nor a net paid');
+    expect(read.lines[1]?.detail).toContain('no net paid');
+    expect(store.cases.size).toBe(0);
+  });
+
   it('refuses a short-pay it cannot key, because a case it cannot dedupe is how one gets filed twice', async () => {
     const { store, deps, stored } = await harness();
     const read = await openCasesFromRemittance(
@@ -355,6 +426,49 @@ describe('a line that is not a deduction', () => {
     expect(read.lines[0]?.detail).toContain('no invoice number');
     expect(store.cases.size).toBe(0);
   });
+});
+
+/**
+ * The dense advice as the reader actually returned it, from the recorded
+ * cassettes rather than ground truth. Ground truth has no deduction on a line
+ * paid in full, so the test above goes through gross − net; the reader copies
+ * the `-` the page prints there, and that is the path VERIFY-CHECKLIST §8 runs.
+ */
+describe('the recorded dense advice', () => {
+  const cassetteDir = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'fixtures',
+    'cassettes',
+  );
+  const cassette = (key: string): Cassette =>
+    JSON.parse(readFileSync(path.join(cassetteDir, `${key}.json`), 'utf8')) as Cassette;
+
+  it.each(['crosswind-dense-remittance', 'crosswind-dense-remittance-scan'])(
+    '%s: opens the twelve deductions and counts the thirty dashes as paid in full',
+    async (key) => {
+      const recorded = cassette(key);
+      const rows = (recorded.document as { lines: { deduction_amount?: { value: unknown } }[] })
+        .lines;
+      // The premise, so this cannot pass on a re-recording that stopped printing dashes.
+      expect(rows.filter((row) => row.deduction_amount?.value === '-')).toHaveLength(30);
+
+      const { store, deps, stored } = await harness();
+      const read = await openCasesFromRemittance(
+        stored,
+        extractionOf(recorded.document as Record<string, unknown>),
+        deps,
+      );
+
+      expect(outcomes(read.lines)).toEqual({ opened: 12, not_short_paid: 30 });
+      expect(read.opened.reduce((sum, c) => sum + (c.deductionAmountCents ?? 0), 0)).toBe(
+        1_247_800,
+      );
+      const summary = store.events.find((e) => e.eventType === 'remittance.lines_processed');
+      expect(summary?.payload['counts']).toEqual({ opened: 12, not_short_paid: 30 });
+    },
+  );
 });
 
 describe('a line under the floor', () => {

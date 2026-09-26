@@ -46,6 +46,11 @@ export interface FixtureDocument {
     | 'held_out'
     | 'scanned'
     | 'dense'
+    /**
+     * A remittance too dense for one reply, read in page ranges (ADR 0053,
+     * `dense.ts`).
+     */
+    | 'dense_paged'
     | 'email_body'
     | 'logistics'
     | 'customer'
