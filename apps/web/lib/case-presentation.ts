@@ -12,9 +12,19 @@ import { CASE_SEARCH_QUERY_MAX, type CaseStateTally } from '@recouple/store-post
  * neither open nor in the total, which would otherwise count one deduction's
  * dollars twice on the page a reviewer reads first. It is still a recorded
  * case, so `caseCount` has it, as the list does.
+ *
+ * A declined case is decided but not closed: a decline moves no state (ADR
+ * 0043), so it still reads `classified`, and the store splits it out with the
+ * review queue's own predicate. It is not open work — not in the open cases,
+ * the approval stage or the deadlines to watch, exactly as the queue leaves it
+ * out — but the deduction was still withheld and is still a recorded case, so
+ * it stays in `caseCount` and the total. `declinedCount` is how many the open
+ * count left out on that account — declined and otherwise open — so it and
+ * `openCount` add up to what the open count would have been.
  */
 export function caseMetrics(tally: readonly CaseStateTally[]) {
-  const open = tally.filter((row) => !isClosed(row.state));
+  const live = tally.filter((row) => !row.declined);
+  const open = live.filter((row) => !isClosed(row.state));
   const count = (rows: readonly CaseStateTally[], of = (row: CaseStateTally) => row.cases) =>
     rows.reduce((sum, row) => sum + of(row), 0);
   return {
@@ -24,11 +34,19 @@ export function caseMetrics(tally: readonly CaseStateTally[]) {
     ),
     openCount: count(open),
     // The tally carries state, not whether an approval row already exists.
-    approvalStageCount: count(tally.filter((row) => row.state === 'awaiting_approval')),
+    approvalStageCount: count(live.filter((row) => row.state === 'awaiting_approval')),
     // Due soon or overdue, and not yet filed.
     deadlineCount: count(
       open.filter((row) => row.state !== 'submitted'),
       (row) => row.dueSoonOrPast,
+    ),
+    // Exactly the declined cases the open count leaves out, so the page's
+    // "N declined, not counted" is that number and no other: a declined case
+    // in a closed state (`isClosed`, merged away included) was never going to be
+    // counted as open, and saying it was "not counted" would overstate what
+    // the figure set aside.
+    declinedCount: count(
+      tally.filter((row) => row.declined && !isClosed(row.state)),
     ),
   };
 }

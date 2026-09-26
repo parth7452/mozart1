@@ -385,8 +385,8 @@ describe('the case list page', () => {
     // came back empty here still has the tally's 240 cases, and every member
     // sees them, `read_only` included, as they see the list.
     harness.tally = [
-      { state: 'classified', cases: 200, deductedCents: 2_000_000, dueSoonOrPast: 9 },
-      { state: 'lost', cases: 40, deductedCents: 400_000, dueSoonOrPast: 0 },
+      { state: 'classified', declined: false, cases: 200, deductedCents: 2_000_000, dueSoonOrPast: 9 },
+      { state: 'lost', declined: false, cases: 40, deductedCents: 400_000, dueSoonOrPast: 0 },
     ];
     for (const role of ['analyst', 'read_only']) {
       harness.role = role;
@@ -408,7 +408,7 @@ describe('the case list page', () => {
       total: 240,
       limit: 100,
     };
-    harness.tally = [{ state: 'classified', cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
+    harness.tally = [{ state: 'classified', declined: false, cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
     const html = await render();
 
     expect(harness.searchCalls).toEqual([{}]);
@@ -426,7 +426,7 @@ describe('the case list page', () => {
       total: 1,
       limit: 100,
     };
-    harness.tally = [{ state: 'analyst_review', cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
+    harness.tally = [{ state: 'analyst_review', declined: false, cases: 240, deductedCents: 0, dueSoonOrPast: 0 }];
     for (const role of ['analyst', 'read_only']) {
       harness.role = role;
       harness.searchCalls = [];

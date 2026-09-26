@@ -203,7 +203,7 @@ None of the seven invariants moves for the pilot.
 
 | When | Work |
 | --- | --- |
-| Week 1 (Sep 28 – Oct 2) | Fix what customer #1 hits. Email-in's failure paths (§5.6–5.8), then give out addresses. Large-file upload (ADR). "Found while writing this" #5 (a decline leaves no trace) and #6 (dash lines). The case-list figures count declined cases as open |
+| Week 1 (Sep 28 – Oct 2) | Fix what customer #1 hits. Email-in's failure paths (§5.6–5.8), then give out addresses. Large-file upload (ADR). "Found while writing this" ~~#5 (a decline leaves no trace)~~ **done** and #6 (dash lines). ~~The case-list figures count declined cases as open~~ **done**: a declined case is its own row of the tally, by the review queue's own predicate, and is out of OPEN CASES, APPROVAL STAGE and DEADLINES TO WATCH |
 | Week 2 (Oct 5–9) | Customers 2–5, batched by vertical. Paged extraction for dense remittances. Spreadsheet deduction reports (ADR: a cell's provenance). TIFF and HEIC. A daily digest of held documents and deadlines (ADR: it is a new outbound side effect) |
 | Weeks 3–4 (Oct 12–23) | Customers 6–17. Phase 2 task 04, playbooks, seeded from the pilots' own payers: computed deadlines and the payer-code map, once draft D is accepted. Tasks 01, 02 and 05 need no data. Duplicates F2–F5 (ADRs), before any coverage number is shown to a customer as a result |
 | Month 2 | Phase 4 billing once outcomes land, counting recoveries per surviving duplicate group first (audit). Phase 2 tasks 06, 10 and 11 as decisions and outcomes accrue. Jev when access arrives |

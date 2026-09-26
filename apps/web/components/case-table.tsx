@@ -115,6 +115,9 @@ export function CaseTable({
                     <span className={`pill state-${row.state}`}>
                       {stateLabel(row.state)}
                     </span>
+                    {/* A decline moves no state (ADR 0043): without this a
+                        declined case reads as a `classified` one waiting. */}
+                    {row.declined === true ? <span className="pill declined">declined</span> : null}
                   </td>
                   <td className="evidence-count">
                     {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}

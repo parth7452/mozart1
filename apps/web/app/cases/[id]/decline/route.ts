@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { CaseMergedAwayError } from '@recouple/pipeline';
 import {
   AlreadyDeclinedError,
+  CaseNotDeclinableError,
   isDeclineReason,
   isMissingEvidence,
   ProvenanceUnknownError,
@@ -135,6 +136,14 @@ export async function POST(
       // first decline stands, and saying so beats a 500 or a second row that
       // would count this case's dollars twice.
       return say('decline_already');
+    }
+    if (cause instanceof CaseNotDeclinableError) {
+      // A stale form, or a POST the page never offered: the case is being
+      // fought, and a decline would count it as given up on as well. Nothing
+      // was written, and which of the two refused it is said.
+      return cause.decisionId !== undefined
+        ? say('decline_decided')
+        : say('decline_wrong_state', cause.state.replace(/_/g, ' '));
     }
     if (cause instanceof CaseMergedAwayError) {
       // A stale form on a case merged into another since (ADR 0042): the

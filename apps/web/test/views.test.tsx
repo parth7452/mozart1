@@ -21,6 +21,7 @@ import {
   UnattachedDocuments,
 } from '../components/unattached-documents';
 import { CaseReview } from '../components/case-review';
+import { CaseTimeline } from '../components/case-timeline';
 import {
   basisSentence,
   CaseMergeNotes,
@@ -304,11 +305,11 @@ describe('the case list', () => {
         cases={[summary(), summary({ deductionId: '99999999-8888-7777-6666-555555555555' })]}
         ledger={{ filter: {}, matching: 240 }}
         tally={[
-          { state: 'classified', cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
-          { state: 'awaiting_approval', cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
-          { state: 'submitted', cases: 6, deductedCents: 600_000, dueSoonOrPast: 6 },
-          { state: 'won', cases: 79, deductedCents: 7_900_000, dueSoonOrPast: 79 },
-          { state: 'merged', cases: 1, deductedCents: 100_000, dueSoonOrPast: 1 },
+          { state: 'classified', declined: false, cases: 150, deductedCents: 15_000_000, dueSoonOrPast: 12 },
+          { state: 'awaiting_approval', declined: false, cases: 4, deductedCents: 400_000, dueSoonOrPast: 3 },
+          { state: 'submitted', declined: false, cases: 6, deductedCents: 600_000, dueSoonOrPast: 6 },
+          { state: 'won', declined: false, cases: 79, deductedCents: 7_900_000, dueSoonOrPast: 79 },
+          { state: 'merged', declined: false, cases: 1, deductedCents: 100_000, dueSoonOrPast: 1 },
         ]}
         today={today}
       />,
@@ -472,7 +473,7 @@ describe('the case list', () => {
         viewer={viewer}
         cases={rows}
         ledger={{ filter: { query: 'walmart' }, matching: 1_204 }}
-        tally={[{ state: 'classified', cases: 5_000, deductedCents: 50_000_000, dueSoonOrPast: 0 }]}
+        tally={[{ state: 'classified', declined: false, cases: 5_000, deductedCents: 50_000_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
     );
@@ -490,7 +491,7 @@ describe('the case list', () => {
         viewer={viewer}
         cases={[]}
         ledger={{ filter: { query: 'no-such-claim' }, matching: 0 }}
-        tally={[{ state: 'classified', cases: 240, deductedCents: 2_400_000, dueSoonOrPast: 0 }]}
+        tally={[{ state: 'classified', declined: false, cases: 240, deductedCents: 2_400_000, dueSoonOrPast: 0 }]}
         today={today}
       />,
     );
@@ -1858,6 +1859,168 @@ describe('what a reviewer can do with a case', () => {
     );
     expect(html).not.toMatch(/<button[^>]*>\s*Approve for submission/);
     expect(html).toContain('Waiting on an owner or an approver');
+  });
+});
+
+/**
+ * A declined case, once the notice that said so is gone (VERIFY-CHECKLIST,
+ * found #5). A decline moves no state, so the page reads it from the workflow's
+ * `decline` and says it in three places: the header, the history, and by not
+ * offering what the store would refuse.
+ */
+describe('a case that was declined', () => {
+  const decline = {
+    declinedCandidateId: 'dddddddd-1111-2222-3333-444444444444',
+    reason: 'below_economic_floor',
+    estimatedRecoverableCents: 312_000,
+    missingEvidence: ['proof_of_delivery', 'timesheet'],
+    detail: 'Recovery <script>alert(1)</script> would not cover the work.',
+    decidedBy: 'AP@Harborline.test',
+    decidedByVersion: 'human/v1',
+    decidedAt: new Date('2026-09-20T09:30:00Z'),
+  } as const;
+  const declinedWorkflow: CaseWorkflow = {
+    deductionId: '11111111-2222-3333-4444-555555555555',
+    state: 'classified',
+    decline,
+  };
+  const props = {
+    documents: [document()],
+    viewer,
+    // No deadline, so the only thing keeping the deadline card away is the decline.
+    summary: summary({ disputeDeadline: undefined }),
+    fields: [field()],
+    reconciliation: undefined,
+    costMicros: 0,
+    today,
+    mayAct: true,
+    workflow: declinedWorkflow,
+  };
+
+  it('says what was declined in the history, in words, escaped', () => {
+    const html = renderToStaticMarkup(<CaseReview {...props} />);
+    expect(html).toContain('Declined, not fought');
+    expect(html).toContain('Not worth the work');
+    expect(html).toContain(
+      'Not worth the work · $3,120.00 not pursued · missing: Proof of delivery, Timesheet',
+    );
+    expect(html).toContain('missing: Proof of delivery, Timesheet');
+    expect(html).toContain(
+      'Recovery &lt;script&gt;alert(1)&lt;/script&gt; would not cover the work.',
+    );
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('2026-09-20 09:30 UTC');
+    expect(html).not.toContain('Nothing yet. This case has been read and nothing else.');
+  });
+
+  it('says it was you when the address is yours, whatever its case, and the address otherwise', () => {
+    const mine = renderToStaticMarkup(<CaseReview {...props} />);
+    expect(mine).toContain('you · 2026-09-20 09:30 UTC');
+    const theirs = renderToStaticMarkup(
+      <CaseReview {...props} viewer={{ ...viewer, email: 'someone@harborline.test' }} />,
+    );
+    expect(theirs).toContain('AP@Harborline.test · 2026-09-20 09:30 UTC');
+    expect(theirs).not.toContain('you · 2026-09-20');
+  });
+
+  it('offers neither deciding nor declining, nor a deadline to fight it by', () => {
+    const html = renderToStaticMarkup(<CaseReview {...props} />);
+    expect(html).not.toContain('/decide"');
+    expect(html).not.toContain('/decline"');
+    expect(html).not.toContain('Record this decline');
+    expect(html).not.toContain('Dispute this deduction');
+    expect(html).not.toContain('No dispute deadline');
+    // The same case undeclined is offered all three, so the absence is the decline's.
+    const open = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        workflow={{ deductionId: declinedWorkflow.deductionId, state: 'classified' }}
+      />,
+    );
+    expect(open).toContain('/decide"');
+    expect(open).toContain('/decline"');
+    expect(open).toContain('No dispute deadline');
+  });
+
+  it('marks the header declined beside the state, which a decline does not move', () => {
+    const html = renderToStaticMarkup(<CaseReview {...props} />);
+    expect(html).toContain('class="pill state-classified"');
+    expect(html).toContain('<span class="pill declined">declined</span>');
+    // The summary's flag says the same without the workflow.
+    const bySummary = renderToStaticMarkup(
+      <CaseReview {...props} workflow={undefined} summary={summary({ declined: true })} />,
+    );
+    expect(bySummary).toContain('<span class="pill declined">declined</span>');
+    expect(bySummary).not.toContain('/decline"');
+    const neither = renderToStaticMarkup(
+      <CaseReview {...props} workflow={undefined} summary={summary()} />,
+    );
+    expect(neither).not.toContain('pill declined');
+  });
+
+  it('shows a reason or evidence this page has no words for as recorded', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview
+        {...props}
+        workflow={{
+          ...declinedWorkflow,
+          decline: { ...decline, reason: 'a_newer_reason', missingEvidence: ['a_newer_kind'] },
+        }}
+      />,
+    );
+    expect(html).toContain('a_newer_reason');
+    expect(html).toContain('missing: a_newer_kind');
+  });
+
+  it('reads a decision and a later decline in the order they happened', () => {
+    // A case declined before `declineCase` refused a decided one can carry both.
+    const both: CaseWorkflow = {
+      ...workflow({ state: 'analyst_review' }),
+      decline: { ...decline, decidedAt: new Date('2026-09-25T08:00:00Z') },
+    };
+    const html = renderToStaticMarkup(
+      <CaseTimeline workflow={both} viewerUserId={PREPARER} viewerEmail={viewer.email} />,
+    );
+    const decided = html.indexOf('Decided to dispute');
+    const declined = html.indexOf('Declined, not fought');
+    expect(decided).toBeGreaterThan(-1);
+    expect(declined).toBeGreaterThan(decided);
+
+    const earlier: CaseWorkflow = {
+      ...both,
+      decline: { ...decline, decidedAt: new Date('2026-09-01T08:00:00Z') },
+    };
+    const reversed = renderToStaticMarkup(
+      <CaseTimeline workflow={earlier} viewerUserId={PREPARER} viewerEmail={viewer.email} />,
+    );
+    expect(reversed.indexOf('Declined, not fought')).toBeLessThan(
+      reversed.indexOf('Decided to dispute'),
+    );
+  });
+
+  it('marks a declined case in the ledger and leaves it out of the open figures', () => {
+    const declinedCase = summary({
+      deductionId: '22222222-2222-3333-4444-555555555555',
+      claimId: 'APDP-DECLINED',
+      disputeDeadline: '2026-09-20',
+      declined: true,
+    });
+    const html = renderToStaticMarkup(
+      <CaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[summary(), declinedCase]}
+        ledger={{ filter: {}, matching: 2 }}
+        tally={tallyOf([summary(), declinedCase], today)}
+        today={today}
+      />,
+    );
+    expect(html).toContain('<span class="pill declined">declined</span>');
+    expect(html).toContain('Working toward an outcome · 1 declined, not counted');
+    // Both are recorded cases, and the total is still what was withheld.
+    expect(html).toContain('Across 2 recorded cases');
+    expect(html).toContain('$6,240.00');
   });
 });
 

@@ -75,9 +75,17 @@ export const NOT_QUEUED: readonly CaseState[] = CASE_STATES.filter((state) => !i
  * today's UTC day and `$3` to `DUE_SOON_DAYS`, and names the case `d`.
  */
 
+/**
+ * A decline names the case `d`. A decline moves no state (ADR 0043), so this is
+ * how every read tells a declined case from an open one: the queue, the case
+ * list's figures (`caseTally`) and a case's own summary (`CASE_SUMMARY_COLUMNS`)
+ * all use this one predicate, so they cannot disagree about which cases it is.
+ */
+export const DECLINED_SQL = `exists (select 1 from declined_candidates k where k.deduction_id = d.id)`;
+
 /** A case the queue holds: not closed, not filed, and no decline names it. */
 export const QUEUED_SQL = `(d.state <> all ($1::text[])
-          and not exists (select 1 from declined_candidates k where k.deduction_id = d.id))`;
+          and not ${DECLINED_SQL})`;
 
 /** `queueBucket`'s four, in its order: 0 due soon, 1 past, 2 none printed, 3 due later. */
 export const URGENCY_BUCKET_SQL = `case

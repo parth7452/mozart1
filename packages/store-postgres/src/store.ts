@@ -43,11 +43,14 @@ import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extract
 import type { ScanStatus, ScanVerdict } from '@recouple/ingest';
 import {
   ActorIsNotTheSessionError,
+  AlreadyDeclinedError,
   AmbiguousIdentityError,
   CaseMergedAwayError,
+  CaseNotDeclinableError,
   ClassificationFloorError,
   ClassificationRefusedError,
   DOCUMENT_HELD,
+  DECLINABLE_STATES,
   DOCUMENT_HOLD_RELEASED,
   DuplicateCaseError,
   holdAuditPayload,
@@ -101,6 +104,7 @@ import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
 import { LEDGER_RUNS_DEFAULT, readLedgerSyncHealth, type LedgerSyncHealth } from './ledger-health';
 import {
+  DECLINED_SQL,
   NOT_QUEUED,
   QUEUED_SQL,
   readReviewQueue,
@@ -125,6 +129,14 @@ export { DuplicateCaseError };
  * same reason `DuplicateCaseError` is.
  */
 export { AmbiguousIdentityError };
+
+/**
+ * A decline refused because the case already carries one, or because it is
+ * being fought. Defined with the pipeline's ports, for the reason
+ * `DuplicateCaseError` is: the in-memory store refuses a decline with the same
+ * classes, and the workflow contract holds the two to it.
+ */
+export { AlreadyDeclinedError, CaseNotDeclinableError, DECLINABLE_STATES };
 
 /**
  * The one sentence a duplicate claim is reported with, wherever it was caught.
@@ -332,6 +344,13 @@ export interface CaseSummary {
   readonly reasonCodeAsPrinted?: string;
   readonly documentCount: number;
   readonly createdAt: string;
+  /**
+   * Present when a `declined_candidates` row names this case. A decline moves
+   * no state (ADR 0043), so a declined case still reads `classified`, and this
+   * is what tells a view it is decided rather than waiting. `DECLINED_SQL`, the
+   * queue's own predicate.
+   */
+  readonly declined?: true;
 }
 
 /**
@@ -340,6 +359,13 @@ export interface CaseSummary {
  */
 export interface CaseStateTally {
   readonly state: CaseState;
+  /**
+   * Whether a decline names these cases. A decline moves no state (ADR 0043),
+   * so a state's cases come as two rows, the declined and the rest, split by
+   * the queue's own predicate (`DECLINED_SQL`) so the figures and the queue
+   * cannot disagree about which cases are open.
+   */
+  readonly declined: boolean;
   readonly cases: number;
   /** Deducted across them, integer cents (invariant 3). */
   readonly deductedCents: number;
@@ -534,26 +560,6 @@ export type MissingEvidence = (typeof MISSING_EVIDENCE_TYPES)[number];
 
 export function isMissingEvidence(value: unknown): value is MissingEvidence {
   return typeof value === 'string' && (MISSING_EVIDENCE_TYPES as readonly string[]).includes(value);
-}
-
-/**
- * Raised when a case already carries a decline.
- *
- * `coverage_by_period` sums `estimated_recoverable_cents` over every declined
- * row, so a second decline of the same case counts its dollars twice in the
- * denominator — a double-clicked form would quietly move the one number this
- * feature exists to produce. The row is refused rather than the number being
- * wrong, and the first decline stands.
- */
-export class AlreadyDeclinedError extends Error {
-  constructor(
-    readonly deductionId: string,
-    readonly declinedCandidateId: string,
-    readonly decidedAt: string,
-  ) {
-    super(`case ${deductionId} was already declined at ${decidedAt}`);
-    this.name = 'AlreadyDeclinedError';
-  }
 }
 
 /**
@@ -800,6 +806,7 @@ interface CaseSummaryRow {
   invoice_number: string | null;
   reason_code_as_printed: string | null;
   document_count: number;
+  declined: boolean;
 }
 
 /**
@@ -827,7 +834,8 @@ const CASE_SUMMARY_COLUMNS = `d.id, d.state, d.claim_id, d.deduction_amount_cent
           where i.deduction_id = d.id and i.identifier_kind = 'invoice_number'
           order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
         (select count(*) from deduction_documents dd where dd.deduction_id = d.id)
-          ::int as document_count`;
+          ::int as document_count,
+        ${DECLINED_SQL} as declined`;
 
 const CASE_SUMMARY_SELECT = `select ${CASE_SUMMARY_COLUMNS}
    from deductions d
@@ -887,6 +895,7 @@ function toCaseSummary(row: CaseSummaryRow): CaseSummary {
       : {}),
     documentCount: row.document_count,
     createdAt: isoDate(row.created_at) ?? '',
+    ...(row.declined ? { declined: true as const } : {}),
   };
 }
 
@@ -3844,7 +3853,9 @@ export class PostgresStore
    * list's total, its open cases and its deadlines to watch undercounted and
    * said nothing. Here the SQL counts, sums and compares one date per state;
    * what a state means — open, filed, merged away — is decided by the page with
-   * `isClosed`, the rule every other list uses. `today` is read as its UTC day,
+   * `isClosed`, the rule every other list uses — and a declined case comes as
+   * its own row, since a decline moves no state and only the page can say that
+   * a declined `classified` case is not open. `today` is read as its UTC day,
    * as the review queue and the deadline label read it, and the page passes
    * the one it reads the queue with. One tenant transaction as `app_rw`; RLS
    * decides whose cases these are.
@@ -3857,20 +3868,27 @@ export class PostgresStore
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{
         state: CaseState;
+        declined: boolean;
         cases: string;
         deducted: string;
         due: string;
       }>(
-        `select d.state, count(*)::text as cases,
-                sum(d.deduction_amount_cents)::text as deducted,
-                count(*) filter (where d.dispute_deadline <= $1::date + $2::int)::text as due
-           from deductions d
-          group by d.state
-          order by d.state`,
+        `with t as (
+           select d.state, d.deduction_amount_cents, d.dispute_deadline,
+                  ${DECLINED_SQL} as declined
+             from deductions d
+         )
+         select state, declined, count(*)::text as cases,
+                sum(deduction_amount_cents)::text as deducted,
+                count(*) filter (where dispute_deadline <= $1::date + $2::int)::text as due
+           from t
+          group by state, declined
+          order by state, declined`,
         [today.toISOString().slice(0, 10), DUE_SOON_DAYS],
       );
       return rows.map((row) => ({
         state: row.state,
+        declined: row.declined,
         cases: exactCents(row.cases, 'cases'),
         deductedCents: exactCents(row.deducted, 'deduction_amount_cents'),
         dueSoonOrPast: exactCents(row.due, 'due'),
@@ -4175,11 +4193,16 @@ export class PostgresStore
       // nothing, so which notice is picked is exactly what it was.
       const { rows: caseRows } = await client.query<{
         amount: string;
+        state: CaseState;
+        decision_id: string | null;
         notice_document_id: string | null;
         observed_from: string | null;
         asserted_from: string | null;
       }>(
         `select d.deduction_amount_cents::text as amount,
+                d.state,
+                (select x.id from decisions x where x.deduction_id = d.id
+                  order by x.created_at asc, x.id asc limit 1) as decision_id,
                 notice.document_id as notice_document_id,
                 notice.observed_from as observed_from,
                 notice.asserted_from as asserted_from
@@ -4223,6 +4246,27 @@ export class PostgresStore
           );
         }
         throw new Error(`case ${input.deductionId} is not visible to this tenant`);
+      }
+      // Fought or declined, never both. Asked under the case's row lock, and
+      // it is the *state* check below that holds the race, not the decision
+      // subquery. `recordHumanDecision` moves `deductions.state` out of
+      // `classified` under the same row lock, so a decision that committed
+      // while this decline waited is seen: `for update` re-reads the locked
+      // row's current version, and its state is no longer declinable. The
+      // scalar `decisions` subquery alone would not see it — it reads the
+      // statement's snapshot, taken before the wait, so a decision inserted
+      // meanwhile is invisible to it and `decision_id` comes back null.
+      // (`recordHumanDecision` in turn refuses a declined case.) A merged-away
+      // case is refused by the name the database would
+      // give it (`RCM01`), since that is the reason and not its state as such.
+      if (found.state === 'merged') {
+        throw new CaseMergedAwayError(input.deductionId, 'declined_candidates');
+      }
+      if (found.decision_id !== null) {
+        throw new CaseNotDeclinableError(input.deductionId, found.state, found.decision_id);
+      }
+      if (!(DECLINABLE_STATES as readonly CaseState[]).includes(found.state)) {
+        throw new CaseNotDeclinableError(input.deductionId, found.state);
       }
       // Cents are a bigint (invariant 3). `Number()` on one is lossy above
       // 2^53, and it used to be called twice: once on the way into the
@@ -4306,7 +4350,7 @@ export class PostgresStore
         `select id, decided_at::text as decided_at
            from declined_candidates
           where deduction_id = $1
-          order by decided_at asc
+          order by decided_at asc, id asc
           limit 1`,
         [input.deductionId],
       );

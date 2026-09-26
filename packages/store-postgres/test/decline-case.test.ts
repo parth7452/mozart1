@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import {
   AlreadyDeclinedError,
+  CaseNotDeclinableError,
   closeAllPools,
   PostgresStore,
   ProvenanceUnknownError,
@@ -702,5 +703,183 @@ describeDb('declining a case', () => {
     } finally {
       await other.close();
     }
+  });
+
+  // --- The decline, read back on the case (VERIFY-CHECKLIST, found #5) -----
+
+  it('reads the decline back on the case’s workflow, detail and all', async () => {
+    // The first test above declined this case with a reason, missing evidence
+    // and words of the reviewer's own. A decline moves no state, so this is the
+    // only thing that tells the case page the case is not waiting.
+    const workflow = await store.getWorkflow(deductionId);
+    expect(workflow?.state).toBe('discovered');
+    expect(workflow?.decline).toEqual({
+      declinedCandidateId: expect.any(String),
+      reason: 'below_economic_floor',
+      estimatedRecoverableCents: 312_000,
+      missingEvidence: ['proof_of_delivery'],
+      detail: 'Recovery would not cover the work.',
+      decidedBy: `dec-a-${suffix}@example.test`,
+      decidedByVersion: 'human/v1',
+      decidedAt: expect.any(Date),
+    });
+
+    // A read-only member sees it; another tenant does not see the case at all.
+    const reader = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId, userId: readerId },
+    );
+    const other = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId: otherOrgId, userId: otherAnalystId },
+    );
+    try {
+      expect((await reader.getWorkflow(deductionId))?.decline).toEqual(workflow?.decline);
+      expect(await other.getWorkflow(deductionId)).toBeUndefined();
+    } finally {
+      await reader.close();
+      await other.close();
+    }
+
+    // A case nobody declined carries no `decline` key at all.
+    const untouched = await store.getWorkflow(undeclinedId);
+    expect(untouched).toBeDefined();
+    expect(untouched !== undefined && 'decline' in untouched).toBe(false);
+  });
+
+  it('reads the declined amount digit for digit, at the edge of what a number holds', async () => {
+    const big = await store.openCase({
+      orgId,
+      claimId: `APDP-BIG-${suffix}`,
+      deductionAmountCents: Number.MAX_SAFE_INTEGER,
+    });
+    await attachNotice(big.deductionId, 'web_upload');
+    await store.declineCase({
+      deductionId: big.deductionId,
+      reason: 'other',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    const decline = (await store.getWorkflow(big.deductionId))?.decline;
+    expect(decline?.estimatedRecoverableCents).toBe(Number.MAX_SAFE_INTEGER);
+    expect(decline?.missingEvidence).toEqual([]);
+    expect(decline !== undefined && 'detail' in decline).toBe(false);
+  });
+
+  it('reads the first decline when a case somehow carries two', async () => {
+    // `declineCase` refuses a second, but the schema allows one (migration
+    // 0014), so the read says which stands rather than leaving it to the plan.
+    const twice = await store.openCase({
+      orgId,
+      claimId: `APDP-TWICE-${suffix}`,
+      deductionAmountCents: 5_000,
+    });
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into declined_candidates (org_id, deduction_id, discovered_from, reason,
+                                        estimated_recoverable_cents, decided_by,
+                                        decided_by_version, decided_at)
+       values ($1, $2, 'web_upload', 'deadline_passed', 5000, 'later', 'human/v1',
+               '2026-09-20T10:00:00Z'),
+              ($1, $2, 'web_upload', 'deduction_valid', 5000, 'first', 'human/v1',
+               '2026-09-19T10:00:00Z')
+       returning id, decided_by`,
+      [orgId, twice.deductionId],
+    );
+    const first = (rows as { id: string; decided_by: string }[]).find(
+      (row) => row.decided_by === 'first',
+    );
+    const decline = (await store.getWorkflow(twice.deductionId))?.decline;
+    expect(decline?.declinedCandidateId).toBe(first?.id);
+    expect(decline?.reason).toBe('deduction_valid');
+    expect(decline?.decidedBy).toBe('first');
+  });
+
+  // --- Fought or declined, never both --------------------------------------
+
+  /** How many declines and `case.declined` events name a case. */
+  async function declineTrace(caseId: string): Promise<{ rows: string; events: string }> {
+    const { rows } = await admin.query<{ rows: string; events: string }>(
+      `select (select count(*) from declined_candidates where deduction_id = $1)::text as rows,
+              (select count(*) from deduction_events
+                where deduction_id = $1 and event_type = 'case.declined')::text as events`,
+      [caseId],
+    );
+    return rows[0] as { rows: string; events: string };
+  }
+
+  it.each(['awaiting_approval', 'submitted', 'analyst_review', 'won'] as const)(
+    'refuses to decline a case that is %s, and writes nothing',
+    async (state) => {
+      // Straight into the state, as the owner: the page never offers the card
+      // here, so what is under test is a hand-made POST reaching the store.
+      const { rows } = await admin.query<{ id: string }>(
+        `insert into deductions (org_id, claim_id, deduction_amount_cents, state)
+         values ($1, $2, 77700, $3) returning id`,
+        [orgId, `APDP-${state}-${suffix}`, state],
+      );
+      const caseId = rows[0]?.id as string;
+      // With a notice whose arrival is recorded, so the refusal is the state's
+      // and not provenance's.
+      await attachNotice(caseId, 'web_upload');
+
+      const refusal = store.declineCase({
+        deductionId: caseId,
+        reason: 'deduction_valid',
+        decidedBy: `dec-a-${suffix}@example.test`,
+      });
+      await expect(refusal).rejects.toBeInstanceOf(CaseNotDeclinableError);
+      await expect(refusal).rejects.toMatchObject({ deductionId: caseId, state });
+      expect(await declineTrace(caseId)).toEqual({ rows: '0', events: '0' });
+    },
+  );
+
+  it('refuses to decline a case a decision already names, whatever its state says', async () => {
+    const fought = await store.openCase({
+      orgId,
+      claimId: `APDP-DECIDED-${suffix}`,
+      deductionAmountCents: 88_800,
+    });
+    await attachNotice(fought.deductionId, 'web_upload');
+    await store.transitionCase(fought.deductionId, 'classified');
+    // A decision on a case still reading `classified` — a model's, written the
+    // way Phase 2 will write one — so the decision is what refuses, not the state.
+    const { rows } = await admin.query<{ id: string }>(
+      `insert into decisions (org_id, deduction_id, schema_id, schema_version, provider,
+                              model_version, input_state_hash, questions, result,
+                              raw_probabilities, confidence, latency_ms, prepared_by)
+       values ($1,$2,'B','1.0.0','jev','jev-latest',digest($4,'sha256'),
+               '{}'::jsonb,'{}'::jsonb,'{}'::jsonb,0.5,1,$3)
+       returning id`,
+      [orgId, fought.deductionId, analystId, `fought-${fought.deductionId}`],
+    );
+
+    const refusal = store.declineCase({
+      deductionId: fought.deductionId,
+      reason: 'below_economic_floor',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(CaseNotDeclinableError);
+    await expect(refusal).rejects.toMatchObject({
+      deductionId: fought.deductionId,
+      state: 'classified',
+      decisionId: rows[0]?.id,
+    });
+    expect(await declineTrace(fought.deductionId)).toEqual({ rows: '0', events: '0' });
+  });
+
+  it('still declines a classified case nobody has decided', async () => {
+    const waiting = await store.openCase({
+      orgId,
+      claimId: `APDP-CLASSIFIED-${suffix}`,
+      deductionAmountCents: 12_300,
+    });
+    await attachNotice(waiting.deductionId, 'web_upload');
+    await store.transitionCase(waiting.deductionId, 'classified');
+    const declined = await store.declineCase({
+      deductionId: waiting.deductionId,
+      reason: 'deduction_valid',
+      decidedBy: `dec-a-${suffix}@example.test`,
+    });
+    expect(declined.estimatedRecoverableCents).toBe(12_300);
+    expect(await declineTrace(waiting.deductionId)).toEqual({ rows: '1', events: '1' });
   });
 });
