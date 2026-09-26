@@ -325,6 +325,13 @@ describe('whether a connection needs reconnecting', () => {
     expect(
       needsReconnect(connection({ lastRun: { ...run, outcome: 'refused', errorClass: 'LedgerSyncRefusedError' } }), today),
     ).toMatch(/can no longer write/);
+    // A disconnect is not the member's doing, and not a reason to sign in again.
+    expect(
+      needsReconnect(
+        connection({ lastRun: { ...run, outcome: 'refused', errorClass: 'LedgerConnectionDisabledError' } }),
+        today,
+      ),
+    ).toBeUndefined();
     // A failure that is not about the sign-in is not a reason to sign in again.
     expect(
       needsReconnect(connection({ lastRun: { ...run, outcome: 'failed', errorClass: 'QboRequestFailed' } }), today),
@@ -373,6 +380,9 @@ describe('the last sync, in a sentence', () => {
     expect(lastSyncSentence(connection({ lastRun: { ...run, outcome: 'refused', errorClass: 'LedgerSyncRefusedError' } }))).toBe(
       '2026-09-23 07:00 UTC: not read — refused (LedgerSyncRefusedError)',
     );
+    expect(
+      lastSyncSentence(connection({ lastRun: { ...run, outcome: 'refused', errorClass: 'LedgerConnectionDisabledError' } })),
+    ).toBe('2026-09-23 07:00 UTC: not read — it was disconnected when this run started');
     expect(lastSyncSentence(connection({ lastRun: { ...run, outcome: 'failed' } }))).toBe('2026-09-23 07:00 UTC: failed');
   });
 });

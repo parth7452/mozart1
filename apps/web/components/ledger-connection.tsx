@@ -288,6 +288,11 @@ export function lastSyncSentence(connection: LedgerConnectionOverview): string {
     case 'not_configured':
       return `${when}: not read — this deployment could not reach QuickBooks`;
     case 'refused':
+      // Shown when the same owner reconnects: the row is reused, so a run
+      // refused while it was off can still be this connection's last.
+      if (run.errorClass === 'LedgerConnectionDisabledError') {
+        return `${when}: not read — it was disconnected when this run started`;
+      }
       return `${when}: not read — refused${run.errorClass === undefined ? '' : ` (${run.errorClass})`}`;
     case 'failed':
       return `${when}: failed${run.errorClass === undefined ? '' : ` (${run.errorClass})`}`;

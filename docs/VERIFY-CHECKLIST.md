@@ -1468,9 +1468,16 @@ None of these is fixed in this PR. Each needs a decision or its own change;
    (§6).
 6. **A line with a printed dash is counted as "unreadable"** rather than
    "paid in full" (§8). There is no money impact.
-7. **Coverage shows a misleading reason** when a sync is refused because the
+7. ~~**Coverage shows a misleading reason** when a sync is refused because the
    connection was disconnected mid-run. It blames the member rather than the
-   disconnect.
+   disconnect.~~ **Fixed** on `claude/coverage-disconnected-reason`
+   (2026-09-26): the page reads the run's class, so
+   `LedgerConnectionDisabledError` says the connection was disconnected before
+   the run began, `LedgerSyncRefusedError` keeps the member sentence, and any
+   other refusal blames nobody. Settings → QuickBooks's last-sync line says the
+   same. A disconnect that lands while a run is reading still ends `failed`
+   (`QboAuthError`) and reads as QuickBooks refusing the connection; telling
+   that apart is a follow-up.
 8. ~~**No sign-out button and no workspace switcher.**~~ **Both done**
    (pilot E4): **Sign out** and **Switch workspace** are in the sidebar (see
    *Before you start*, items 2 and 4).
