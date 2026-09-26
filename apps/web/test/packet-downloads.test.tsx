@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { unzipSync } from 'fflate';
 import type { CaseWorkflow } from '@recouple/pipeline';
-import { CaseNotVisibleError } from '@recouple/pipeline';
+import { CaseNotVisibleError, type ServingRefusal } from '@recouple/pipeline';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { enclosureName, zipEnclosures } from '../lib/enclosures-zip';
 import { DisputeLetter } from '../components/dispute-letter';
@@ -42,7 +42,14 @@ vi.mock('../lib/session', () => ({
 const { GET: enclosures } = await import('../app/cases/[id]/packet/enclosures/route');
 
 /** A store with one case whose packet encloses two of its three documents. */
-function fakeStore(options: { packet?: boolean; missing?: string } = {}) {
+function fakeStore(
+  options: {
+    packet?: boolean;
+    missing?: string;
+    /** Documents that are not served, and why — for every ask or from the nth. */
+    refused?: ReadonlyMap<string, { refusal: ServingRefusal; fromAsk?: number }>;
+  } = {},
+) {
   const documents = new Map([
     [DOC_A, { filename: 'notice.pdf', bytes: new Uint8Array([37, 80, 68, 70, 1]) }],
     [DOC_B, { filename: '../../etc/pod scan (1).jpg', bytes: new Uint8Array([255, 216, 255]) }],
@@ -50,7 +57,18 @@ function fakeStore(options: { packet?: boolean; missing?: string } = {}) {
   ]);
   const fake = {
     reads: [] as string[],
+    asked: [] as string[],
     closed: 0,
+    async documentServing(id: string) {
+      fake.asked.push(id);
+      if (id === options.missing) return undefined;
+      const refused = options.refused?.get(id);
+      const ask = fake.asked.filter((asked) => asked === id).length;
+      if (refused !== undefined && ask >= (refused.fromAsk ?? 1)) {
+        return { refusal: refused.refusal };
+      }
+      return { refusal: undefined };
+    },
     async getWorkflow(id: string): Promise<CaseWorkflow | undefined> {
       if (id !== CASE_ID) throw new CaseNotVisibleError(id);
       return {
@@ -123,6 +141,36 @@ describe('the enclosures zip', () => {
     harness.store = store;
     const response = await enclosures(new Request('https://app.example.test/'), params(CASE_ID));
     await expect(response.arrayBuffer()).rejects.toThrow(/could not be read/);
+    expect(store.closed).toBe(1);
+  });
+
+  it('refuses a packet holding a document the scan refused, before a byte is written', async () => {
+    for (const refusal of ['infected', 'unscanned'] as const) {
+      const store = fakeStore({ refused: new Map([[DOC_B, { refusal }]]) });
+      harness.store = store;
+      const response = await enclosures(new Request('https://app.example.test/'), params(CASE_ID));
+      expect(response.status).toBe(409);
+      expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+      expect(response.headers.get('content-disposition')).toBeNull();
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+      const body = await response.text();
+      expect(body).toContain(refusal === 'infected' ? 'infected' : 'no clean scan verdict');
+      // Not the filename of the refused file, and not the zip with it left out.
+      expect(body).not.toContain('pod scan');
+      expect(store.reads).toEqual([]);
+      expect(store.closed).toBe(1);
+    }
+  });
+
+  it('fails the download when a verdict recorded after the check refuses an enclosure', async () => {
+    // Clean when the route asks up front, infected by the time it is read.
+    const store = fakeStore({ refused: new Map([[DOC_B, { refusal: 'infected', fromAsk: 2 }]]) });
+    harness.store = store;
+    const response = await enclosures(new Request('https://app.example.test/'), params(CASE_ID));
+    expect(response.status).toBe(200);
+    await expect(response.arrayBuffer()).rejects.toThrow(/is not served \(infected\)/);
+    // The first enclosure was read; the refused one never was.
+    expect(store.reads).toEqual([DOC_A]);
     expect(store.closed).toBe(1);
   });
 

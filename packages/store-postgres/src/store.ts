@@ -40,7 +40,7 @@ import type {
 } from '@recouple/core-domain';
 import { restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
-import type { ScanVerdict } from '@recouple/ingest';
+import type { ScanStatus, ScanVerdict } from '@recouple/ingest';
 import {
   ActorIsNotTheSessionError,
   AmbiguousIdentityError,
@@ -53,6 +53,7 @@ import {
   holdAuditPayload,
   holdFromAuditPayload,
   parseClassificationFloor,
+  servingRefusal,
 } from '@recouple/pipeline';
 import type {
   CaseMerges,
@@ -77,6 +78,7 @@ import type {
   PossibleDuplicatePair,
   RemittanceSettings,
   RestoredExtraction,
+  ServingRefusal,
   StoredDocument,
   UnattachedDocument,
   UnmergeRecord,
@@ -710,7 +712,23 @@ export interface CaseDocument {
    * attached from "Read, not on a case" — whose spend stays unattributed.
    */
   readonly readForCase: boolean;
+  /**
+   * Why its bytes may not be served — `servingRefusal` over its latest scan
+   * verdict and its arrival — or null when they may. The case page shows a
+   * notice in place of the embed and the link, because `/api/document` would
+   * refuse them anyway.
+   */
+  readonly servingRefusal: ServingRefusal | null;
 }
+
+/**
+ * The status of a document's latest scan verdict, as a scalar subquery over the
+ * `documents` row aliased `alias` — the same row `latestScan` answers with, by
+ * the same order. Null when nothing scanned it.
+ */
+const LATEST_SCAN_SQL = (alias: string): string =>
+  `(select s.status from document_scans s
+     where s.document_id = ${alias}.id order by s.id desc limit 1)`;
 
 /**
  * The documents on one case, one row each, in SQL: a document linked in two
@@ -878,6 +896,8 @@ interface CaseDocumentRow {
   role: DocumentRole;
   read: boolean;
   read_for_case: boolean;
+  scan: ScanStatus | null;
+  source: UploadSource | null;
 }
 
 interface DocumentRow {
@@ -965,6 +985,11 @@ function classificationConfidence(text: string, documentId: string): number {
  * Phase 1b replaces this with Supabase Storage.
  */
 export interface BlobStore {
+  /**
+   * Keeps `bytes` under `ref`, or throws. A ref an implementation cannot key is
+   * a refusal (`BlobRefUnrecognisedError`), never a quiet return: the caller
+   * writes a `documents` row pointing at the ref next.
+   */
   put(ref: string, bytes: Uint8Array): Promise<void>;
   get(ref: string): Promise<Uint8Array | undefined>;
 }
@@ -1009,7 +1034,12 @@ export class PostgresBlobStore implements BlobStore {
    */
   async put(ref: string, bytes: Uint8Array): Promise<void> {
     const documentId = documentIdFromRef(ref);
-    if (documentId === undefined) return;
+    // A ref this store cannot key is bytes it would not keep. Returning quietly
+    // left `putDocument` to write a `documents` row pointing at nothing, which
+    // reads back as an empty file. The only caller passes `refForDocument`'s
+    // answer, so this is a programming error — and a second `BlobStore` must
+    // not inherit the silence either.
+    if (documentId === undefined) throw new BlobRefUnrecognisedError(ref);
     await this.withTenant(async (client) => {
       await client.query(
         `insert into document_blobs (document_id, org_id, bytes, byte_size)
@@ -1035,6 +1065,18 @@ export class PostgresBlobStore implements BlobStore {
 }
 
 const REF_PREFIX = 'pgblob://';
+
+/**
+ * A storage ref `PostgresBlobStore.put` cannot key. It names the ref's scheme
+ * only, never the whole ref, and nothing from the bytes.
+ */
+export class BlobRefUnrecognisedError extends Error {
+  override readonly name = 'BlobRefUnrecognisedError';
+  constructor(ref: string) {
+    const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(ref)?.[0] ?? 'no scheme';
+    super(`storage ref (${scheme}) is not a ${REF_PREFIX}<document id> ref: the bytes were not stored`);
+  }
+}
 
 /** `pgblob://<document id>` — the ref a document row carries. */
 export function refForDocument(documentId: string): string {
@@ -2794,6 +2836,34 @@ export class PostgresStore
   }
 
   /**
+   * Whether this document's bytes may be handed to a browser, asked before they
+   * are fetched: `undefined` for a document this tenant cannot see, else
+   * `servingRefusal`'s answer over its latest scan verdict and its arrival
+   * (`{ refusal: undefined }` when they may be served).
+   *
+   * One query, no bytes, through RLS like `documentIsVisible`, so the 404 for
+   * another tenant's document is unchanged and an infected file is never read
+   * out of `document_blobs` only to be thrown away. Every route that serves
+   * stored bytes asks this first — `/api/document/[id]` and the packet's zip.
+   */
+  async documentServing(
+    documentId: string,
+  ): Promise<{ readonly refusal: ServingRefusal | undefined } | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ scan: ScanStatus | null; source: UploadSource | null }>(
+        `select ${LATEST_SCAN_SQL('d')} as scan, u.source
+           from documents d
+           left join uploads u on u.id = d.upload_id
+          where d.id = $1`,
+        [documentId],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return { refusal: servingRefusal({ scan: row.scan, source: row.source }) };
+    });
+  }
+
+  /**
    * Runs a document's read while holding that document's claim in the database,
    * or does not run it at all.
    *
@@ -3754,9 +3824,12 @@ export class PostgresStore
                          where x.document_id = o.document_id) as read,
                 exists (select 1 from extraction_results x
                          where x.document_id = o.document_id
-                           and x.deduction_id = $1) as read_for_case
+                           and x.deduction_id = $1) as read_for_case,
+                ${LATEST_SCAN_SQL('d')} as scan,
+                u.source
            from on_case o
            join documents d on d.id = o.document_id
+           left join uploads u on u.id = d.upload_id
            left join lateral (
              select doc_type from document_classifications dc
               where dc.document_id = o.document_id order by dc.id desc limit 1
@@ -3772,6 +3845,7 @@ export class PostgresStore
         role: row.role,
         read: row.read,
         readForCase: row.read_for_case,
+        servingRefusal: servingRefusal({ scan: row.scan, source: row.source }) ?? null,
       }));
     });
   }

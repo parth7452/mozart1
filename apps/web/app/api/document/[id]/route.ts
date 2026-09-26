@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { displaysInline } from '../../../../lib/document-types';
+import { refusedDocument } from '../../../../lib/serve-document';
 import { requireSession, storeFor } from '../../../../lib/session';
 
 /**
@@ -9,11 +10,19 @@ import { requireSession, storeFor } from '../../../../lib/session';
  * tenant claims as everything else, so a document belonging to another tenant is
  * absent rather than forbidden (ADR 0014). The id is a lookup key — the answer to
  * "may I see this" is the database's, not this handler's.
+ *
+ * **Only a document that scanned clean.** The scan gate fails closed for
+ * reading; this is the other way bytes leave the store, and it fails closed
+ * the same way (`servingRefusal`): an infected document, or one with no clean
+ * verdict, is a 409 with a sentence saying which, asked before the bytes are
+ * fetched — and the one exception is a ledger extract our own code wrote. The
+ * sandbox below governs what a browser does with a page it shows; it governs
+ * nothing about a download.
  */
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const { id } = await context.params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
     return new NextResponse('not found', { status: 404 });
@@ -22,6 +31,14 @@ export async function GET(
   const session = await requireSession();
   const store = storeFor(session);
   try {
+    const serving = await store.documentServing(id);
+    if (serving === undefined) {
+      return new NextResponse('not found', { status: 404 });
+    }
+    if (serving.refusal !== undefined) {
+      return refusedDocument(serving.refusal);
+    }
+
     const document = await store.getDocument(id);
     if (document === undefined) {
       return new NextResponse('not found', { status: 404 });
