@@ -1401,6 +1401,71 @@ rows naming you as `actor_id`, and no row for the refusals.
 
 ---
 
+## 10. A failed background job reaches your inbox
+
+**What it proves:** a job that fails after its retries emails you, and the
+email says which job failed and nothing from the document (ADR 0052). §9 is
+kept for Settings → Team (parth7452/mozart1#109).
+
+**When:** any time after the variables below are set. It touches no
+workspace and no database row.
+
+**10.1 Set it up, once.**
+
+- **Resend** → **API Keys** → **Create API key**:
+  - permission **Sending access**;
+  - domain: the one Supabase's sign-in mail is sent from.
+- **Vercel** → the web project → **Settings** → **Environment Variables**.
+  Add three, with **Production** ticked and **Preview** not ticked:
+  - `RESEND_API_KEY`: the key just created;
+  - `ALERT_EMAIL_FROM`: an address on that domain, for example
+    `alerts@<that domain>`;
+  - `ALERT_EMAIL_TO`: your own address. One address, with no name and no
+    list.
+- **Redeploy production.**
+
+**10.2 Send the test.**
+
+- **Do:** Inngest → the production environment → **Events** → **Send
+  event**, and paste:
+
+  ```json
+  { "name": "recouple/alert.test", "data": {} }
+  ```
+
+- **You should see:** within a minute, an email from "Mozart alerts":
+  - subject "[TEST] Mozart: failure alerts are working";
+  - first line "This is a test. Nothing failed."
+- **Inngest:** Runs → a run of **Email a failed run** that ends
+  **Completed**, with output `{"outcome":"sent","test":true}`.
+- **Vercel logs:** search `alert:`. You should find
+  `[recouple] alert: sent for test`.
+
+**If no email arrives,** look at the run's output:
+
+- `not_configured`: none of the three variables reached this deployment.
+  Check that they are on Production, then redeploy.
+- `misconfigured`: the Vercel log line `alerts are misconfigured — …` names
+  the variable to fix.
+- **The run failed:** the log line `alert: not sent for test: Resend
+  answered …` gives Resend's status:
+  - `401` or `403`: the key, or a sender address that is not on its domain;
+  - `422`: an address Resend will not take.
+- `outcome: sent` but nothing in your inbox: check spam, then Resend →
+  **Emails** for its delivery status.
+
+**10.3 What a real one looks like.** You don't need to cause a failure. When
+one comes, check that:
+
+- the subject is "Mozart: a background job failed (…)", with the job's name;
+- the body gives the function, the run id, an error class such as
+  `NonRetriableError`, and a link that opens that run in Inngest;
+- there is no claim number, amount, retailer or document text anywhere in it;
+- a second failure of the same job within the hour sends nothing, and the
+  Runs page lists it.
+
+---
+
 ## 11. The packet a payer receives, and uploads at their limits
 
 **What it proves:** pilot E1, E2, E3 and E6 in the product rather than in
@@ -1430,7 +1495,8 @@ a payer would be sent.
 - **You should see:** the button counting "Sending 1 of 20…" upward, and then
   one line per file, each with its own answer. Nothing is sent twice, and a
   file with no answer stops the batch with the rest marked not sent.
-- **Proof:** 20 rows, all `web_upload`, all within the last few minutes:
+- **Proof:** one row, `source` `web_upload` with `count` 20, and its first
+  and last `received_at` both within the last few minutes:
   ```sql
   select u.source, count(*), min(u.received_at), max(u.received_at)
     from uploads u join organizations o on o.id = u.org_id
@@ -1444,8 +1510,9 @@ a payer would be sent.
 - **You should see:** our sentence, starting "that file is larger than 4 MB,
   which is as much as one upload can carry, so it was not sent", and not
   Vercel's `FUNCTION_PAYLOAD_TOO_LARGE` page.
-- **Proof:** 11.1's query, run again, counts no more rows: the file never left
-  the browser.
+- **Proof:** the refusal is shown in the browser, before anything is sent.
+  11.1's query, run again, still counts 20, provided nothing else was
+  uploaded to the test workspace in between.
 
 **11.3 Decide, and enter a deadline (E5, E6).**
 
@@ -1517,71 +1584,6 @@ after.
   in the letter's enclosure order, each one opening as the document it names.
 - **Proof:** the number of files in the zip equals `files` on the newest row of
   11.4's query.
-
----
-
-## 10. A failed background job reaches your inbox
-
-**What it proves:** a job that fails after its retries emails you, and the
-email says which job failed and nothing from the document (ADR 0052). §9 is
-kept for Settings → Team (parth7452/mozart1#109).
-
-**When:** any time after the variables below are set. It touches no
-workspace and no database row.
-
-**10.1 Set it up, once.**
-
-- **Resend** → **API Keys** → **Create API key**:
-  - permission **Sending access**;
-  - domain: the one Supabase's sign-in mail is sent from.
-- **Vercel** → the web project → **Settings** → **Environment Variables**.
-  Add three, with **Production** ticked and **Preview** not ticked:
-  - `RESEND_API_KEY`: the key just created;
-  - `ALERT_EMAIL_FROM`: an address on that domain, for example
-    `alerts@<that domain>`;
-  - `ALERT_EMAIL_TO`: your own address. One address, with no name and no
-    list.
-- **Redeploy production.**
-
-**10.2 Send the test.**
-
-- **Do:** Inngest → the production environment → **Events** → **Send
-  event**, and paste:
-
-  ```json
-  { "name": "recouple/alert.test", "data": {} }
-  ```
-
-- **You should see:** within a minute, an email from "Mozart alerts":
-  - subject "[TEST] Mozart: failure alerts are working";
-  - first line "This is a test. Nothing failed."
-- **Inngest:** Runs → a run of **Email a failed run** that ends
-  **Completed**, with output `{"outcome":"sent","test":true}`.
-- **Vercel logs:** search `alert:`. You should find
-  `[recouple] alert: sent for test`.
-
-**If no email arrives,** look at the run's output:
-
-- `not_configured`: none of the three variables reached this deployment.
-  Check that they are on Production, then redeploy.
-- `misconfigured`: the Vercel log line `alerts are misconfigured — …` names
-  the variable to fix.
-- **The run failed:** the log line `alert: not sent for test: Resend
-  answered …` gives Resend's status:
-  - `401` or `403`: the key, or a sender address that is not on its domain;
-  - `422`: an address Resend will not take.
-- `outcome: sent` but nothing in your inbox: check spam, then Resend →
-  **Emails** for its delivery status.
-
-**10.3 What a real one looks like.** You don't need to cause a failure. When
-one comes, check that:
-
-- the subject is "Mozart: a background job failed (…)", with the job's name;
-- the body gives the function, the run id, an error class such as
-  `NonRetriableError`, and a link that opens that run in Inngest;
-- there is no claim number, amount, retailer or document text anywhere in it;
-- a second failure of the same job within the hour sends nothing, and the
-  Runs page lists it.
 
 ---
 
