@@ -1,7 +1,7 @@
 # 0055 — Large uploads go direct to storage, into quarantine, and a job promotes them
 
-- Status: proposed (2026-09-26). Awaiting the founder on the four decisions
-  in §9. Nothing here is built: no code, no migration, no bucket.
+- Status: accepted (2026-09-26), with the recommended option in each of §9's
+  decisions. Nothing here is built yet: no code, no migration.
 - Date: 2026-09-26
 - Amends: ADR 0014's "for now" (bytes still end in `document_blobs`; only
   the way in changes)
