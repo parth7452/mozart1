@@ -1521,7 +1521,8 @@ page, and a test puts a marker in every other field to prove it. One email per
 function per hour (`rateLimit`), `retries: 2`, a Resend refusal that will
 repeat is non-retriable, and a failed send is a log line, because Inngest
 reports no failure of a failure handler. `alertsFromEnv` is `scannerFromEnv`'s
-shape: none of the three variables means off and logged per failure, some of
+shape: none of the three variables means off and logged (at most once per job per
+hour, the rate limit still applying), some of
 them is misconfigured and logged as an error, and the variables are Production
 only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
 (VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents

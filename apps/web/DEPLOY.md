@@ -140,8 +140,10 @@ send. All three variables go on **Production only**, never Preview:
 
 Set all three or none:
 
-- **None:** there are no alerts. Every failure logs `alerts are not
-  configured`, and the alert's run output says `not_configured`.
+- **None:** there are no alerts. A failure logs `alerts are not configured`,
+  and the alert's run output says `not_configured`. The rate limit still
+  applies, so later failures of the same job within the hour log nothing.
+  Count failures in the Inngest dashboard, not from these lines.
 - **Some, or an address that is not one address:** logged as an error naming
   the variable, and nothing is sent.
 

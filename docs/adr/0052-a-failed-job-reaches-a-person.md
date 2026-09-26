@@ -53,8 +53,9 @@ open-source server and the installed SDK (4.20.0):
 - `inngest/function.failed`, with an `if` expression that names exactly the
   four watched functions by their full ids. The ids are built from each job's
   own exported config, so renaming a job cannot quietly drop it from the
-  filter. `apps/web/test/alerts.test.tsx` holds the list to the functions
-  `/api/inngest` serves.
+  filter. `apps/web/test/alerts.test.tsx` holds the list to those four
+  configs. A fifth job added to `/api/inngest` is not watched until it is
+  added here.
 - `recouple/alert.test`, which the founder sends from the dashboard (§6).
 
 The handler checks the function id again against the same list before it
@@ -208,11 +209,15 @@ or `misconfigured`.
   minutes, once the three variables are set.
 - A burst of failures is one email per function per hour. The rest are in the
   dashboard, and the email says so.
-- Resend's free plan allows 100 emails a day. Four functions at one an hour is
-  at most 96, and the test event is unlimited. A day of four functions all
-  failing every hour, plus a few test presses, could reach the daily quota.
-  After that, Resend answers 429 and the alert is a log line until the next
-  UTC day.
+- Resend's free plan allows 100 emails a day, and **that quota is shared with
+  Supabase Auth's sign-in mail**, which goes through the same account (§2).
+  Four functions at one an hour is at most 96 alerts, and the test event is
+  unlimited. So a day on which every job fails every hour could use up the
+  quota. From then until the next UTC day, Resend answers 429 to both the
+  alerts and members' magic links, and nobody can sign in. That takes all four
+  jobs failing all day, which is itself an outage. If it happens once, or if
+  sign-ins grow, the fix is Resend's paid plan or a separate Resend account
+  for alerts, not a code change. The quota is visible in Resend's dashboard.
 - The dashboard counts every alert run as an execution: two per email, the run
   and its step. Inngest drops rate-limited events before a run starts, so they
   cost nothing.
