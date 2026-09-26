@@ -14,6 +14,7 @@ import {
   shortageCentsAt,
   parseMoneyToCents,
   parseUnitPrice,
+  printsNoAmount,
   extendedCents,
   unitsAtPrice,
   compareUnitPrices,
@@ -330,6 +331,39 @@ describe('parseMoneyToCents', () => {
       fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
         const amount = cents(n);
         expect(parseMoneyToCents(formatCents(amount))).toBe(amount);
+      }),
+    );
+  });
+});
+
+/**
+ * A dash where an amount would go (VERIFY-CHECKLIST, found while writing it,
+ * #6). It says no amount was printed and never what the amount is, so
+ * `parseMoneyToCents` is unchanged and still refuses every one of them.
+ */
+describe('printsNoAmount', () => {
+  const dashes = ['-', '--', '---', '\u2013', '\u2014', '\u2212', '$ -', '$-', ' - ', 'USD -', '$ \u2014'];
+  const amountsOrWords = ['', ' ', '0', '$0.00', '-5', '-$5.00', '(5.00)', 'N/A', 'CB-203', '----', '- -', '$', 'nil'];
+
+  it.each(dashes)('reads %j as no amount printed', (text) => {
+    expect(printsNoAmount(text)).toBe(true);
+  });
+
+  it.each(amountsOrWords)('does not read %j as a dash', (text) => {
+    expect(printsNoAmount(text)).toBe(false);
+  });
+
+  it('never answers where parseMoneyToCents does', () => {
+    for (const text of dashes) expect(() => parseMoneyToCents(text)).toThrow(MoneyError);
+    fc.assert(
+      fc.property(fc.string({ maxLength: 8 }), (text) => {
+        if (!printsNoAmount(text)) return;
+        expect(() => parseMoneyToCents(text)).toThrow(MoneyError);
+      }),
+    );
+    fc.assert(
+      fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
+        expect(printsNoAmount(formatCents(cents(n)))).toBe(false);
       }),
     );
   });

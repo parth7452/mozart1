@@ -1320,10 +1320,11 @@ select payload->'counts' as counts from deduction_events
  where event_type = 'remittance.lines_processed' and payload->>'document_id' = '<DOC>' limit 1;
 ```
 
-In the last query, expect 12 lines `opened`. The 30 lines that were paid in
-full are likely to show as `unreadable` rather than `not_short_paid`. That
-is a known quirk of how this page prints a dash for "no deduction". It does
-not change the money; it is in the list below.
+In the last query, expect `{"opened": 12, "not_short_paid": 30}`. The 30
+lines paid in full print a dash for their deduction, which is read as no
+amount, so each is priced by gross less net and comes to nothing. A run
+before this was fixed (2026-09-26) showed them as `unreadable`; see item 6
+in the list below.
 
 ---
 
@@ -1466,8 +1467,17 @@ None of these is fixed in this PR. Each needs a decision or its own change;
    under Possible duplicates (§7).
 5. **A decline leaves no trace on the case page** once its notice is gone
    (§6).
-6. **A line with a printed dash is counted as "unreadable"** rather than
-   "paid in full" (§8). There is no money impact.
+6. ~~**A line with a printed dash is counted as "unreadable"** rather than
+   "paid in full" (§8).~~ **Fixed** on 2026-09-26 (branch
+   `claude/dash-is-no-amount`): a deduction column printing only a dash
+   (`-`, `–`, `—`, `$ -`) is read as no amount (`printsNoAmount`), so the
+   line is priced by gross less net as ADR 0028 §2 says. "No money impact"
+   held for this page only: a dash line whose gross exceeded its net was
+   dropped as `unreadable` too, a short-pay nothing showed a person. It now
+   opens at the subtraction, over the tolerance floor, and its case page
+   warns that the page printed a dash. A dash on a line that shares its
+   invoice's gross and net with another line is still refused its share
+   (ADR 0048 §4).
 7. **Coverage shows a misleading reason** when a sync is refused because the
    connection was disconnected mid-run. It blames the member rather than the
    disconnect.

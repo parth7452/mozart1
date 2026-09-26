@@ -5,12 +5,18 @@ import {
   TARGET_PRICE_DISCREPANCY,
   WALMART_CODE_24,
 } from '@recouple/fixtures';
-import { blockingFindings, disputeSupport, reconcileNotice } from '../src/reconcile';
+import {
+  blockingFindings,
+  disputeSupport,
+  reconcileNotice,
+  reconcileRemittanceLine,
+} from '../src/reconcile';
 import type {
   Correspondence,
   DeductionNotice,
   Invoice,
   PurchaseOrder,
+  RemittanceAdvice,
   ShipmentDocument,
 } from '../src/schemas';
 
@@ -573,5 +579,88 @@ describe('a unit price printed past the cent', () => {
     const finding = blockingFindings(result).find((f) => f.code === 'unparseable_amount');
     expect(finding?.fieldPath).toBe('lines[0].unit_cost');
     expect(finding?.message).toMatch(/thousands group/);
+  });
+});
+
+/**
+ * A deduction column that prints a dash prints no amount (VERIFY-CHECKLIST,
+ * found while writing it, #6). The pipeline opens such a line by gross − net,
+ * so a case opened that way reconciles as the subtraction, not as money it
+ * could not read.
+ */
+describe('a remittance line whose deduction column prints a dash', () => {
+  const at = (value: string) => ({ value, confidence: 0.95, source_page: 1, source_quote: value });
+  const advice = (
+    lines: readonly { invoice: string; gross: string; deduction?: string; net: string }[],
+  ): RemittanceAdvice =>
+    ({
+      payer_name: at('Crosswind Grocery Distribution'),
+      payment_reference: at('ACH-CW-880412'),
+      payment_date: at('09/15/2026'),
+      payment_total: at('$1.00'),
+      lines: lines.map((l) => ({
+        invoice_number: at(l.invoice),
+        gross_amount: at(l.gross),
+        ...(l.deduction !== undefined ? { deduction_amount: at(l.deduction) } : {}),
+        net_amount: at(l.net),
+      })),
+    }) as unknown as RemittanceAdvice;
+
+  it('claims the subtraction, and warns that the page said nothing was deducted', () => {
+    const result = reconcileRemittanceLine({
+      line: {
+        advice: advice([{ invoice: 'INV-1', gross: '$500.00', deduction: '-', net: '$400.00' }]),
+        index: 0,
+      },
+    });
+
+    expect(codes(result.findings)).not.toContain('unparseable_amount');
+    expect(blockingFindings(result)).toEqual([]);
+    expect(result.claimedTotalCents).toBe(10_000);
+    expect(result.lines[0]?.claimedCents).toBe(10_000);
+    expect(result.lines[0]?.verdict).toBe('not_checkable');
+    const warning = result.findings.find((f) => f.code === 'remittance_line_dash_but_short_paid');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.fieldPath).toBe('lines[0].deduction_amount');
+    expect(warning?.message).toContain('$100.00 withheld');
+  });
+
+  it('says nothing more about a dash on a line paid in full', () => {
+    const result = reconcileRemittanceLine({
+      line: {
+        advice: advice([{ invoice: 'INV-1', gross: '$500.00', deduction: '\u2014', net: '$500.00' }]),
+        index: 0,
+      },
+    });
+    expect(result.findings).toEqual([]);
+    expect(result.claimedTotalCents).toBe(0);
+  });
+
+  it('counts a sibling printing a dash as deducting nothing of a shared invoice', () => {
+    const result = reconcileRemittanceLine({
+      line: {
+        advice: advice([
+          { invoice: 'INV-1', gross: '$5,600.00', deduction: '$800.00', net: '$4,800.00' },
+          { invoice: 'INV-1', gross: '$5,600.00', deduction: '-', net: '$4,800.00' },
+        ]),
+        index: 0,
+      },
+    });
+    expect(blockingFindings(result)).toEqual([]);
+    expect(result.lines[0]?.verdict).toBe('matches');
+    expect(codes(result.findings)).toContain('remittance_invoice_shared');
+  });
+
+  it('still refuses a deduction that is not a dash and will not parse', () => {
+    const result = reconcileRemittanceLine({
+      line: {
+        advice: advice([
+          { invoice: 'INV-1', gross: '$500.00', deduction: 'see attached', net: '$400.00' },
+        ]),
+        index: 0,
+      },
+    });
+    expect(codes(blockingFindings(result))).toContain('unparseable_amount');
+    expect(codes(result.findings)).not.toContain('remittance_line_dash_but_short_paid');
   });
 });

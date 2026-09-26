@@ -12,11 +12,13 @@
 
 import {
   MoneyError,
+  ZERO,
   compareUnitPrices,
   formatCents,
   formatUnitPrice,
   parseMoneyToCents,
   parseUnitPrice,
+  printsNoAmount,
   shortageCentsAt,
   subCents,
   sumCents,
@@ -648,14 +650,30 @@ function sharingInvoice(
   return siblings;
 }
 
-/** The printed deductions of these lines, summed; undefined if any is unreadable. */
+/**
+ * Whether a line's deduction column prints a dash — no amount — rather than an
+ * amount. The pipeline opens such a line by `gross − net` (`printsOwnDeduction`
+ * in `steps.ts`), so it is read here as printing none.
+ */
+function printsDash(field: FieldValue<string | null> | null | undefined): boolean {
+  const text = valueOf(field);
+  return text !== undefined && printsNoAmount(text);
+}
+
+/**
+ * The printed deductions of these lines, summed; undefined if any is
+ * unreadable. A line printing a dash deducted nothing of the invoice's gap, so
+ * it counts as none rather than as unreadable.
+ */
 function sharedDeductions(
   lines: RemittanceAdvice['lines'],
   indices: readonly number[],
 ): Cents | undefined {
   const amounts: Cents[] = [];
   for (const i of indices) {
-    const amount = quietMoney(lines[i]?.deduction_amount);
+    const amount = printsDash(lines[i]?.deduction_amount)
+      ? ZERO
+      : quietMoney(lines[i]?.deduction_amount);
     if (amount === undefined) return undefined;
     amounts.push(amount);
   }
@@ -681,7 +699,12 @@ export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliat
     const path = `lines[${index}]`;
     const invoiceNumber = valueOf(line.invoice_number);
     const label = invoiceNumber ?? `line ${index + 1}`;
-    const printed = money(line.deduction_amount, `${path}.deduction_amount`, findings);
+    // A dash is no deduction printed, not an unreadable one: the case was
+    // opened by the subtraction, and is reconciled as one.
+    const dash = printsDash(line.deduction_amount);
+    const printed = dash
+      ? undefined
+      : money(line.deduction_amount, `${path}.deduction_amount`, findings);
     const gross = money(line.gross_amount, `${path}.gross_amount`, findings);
     const net = money(line.net_amount, `${path}.net_amount`, findings);
 
@@ -691,6 +714,20 @@ export function reconcileRemittanceLine(input: RemittanceLineInput): Reconciliat
       // What the columns say was withheld: owed less paid, in integer cents
       // here and never in the model (invariant 3).
       implied = subCents(gross, net);
+      if (dash && implied > 0) {
+        // The page says nothing was deducted and its own columns say something
+        // was. The case stands on the subtraction; a reviewer should see the
+        // disagreement before approving it.
+        findings.push({
+          code: 'remittance_line_dash_but_short_paid',
+          severity: 'warning',
+          message:
+            `${label}: the line prints a dash for its deduction, but ${formatCents(gross)} ` +
+            `gross less ${formatCents(net)} paid is ${formatCents(implied)} withheld; this ` +
+            'case is the subtraction',
+          fieldPath: `${path}.deduction_amount`,
+        });
+      }
       // Two witnesses to one fact only when the page printed both.
       const siblings = sharingInvoice(input.line?.advice.lines ?? [], index, gross, net);
       if (printed !== undefined && siblings.length > 0) {

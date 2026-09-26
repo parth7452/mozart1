@@ -225,6 +225,33 @@ describe('LOG-202 read as the two lines it prints', () => {
     expect(store.cases.size).toBe(0);
   });
 
+  it('refuses the whole invoice to lines that each print a dash for their deduction', async () => {
+    // A dash is no deduction of its own, so `gross − net` is again the whole
+    // invoice's $800 on both lines, and given to each it would count $1,600.
+    const { store, deps } = harness(() => twoLines('-', '-'));
+    const result = await processUpload(upload(), deps);
+
+    expect(result.remittance?.lines.map((l) => l.outcome)).toEqual(['unreadable', 'unreadable']);
+    expect(result.remittance?.lines[0]?.detail).toContain('repeats its invoice');
+    expect(result.remittance?.lines[1]?.detail).toContain('repeats its invoice');
+    expect(store.cases.size).toBe(0);
+  });
+
+  it('counts a dash beside the whole deduction as nothing, and the shared invoice adds up', async () => {
+    const { store, deps } = harness(() => twoLines('$800.00', '-'));
+    const result = await processUpload(upload(), deps);
+
+    expect(result.remittance?.lines.map((l) => l.outcome)).toEqual(['opened', 'unreadable']);
+    expect(store.cases.size).toBe(1);
+    const opened = result.remittance?.opened[0];
+    expect(opened?.deductionAmountCents).toBe(80_000);
+
+    const reconciliation = await reconcileCase(opened?.deductionId ?? '', deps);
+    expect(reconciliation?.findings.filter((f) => f.severity === 'blocking')).toEqual([]);
+    expect(reconciliation?.lines[0]?.verdict).toBe('matches');
+    expect(reconciliation?.findings.map((f) => f.code)).toContain('remittance_invoice_shared');
+  });
+
   it('blocks a case whose shared invoice does not add up across its lines', async () => {
     // $500 + $200 against $800 withheld.
     const { deps } = harness(() => twoLines('$500.00', '$200.00'));

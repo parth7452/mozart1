@@ -10,6 +10,7 @@ import {
   applyTransition,
   identifierMatchKey,
   parseMoneyToCents,
+  printsNoAmount,
   resolveIdentity,
   subCents,
   tryParsePrintedDate,
@@ -1366,6 +1367,18 @@ function fieldWasPrinted(document: unknown, ...path: readonly string[]): boolean
   return typeof text === 'string' && text.trim() !== '';
 }
 
+/**
+ * Whether a line prints a deduction amount of its own. A dash in the column is
+ * none (`printsNoAmount`): a paid-in-full line prints `-` there, and read as
+ * money it would be a line we cannot price, where the line prices itself by
+ * `gross − net` (ADR 0028 §2, VERIFY-CHECKLIST found while writing #6).
+ */
+function printsOwnDeduction(line: unknown): boolean {
+  if (!fieldWasPrinted(line, 'deduction_amount')) return false;
+  const text = fieldValue(line, ['deduction_amount', 'value']);
+  return !(typeof text === 'string' && printsNoAmount(text));
+}
+
 /** What became of one line of a remittance advice. */
 export type RemittanceLineOutcome =
   /** Over the floor, no recent case for this invoice: a new case. */
@@ -1440,14 +1453,20 @@ export const DECLINED_BY_TOLERANCE = 'remittance_tolerance';
  *
  * A field the page printed and we could not read comes back as a problem rather
  * than as an absence, and the caller reports the line as unreadable: a deduction
- * we cannot price is not a deduction of nothing.
+ * we cannot price is not a deduction of nothing. A dash in the deduction column
+ * is not such a field: it prints no amount (`printsOwnDeduction`), so the line
+ * falls to `gross − net` — paid in full when the two are equal, a short-pay
+ * when they are not, and unreadable only when it prints no gross or net to
+ * check it by. Both callers that precompute a whole advice's `shortPays` (the
+ * line loop, and `remittanceLineOfCase` for `legacyOwner`) get that answer
+ * from here.
  */
 function shortPayOnLine(
   line: unknown,
 ):
   | { readonly cents: Cents; readonly basis: 'printed' | 'gross_minus_net' }
   | { readonly problem: string } {
-  if (fieldWasPrinted(line, 'deduction_amount')) {
+  if (printsOwnDeduction(line)) {
     const printed = printedMoneyCents(line, 'deduction_amount');
     if (printed === undefined) {
       return { problem: 'the line prints a deduction amount that will not parse as money' };
@@ -1460,7 +1479,9 @@ function shortPayOnLine(
   if (!grossPrinted || !netPrinted) {
     return {
       problem:
-        'the line prints no deduction amount, and ' +
+        (fieldWasPrinted(line, 'deduction_amount')
+          ? 'the line prints a dash for its deduction, and '
+          : 'the line prints no deduction amount, and ') +
         (grossPrinted ? 'no net paid' : netPrinted ? 'no gross' : 'neither a gross nor a net paid') +
         ' to subtract one from',
     };
@@ -1589,10 +1610,12 @@ export async function openCasesFromRemittance(
     };
 
     const key = keys[index];
-    if (key?.sharesGrossAndNet === true && !fieldWasPrinted(line, 'deduction_amount')) {
+    if (key?.sharesGrossAndNet === true && !printsOwnDeduction(line)) {
       // `gross − net` here is the whole invoice's short-pay, which another line
       // of this advice also claims. Given to every line it would count the same
-      // dollars once per line (ADR 0048 §4).
+      // dollars once per line (ADR 0048 §4). A dash is no deduction of its own,
+      // asked the way `shortPayOnLine` asks it, or a dash line would take the
+      // whole invoice's gap.
       note({
         outcome: 'unreadable',
         detail:
