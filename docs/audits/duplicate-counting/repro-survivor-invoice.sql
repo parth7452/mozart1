@@ -44,7 +44,8 @@ begin
   insert into deduction_merges (org_id, merged_deduction_id, surviving_deduction_id, action, state_before,
                                 amount_cents, verdict_event_id, recorded_by)
   values (org, a, b, 'merge', 'classified', 50000, v, analyst);
-  -- store.ts knownOpenDeductions, verbatim: the probable candidates a new notice for INV-3 is matched against
+  -- store.ts knownOpenDeductions as it read before the F5 fix, verbatim: the probable candidates a new
+  -- notice for INV-3 was matched against. It now reads through deduction_merges_current.
   for rec in
     select d.id, d.deduction_amount_cents,
            (select i.identifier from deduction_identifiers i

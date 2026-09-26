@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { DUE_SOON_DAYS } from '@recouple/core-domain';
+import { DUE_SOON_DAYS, isQueued } from '@recouple/core-domain';
 import { closeAllPools, PostgresStore, type CaseStateTally } from '../src/store';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -16,6 +16,10 @@ const describeDb = connectionString === undefined ? describe.skip : describe;
  * deadline is "due soon or past" on exactly the days the list's label says so
  * — today and `DUE_SOON_DAYS` ahead in, a day past that out — and that another
  * tenant's cases are not in it.
+ *
+ * A decline moves no state, so a declined case comes back as its own row,
+ * split by the queue's own predicate: the figures and the queue under them must
+ * agree about which cases are open.
  */
 describeDb('the case tally, on Postgres', () => {
   const admin = new Pool({ connectionString });
@@ -57,9 +61,25 @@ describeDb('the case tally, on Postgres', () => {
     return rows[0]?.id as string;
   }
 
-  /** In state order, so a comparison does not depend on the collation's. */
+  /**
+   * A decline naming the case, written as the owner. Straight into the table
+   * rather than through `declineCase`, which refuses a filed case: the
+   * `submitted` one below stands for a case declined before that guard existed.
+   */
+  async function decline(deductionId: string, amount: number, org = orgId): Promise<void> {
+    await admin.query(
+      `insert into declined_candidates (org_id, deduction_id, discovered_from, reason,
+                                        estimated_recoverable_cents, decided_by, decided_by_version)
+       values ($1, $2, 'web_upload', 'deduction_valid', $3, 'ct', 'human/v1')`,
+      [org, deductionId, amount],
+    );
+  }
+
+  /** In state order, declined last, so a comparison does not depend on the collation's. */
   function byState(tally: readonly CaseStateTally[]): CaseStateTally[] {
-    return [...tally].sort((a, b) => (a.state < b.state ? -1 : a.state > b.state ? 1 : 0));
+    return [...tally].sort((a, b) =>
+      a.state < b.state ? -1 : a.state > b.state ? 1 : Number(a.declined) - Number(b.declined),
+    );
   }
 
   beforeAll(async () => {
@@ -93,6 +113,16 @@ describeDb('the case tally, on Postgres', () => {
     await aCase('approval', { state: 'awaiting_approval', amount: 9_900, deadline: 5 });
     await aCase('filed', { state: 'submitted', amount: 11, deadline: 1 });
     await aCase('won', { state: 'won', amount: 22, deadline: -1 });
+    // Declined: a classified case due today, and a filed one declined before
+    // `declineCase` refused that. Each is its own row, apart from the rest.
+    await decline(
+      await aCase('declined-today', { state: 'classified', amount: 60_000, deadline: 0 }),
+      60_000,
+    );
+    await decline(
+      await aCase('declined-filed', { state: 'submitted', amount: 70_000, deadline: 1 }),
+      70_000,
+    );
     // A year old and due in three days: the one a newest-first hundred drops.
     oldId = await aCase('old', {
       state: 'analyst_review',
@@ -107,6 +137,16 @@ describeDb('the case tally, on Postgres', () => {
       [orgId, suffix],
     );
     await aCase('theirs', { state: 'classified', amount: 123, deadline: 0, org: otherOrgId });
+    await decline(
+      await aCase('theirs-declined', {
+        state: 'classified',
+        amount: 456,
+        deadline: 0,
+        org: otherOrgId,
+      }),
+      456,
+      otherOrgId,
+    );
 
     const config = { connectionString: connectionString as string };
     store = new PostgresStore(config, { orgId, userId: analystId });
@@ -125,14 +165,22 @@ describeDb('the case tally, on Postgres', () => {
   });
 
   const expected: readonly CaseStateTally[] = [
-    { state: 'analyst_review', cases: 1, deductedCents: 777, dueSoonOrPast: 1 },
-    { state: 'awaiting_approval', cases: 1, deductedCents: 9_900, dueSoonOrPast: 1 },
+    { state: 'analyst_review', declined: false, cases: 1, deductedCents: 777, dueSoonOrPast: 1 },
+    {
+      state: 'awaiting_approval',
+      declined: false,
+      cases: 1,
+      deductedCents: 9_900,
+      dueSoonOrPast: 1,
+    },
     // past, today and the last day of the window; not the day after, not none.
-    { state: 'classified', cases: 5, deductedCents: 15_000, dueSoonOrPast: 3 },
-    { state: 'lost', cases: 105, deductedCents: 10_500, dueSoonOrPast: 0 },
+    { state: 'classified', declined: false, cases: 5, deductedCents: 15_000, dueSoonOrPast: 3 },
+    { state: 'classified', declined: true, cases: 1, deductedCents: 60_000, dueSoonOrPast: 1 },
+    { state: 'lost', declined: false, cases: 105, deductedCents: 10_500, dueSoonOrPast: 0 },
     // Counted here; the page leaves a filed or closed case out of its deadlines.
-    { state: 'submitted', cases: 1, deductedCents: 11, dueSoonOrPast: 1 },
-    { state: 'won', cases: 1, deductedCents: 22, dueSoonOrPast: 1 },
+    { state: 'submitted', declined: false, cases: 1, deductedCents: 11, dueSoonOrPast: 1 },
+    { state: 'submitted', declined: true, cases: 1, deductedCents: 70_000, dueSoonOrPast: 1 },
+    { state: 'won', declined: false, cases: 1, deductedCents: 22, dueSoonOrPast: 1 },
   ];
 
   it('counts every case, including the one the newest hundred drops', async () => {
@@ -142,15 +190,27 @@ describeDb('the case tally, on Postgres', () => {
 
     const tally = await store.caseTally({ today });
     expect(byState(tally)).toEqual(expected);
-    expect(tally.reduce((n, row) => n + row.cases, 0)).toBe(114);
+    expect(tally.reduce((n, row) => n + row.cases, 0)).toBe(116);
   });
 
   it('is this tenant’s, read the same by a read-only member, and empty for a tenant with none', async () => {
     expect(byState(await readOnlyStore.caseTally({ today }))).toEqual(expected);
-    expect(await otherStore.caseTally({ today })).toEqual([
-      { state: 'classified', cases: 1, deductedCents: 123, dueSoonOrPast: 1 },
+    expect(byState(await otherStore.caseTally({ today }))).toEqual([
+      { state: 'classified', declined: false, cases: 1, deductedCents: 123, dueSoonOrPast: 1 },
+      { state: 'classified', declined: true, cases: 1, deductedCents: 456, dueSoonOrPast: 1 },
     ]);
     expect(await emptyStore.caseTally({ today })).toEqual([]);
+  });
+
+  it('leaves out of the open figures exactly the cases the queue leaves out', async () => {
+    // One rule, `DECLINED_SQL`, read twice: the undeclined rows whose state the
+    // queue holds add up to the queue's own total.
+    const tally = await store.caseTally({ today });
+    const open = tally
+      .filter((row) => !row.declined && isQueued(row.state))
+      .reduce((n, row) => n + row.cases, 0);
+    expect(open).toBe(7);
+    expect((await store.reviewQueue({ today })).total).toBe(open);
   });
 
   it('refuses a today that is not a date', async () => {
