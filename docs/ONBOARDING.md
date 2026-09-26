@@ -763,8 +763,19 @@ On your machine:
    `DATABASE_URL` in `.env` (VERIFY-CHECKLIST §5.8).
 7. **Unmatched payer names**: run the query in [§3](#3-map-the-payer-names-printed-on-documents)
    and alias any new spelling.
-8. **Inngest and Vercel** failure alerts: anything from this workspace's jobs
-   gets read and answered the same day.
+8. **Failure alerts.** A job that fails after its retries emails
+   `ALERT_EMAIL_TO` a message whose subject starts "Mozart: a background job
+   failed" (ADR 0052), at most one per job per hour. Read each one the same
+   day. Open the run it links to, and do what its "What to do" line says.
+   Vercel's own deployment and error notifications cover the rest.
+   - **Check the alert works** before the first customer, and after changing
+     any of `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM` or `RESEND_API_KEY`: Inngest
+     → production → **Events** → **Send event**, with
+     `{"name": "recouple/alert.test", "data": {}}`. An email whose subject
+     starts `[TEST]` should arrive within a minute (VERIFY-CHECKLIST §10).
+   - An alert does not catch a **stalled** job: one that never fails and
+     never finishes. Item 2, **Documents waiting to be read**, is still the
+     check for those.
 
 Also note, per case, **analyst minutes spent**. That number, not the software,
 sets how fast the other sixteen customers can come on (pilot README, "What

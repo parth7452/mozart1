@@ -1508,3 +1508,21 @@ lost it after the read; `buildExtractionResult` now names each one on the
 extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
 page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
 read a duplex scan through the pipeline and back out of Postgres.
+
+**A failed job reaches a person** (ADR 0052, no migration). Inngest has no
+built-in alert for a failed run on any plan, so `alert-on-failure`
+(`apps/web/lib/alerts.ts`) listens for `inngest/function.failed`, filtered to
+`read-document`, `read-inbound-email`, `sync-ledger` and `ledger-sync-fan-out`
+by the ids built from their own configs, and emails `ALERT_EMAIL_TO` through
+Resend with a send-only key. The email carries the function id, a run id
+checked as a ULID, `error.name` checked as an identifier, and a link to the
+run. `parseFailure` never reads `error.message` or `event`, which can quote the
+page, and a test puts a marker in every other field to prove it. One email per
+function per hour (`rateLimit`), `retries: 2`, a Resend refusal that will
+repeat is non-retriable, and a failed send is a log line, because Inngest
+reports no failure of a failure handler. `alertsFromEnv` is `scannerFromEnv`'s
+shape: none of the three variables means off and logged per failure, some of
+them is misconfigured and logged as an error, and the variables are Production
+only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
+(VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents
+waiting to be read" stays that check.
