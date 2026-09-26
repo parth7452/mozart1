@@ -420,6 +420,19 @@ addresses. Ask me before you answer that one.
 
 After that, you can safely turn off open sign-ups.
 
+**Run once, 2026-09-26** (00:30–01:44 UTC), in your own workspace: 2.1–2.6
+passed. The owner, the approver, the read-only tester and tester B (§4) each
+reached the case list, and R1 and R3 read `true` and `linked` for all four. A
+never-invited address got the same green notice and no email, and both the
+Vercel log and Supabase's auth log said `otp_disabled` (HTTP 422), before and
+after open sign-ups were switched off at 01:43 UTC; the owner still got in
+afterwards. Two things did not go as written. Both dashboard invitations (2.4,
+and tester B's in 4.1) went to Gmail's **spam** folder: that is Supabase's
+default "You've been invited" template, not the branded sign-in email, which
+reached the inbox every time. And the sign-ins in 2.1, 2.3, 2.4 and 2.6 were
+done in a headless browser with each link read from the inbox; 2.2, the
+invitation in 2.4 and the switch in 2.5 were done by hand.
+
 **R1 — who is invited where.** The last column becomes `true` once that
 person has reached the app.
 
@@ -547,6 +560,23 @@ steps, same result.
 actions, and it refuses them if a reader's browser sends one anyway. The
 database refuses them too; the automated tests prove that part.
 
+**Run once, 2026-09-26**: 3.1–3.4 passed. The read-only tester saw no upload
+control on the case list, and on all seven case pages the only form was
+**Sign out**; Coverage opened, and Settings → QuickBooks had no buttons. 3.4
+ran in the test workspace, but not quite as written: tester B had been made
+`read_only` before the forms were opened, so the upload and decline forms a
+writer gets in that workspace (neither has a hidden field) were submitted from
+tester B's own session, which is what a stale tab sends. Both were refused
+with the notices below, "your role can review documents but not add them" and
+"your role can review cases but not decide them". The workspace still held
+one document (the upload was `hl-case-04-notice.pdf`, which it had never
+stored, so a refusal that failed could not hide behind de-duplication),
+`declined_candidates` still held none, and no model was called. The page's
+own upload script was not exercised. Tester B is `analyst` again. The wording
+has moved since this was written: the upload form is now **Add documents** /
+**Read them** (several files, up to 4 MB each), and the case page's card
+titles show in capitals.
+
 **Who:** the read-only person from 2.4, in your workspace for 3.1–3.3. The
 forced refusal (3.4) is done in the test workspace from checklist 4.
 
@@ -620,6 +650,20 @@ you submit it.
 **What it proves:** a second customer, through the app rather than through
 SQL, sees only its own cases and cannot open yours. This checklist also
 creates the **test workspace** used by 3, 7 and 8.
+
+**Run once, 2026-09-26**: 4.1–4.4 passed. The workspace was made with the four
+inserts below rather than `docs/ONBOARDING.md` §1's block: pasted into the SQL
+editor, the block arrived cut short twice and was refused whole, so nothing
+was written, and the runbook's read-back of the result was all `true`. Its
+members are you as `owner` and `parthpahuja+tenantb@gmail.com` as `analyst`,
+so a case can be prepared and approved here, and it has no payers. Tester B's
+`hl-case-01-notice.pdf` opened DN-2609-001 for $600.00, Harbor Lane Markets
+*not matched*, under "No deadline printed", 17 seconds after the upload, for
+$0.026 of model calls. Each workspace's case address gave "404 — This page
+could not be found." in the other. Because you belong to both, **Switch
+workspace** appeared in your sidebar: switching to Test Tenant B showed
+DN-2609-001 and none of your cases, and switching back restored them. **Sign
+out** returned to the sign-in page.
 
 **4.1 Create "Test Tenant B" and its member.** (**WRITE** — all four are
 needed. The settings row is required: without it, nothing in that workspace
