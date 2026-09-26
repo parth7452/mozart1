@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
+import pg, { Pool } from 'pg';
 import type { ScanStatus } from '@recouple/ingest';
 import {
   BlobRefUnrecognisedError,
@@ -104,6 +104,90 @@ describeDb('whether a stored document may be served', () => {
       laterInfected: { refusal: 'infected' },
       ledgerExtract: { refusal: undefined },
     });
+  });
+
+  it('asks the whole packet in one query, answering only what the tenant can see', async () => {
+    const hidden = randomUUID();
+    const answers = await store.documentsServing([
+      ids.clean as string,
+      ids.infected as string,
+      (ids.unscanned as string).toUpperCase(),
+      hidden,
+    ]);
+    expect([...answers.entries()]).toEqual([
+      [ids.clean, { refusal: undefined }],
+      [ids.infected, { refusal: 'infected' }],
+      [(ids.unscanned as string).toUpperCase(), { refusal: 'unscanned' }],
+    ]);
+    expect((await store.documentsServing([])).size).toBe(0);
+  });
+
+  it('serves the bytes of a servable document, and only the verdict of a refused one', async () => {
+    const clean = await store.servableDocument(ids.clean as string);
+    expect(clean?.refusal).toBeUndefined();
+    expect(clean?.document?.filename).toBe('clean.pdf');
+    expect(clean?.document?.mimeType).toBe('application/pdf');
+    expect(new TextDecoder().decode(clean?.document?.bytes)).toBe('%PDF-1.7');
+    expect((await store.servableDocument(ids.ledgerExtract as string))?.document).toBeDefined();
+
+    for (const [name, refusal] of [
+      ['infected', 'infected'],
+      ['unscanned', 'unscanned'],
+      ['scanError', 'unscanned'],
+      ['laterInfected', 'infected'],
+    ] as const) {
+      expect(await store.servableDocument(ids[name] as string)).toEqual({ refusal });
+    }
+
+    const other = new PostgresStore(
+      { connectionString: connectionString as string },
+      { orgId: otherOrgId, userId: otherAnalystId },
+    );
+    try {
+      expect(await other.servableDocument(ids.clean as string)).toBeUndefined();
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('decides and fetches in one transaction, one snapshot, and never selects a refused document’s bytes', async () => {
+    // Every statement any pooled client sends, with the client that sent it.
+    const sent: { client: unknown; text: string }[] = [];
+    const original = pg.Client.prototype.query;
+    const spy = vi
+      .spyOn(pg.Client.prototype, 'query')
+      .mockImplementation(function (this: unknown, ...args: unknown[]) {
+        const first = args[0];
+        const text = typeof first === 'string' ? first : (first as { text?: string })?.text ?? '';
+        sent.push({ client: this, text });
+        return (original as (...a: unknown[]) => unknown).apply(this, args);
+      } as typeof original);
+    try {
+      await store.servableDocument(ids.clean as string);
+      const served = [...sent];
+      sent.length = 0;
+      await store.servableDocument(ids.infected as string);
+      const refused = [...sent];
+
+      // Served: the verdict and the bytes on one client, inside one
+      // repeatable-read transaction, with no commit between them.
+      const begins = served.filter((q) => /^begin/i.test(q.text));
+      expect(begins.map((q) => q.text)).toEqual(['begin isolation level repeatable read']);
+      const verdictAt = served.findIndex((q) => /from documents d/.test(q.text));
+      const bytesAt = served.findIndex((q) => /from document_blobs/.test(q.text));
+      const commitAt = served.findIndex((q) => /^commit/i.test(q.text));
+      expect(verdictAt).toBeGreaterThan(-1);
+      expect(bytesAt).toBeGreaterThan(verdictAt);
+      expect(commitAt).toBeGreaterThan(bytesAt);
+      expect(served[bytesAt]?.client).toBe(served[verdictAt]?.client);
+      expect(served[commitAt]?.client).toBe(served[verdictAt]?.client);
+
+      // Refused: the bytes were never selected.
+      expect(refused.some((q) => /from documents d/.test(q.text))).toBe(true);
+      expect(refused.some((q) => /document_blobs/.test(q.text))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('answers nothing for another tenant’s document, as RLS leaves it', async () => {

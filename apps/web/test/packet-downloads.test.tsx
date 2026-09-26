@@ -59,7 +59,9 @@ function fakeStore(
     reads: [] as string[],
     asked: [] as string[],
     closed: 0,
-    async documentServing(id: string) {
+    /** How many times the whole packet's verdicts were asked for. */
+    batches: 0,
+    verdict(id: string): { refusal: ServingRefusal | undefined } | undefined {
       fake.asked.push(id);
       if (id === options.missing) return undefined;
       const refused = options.refused?.get(id);
@@ -68,6 +70,25 @@ function fakeStore(
         return { refusal: refused.refusal };
       }
       return { refusal: undefined };
+    },
+    async documentsServing(ids: readonly string[]) {
+      fake.batches += 1;
+      const answers = new Map<string, { refusal: ServingRefusal | undefined }>();
+      for (const id of ids) {
+        const answer = fake.verdict(id);
+        if (answer !== undefined) answers.set(id, answer);
+      }
+      return answers;
+    },
+    // The verdict asked again and the bytes read in the same call, as the
+    // store does in one transaction: a refused document's bytes are never read.
+    async servableDocument(id: string) {
+      const answer = fake.verdict(id);
+      if (answer === undefined) return undefined;
+      if (answer.refusal !== undefined) return { refusal: answer.refusal };
+      fake.reads.push(id);
+      const document = documents.get(id);
+      return document === undefined ? undefined : { document };
     },
     async getWorkflow(id: string): Promise<CaseWorkflow | undefined> {
       if (id !== CASE_ID) throw new CaseNotVisibleError(id);
@@ -89,10 +110,11 @@ function fakeStore(
             }),
       } as CaseWorkflow;
     },
-    async getDocument(id: string) {
-      fake.reads.push(id);
-      if (id === options.missing) return undefined;
-      return documents.get(id);
+    async getDocument(id: string): Promise<never> {
+      throw new Error(`enclosures read ${id} outside servableDocument`);
+    },
+    async documentServing(id: string): Promise<never> {
+      throw new Error(`enclosures asked ${id} one transaction at a time`);
     },
     async close() {
       fake.closed += 1;
@@ -133,6 +155,10 @@ describe('the enclosures zip', () => {
     expect([...(entries['02-_.._etc_pod scan _1_.jpg'] ?? [])]).toEqual([255, 216, 255]);
     // Nothing the packet does not name, however the case holds it.
     expect(store.reads).toEqual([DOC_A, DOC_B]);
+    // Every enclosure's verdict up front in one query, then each asked again
+    // as it is read.
+    expect(store.batches).toBe(1);
+    expect(store.asked).toEqual([DOC_A, DOC_B, DOC_A, DOC_B]);
     expect(store.closed).toBe(1);
   });
 

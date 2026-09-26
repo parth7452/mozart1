@@ -14,8 +14,11 @@ import { requireSession, storeFor } from '../../../../lib/session';
  * **Only a document that scanned clean.** The scan gate fails closed for
  * reading; this is the other way bytes leave the store, and it fails closed
  * the same way (`servingRefusal`): an infected document, or one with no clean
- * verdict, is a 409 with a sentence saying which, asked before the bytes are
- * fetched — and the one exception is a ledger extract our own code wrote. The
+ * verdict, is a 409 with a sentence saying which — and the one exception is a
+ * ledger extract our own code wrote. The verdict and the bytes are one read
+ * (`servableDocument`): one transaction, one snapshot, so no verdict can be
+ * recorded between the check and the fetch, and a refused document's bytes
+ * are never selected. The
  * sandbox below governs what a browser does with a page it shows; it governs
  * nothing about a download.
  */
@@ -31,18 +34,14 @@ export async function GET(
   const session = await requireSession();
   const store = storeFor(session);
   try {
-    const serving = await store.documentServing(id);
-    if (serving === undefined) {
+    const served = await store.servableDocument(id);
+    if (served === undefined) {
       return new NextResponse('not found', { status: 404 });
     }
-    if (serving.refusal !== undefined) {
-      return refusedDocument(serving.refusal);
+    if (served.refusal !== undefined) {
+      return refusedDocument(served.refusal);
     }
-
-    const document = await store.getDocument(id);
-    if (document === undefined) {
-      return new NextResponse('not found', { status: 404 });
-    }
+    const { document } = served;
 
     const inline = displaysInline(document.mimeType);
     const safeName = document.filename.replace(/[^\w.\- ]/g, '_') || 'document';

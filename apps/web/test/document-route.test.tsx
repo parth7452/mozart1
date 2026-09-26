@@ -101,6 +101,8 @@ const documents = new Map<
 
 /** Every id whose bytes were fetched, so a refusal can be shown to fetch none. */
 const fetched: string[] = [];
+/** Every store call the route made, in order, so one read can be shown to be one. */
+const calls: string[] = [];
 
 vi.mock('../lib/session', () => ({
   requireSession: async () => ({
@@ -110,14 +112,26 @@ vi.mock('../lib/session', () => ({
     orgs: [],
   }),
   storeFor: () => ({
-    async documentServing(id: string) {
+    // The verdict and the bytes as the store answers them: one call, the
+    // bytes only when the verdict in that same call allows them.
+    async servableDocument(id: string) {
+      calls.push(`servableDocument:${id}`);
       const found = documents.get(id);
       if (found === undefined) return undefined;
-      return { refusal: servingRefusal({ scan: found.scan, source: found.source }) };
+      const refusal = servingRefusal({ scan: found.scan, source: found.source });
+      if (refusal !== undefined) return { refusal };
+      fetched.push(id);
+      return { document: found.document };
+    },
+    // A route that asked the verdict and then fetched apart from it would call
+    // these, and the test below says it does not.
+    async documentServing(id: string) {
+      calls.push(`documentServing:${id}`);
+      return undefined;
     },
     async getDocument(id: string) {
-      fetched.push(id);
-      return documents.get(id)?.document;
+      calls.push(`getDocument:${id}`);
+      return undefined;
     },
     async close() {
       return undefined;
@@ -169,6 +183,17 @@ describe('the document route', () => {
 describe('the document route and the scan verdict', () => {
   beforeEach(() => {
     fetched.length = 0;
+    calls.length = 0;
+  });
+
+  it('asks the verdict and fetches the bytes in one store read, never as two', async () => {
+    // Two calls would be two transactions, and a verdict recorded between them
+    // would not be seen by the fetch. `servableDocument` is one.
+    for (const id of [NOTICE_ID, INFECTED_ID, ANOTHER_TENANTS_ID]) {
+      calls.length = 0;
+      await get(id);
+      expect(calls).toEqual([`servableDocument:${id}`]);
+    }
   });
 
   it('serves a document that scanned clean', async () => {

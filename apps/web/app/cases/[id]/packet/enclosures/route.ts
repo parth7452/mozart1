@@ -10,8 +10,9 @@ import { refusedDocument } from '../../../../../lib/serve-document';
  *
  * Exactly the packet's own `file_document_ids`, in its order — the packet the
  * case page shows, which is the approved one once there is an approval — and
- * nothing else the case holds. Each document is read through `getDocument`,
- * as `app_rw` with this session's claims, one at a time as the zip is written,
+ * nothing else the case holds. Each document is read through
+ * `servableDocument`, as `app_rw` with this session's claims, one at a time as
+ * the zip is written,
  * so a document another tenant owns is absent here as it is everywhere
  * (ADR 0014), and the response is never buffered whole (`lib/enclosures-zip`).
  *
@@ -20,10 +21,11 @@ import { refusedDocument } from '../../../../../lib/serve-document';
  *
  * **Only documents that scanned clean**, as `/api/document` serves them
  * (`servingRefusal`). Every enclosure is asked before the first byte is
- * written, so a packet holding one the scan refused is a 409 saying so rather
- * than a zip with that file inside it, or a download that fails half-way; and
- * each is asked again as it is read, so a verdict recorded in between still
- * stops it. The zip is the whole packet or nothing: leaving the file out would
+ * written — one query for the whole packet (`documentsServing`) — so a packet
+ * holding one the scan refused is a 409 saying so rather than a zip with that
+ * file inside it, or a download that fails half-way; and each is asked again
+ * in the transaction that reads its bytes (`servableDocument`), so a verdict
+ * recorded in between still stops it. The zip is the whole packet or nothing: leaving the file out would
  * send something other than what was approved.
  */
 export async function GET(
@@ -42,8 +44,9 @@ export async function GET(
     // No packet and no case look the same on purpose, as on the letter route.
     if (packet === undefined) return caseNotFound();
 
+    const verdicts = await store.documentsServing(packet.fileDocumentIds);
     for (const documentId of packet.fileDocumentIds) {
-      const serving = await store.documentServing(documentId);
+      const serving = verdicts.get(documentId);
       // A document the packet names and this tenant cannot see is left to the
       // stream, which fails the download rather than leaving it out.
       if (serving?.refusal !== undefined) {
@@ -60,11 +63,11 @@ export async function GET(
       packet.fileDocumentIds,
       async (documentId) => {
         try {
-          const serving = await store.documentServing(documentId);
-          if (serving?.refusal !== undefined) {
-            throw new EnclosureRefusedError(documentId, serving.refusal);
+          const served = await store.servableDocument(documentId);
+          if (served?.refusal !== undefined) {
+            throw new EnclosureRefusedError(documentId, served.refusal);
           }
-          return await store.getDocument(documentId);
+          return served?.document;
         } catch (cause) {
           // Ids and a class name only: never a filename or anything read off a
           // page. The download fails rather than arriving short.
