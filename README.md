@@ -51,7 +51,7 @@ Requires Node 20+, pnpm 10+, and a Postgres 16 you can throw away.
 
 ```bash
 pnpm install
-cp .env.example .env            # only DATABASE_URL matters for Phase 0
+cp .env.example .env            # only TEST_DATABASE_URL and RECOUPLE_TEST_DATABASE matter here
 
 pnpm typecheck
 pnpm test                       # 149 unit, property and pipeline tests
@@ -60,9 +60,14 @@ pnpm eval                       # replays cassettes, scores against ground truth
 pnpm verify                     # all four, in the order CI runs them
 ```
 
-`pnpm db:test` applies every migration to the database in `DATABASE_URL` and then
-runs the invariant suites. Point it at a scratch database — the suites roll back,
-the migrations do not.
+`pnpm db:test` applies every migration to the database in `TEST_DATABASE_URL` and
+then runs the invariant suites; `pnpm test` runs the Postgres integration tests
+against the same database. Point it at a scratch database — the suites roll back,
+the migrations and the integration tests' rows do not. Neither reads
+`DATABASE_URL`, which is the app's and the operator commands', and both refuse to
+start unless `RECOUPLE_TEST_DATABASE=1` is set and the database is plainly a
+throwaway: not a Supabase host, no `recouple_app` login, no `supabase_admin`
+role, no applied Supabase migrations (`scripts/test-database.ts`).
 
 Expected tail of `pnpm db:test`:
 
@@ -276,13 +281,16 @@ root `.env` the scripts use.
 
 Signing in needs three things on `mozart-preview`: `http://localhost:3000/auth/callback`
 in **Authentication → URL Configuration → Redirect URLs**; a `users` plus a
-`memberships` row for your address; and an auth user for that address, made
-with **Authentication → Users → Add user → Send invitation** and its link
-followed once (see *Who can sign in* in `apps/web/DEPLOY.md`). Without the
-first the magic link lands on the Site URL and signs nobody in. Without the
-second `app.link_auth_user()` refuses you. Without the third the form creates
-nobody (ADR 0045): it says a link is on its way, as it does for every address,
-and none is sent.
+`memberships` row for your address; and migration 0035 applied there (it is not
+yet) with **"Allow new users to sign up"** on, so the form's first link makes
+your auth user and nothing is pressed in the dashboard (see *Who can sign in*
+in `apps/web/DEPLOY.md`, and ADR 0051 §6). Without the first the magic link
+lands on the Site URL and signs nobody in. Without the second the form asks the
+provider for no account, and `app.link_auth_user()` refuses any you already
+have. Without the third a first sign-in gets no link: with no 0035 the form
+answers every address with a fault and a reference, and with sign-ups off an
+address with no auth user yet is told a link is on its way, as every address
+is, and none is sent.
 Walking a case through approval needs a second member with the `owner` or
 `approver` role, because the preparer cannot approve their own packet.
 

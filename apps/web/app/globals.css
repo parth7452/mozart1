@@ -321,6 +321,7 @@ dl.connection dd { margin: 0; overflow-wrap: anywhere; }
    buttons: decide, assemble, approve, file, record what came back. */
 .card.act { border-color: var(--line); }
 .card input[type='text'],
+.card input[type='email'],
 .card input[type='date'] {
   width: 100%;
   margin-top: 4px;
@@ -753,3 +754,13 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
   .case-main .case-heading { gap: 10px; }
   .case-main .doc embed { height: 280px; max-height: 280px; min-height: 0; }
 }
+
+/* Settings → Team (ADR 0051): the member list and an owner's three controls. */
+.team-members { list-style: none; margin: 0 0 8px; padding: 0; }
+.team-members > li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+.team-members > li > p { margin: 0 0 6px; }
+.team-members form { display: inline-flex; gap: 8px; align-items: center; margin: 4px 12px 0 0; }
+.team-members select { width: auto; margin-top: 0; padding: 6px 8px; font-size: 13px; }
+.team-members button, .card.team button { padding: 7px 12px; background: white; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.card.team button:hover, .team-members button:hover { background: var(--bg); }
+.card.team textarea.welcome { font-size: 13px; min-height: 220px; }

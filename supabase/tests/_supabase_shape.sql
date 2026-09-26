@@ -20,6 +20,12 @@
 --                                   role PostgREST logs in as and then
 --                                   `set role`s to whatever a JWT's `role`
 --                                   claim names
+--   * `supabase_auth_admin`         login noinherit — the role Supabase Auth
+--                                   connects as, and so the role a
+--                                   before-user-created hook runs as (ADR
+--                                   0051 §6). Created here so migration 0035's
+--                                   grant to it runs in CI rather than being
+--                                   skipped for want of the role
 --   * default privileges that grant the three ALL on every new table,
 --     sequence and function in `public`
 --
@@ -63,6 +69,9 @@ begin
   end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticator') then
     create role authenticator login noinherit;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
+    create role supabase_auth_admin login noinherit;
   end if;
 
   foreach request_role in array array['anon', 'authenticated', 'service_role'] loop

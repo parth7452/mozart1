@@ -73,9 +73,10 @@ Nothing else is needed.
 
 ### Suggested order
 
-Do **2** first (sign-in), then **4** (make the test workspace), then **3**,
-**1**, **6**, **7** and **8**. **5** waits for your Postmark setup; see its
-first step.
+Do **2** first (sign-in; it needs migration 0035 and the hook, see its
+*Before you start*), then **4** (make the test workspace), then **2.7**,
+**3**, **1**, **6**, **7**, **8**, **9** and **10**. **5** waits for your Postmark
+setup; see its first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
 one from GitHub while you are signed in: open the link, then click **Download
@@ -410,15 +411,53 @@ addresses. Ask me before you answer that one.
 
 ---
 
-## 2. Invite-only sign-in (ADR 0045), then switching off sign-ups
+## 2. Invite-only sign-in, with sign-ups on (ADR 0045, ADR 0051 §6)
 
 **What it proves:**
 
-- members sign in through the new form;
+- members sign in through the form;
 - a stranger gets the same message but no email;
-- a person invited from the dashboard can sign in.
+- a person added to a workspace signs in from the form alone: their first
+  email asks them to confirm their address, and its link signs them in.
+  Nothing is pressed in the Supabase dashboard;
+- Supabase itself refuses to make an account for an address nobody invited,
+  even when it is asked directly rather than through our form;
+- a session signed in with a password is refused.
 
-After that, you can safely turn off open sign-ups.
+"Allow new users to sign up" was off from ADR 0045 until 2026-09-26, when you
+switched it back on: with it off, Supabase will not make an account even for
+an invited address. So this checklist no longer ends by switching sign-ups
+off. It ends with the hook on and every account nobody invited deleted.
+
+**Before you start** (ADR 0051 §6):
+
+- migration 0035 is applied to production, after `mozart-preview`, and only
+  then is the change that came with it deployed. The sign-in form asks the
+  database about every address, and without 0035 every address gets "sign-in
+  could not be completed" and nobody gets a link. Not yet: as of 2026-09-26,
+  0035 is applied nowhere;
+- **Allow new users to sign up** is on (Supabase → Authentication → **Sign In
+  / Providers**). Done: 2026-09-26. Leave it on. Switched off, Supabase refuses
+  to make an invited person's account (`signup_disabled`), so exactly the
+  people 2.4 is about get no email, and the app logs `NOT SENT to an invited
+  address`;
+- the before-user-created hook is enabled: Supabase → Authentication →
+  **Hooks** → **Before User Created** → **Postgres** → schema `hooks`,
+  function `before_user_created`. The function exists only once 0035 is
+  applied. Until the hook is on, anyone holding the publishable key can make
+  a Supabase account for any address; 2.6 finds them. The hook also runs for the
+  dashboard's **Send invitation**, which is no longer needed, and refuses it
+  for anyone without a `users` row and a membership.
+
+**Run once, 2026-09-26** (00:30–01:44 UTC), in your own workspace: 2.1–2.6
+passed. The owner, the approver, the read-only tester and tester B (§4) each
+reached the case list, with R1 `true` and R3 `linked` for all four. A
+never-invited address got the same green notice and no email: both logs said
+`otp_disabled` (HTTP 422), before and after sign-ups were switched off at
+01:43 UTC, and the owner still got in afterwards. **Both dashboard invitations
+went to Gmail's spam folder** (Supabase's default "You've been invited" email;
+the branded sign-in email always reached the inbox). Claude ran 2.1, 2.3, 2.4
+and 2.6 in an automated browser; you did 2.2, the 2.4 invitation and 2.5.
 
 **R1 — who is invited where.** The last column becomes `true` once that
 person has reached the app.
@@ -429,6 +468,15 @@ select o.name as workspace, u.email, m.role, u.auth_user_id is not null as has_r
   join organizations o on o.id = m.org_id
   join users u on u.id = m.user_id
  order by o.name, u.email;
+```
+
+**R2 — the hook's function is there, and only Supabase Auth may call it.**
+Expect `true`, then `false`. An error saying it does not exist means 0035 is
+not applied. This does not say whether the hook is enabled; 2.5 does.
+
+```sql
+select has_function_privilege('supabase_auth_admin', 'hooks.before_user_created(jsonb)', 'execute') as auth_may_call,
+       has_function_privilege('anon', 'hooks.before_user_created(jsonb)', 'execute') as anon_may_call;
 ```
 
 **R3 — every sign-in identity Supabase holds, and what the app does with
@@ -451,6 +499,21 @@ only in capital letters, would block that person's sign-in.
 ```sql
 select lower(email) as address, count(*), array_agg(email)
   from users group by lower(email) having count(*) > 1;
+```
+
+**R5 — accounts nobody invited.** Every Supabase sign-in account whose address
+is not a member of any workspace, leaving out anyone whose `users` row names
+it (a person removed from every workspace keeps theirs). Must return no rows
+once 2.6 is done.
+
+```sql
+select a.id, a.email, a.created_at, a.email_confirmed_at, a.last_sign_in_at
+  from auth.users a
+ where not exists (select 1 from public.users u
+                     join public.memberships m on m.user_id = u.id
+                    where lower(u.email) = lower(a.email))
+   and not exists (select 1 from public.users u where u.auth_user_id = a.id)
+ order by a.created_at desc;
 ```
 
 ### Steps
@@ -491,53 +554,168 @@ steps, same result.
   - Vercel logs, search `[sign-in link]`:
     `… — no link sent: the provider has no account it will send to at that
     address (AuthApiError otp_disabled, HTTP 422). Answered as sent (ADR
-    0045).`
+    0045).` The form asks Supabase to make an account only for an invited
+    address, so a stranger's answer is `otp_disabled` whatever the sign-up
+    switch says.
   - The count query above is still `0`.
   - Supabase → Logs → Auth shows a `422` for `otp_disabled` ("Signups not
     allowed for otp").
 
-**2.4 Invite someone from the dashboard.** This person becomes the
-`read_only` member for checklist 3.
+**2.4 Add someone, and they sign in from the form alone.** This person
+becomes the `read_only` member for checklist 3. Nothing is pressed in the
+Supabase dashboard.
 
-- **Do (WRITE)**, in the SQL editor. Replace the address with one you
-  control, such as `you+readonly@gmail.com`, and the slug with your
-  workspace's slug from R1:
-  ```sql
-  -- WRITE: the invitation row (refuses a second row that differs only in capitals)
-  insert into users (email, full_name)
-  select 'you+readonly@gmail.com', 'Read-only tester'
-   where not exists (select 1 from users where lower(email) = lower('you+readonly@gmail.com'));
-
-  -- WRITE: the membership, as read_only
-  insert into memberships (org_id, user_id, role)
-  select o.id, u.id, 'read_only'
-    from organizations o, users u
-   where o.slug = '<YOUR_WORKSPACE_SLUG>' and lower(u.email) = lower('you+readonly@gmail.com')
-  on conflict (org_id, user_id) do nothing;
-  ```
-- **Then, in the Supabase dashboard:** Authentication → Users → **Add user**
-  → **Send invitation**, with the same address.
 - **Do:**
-  1. Open the invitation email's link once, in a new private window. It lands
-     on the plain sign-in page, **not signed in**. That is expected.
-  2. In that window, sign in with the form, as in 2.1.
-- **You should see:** the case list, with "Read Only" as the role in the
-  sidebar.
-- **Proof:** R1 shows the new person with `true`. R3 shows `linked`.
+  1. Pick an address you control that has never had a sign-in, such as
+     `you+readonly@gmail.com`. This must return `0`; if it returns `1`, pick
+     another:
+     ```sql
+     select count(*) from auth.users where lower(email) = lower('you+readonly@gmail.com');
+     ```
+  2. **WRITE**, in the SQL editor, with that address and your workspace's
+     slug from R1. (Settings → Team → **Add a person** does the same, as an
+     owner; §9 tests that page.)
+     ```sql
+     -- WRITE: the invitation row (refuses a second row that differs only in capitals)
+     insert into users (email, full_name)
+     select 'you+readonly@gmail.com', 'Read-only tester'
+      where not exists (select 1 from users where lower(email) = lower('you+readonly@gmail.com'));
 
-**2.5 Switch off open sign-ups.** Do this only after 2.1–2.4 all pass.
+     -- WRITE: the membership, as read_only
+     insert into memberships (org_id, user_id, role)
+     select o.id, u.id, 'read_only'
+       from organizations o, users u
+      where o.slug = '<YOUR_WORKSPACE_SLUG>' and lower(u.email) = lower('you+readonly@gmail.com')
+     on conflict (org_id, user_id) do nothing;
+     ```
+  3. In a new private window, request a link for that address, as in 2.1.
+  4. Open the email **in this same window, within five minutes of asking**.
+     It is Supabase's **Confirm signup** email, not a sign-in one: it asks you
+     to confirm your address, and its link signs you in.
+- **You should see:** the same green notice as in 2.1, then the case list,
+  with "Read Only" as the role in the sidebar.
+- **If you see "that link has expired":** you opened it more than five
+  minutes after it was sent, or in another window. The address is confirmed
+  anyway: ask for a new link in this window, and that one works. That is
+  expected, not a finding.
+- **Proof:**
+  - R1 shows the new person with `true`. R3 shows `linked`.
+  - Vercel logs, search `[sign-in link]`: no `NOT SENT to an invited address`
+    line. If there is one, Supabase would not make an invited person's
+    account: check the sign-up switch and the hook, and send it to me.
 
-- **Do:** Supabase dashboard → Authentication → **Sign In / Providers** →
-  turn off **Allow new users to sign up** → Save.
+**2.5 Supabase refuses a stranger even when asked directly.** The
+publishable key is public by design, so anyone can ask Supabase for an
+account without our form. The hook is what says no.
 
-**2.6 Check again.**
+- **Do:** in a terminal, with the publishable key
+  (`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` on Vercel, starting
+  `sb_publishable_`) in place of `<PUBLISHABLE_KEY>`:
+  ```
+  curl -i https://hvheqbgkvwhlqutklwfh.supabase.co/auth/v1/signup \
+    -H 'apikey: <PUBLISHABLE_KEY>' -H 'Content-Type: application/json' \
+    -d '{"email": "you+stranger2@gmail.com", "password": "Checklist-2.5-stranger"}'
+  ```
+- **You should see:** `403` on the first line, and "Accounts are created by
+  invitation only." in the answer. No email.
+- **If it answers `200`:** the hook is not on, and that account now exists.
+  Stop, send it to me, and delete it in Supabase → Authentication → Users.
+- **Proof:**
+  - this returns `0`:
+    ```sql
+    select count(*) from auth.users where lower(email) = lower('you+stranger2@gmail.com');
+    ```
+  - Supabase → Logs → Auth shows the `403`.
 
-- **Do:** repeat 2.3 with a new address (`you+stranger2@gmail.com`), then
-  sign in once more as the owner.
-- **You should see:** the same green notice and no email for the stranger;
-  the owner still gets in.
-- **Proof:** the log line says `otp_disabled` or `signup_disabled`. Either
-  is right.
+**2.6 Delete the accounts nobody invited.** While sign-ups are on and the
+hook is not, anyone holding the publishable key can make a Supabase account
+for any address. Such an account reaches nothing, because the app signs out
+an identity with no invitation or no membership. But the hook never runs
+again for an account that already exists.
+
+- **Do:** run R5, and delete each account it lists in Supabase →
+  Authentication → Users. If it lists someone you expected to be a member,
+  stop and send it to me instead: they may need adding, not deleting.
+- **Proof:** R5 returns no rows.
+
+**2.7 A password session is refused.** Do this in the **test workspace**,
+after checklist 4.
+
+With sign-ups on, somebody can register an invited person's address with a
+password of their own before that person first asks for a link. Supabase
+mails the person a confirmation that looks just like the one they were told
+to expect, and when they click it the account is confirmed *with that
+password*. The hook cannot stop this, because the address is invited. The app
+does: it refuses any session not made by one of its own email links (ADR 0051
+§6). This step plays the attacker.
+
+- **Do:**
+  1. Check the address has never had a sign-in (this must return `0`), then
+     add it to the test workspace (**WRITE**):
+     ```sql
+     select count(*) from auth.users where lower(email) = lower('you+password@gmail.com');
+     ```
+     ```sql
+     -- WRITE: the invitation row
+     insert into users (email, full_name)
+     select 'you+password@gmail.com', 'Password tester'
+      where not exists (select 1 from users where lower(email) = lower('you+password@gmail.com'));
+
+     -- WRITE: the membership, as read_only, in the test workspace
+     insert into memberships (org_id, user_id, role)
+     select o.id, u.id, 'read_only'
+       from organizations o, users u
+      where o.slug = 'test-tenant-b' and lower(u.email) = lower('you+password@gmail.com')
+     on conflict (org_id, user_id) do nothing;
+     ```
+  2. Register it with a password, the way 2.5 tried for the stranger:
+     ```
+     curl -i https://hvheqbgkvwhlqutklwfh.supabase.co/auth/v1/signup \
+       -H 'apikey: <PUBLISHABLE_KEY>' -H 'Content-Type: application/json' \
+       -d '{"email": "you+password@gmail.com", "password": "Checklist-2.7-attacker"}'
+     ```
+     This time the first line says `200`: the address is invited, so the
+     hook lets it through, and Supabase mails it a **Confirm signup** email.
+  3. Open that email's link once, in a new private window, as the invitee
+     would. It confirms the address and leaves you on the sign-in page, not
+     signed in.
+  4. Sign in with the password, at Supabase directly:
+     ```
+     curl -s 'https://hvheqbgkvwhlqutklwfh.supabase.co/auth/v1/token?grant_type=password' \
+       -H 'apikey: <PUBLISHABLE_KEY>' -H 'Content-Type: application/json' \
+       -d '{"email": "you+password@gmail.com", "password": "Checklist-2.7-attacker"}'
+     ```
+     It prints one line starting `{"access_token":`. That is a working
+     session. Copy the whole line.
+  5. In a new private window, open `https://app.mozart.financial/login`, then
+     the browser's developer tools → **Console** (Chrome asks you to type
+     `allow pasting` first). Paste this, with the line from step 4 in place
+     of `<SESSION>`, and press Enter. It puts that session where the app
+     looks for one:
+     ```js
+     const s = <SESSION>;
+     const v = btoa(JSON.stringify({ access_token: s.access_token, refresh_token: s.refresh_token,
+       expires_at: s.expires_at, expires_in: s.expires_in, token_type: s.token_type }))
+       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+     document.cookie = `sb-hvheqbgkvwhlqutklwfh-auth-token=base64-${v}; path=/; secure; samesite=lax`;
+     ```
+  6. In that window, open `https://app.mozart.financial/`.
+- **You should see:** the sign-in page with the red notice "this app signs in
+  by email link only. Enter your address below to get one.", not the case
+  list.
+- **If you see the case list**, that is a finding: stop and send it to me. If
+  you see the sign-in page with no red notice, the session did not take:
+  send me the time.
+- **Proof:**
+  - Vercel logs, search `[sign-in refused]`: `… presented a session signed
+    in with a password, which this app never offers: somebody holds a
+    password for this account. Refused and signed out locally (ADR 0051 §6).
+    …`
+  - R3 shows the address as `invited, not yet reached the app`: the session
+    was refused before the database was asked who it was.
+- **Then:** delete that account in Supabase → Authentication → Users, as the
+  log line says. Its `users` row and membership stay in the test workspace
+  and reach nothing without an email link.
 
 ---
 
@@ -547,6 +725,17 @@ steps, same result.
 actions, and it refuses them if a reader's browser sends one anyway. The
 database refuses them too; the automated tests prove that part.
 
+**Run once, 2026-09-26**: 3.1–3.4 passed. The read-only tester saw no upload
+form, none of the three cards in 3.2 on any of the seven cases, and no buttons
+in Settings → QuickBooks. 3.4 ran in the test workspace in a different order:
+tester B was made read-only first, and a copy of each form was then sent from
+tester B's session, which is the same request a stale tab sends. Both were
+refused with the notices below; the workspace still held one document (the
+upload was `hl-case-04-notice.pdf`, new to it, so a failed refusal would have
+shown) and no decline. The upload button's in-page behaviour was not tested.
+Tester B is `analyst` again. The upload form now reads **Add documents** /
+**Read them** and takes several files of up to 4 MB each.
+
 **Who:** the read-only person from 2.4, in your workspace for 3.1–3.3. The
 forced refusal (3.4) is done in the test workspace from checklist 4.
 
@@ -555,7 +744,7 @@ forced refusal (3.4) is done in the test workspace from checklist 4.
 - **Do:** sign in as the read-only person.
 - **You should see:**
   - **no** "＋ Add a document" button at the top;
-  - **no** "Add a document" / **Read it** form at the bottom;
+  - **no** "Add documents" / **Read them** form at the bottom;
   - the "What to work on next" queue and the "Deduction ledger", both
     visible;
   - "Read Only" as the role in the sidebar.
@@ -581,8 +770,8 @@ The app hides the forms from a reader, so the only way to see the refusal is
 to open a form while you can still write, then lose the right to write before
 you submit it.
 
-1. As tester B (an analyst), open the case list. The **Read it** form is
-   there. Choose `hl-case-01-notice.pdf` in it, but **don't press Read it
+1. As tester B (an analyst), open the case list. The **Read them** form is
+   there. Choose `hl-case-01-notice.pdf` in it, but **don't press Read them
    yet**.
 2. **WRITE:** make tester B read-only:
    ```sql
@@ -591,7 +780,7 @@ you submit it.
     where m.org_id = o.id and m.user_id = u.id
       and o.slug = 'test-tenant-b' and lower(u.email) = lower('<TESTER_B_EMAIL>');
    ```
-3. Back in the same tab, press **Read it**.
+3. Back in the same tab, press **Read them**.
    - **You should see:** the red notice "your role can review documents but
      not add them".
    - **Proof:** the document count for workspace B has not changed:
@@ -621,6 +810,17 @@ you submit it.
 SQL, sees only its own cases and cannot open yours. This checklist also
 creates the **test workspace** used by 3, 7 and 8.
 
+**Run once, 2026-09-26**: 4.1–4.4 passed. `docs/ONBOARDING.md` §1's block,
+pasted into the SQL editor, arrived cut short twice and was refused whole, so
+the workspace was made with 4.1's inserts instead, the last one changed to add you as
+`owner` and `<TESTER_B_EMAIL>` as `analyst` (a case can be prepared and
+approved here; no debtors yet). ONBOARDING §1's read-back was then all `true`.
+Tester B's `hl-case-01-notice.pdf` opened DN-2609-001, $600.00, Harbor Lane
+Markets *not matched*, 16 seconds after the upload, for $0.026. Each
+workspace's case address gave the 404 in the other. Because you belong to
+both, **Switch workspace** appeared in your sidebar and moved you between
+them; **Sign out** returned to the sign-in page.
+
 **4.1 Create "Test Tenant B" and its member.** (**WRITE** — all four are
 needed. The settings row is required: without it, nothing in that workspace
 can be read.)
@@ -648,10 +848,12 @@ select o.id, u.id, 'analyst'
 on conflict (org_id, user_id) do nothing;
 ```
 
-Then, in the Supabase dashboard: Authentication → Users → **Add user** →
-**Send invitation** to `<TESTER_B_EMAIL>`. Follow it once, as in 2.4.
+Nothing in the Supabase dashboard: if tester B's address has never signed
+in, their first sign-in link makes their account.
 
-**4.2 Tester B signs in** in a separate private window or browser profile.
+**4.2 Tester B signs in** in a separate private window or browser profile,
+from the form, as in 2.4: for an address that has never signed in, the first
+email is the **Confirm signup** one, and its link signs them in.
 
 - **You should see:**
   - "Test Tenant B" under **YOUR WORKSPACE** in the sidebar;
@@ -664,7 +866,7 @@ Then, in the Supabase dashboard: Authentication → Users → **Add user** →
 **4.3 Give B a case of its own.**
 
 - **Do:** as tester B, use **Add a document** → choose `hl-case-01-notice.pdf`
-  → **Read it**.
+  → **Read them**.
 - **You should see:** the green notice "that document is being read…".
   After 1–2 minutes, reload: a case **DN-2609-001**, $600.00, "Harbor Lane
   Markets" marked *not matched*, in the queue under "No deadline printed".
@@ -968,7 +1170,7 @@ select d.id, o.slug, d.filename from documents d join organizations o on o.id = 
 
 **7.1 The remittance.**
 
-- **Do:** **Add a document** → `hl-case-02-remittance.pdf` → **Read it**.
+- **Do:** **Add a document** → `hl-case-02-remittance.pdf` → **Read them**.
   Reload after 1–2 minutes.
 - **You should see:** a case **SIM-PAY-2609-002:INV-260802**, $900.00, "Cedar
   Point Grocers".
@@ -981,7 +1183,7 @@ select d.id, o.slug, d.filename from documents d join organizations o on o.id = 
 **7.2 The notice.**
 
 - **Do:** **Add a document** (on the case list) → `hl-case-02-notice.pdf` →
-  **Read it**, then reload.
+  **Read them**, then reload.
 - **You should see:**
   - a second case, **DN-2609-002**, also $900.00;
   - a **Possible duplicates** card on the case list with the two side by
@@ -1054,7 +1256,7 @@ plan allows.
 **8.1 Upload it.**
 
 - **Do:** **Add a document** → `crosswind-dense-remittance-scan.jpg` →
-  **Read it**. Note the time.
+  **Read them**. Note the time.
 - **You should see:** the green notice starting "that document is being read.
   A deduction notice, or a remittance with a short payment, opens its case
   here within a couple of minutes…".
@@ -1114,6 +1316,123 @@ In the last query, expect 12 lines `opened`. The 30 lines that were paid in
 full are likely to show as `unreadable` rather than `not_short_paid`. That
 is a known quirk of how this page prints a dash for "no deduction". It does
 not change the money; it is in the list below.
+
+---
+
+## 9. Settings → Team: an owner adds, re-roles and removes a teammate
+
+**What it proves:** an owner manages their own team with no SQL (ADR 0051,
+migration 0035), the database, not the page, refuses what would strand a
+workspace, and the person an owner adds signs in with nothing pressed in the
+Supabase dashboard (ADR 0051 §6).
+
+**Before:** migration 0035 applied to the project you are testing
+(`mozart-preview` first), and for 9.2's sign-in, sign-ups on and the hook
+enabled there too (§2, *Before you start*). **Where:** the **test workspace**
+from §4, as its owner.
+
+**9.1 Everyone sees the list.** Open **Team** in the sidebar.
+
+- **You should see:** every member with their role and "has signed in" or
+  "has not signed in yet", and the note that disputes need two people. As a
+  `read_only` member, the same list and no controls.
+
+**9.2 Add a person.** Under **Add a person**: a new address of yours, a name,
+**Analyst**, then **Add to this workspace**.
+
+- **You should see:** "added. They can now sign in at app.mozart.financial
+  with this address. A welcome message you can send them is below.", and a
+  **Welcome message** box ready to copy. It is the same for an address that
+  already signs in to another workspace.
+- **Then:** in a new private window, sign in as that person from the form, as
+  in 2.4. The first email is the **Confirm signup** one, and its link lands on
+  the case list in Test Tenant B. R1 (§2) shows them with `true`.
+- **Refusals:** add the same address again, in other capitals → "already a
+  member of this workspace".
+
+**9.3 The last owner cannot leave.** As the only owner, change your own role to
+**Approver** → "a workspace must keep at least one owner". **Remove…** yourself
+→ confirm → the same.
+
+**9.4 Change a role, then remove.** Make the new person **Approver** → "role
+changed". **Remove…** → the page asks first → **Remove them** → "removed".
+
+**Read back** (SQL editor, read-only):
+
+```sql
+select action, subject_id, payload, actor_id, observed_at
+  from audit_log
+ where action like 'membership.%'
+ order by id desc limit 10;
+```
+
+Expect `membership.invited`, `membership.role_changed` and `membership.removed`
+rows naming you as `actor_id`, and no row for the refusals.
+
+---
+
+## 10. A failed background job reaches your inbox
+
+**What it proves:** a job that fails after its retries emails you, and the
+email says which job failed and nothing from the document (ADR 0052). §9 is
+kept for Settings → Team (parth7452/mozart1#109).
+
+**When:** any time after the variables below are set. It touches no
+workspace and no database row.
+
+**10.1 Set it up, once.**
+
+- **Resend** → **API Keys** → **Create API key**:
+  - permission **Sending access**;
+  - domain: the one Supabase's sign-in mail is sent from.
+- **Vercel** → the web project → **Settings** → **Environment Variables**.
+  Add three, with **Production** ticked and **Preview** not ticked:
+  - `RESEND_API_KEY`: the key just created;
+  - `ALERT_EMAIL_FROM`: an address on that domain, for example
+    `alerts@<that domain>`;
+  - `ALERT_EMAIL_TO`: your own address. One address, with no name and no
+    list.
+- **Redeploy production.**
+
+**10.2 Send the test.**
+
+- **Do:** Inngest → the production environment → **Events** → **Send
+  event**, and paste:
+
+  ```json
+  { "name": "recouple/alert.test", "data": {} }
+  ```
+
+- **You should see:** within a minute, an email from "Mozart alerts":
+  - subject "[TEST] Mozart: failure alerts are working";
+  - first line "This is a test. Nothing failed."
+- **Inngest:** Runs → a run of **Email a failed run** that ends
+  **Completed**, with output `{"outcome":"sent","test":true}`.
+- **Vercel logs:** search `alert:`. You should find
+  `[recouple] alert: sent for test`.
+
+**If no email arrives,** look at the run's output:
+
+- `not_configured`: none of the three variables reached this deployment.
+  Check that they are on Production, then redeploy.
+- `misconfigured`: the Vercel log line `alerts are misconfigured — …` names
+  the variable to fix.
+- **The run failed:** the log line `alert: not sent for test: Resend
+  answered …` gives Resend's status:
+  - `401` or `403`: the key, or a sender address that is not on its domain;
+  - `422`: an address Resend will not take.
+- `outcome: sent` but nothing in your inbox: check spam, then Resend →
+  **Emails** for its delivery status.
+
+**10.3 What a real one looks like.** You don't need to cause a failure. When
+one comes, check that:
+
+- the subject is "Mozart: a background job failed (…)", with the job's name;
+- the body gives the function, the run id, an error class such as
+  `NonRetriableError`, and a link that opens that run in Inngest;
+- there is no claim number, amount, retailer or document text anywhere in it;
+- a second failure of the same job within the hour sends nothing, and the
+  Runs page lists it.
 
 ---
 

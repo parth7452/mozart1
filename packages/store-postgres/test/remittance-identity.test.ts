@@ -17,11 +17,11 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * here — the only shape in which two documents can race the resolve-then-open on
  * one invoice.
  *
- * `pnpm db:test` prepares the database; without `DATABASE_URL` there is nothing
+ * `pnpm db:test` prepares the database; without `TEST_DATABASE_URL` there is nothing
  * to test against.
  */
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 describeDb('an invoice, and the case it might already be', () => {

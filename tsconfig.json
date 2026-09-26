@@ -6,6 +6,8 @@
     "packages/*/scripts/**/*.ts",
     "packages/*/scripts/**/*.mts",
     "scripts/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "vitest.global-setup.ts"
   ]
 }

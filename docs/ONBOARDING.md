@@ -6,7 +6,9 @@ is a row the database already expects, or a screen that already exists.*
 
 Creating a workspace is done by hand, on purpose. `organizations` and `users`
 have read-only policies for the app's database role, so no request can create a
-tenant or invite a person. That is the database owner's job, done in the
+tenant. Since ADR 0051 a workspace's owner adds, re-roles and removes people
+from Settings → Team, through three definer functions; the first people, and
+the workspace itself, are still the database owner's job, done in the
 Supabase SQL editor (ADR 0015, `docs/supabase.md`). This runbook turns what used
 to be four hand-edited inserts (VERIFY-CHECKLIST §4.1 and §2.4) into one block
 with the values at the top.
@@ -15,10 +17,10 @@ with the values at the top.
 | --- | --- | --- | --- |
 | [0. Before you start](#0-before-you-start) | founder | this page | 10 min |
 | [1. Create the workspace](#1-create-the-workspace-one-sql-block) | founder | Supabase SQL editor, production | 10 min |
-| [2. Invite each person](#2-invite-each-person) | founder | Supabase dashboard, then email | 5 min per person |
+| [2. Invite each person](#2-invite-each-person) | founder (after day one, the customer's owner) | email (after day one, Settings → Team). Nothing in the Supabase dashboard | 5 min per person |
 | [3. Map payer names](#3-map-the-payer-names-printed-on-documents) | founder | your machine, `pnpm link:retailer` | as names appear |
 | [4. The owner's first sign-in](#4-the-owners-first-sign-in) | customer's owner | the app | 15 min, on the call |
-| [5. Changing a role, removing someone](#5-later-changing-a-role-removing-someone-adding-an-accountant) | founder | Supabase SQL editor | as needed |
+| [5. Changing a role, removing someone](#5-later-changing-a-role-removing-someone-adding-an-accountant) | customer's owner (founder as fallback) | the app, Settings → Team (SQL editor as fallback) | as needed |
 | [6. Day one and week one](#6-day-one-checklist-and-the-week-one-routine) | us | the app, your machine | daily |
 
 **Every SQL block on this page is tested.** `scripts/check-onboarding-sql.sh`
@@ -69,9 +71,17 @@ On our side, check these once, not per customer:
 
 - **Sign-in email reaches outside addresses** (pilot B5). Supabase →
   Authentication → SMTP must be custom SMTP, not the built-in mailer.
-- **Open sign-ups are off** (VERIFY-CHECKLIST §2.5). The runbook works either
-  way. With sign-ups off, an address that has not followed its invitation gets
-  no sign-in email at all.
+- **Sign-ups are on, and the before-user-created hook is enabled** (ADR 0051
+  §6). "Allow new users to sign up" has been on since 2026-09-26. Switched off,
+  Supabase would refuse to make an account even for an invited address
+  (`signup_disabled`), so a new person's first link would never come, and only
+  the dashboard invitation (§2) would get them in. The hook is what keeps
+  sign-ups invitation-only: Supabase → Authentication → Hooks → Before User
+  Created → Postgres → schema `hooks`, function `before_user_created`. That
+  function exists once migration 0035 is applied (to `mozart-preview` first,
+  then production). Until the hook is enabled, anyone holding the public anon
+  key can make an Auth user for any address. Such an account reaches nothing,
+  and [§2](#accounts-nobody-invited) lists them so you can delete them.
 
 ### Which `org_settings` values matter for a pilot
 
@@ -364,14 +374,15 @@ select u.email, u.full_name, m.role, u.auth_user_id is not null as has_reached_t
  order by m.role, u.email;
 ```
 
-**Supabase only.** Whether each person has an invitation at the provider (R3,
-for this workspace). Run it after step 2.
+**Supabase only.** How far each person has got at the provider (R3, for this
+workspace). Their account is made the first time they ask for a sign-in link,
+so `no account yet` only means they have not asked.
 
 ```sql
 -- onboarding:supabase-only invitation status
-select u.email, a.invited_at, a.email_confirmed_at, a.last_sign_in_at,
-       case when a.id is null then 'NOT INVITED: send the invitation (step 2)'
-            when u.auth_user_id is null then 'invited, not yet reached the app'
+select u.email, a.created_at as account_made_at, a.email_confirmed_at, a.last_sign_in_at,
+       case when a.id is null then 'no account yet: they have not asked for a link'
+            when u.auth_user_id is null then 'has an account, not yet reached the app'
             when u.auth_user_id = a.id then 'linked'
             else 'LINKED TO ANOTHER IDENTITY: refused' end as status
   from memberships m
@@ -386,37 +397,62 @@ select u.email, a.invited_at, a.email_confirmed_at, a.last_sign_in_at,
 
 ## 2. Invite each person
 
-The sign-in form never creates an account (`shouldCreateUser: false`, ADR 0045).
-So a person with a `users` row but no Supabase Auth user gets no email, and the
-app logs `otp_disabled`, or `signup_disabled` once sign-ups are off. The
-invitation is what creates that user.
+**After day one, the customer's owner adds people themselves**: Settings →
+Team → Add a person (ADR 0051). That writes the `users` row and the membership
+that the create block writes, with the same rules (one row per address
+ignoring capitals, an existing member refused by name, an audit row naming the
+owner). Nothing else is needed from us: the page shows the owner a welcome
+message to send, and the person signs in at
+**https://app.mozart.financial/login** with that address.
 
-**For each person** who is not yet `linked` in the query above:
+**The `users` row and membership are the whole invitation.** The sign-in form
+asks the database whether the address is invited (`app.address_is_invited()`:
+exactly one `users` row answers to it ignoring capitals, and that row has a
+membership), and only then lets Supabase create their Auth user, the first
+time they ask for a link (ADR 0051 §6). Any other address gets the same "sent"
+page and, if it has no Auth user yet, no email, and the app logs
+`otp_disabled`. One that already has an Auth user, such as someone removed
+from every workspace, is sent a link and signed out when it opens it (ADR
+0045). The before-user-created
+hook (§0) refuses an account for an address nobody invited however it is asked
+for, and the app refuses any session not made by one of its own email links,
+such as a password sign-in.
 
-1. Supabase dashboard → **Authentication → Users → Add user → Send
-   invitation**. Use exactly the address from the block.
-2. Send them the welcome email below, **after** the invitation, so it arrives
-   second.
+**For each person**, once step 1 has run: send them the welcome email below.
+Nothing is pressed in the Supabase dashboard. Someone who already signs in to
+another workspace, such as our analyst, already has an Auth user, so the
+invitation-status query above shows them `linked`.
 
-Skip step 1 for someone who already signs in to another workspace, such as our
-analyst. They already have an Auth user, so the first query shows them
-`linked`.
+The dashboard invitation (**Authentication → Users → Add user → Send
+invitation**) still works as a fallback, but is no longer needed. The hook runs
+for it too, so it is refused for an address with no `users` row and
+membership: add the person first. Its link confirms the address and lands on
+the sign-in page still signed out, as it always did, and they then sign in
+from the form.
 
-**What the invitee sees.** An email from Supabase's mailer with a link. The link
-confirms their address and lands on the app's sign-in page, **still signed
-out**. That is expected: the app only accepts a session from `/auth/callback`,
-and the invitation link does not go there (`apps/web/DEPLOY.md`, "Who can sign
-in"). They then sign in from the form: type the address, press **Email me a
-sign-in link**, and open that second email **in the same browser**, because the
-link only works in the browser that asked for it.
+**What the invitee sees.** They type their address on the sign-in page and
+press **Email me a sign-in link**. The first time, the email is Supabase's
+**Confirm signup** email rather than one that says "sign in": its link
+confirms their address and signs them in, through `/auth/callback`. Every link
+after that is an ordinary sign-in link. Each one only works **in the browser
+that asked for it**, and the first one expires **five minutes after it was
+sent**, not five minutes after it is opened.
 
 **If it goes wrong:**
 
-- *No invitation email.* Check spam, then Supabase → Logs → Auth. Re-send from
-  the same screen.
-- *"That link has expired".* They opened the sign-in link in a different
-  browser or app. They should request a new one and paste it into the browser
-  that asked for it.
+- *No email.* Check spam, then the app's log for `[sign-in link]`, which says
+  why for every address it did not send to, and Supabase → Logs → Auth.
+  `NOT SENT to an invited address` means Supabase refused to make the account:
+  check that sign-ups are on and the hook is set as in §0. `no link sent`
+  (`otp_disabled`) means the address is not invited: run the read-back,
+  including R4, since two `users` rows in different capitals are not an
+  invitation.
+- *"That link has expired" on the first link.* They opened it more than five
+  minutes after it was sent. Their address is confirmed anyway: they ask for a
+  new link, and that one works.
+- *"That link has expired" otherwise.* They opened the sign-in link in a
+  different browser or app. They should request a new one and paste it into
+  the browser that asked for it.
 - *Signed straight back out.* They have an Auth user but no membership, or
   their address differs in capitals from another `users` row. Run the
   read-back.
@@ -424,6 +460,8 @@ link only works in the browser that asked for it.
 ### The welcome email
 
 Send it from your own address, one per person. Replace the `<…>` parts.
+Settings → Team shows an owner the same message, without the two paragraphs
+for an owner or an approver, when they add someone.
 
 > **Subject:** Your <Workspace name> workspace on Mozart
 >
@@ -432,20 +470,16 @@ Send it from your own address, one per person. Replace the `<…>` parts.
 > You have been added to <Workspace name>'s workspace on Mozart as
 > **<role in words: an owner / an approver / an analyst / a viewer>**.
 >
-> Getting in takes two emails, about a minute apart:
+> To sign in, go to **https://app.mozart.financial/login**, type **<their
+> address>** under *Work email* and press **Email me a sign-in link**. Open the
+> link in that email **in the same browser**. If your email app opens it
+> somewhere else you will see "that link has expired"; copy it into the browser
+> where you asked for it instead. There is no password.
 >
-> 1. **An invitation from Supabase** (our sign-in provider), sent just before
->    this message. Click its link once. It opens the Mozart sign-in page, and
->    you will **not** be signed in yet. That is expected: the link only
->    confirms your address.
-> 2. On that page, type **<their address>** under *Work email* and press
->    **Email me a sign-in link**. Open the link in that email **in the same
->    browser**. If your email app opens it somewhere else, you'll see "that
->    link has expired". Copy the link into the browser where you asked for it
->    instead.
->
-> From then on, sign in at **https://app.mozart.financial/login** the same way
-> (step 2). There is no password.
+> The first time, the email comes from our sign-in provider and asks you to
+> confirm your address. Open it within five minutes: its link signs you in. If
+> you are too late it says the link has expired, and the next link you ask for
+> will work.
 >
 > <For an owner:> On our call on <day, time> we'll connect your QuickBooks
 > together. You'll need to be able to sign in to QuickBooks Online as an admin
@@ -455,13 +489,46 @@ Send it from your own address, one per person. Replace the `<…>` parts.
 > another. The app will never let the same person do both, so you'll see
 > "Waiting for another approver" on cases you prepared yourself.
 >
-> If either email hasn't arrived within ten minutes, check spam, then reply to
-> me.
+> If the email hasn't arrived within ten minutes, check spam, then reply to me.
 >
 > <Your name>
 
-For `read_only` and `accountant_guest`, say "a viewer": they can see every case
-and document and change nothing.
+For `read_only`, say "a viewer", and for `accountant_guest` "a viewer (outside
+accountant)", as the Team page does: they can see every case and document and
+change nothing.
+
+### Accounts nobody invited
+
+While sign-ups are on and the hook is not enabled, anyone holding the public
+anon key can make a Supabase Auth user for any address. Such an account reaches
+nothing, because the app signs out an identity with no invitation or no
+membership (ADR 0045). But the hook never runs again for an account that
+already exists, so once the hook is enabled, find them and delete them (ADR
+0051 §6).
+
+**Supabase only.** Every Auth user whose address is not a member of any
+workspace. It reads and changes nothing: delete each row it lists in Supabase →
+Authentication → Users. It leaves out anyone whose `users` row names their Auth
+user, such as a person removed from every workspace, whose Auth user stays
+([§5.2](#52-remove-someone-from-a-workspace)).
+
+```sql
+-- onboarding:supabase-only accounts nobody invited
+select a.id, a.email, a.created_at, a.email_confirmed_at, a.last_sign_in_at
+  from auth.users a
+ where not exists (select 1 from public.users u
+                     join public.memberships m on m.user_id = u.id
+                    where lower(u.email) = lower(a.email))
+   and not exists (select 1 from public.users u where u.auth_user_id = a.id)
+ order by a.created_at desc;
+```
+
+One kind it cannot find: an invited person's address that somebody registered
+with a password before the person first asked for a link. When the person
+confirms it, the account is theirs, and the app refuses every session signed in
+with that password (ADR 0051 §6). If the app's log says `[sign-in refused] …
+signed in with a password`, do what that line says, removing the password
+rather than the account once they are `linked` (§5.2).
 
 ---
 
@@ -562,9 +629,18 @@ On the onboarding call, with the owner sharing their screen:
 
 ## 5. Later: changing a role, removing someone, adding an accountant
 
-Memberships are ordinary rows (migration 0006's mutable list). The app has
-no screen for them, so you change them in the SQL editor. Each block below is
-all-or-nothing and refuses to leave the workspace unable to finish a case.
+**The customer's owner does this in the app**: Settings → Team → **Change
+role** or **Remove…** (ADR 0051). The database refuses there exactly what the
+blocks below refuse — no owner left, fewer than two people who can write, and
+the two responsibilities below — each with its own message, and every change
+leaves an audit row naming who made it. Use the blocks when nobody who can
+sign in is an owner, or on the owner's behalf.
+
+Memberships are ordinary rows (migration 0006's mutable list). Each block
+below is all-or-nothing and refuses to leave the workspace unable to finish a
+case. Since migration 0035 the database itself also refuses any change that
+leaves a workspace with no owner, on every path, with the same "that would
+leave … with no owner" message; to hand over, make the new owner first.
 
 Two things act **as a person**, and so block that person's demotion or removal
 until they are moved:
@@ -636,7 +712,8 @@ Delete the membership and nothing else. **Never delete the `users` row**: their
 decisions, approvals and events name it. **Never delete their Supabase Auth
 user** either: if they are invited again later, a new Auth user would be a
 different identity, and `link_auth_user()` refuses an address already linked to
-another one. Without a membership, their next request is refused and they are
+another one. That is why §2's query for accounts nobody invited leaves them out.
+Without a membership, their next request is refused and they are
 signed out at the provider (ADR 0045). If they belong to no workspace at all,
 you may also **Ban** them in Supabase → Authentication → Users.
 
@@ -694,15 +771,17 @@ another approver can still approve it.
 ### 5.3 An outside accountant
 
 Give them `accountant_guest`: they see every case, document and figure, and the
-app and the database refuse every change (ADR 0012). Add them to `people` in
-the create block and run it again:
+app and the database refuse every change (ADR 0012). The workspace's owner adds
+them on Settings → Team, or add them to `people` in the create block and run it
+again:
 
 ```
 {"email": "partner@outside-cpa.example", "full_name": "Pat Lee", "role": "accountant_guest"}
 ```
 
-Then invite them as in step 2, and call them "a viewer" in the welcome email.
-They do not count towards the two people who can write.
+Then send them the welcome email as in step 2, calling them "a viewer (outside
+accountant)". Nothing is needed in the Supabase dashboard: their first link
+makes their account. They do not count towards the two people who can write.
 
 ---
 
@@ -763,8 +842,19 @@ On your machine:
    `DATABASE_URL` in `.env` (VERIFY-CHECKLIST §5.8).
 7. **Unmatched payer names**: run the query in [§3](#3-map-the-payer-names-printed-on-documents)
    and alias any new spelling.
-8. **Inngest and Vercel** failure alerts: anything from this workspace's jobs
-   gets read and answered the same day.
+8. **Failure alerts.** A job that fails after its retries emails
+   `ALERT_EMAIL_TO` a message whose subject starts "Mozart: a background job
+   failed" (ADR 0052), at most one per job per hour. Read each one the same
+   day. Open the run it links to, and do what its "What to do" line says.
+   Vercel's own deployment and error notifications cover the rest.
+   - **Check the alert works** before the first customer, and after changing
+     any of `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM` or `RESEND_API_KEY`: Inngest
+     → production → **Events** → **Send event**, with
+     `{"name": "recouple/alert.test", "data": {}}`. An email whose subject
+     starts `[TEST]` should arrive within a minute (VERIFY-CHECKLIST §10).
+   - An alert does not catch a **stalled** job: one that never fails and
+     never finishes. Item 2, **Documents waiting to be read**, is still the
+     check for those.
 
 Also note, per case, **analyst minutes spent**. That number, not the software,
 sets how fast the other sixteen customers can come on (pilot README, "What

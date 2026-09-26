@@ -15,7 +15,7 @@ import { processUpload, type PipelineDeps } from '@recouple/pipeline';
 import { closeAllPools, PostgresStore, sessionPool } from '../src/store';
 import { resolveSession } from '../src/session';
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 function fixtureFor(filename: string): FixtureDocument {

@@ -85,15 +85,25 @@ what enforces each one.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm test` | Vitest across every package (includes the money property tests) |
+| `pnpm test` | Vitest across every package (includes the money property tests). The Postgres integration tests read `TEST_DATABASE_URL`, never `DATABASE_URL`, and skip without it |
 | `pnpm typecheck` | `tsc` over the workspace |
 | `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
 | `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
 | `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
 | `pnpm verify` | typecheck + db:test + test + eval — what CI runs, in that order |
 
-`pnpm db:test` needs `DATABASE_URL` pointing at a throwaway database owned by
-the connecting role.
+`pnpm db:test` and the integration tests need `TEST_DATABASE_URL` pointing at a
+throwaway database owned by the connecting role, and `RECOUPLE_TEST_DATABASE=1`.
+`DATABASE_URL` is the app's and the operator commands' and no test reads it: on
+2026-09-25 a clone's `.env` named production there and the Stop hook ran the
+integration tests against it, leaving rows in append-only tables for good
+(`docs/audits/tests-against-production/`). The test-database guard
+(`scripts/test-database.ts`) runs before any test file loads and before
+`db:test` applies anything, and refuses — the run fails, nothing is sent — a
+test process holding `DATABASE_URL`, a `TEST_DATABASE_URL` without the opt-in
+(or the opt-in without one), a Supabase host, or a database carrying a
+`recouple_app` login, a `supabase_admin` role or applied Supabase migrations.
+It has no override. The Stop hook runs `env -u DATABASE_URL pnpm test`.
 
 ## Build order (do not reorder)
 
@@ -146,7 +156,7 @@ append-only tables.
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
 | `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right. `uploads` is append-only since ADR 0024, so that row cannot be re-labelled after the declines attributed to it were counted; a notice stored before provenance existed gets its channel from a `document_arrivals` row an operator writes with `pnpm link:provenance`, which the database refuses for any document ingest already recorded an arrival for and for any channel but the three doors that existed then. `provenance_kind` says which of the two answered — derived like `discovered_from`, never passed in — so a coverage number can report the split rather than needing three joins to find it |
-| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039) |
+| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
 | `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token |
@@ -866,12 +876,13 @@ the switch.
 **Sign-in and the fan-out refuse callers they were not written for** (ADR 0045,
 migration 0033). The two items ADR 0037 left open, closed as defence in depth,
 since neither was reachable once 0028 was applied and the Data API was off.
-The login form sends `shouldCreateUser: false`, so it creates no Supabase Auth
-user, and an invitation is now the `users` and `memberships` rows **plus**
-Authentication → Users → Add user → Send invitation in the dashboard
-(`apps/web/DEPLOY.md`). The form answers every address alike. An unknown
-address comes back `otp_disabled` (or `signup_disabled` once the project's
-sign-ups are off), and every failure only an existing account can meet (the
+The login form sent `shouldCreateUser: false`, so it created no Supabase Auth
+user, and an invitation was the `users` and `memberships` rows **plus**
+Authentication → Users → Add user → Send invitation in the dashboard — until
+ADR 0051 §6 (below). The form answers every address alike. An unknown
+address comes back `otp_disabled` whatever the sign-up switch says
+(`signup_disabled` only ever answered an existing, unconfirmed account while
+sign-ups were off), and every failure only an existing account can meet (the
 per-address cooldown, the mail quota, the mailer) is answered as sent and
 logged. Only what the provider refuses before it looks at the address is
 shown: its request limit, or no answer at all. `requireSession` signs an
@@ -890,9 +901,9 @@ the file's, both functions are still definer, pinned and of the same result
 type, EXECUTE is held by `app_rw` and the owner alone, no `app` function is
 unpinned, neither project has two users whose addresses differ only in case,
 and a `sub`-only caller is refused by both while a caller with no claims still
-lists the connections (tested in a block that writes nothing). Turning off "Allow new users to sign up" in the
-dashboard is the founder's switch, after the web change is deployed and both
-members have signed in through it.
+lists the connections (tested in a block that writes nothing). "Allow new users to sign up" was off from then
+until 2026-09-26, when the founder switched it on for ADR 0051 §6 — gated by
+the three layers described under Settings → Team (the `web` row).
 
 **Coverage counts each deduction once** (ADR 0038, migration 0029).
 `coverage_by_period_by_source` added `opened + declined`, and `declineCase`
@@ -1508,3 +1519,22 @@ lost it after the read; `buildExtractionResult` now names each one on the
 extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
 page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
 read a duplex scan through the pipeline and back out of Postgres.
+
+**A failed job reaches a person** (ADR 0052, no migration). Inngest has no
+built-in alert for a failed run on any plan, so `alert-on-failure`
+(`apps/web/lib/alerts.ts`) listens for `inngest/function.failed`, filtered to
+`read-document`, `read-inbound-email`, `sync-ledger` and `ledger-sync-fan-out`
+by the ids built from their own configs, and emails `ALERT_EMAIL_TO` through
+Resend with a send-only key. The email carries the function id, a run id
+checked as a ULID, `error.name` checked as an identifier, and a link to the
+run. `parseFailure` never reads `error.message` or `event`, which can quote the
+page, and a test puts a marker in every other field to prove it. One email per
+function per hour (`rateLimit`), `retries: 2`, a Resend refusal that will
+repeat is non-retriable, and a failed send is a log line, because Inngest
+reports no failure of a failure handler. `alertsFromEnv` is `scannerFromEnv`'s
+shape: none of the three variables means off and logged (at most once per job per
+hour, the rate limit still applying), some of
+them is misconfigured and logged as an error, and the variables are Production
+only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
+(VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents
+waiting to be read" stays that check.
