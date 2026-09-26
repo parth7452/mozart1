@@ -333,13 +333,13 @@ Postgres**, schema `hooks`, function `before_user_created`. The migration makes
 the function in a schema of its own, EXECUTE held by `supabase_auth_admin`
 alone, and turns nothing on. It answers `{}` for an invited address and 403
 for any other, on every path that creates an Auth user — sign-up (and so a
-magic link with `create_user`), OAuth, anonymous sign-in, generated links and
-the dashboard's **Send invitation** — except the admin create-user endpoint,
-which needs the service-role key. It gates creation, not use: it never runs for
-an address that already has an Auth user, unconfirmed included. Until it is
-enabled, layers 1 and 3 hold and strays can still be made through the API. To
-roll 0035 back, disable the hook here first: an enabled hook whose function is
-gone fails every account the provider would create.
+magic link with `create_user`), OAuth, anonymous sign-in, generated sign-up
+and invite links and the dashboard's **Send invitation** — except the admin
+create-user endpoint, which needs the service-role key. It gates creation, not
+use: it never runs for an address that already has an Auth user, unconfirmed
+included. Until it is enabled, layers 1 and 3 hold and strays can still be made
+through the API. To roll 0035 back, disable the hook here first: an enabled
+hook whose function is gone fails every account the provider would create.
 
 **Accounts made before the hook.** While sign-ups are on and the hook is off,
 any address can be given an Auth user. It reaches nothing — the app signs out

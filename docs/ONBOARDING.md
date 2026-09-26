@@ -410,7 +410,10 @@ asks the database whether the address is invited (`app.address_is_invited()`:
 exactly one `users` row answers to it ignoring capitals, and that row has a
 membership), and only then lets Supabase create their Auth user, the first
 time they ask for a link (ADR 0051 §6). Any other address gets the same "sent"
-page and no email, and the app logs `otp_disabled`. The before-user-created
+page and, if it has no Auth user yet, no email, and the app logs
+`otp_disabled`. One that already has an Auth user, such as someone removed
+from every workspace, is sent a link and signed out when it opens it (ADR
+0045). The before-user-created
 hook (§0) refuses an account for an address nobody invited however it is asked
 for, and the app refuses any session not made by one of its own email links,
 such as a password sign-in.

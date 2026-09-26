@@ -136,8 +136,8 @@ Add the deployment origin to **Authentication → URL Configuration**:
 Without it, Supabase ignores the app's `emailRedirectTo` and falls back to the
 Site URL, so the magic link lands somewhere that cannot complete the sign-in.
 
-Then the two settings **Who can sign in** depends on: sign-ups on, and the
-before-user-created hook once migration 0035 is applied.
+Then the two settings that [**Who can sign in**](#who-can-sign-in) depends on:
+sign-ups on, and the before-user-created hook once migration 0035 is applied.
 
 ## Who can sign in
 
@@ -161,18 +161,18 @@ workspace in one tested SQL block and has the welcome email.
 2. They sign in at `https://app.mozart.financial/login` with that address. The
    form asks `app.address_is_invited()` — exactly one `users` row answers to
    the address ignoring capitals, and it has a membership — and passes the
-   answer as `shouldCreateUser`, so the provider makes their Auth account on
-   their first link request, and the form asks it to make one for nobody else.
-   That first email is the provider's "Confirm signup" template, and its link
-   signs them in through `/auth/callback`; every later one is an ordinary magic
-   link. The first link's code expires five minutes after it was *sent*: a late
-   click still confirms the address and says "that link has expired", and the
-   next link works.
+   answer as `shouldCreateUser`, so the provider makes their Auth account, if
+   they have none yet, on their first link request, and the form asks it to
+   make one for nobody else. That first email is the provider's "Confirm
+   signup" template, and its link signs them in through `/auth/callback`; every
+   later one is an ordinary magic link. The first link's code expires five
+   minutes after it was *sent*: a late click still confirms the address and
+   says "that link has expired", and the next link works.
 
 The dashboard's **Add user → Send invitation** is no longer needed. It still
-works, but only after step 1: the hook below refuses it for anyone else. Its
-link confirms the address and does not sign them in by itself; they then sign
-in from the form.
+works, but do step 1 first: once enabled, the hook below refuses it for anyone
+else. Its link confirms the address and does not sign them in by itself; they
+then sign in from the form.
 
 This depends on two settings in Supabase, both the founder's:
 
@@ -189,9 +189,9 @@ This depends on two settings in Supabase, both the founder's:
   an account for any address that is not invited, however it was asked for,
   the dashboard's invitation included. It is not called by the admin
   create-user endpoint, which needs the service-role key, and never for an
-  address that already has an unconfirmed Auth account. Until it is on, the
-  form and the session check below still hold, and strays can still be made
-  through the API.
+  address that already has an Auth account, unconfirmed included: it gates
+  creation, not use. Until it is on, the form and the session check below
+  still hold, and strays can still be made through the API.
 
 Apply 0035 to a project before this web change runs against it: the form asks
 `app.address_is_invited()` on every send, and where that function does not

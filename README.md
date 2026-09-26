@@ -282,9 +282,10 @@ your auth user and nothing is pressed in the dashboard (see *Who can sign in*
 in `apps/web/DEPLOY.md`, and ADR 0051 §6). Without the first the magic link
 lands on the Site URL and signs nobody in. Without the second the form asks the
 provider for no account, and `app.link_auth_user()` refuses any you already
-have. Without the third nobody gets a link: with no 0035 the form answers every
-address with a fault and a reference, and with sign-ups off it says a link is
-on its way, as it does for every address, and none is sent.
+have. Without the third a first sign-in gets no link: with no 0035 the form
+answers every address with a fault and a reference, and with sign-ups off an
+address with no auth user yet is told a link is on its way, as every address
+is, and none is sent.
 Walking a case through approval needs a second member with the `owner` or
 `approver` role, because the preparer cannot approve their own packet.
 
