@@ -11,6 +11,8 @@ import {
   tokenFromRecipient,
   type PostmarkInboundPayload,
 } from '../src/email';
+import { acceptUpload } from '../src/sniff';
+import { faxPage } from './tiff-builders';
 
 /**
  * The Postmark inbound payload, read strictly (ADR 0047 §3, §7, §8).
@@ -216,6 +218,23 @@ describe('the parts of an email', () => {
       }),
     );
     expect(isFilePart(parts[0]!)).toBe(true);
+  });
+
+  it('stores a faxed TIFF attachment, which the door then accepts by its bytes (ADR 0054)', async () => {
+    const fax = await faxPage();
+    const parts = planParts(
+      payload({
+        Attachments: [
+          // Fax-to-email gateways often call it anything; the door reads the bytes.
+          { Name: 'FAX_0926.tif', Content: Buffer.from(fax).toString('base64'), ContentType: 'application/octet-stream' },
+        ],
+      }),
+    );
+    const part = parts[0]!;
+    expect(isFilePart(part)).toBe(true);
+    if (!isFilePart(part)) return;
+    expect(acceptUpload(part.bytes, part.filename, { declaredMimeType: part.declaredMimeType ?? '' }))
+      .toMatchObject({ mimeType: 'image/tiff', pageCount: 1 });
   });
 
   it('stores a referenced image at or over the inline limit', () => {

@@ -47,6 +47,7 @@ import {
   RejectedUploadError,
   type ScanVerdict,
 } from '@recouple/ingest';
+import { describeRendition, renderForReading, renditionFilename } from '@recouple/ingest/rendition';
 import type {
   CaseRecord,
   IngestSource,
@@ -271,6 +272,19 @@ interface ReadableDocument {
   readonly payload: DocumentPayloadShape;
   readonly blocks: readonly OcrBlock[];
   readonly calls: readonly ModelCallRecord[];
+  /**
+   * `rendition image/tiff→application/pdf 3p` when the reader was sent a
+   * rendition rather than the stored bytes (ADR 0054), for every model call
+   * the read makes to carry on its `detail`. Types and a count only.
+   */
+  readonly rendition?: string;
+}
+
+/** A call made over a readable document, told when that document was a rendition. */
+function withRendition(call: ModelCallRecord, readable: Pick<ReadableDocument, 'rendition'>): ModelCallRecord {
+  if (readable.rendition === undefined) return call;
+  const detail = call.detail === undefined ? readable.rendition : `${readable.rendition}; ${call.detail}`;
+  return { ...call, detail };
 }
 
 async function readablePayload(
@@ -281,25 +295,35 @@ async function readablePayload(
   // The gate. Nothing below this line runs on an unscanned or unclean file.
   assertScannedClean(verdict, document.documentId);
 
+  // After the gate, never before: a rendition decodes the file, and nothing
+  // decodes a file the scanner has not called clean. For every type but TIFF
+  // this is the stored bytes; for a TIFF it is a PNG or a PDF made here, in
+  // memory, and never stored (ADR 0054). Reducto, the classifier and the
+  // extractor all read the same rendition, so the boxes fall on the pixels the
+  // model saw.
+  const rendition = await renderForReading(document.bytes, document.mimeType);
+  const renditionNote = describeRendition(rendition);
+
   let pageText = document.pageText ?? (await deps.store.pagesFor(document.documentId));
   let textSource: 'embedded' | 'ocr' = 'embedded';
   let blocks: readonly OcrBlock[] = [];
   const calls: ModelCallRecord[] = [];
+  const noted = renditionNote === undefined ? {} : { rendition: renditionNote };
 
   const payload = {
     documentId: document.documentId,
     orgId: document.orgId,
-    filename: document.filename,
-    mimeType: document.mimeType,
-    base64: Buffer.from(document.bytes).toString('base64'),
-    byteSize: document.byteSize,
+    filename: renditionFilename(document.filename, rendition),
+    mimeType: rendition.mimeType,
+    base64: Buffer.from(rendition.bytes).toString('base64'),
+    byteSize: rendition.bytes.byteLength,
   };
 
   const needsOcr = pageText === undefined || pageText.length === 0 || pageText.every((t) => t.trim() === '');
   if (needsOcr && deps.ocr !== undefined) {
     try {
       const result = await deps.ocr.ocr(payload);
-      calls.push(result.call);
+      calls.push(withRendition(result.call, noted));
       await deps.store.recordPages(document.documentId, result.pages);
       pageText = textByPage(result.pages);
       textSource = 'ocr';
@@ -308,7 +332,7 @@ async function readablePayload(
       if (error instanceof OcrError) {
         // A failed read is still a read that cost something, and a recorded
         // failure is the difference between "unverifiable" and "unexplained".
-        calls.push(error.call);
+        calls.push(withRendition(error.call, noted));
       } else {
         throw error;
       }
@@ -322,6 +346,7 @@ async function readablePayload(
     },
     blocks,
     calls,
+    ...noted,
   };
 }
 
@@ -364,7 +389,7 @@ export async function classifyDocument(
   deps: PipelineDeps,
 ): Promise<ClassifyResult> {
   const readable = await readablePayload(document, deps);
-  const result = await deps.classifier.classify(readable.payload);
+  const result = await classifyReadable(readable, deps);
   for (const call of [...readable.calls, result.call]) {
     await deps.store.recordModelCall(call);
   }
@@ -400,7 +425,20 @@ async function readExtraction(
   deps: PipelineDeps,
 ): Promise<ExtractionResult> {
   const extracted = await deps.extractor.extract(readable.payload, docType);
-  return { ...extracted, fields: attachBoxes(extracted.fields, readable.blocks) };
+  return {
+    ...extracted,
+    call: withRendition(extracted.call, readable),
+    fields: attachBoxes(extracted.fields, readable.blocks),
+  };
+}
+
+/** The classification, its call told when the document was a rendition. */
+async function classifyReadable(
+  readable: ReadableDocument,
+  deps: PipelineDeps,
+): Promise<ClassifyResult> {
+  const result = await deps.classifier.classify(readable.payload);
+  return { ...result, call: withRendition(result.call, readable) };
 }
 
 async function recordExtraction(
@@ -883,7 +921,7 @@ export async function readDocument(
   // the stored text and so never calls OCR, would arrive with no boxes at all.
   const readable = await readablePayload(document, deps);
 
-  const classification = await deps.classifier.classify(readable.payload);
+  const classification = await classifyReadable(readable, deps);
 
   const extraction = await readExtraction(readable, classification.docType, deps);
 

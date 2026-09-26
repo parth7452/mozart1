@@ -22,6 +22,7 @@ const UNSCANNED_ID = '44444444-4444-4444-4444-444444444444';
 const SCAN_ERROR_ID = '33333333-3333-3333-3333-333333333333';
 const EMAILED_UNSCANNED_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ANOTHER_TENANTS_ID = '99999999-9999-9999-9999-999999999999';
+const TIFF_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 function stored(documentId: string, mimeType: string, filename: string, text: string): StoredDocument {
   const bytes = new TextEncoder().encode(text);
@@ -97,6 +98,10 @@ const documents = new Map<
       source: 'email_body',
     },
   ],
+  [
+    TIFF_ID,
+    { document: stored(TIFF_ID, 'image/tiff', 'FAX_0926.tif', 'II*\u0000'), scan: 'clean', source: 'web_upload' },
+  ],
 ]);
 
 /** Every id whose bytes were fetched, so a refusal can be shown to fetch none. */
@@ -167,6 +172,12 @@ describe('the document route', () => {
     const response = await get(ZIP_ID);
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
     expect(response.headers.get('content-disposition')).toBe('attachment; filename="claims.zip"');
+  });
+
+  it('downloads a TIFF’s original, which only Safari could draw in place (ADR 0054)', async () => {
+    const response = await get(TIFF_ID);
+    expect(response.headers.get('content-type')).toBe('application/octet-stream');
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="FAX_0926.tif"');
   });
 
   it('answers a document it cannot see with a 404', async () => {

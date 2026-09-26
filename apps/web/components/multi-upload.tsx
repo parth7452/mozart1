@@ -98,7 +98,7 @@ export function MultiUpload({
         </button>
       </div>
       <p className="upload-limit" id={inputId === undefined ? undefined : `${inputId}-limit`}>
-        PDF, PNG, JPEG, GIF or WebP, up to {UPLOAD_MAX_MB} MB each. Choose as many as you like;
+        PDF, PNG, JPEG, GIF, WebP, TIFF or HEIC, up to {UPLOAD_MAX_MB} MB each. Choose as many as you like;
         they are sent one at a time.
       </p>
       {rows.length === 0 ? null : (

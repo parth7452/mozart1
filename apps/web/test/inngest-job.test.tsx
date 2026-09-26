@@ -1,3 +1,4 @@
+import { RenditionError } from '@recouple/ingest/rendition';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
@@ -684,6 +685,9 @@ describe('what a failed read says to Inngest', () => {
       // either (ADR 0044); both reasons it can give are settled.
       new ClassificationFloorError(ORG_ID, 'missing'),
       new ClassificationFloorError(ORG_ID, 'unreadable'),
+      // A stored TIFF libvips will not decode fails the same way every time
+      // (ADR 0054 §3).
+      new RenditionError('page 1 of the stored TIFF will not decode'),
     ];
     for (const error of settled) {
       expect(asJobFailure(error, ids)).toBeInstanceOf(NonRetriableError);

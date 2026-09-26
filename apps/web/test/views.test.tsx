@@ -30,7 +30,7 @@ import {
 } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
 import { UNATTACHED_SHOWN, confidencePercent, deadline, fieldLabel, money, unattachedCount } from '../lib/format';
-import { displaysInline } from '../lib/document-types';
+import { displaysInline, viewsThroughRendition } from '../lib/document-types';
 import { tallyOf } from './case-tally';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
@@ -1629,6 +1629,19 @@ describe('the review page for a case the ledger sync opened', () => {
     expect(html).not.toContain('document 1');
   });
 
+  it('shows a TIFF through its rendition and offers the original as a download (ADR 0054)', () => {
+    const html = render({
+      documents: [document({ mimeType: 'image/tiff', filename: 'FAX_0926.tif' })],
+    });
+    // The embed is the rendition, with no type of its own: the response says
+    // whether it is a PNG or a PDF.
+    expect(html).toContain(`src="/api/document/${NOTICE_DOC}/view"`);
+    expect(html).not.toContain(`src="/api/document/${NOTICE_DOC}"`);
+    expect(html).not.toContain('type="image/tiff"');
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}/view"`);
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}">Download the original</a>`);
+  });
+
   it('links an original it cannot show in place, instead of embedding a download', () => {
     const html = render({
       documents: [document({ mimeType: 'application/zip', filename: 'claims.zip' })],
@@ -1653,6 +1666,15 @@ describe('which documents a page may show in place', () => {
     expect(displaysInline('text/html')).toBe(false);
     expect(displaysInline('image/svg+xml')).toBe(false);
     expect(displaysInline('application/octet-stream')).toBe(false);
+    // Only Safari draws a TIFF: it is shown through its rendition instead.
+    expect(displaysInline('image/tiff')).toBe(false);
+  });
+
+  it('shows a TIFF through a rendition, and nothing a browser can draw itself', () => {
+    expect(viewsThroughRendition('image/tiff')).toBe(true);
+    for (const type of ['application/pdf', 'image/png', 'image/jpeg', 'application/json', 'application/zip']) {
+      expect(viewsThroughRendition(type)).toBe(false);
+    }
   });
 });
 
