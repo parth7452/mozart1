@@ -4,6 +4,7 @@ import type {
   CaseMerges,
   CaseWorkflow,
   PossibleDuplicatePair,
+  ServingRefusal,
   UnattachedDocument,
 } from '@recouple/pipeline';
 import {
@@ -16,6 +17,7 @@ import {
 import { DECLINE_LABELS, MISSING_EVIDENCE_LABELS } from '../lib/decline-labels';
 import { displaysInline } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
+import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
@@ -331,6 +333,13 @@ export function CaseReview({
   for (const named of [...fields, ...documents]) {
     if (named.filename !== '') filenames.set(named.documentId, named.filename);
   }
+  // What the document route will refuse, so the packet does not link to it.
+  const unservable = new Map<string, ServingRefusal>();
+  for (const document of documents) {
+    if (document.servingRefusal !== null) {
+      unservable.set(document.documentId, document.servingRefusal);
+    }
+  }
   const said = resolveNotice(notice, noticeAbout ?? []);
   // A decline moves no state (ADR 0043), so the case still reads `classified`;
   // this is what says it is decided. Either read answers: the workflow's row,
@@ -402,6 +411,13 @@ export function CaseReview({
                   {documents.length === 0
                     ? 'No document is on this case yet.'
                     : 'This case has no record of the document it was opened from.'}
+                </p>
+              ) : primary.servingRefusal !== null ? (
+                // The route would answer 409; a frame of that answer is a
+                // broken page, so the page says it in place.
+                <p className="empty">
+                  {primary.filename === '' ? 'The original document' : primary.filename} is on this
+                  case and is not shown. {SERVING_REFUSED[primary.servingRefusal]}
                 </p>
               ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
@@ -579,6 +595,7 @@ export function CaseReview({
               mayApprove={mayApprove}
               viewerUserId={viewerUserId}
               filenames={filenames}
+              unservable={unservable}
             />
 
             {/* Fighting and declining are the two answers to the same

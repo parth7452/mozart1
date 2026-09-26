@@ -6,8 +6,9 @@ import {
   type CaseState,
   type ReasonFamily,
 } from '@recouple/core-domain';
-import type { CaseWorkflow } from '@recouple/pipeline';
+import type { CaseWorkflow, ServingRefusal } from '@recouple/pipeline';
 import { CONFIRMATION_MAX_LENGTH, NOTE_MAX_LENGTH } from '../lib/notices';
+import { SERVING_REFUSED } from '../lib/serve-document';
 
 /**
  * The reasons a deduction is disputed, as the form offers them.
@@ -57,6 +58,12 @@ export interface CaseActionsProps {
   readonly viewerUserId: string;
   /** Filenames for the documents in the packet, from the fields already read. */
   readonly filenames: ReadonlyMap<string, string>;
+  /**
+   * The case's documents whose bytes are not served, and why (`servingRefusal`).
+   * Listed without a link, and the zip is not offered while the packet holds
+   * one: both routes would answer 409.
+   */
+  readonly unservable: ReadonlyMap<string, ServingRefusal>;
 }
 
 /**
@@ -80,6 +87,7 @@ export function CaseActions({
   mayApprove,
   viewerUserId,
   filenames,
+  unservable,
 }: CaseActionsProps) {
   const decision = workflow?.decision;
   const packet = workflow?.packet;
@@ -178,17 +186,30 @@ export function CaseActions({
           </h2>
           <pre className="narrative">{packet.narrative}</pre>
           <ul className="filelist">
-            {packet.fileDocumentIds.map((documentId, index) => (
-              <li key={documentId}>
-                <a href={`/api/document/${documentId}`}>
-                  {filenames.get(documentId) ?? `document ${index + 1}`}
-                </a>
-              </li>
-            ))}
+            {packet.fileDocumentIds.map((documentId, index) => {
+              const name = filenames.get(documentId) ?? `document ${index + 1}`;
+              const refusal = unservable.get(documentId);
+              return (
+                <li key={documentId}>
+                  {refusal === undefined ? (
+                    <a href={`/api/document/${documentId}`}>{name}</a>
+                  ) : (
+                    <>
+                      {name} — {SERVING_REFUSED[refusal]}
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <p className="hint" style={{ margin: '12px 0 0' }}>
             <a href={`/cases/${deductionId}/packet/letter`}>Printable letter</a> (print or save
-            as PDF) · <a href={`/cases/${deductionId}/packet/enclosures`}>All enclosures (.zip)</a>{' '}
+            as PDF) ·{' '}
+            {packet.fileDocumentIds.some((documentId) => unservable.has(documentId)) ? (
+              <>no enclosures zip while a document above is not served</>
+            ) : (
+              <a href={`/cases/${deductionId}/packet/enclosures`}>All enclosures (.zip)</a>
+            )}{' '}
             · <a href={`/cases/${deductionId}/packet`}>Letter as text</a> — each exactly this
             packet, served through the same policies as everything else here.
           </p>
