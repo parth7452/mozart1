@@ -28,7 +28,7 @@ import {
   PossibleDuplicates,
 } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
-import { confidencePercent, deadline, fieldLabel, money } from '../lib/format';
+import { UNATTACHED_SHOWN, confidencePercent, deadline, fieldLabel, money, unattachedCount } from '../lib/format';
 import { displaysInline } from '../lib/document-types';
 import { tallyOf } from './case-tally';
 
@@ -245,6 +245,29 @@ describe('the case list', () => {
     expect(html).toContain('4 docs');
   });
 
+  it('says "1 case needs attention", not "need"', () => {
+    const one = { ...NO_QUEUE, read: { ...NO_QUEUE.read, total: 1 } };
+    const html = renderToStaticMarkup(
+      <EveryCaseList queue={one} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(html).toContain('1 case needs attention.');
+    expect(html).not.toContain('1 case need attention.');
+  });
+
+  it('links a case that has no name by its claim id, never by a bare dash', () => {
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[summary({ debtorName: undefined, retailerKey: undefined, retailerNameAsPrinted: undefined })]}
+        today={today}
+      />,
+    );
+    const link = html.match(/<a[^>]*href="\/cases\/11111111-2222-3333-4444-555555555555"[^>]*>([^<]*)<\/a>/);
+    expect(link?.[1]).toBe('APDP-99812');
+  });
+
   it('leads with the review queue and gives writers working section links', () => {
     const writer = renderToStaticMarkup(
       <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
@@ -256,6 +279,9 @@ describe('the case list', () => {
     expect(writer).toContain('href="#documents"');
     expect(writer).toContain('id="documents"');
     expect(writer).toContain('0 awaiting a case');
+    // The store returns at most UNATTACHED_SHOWN, newest first, and no total.
+    expect(unattachedCount(UNATTACHED_SHOWN - 1)).toBe(String(UNATTACHED_SHOWN - 1));
+    expect(unattachedCount(UNATTACHED_SHOWN)).toBe(`${UNATTACHED_SHOWN}+`);
     expect(writer).toContain('href="#add-document"');
     expect(writer).toContain('id="add-document"');
 

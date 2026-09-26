@@ -12,7 +12,7 @@ import {
   type FiledNothingByAddress,
   type ReviewQueueRead,
 } from '@recouple/store-postgres';
-import { money } from '../lib/format';
+import { money, unattachedCount } from '../lib/format';
 import {
   caseMetrics,
   isFiltered,
@@ -167,7 +167,7 @@ export function CaseList({
             <p className="page-description">
               {queue.read.total === 0
                 ? 'No cases need attention right now.'
-                : `${queue.read.total.toLocaleString('en-US')} case${queue.read.total === 1 ? '' : 's'} need attention.`}
+                : `${queue.read.total.toLocaleString('en-US')} ${queue.read.total === 1 ? 'case needs' : 'cases need'} attention.`}
             </p>
             <nav className="dashboard-jump" aria-label="On this page">
               <a href="#work-queue-title">Review queue</a>
@@ -249,7 +249,7 @@ export function CaseList({
                 <p className="eyebrow">FILE AND ORGANIZE</p>
                 <h2 id="documents-title">Documents</h2>
               </div>
-              <p>{(unattached ?? []).length.toLocaleString('en-US')} awaiting a case</p>
+              <p>{unattachedCount((unattached ?? []).length)} awaiting a case</p>
             </div>
             <MultiUpload
               formId="add-document"

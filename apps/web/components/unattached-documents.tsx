@@ -1,7 +1,7 @@
 import { isClosed } from '@recouple/core-domain';
 import type { DocumentHold, UnattachedDocument } from '@recouple/pipeline';
 import type { AttachTargets, CaseSummary } from '@recouple/store-postgres';
-import { confidencePercent, docTypeLabel, fieldLabel, money } from '../lib/format';
+import { confidencePercent, docTypeLabel, fieldLabel, money, unattachedCount } from '../lib/format';
 import { emailLine } from './inbound-email';
 
 /**
@@ -48,7 +48,7 @@ export function UnattachedDocuments({
     <div id="unattached-documents" className="card unattached">
       <p className="eyebrow">Read, not on a case</p>
       <h2 className="section" style={{ marginTop: 0 }}>
-        Documents awaiting a case <span className="document-count">({documents.length.toLocaleString('en-US')})</span>
+        Documents awaiting a case <span className="document-count">({unattachedCount(documents.length)})</span>
       </h2>
       <p className="document-intro">
         Attach evidence to a case or review a held notice. Attaching uses the reading already

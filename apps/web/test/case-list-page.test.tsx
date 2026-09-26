@@ -17,6 +17,7 @@ import type {
   ReviewQueueRow,
 } from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
+import { UNATTACHED_SHOWN } from '../lib/format';
 
 /**
  * The case list as a page, rather than as a component.
@@ -250,7 +251,7 @@ describe('the case list page', () => {
     // nothing because it is evidence, and appeared nowhere.
     const html = await render();
 
-    expect(harness.unattachedCalls).toEqual([undefined]);
+    expect(harness.unattachedCalls).toEqual([UNATTACHED_SHOWN]);
     expect(html).toContain('Read, not on a case');
     expect(html).toContain('08_log-202.jpg');
     expect(html).toContain('proof of delivery');
@@ -305,7 +306,7 @@ describe('the case list page', () => {
   it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
     harness.unattached = [];
     const html = await render();
-    expect(harness.unattachedCalls).toEqual([undefined]);
+    expect(harness.unattachedCalls).toEqual([UNATTACHED_SHOWN]);
     expect(harness.attachCalls).toEqual([]);
     expect(html).not.toContain('Read, not on a case');
   });

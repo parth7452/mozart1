@@ -96,8 +96,10 @@ export function CaseTable({
                         ? `Review case ${row.claimId ?? row.deductionId.slice(0, 8)}`
                         : undefined}
                     >
-                      {who.name}
+                      {who.name === '—' ? (row.claimId ?? row.deductionId.slice(0, 8)) : who.name}
                     </Link>
+                    {/* Nothing was read for a name: say so, and link by the claim. */}
+                    {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
                     {who.matched ? null : <span className="unmatched">not matched</span>}
                   </td>
                   <td>
