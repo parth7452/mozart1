@@ -458,6 +458,14 @@ never-invited address got the same green notice and no email: both logs said
 went to Gmail's spam folder** (Supabase's default "You've been invited" email;
 the branded sign-in email always reached the inbox). Claude ran 2.1, 2.3, 2.4
 and 2.6 in an automated browser; you did 2.2, the 2.4 invitation and 2.5.
+That run was of this section's **earlier version** (2.4 a dashboard
+invitation, 2.5 switching open sign-ups off, 2.6 a re-check), before ADR 0051
+rewrote it. Sign-ups have been on again since 07:06 UTC with the hook, and the
+read-only tester's and tester B's Auth accounts were deleted at 07:01, so each
+signs in again from the form, where the first link makes a new account. The
+steps below, 2.4–2.7 as they now read, are not recorded here. The branded
+templates in [`docs/email-templates/`](email-templates/README.md) are the fix
+for the spam folder.
 
 **R1 — who is invited where.** The last column becomes `true` once that
 person has reached the app.
