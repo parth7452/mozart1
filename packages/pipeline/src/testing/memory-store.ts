@@ -591,7 +591,9 @@ export class InMemoryStore
       }));
 
     // The probable branch's candidates: every case of this tenant's filed
-    // against this invoice, whatever opened it.
+    // against this invoice, whatever opened it. This store models no merges,
+    // so a case's invoice rows are its own; Postgres reads a merged-away
+    // case's as its survivor's (ADR 0042 §10, audit F5).
     const knownDeductions: KnownDeduction[] = [];
     if (input.invoiceNumber !== undefined) {
       const key = identifierMatchKey(input.invoiceNumber);
