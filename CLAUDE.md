@@ -483,13 +483,15 @@ document's claim, `PostgresStore.withDocumentRead`, a `pg_try_advisory_xact_lock
 on `hashtextextended(document_id, 0)` as `app_rw` with the tenant's claims, on
 its own pool so a connection held for a whole read cannot starve the reads. A
 delivery that does not get the claim answers `beingRead` and spends nothing
-rather than waiting. It is transaction-scoped, not session-scoped, because
+rather than waiting — unless it has a case to file the document on, when it
+retries after `ATTACH_WAITS_FOR_READ_MS` (below). It is transaction-scoped, not session-scoped, because
 `DATABASE_URL` is the Supabase transaction pooler: a session lock could be taken
 on one server connection and unlocked on another, and the document would be
 unreadable for ever. *A redelivery of the same event* is also caught by the
 runtime, within its window — `idempotency: 'event.data.readKey'`, where an upload
-sets `readKey` to the document id and the re-drive route sets a fresh
-`randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
+that names no case sets `readKey` to the document id, one that names a case sets
+it to `attachReadKey(document, case)` (since 2026-09-26, below), and the
+re-drive route sets a fresh `randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
 production showed a run invoked once, answered with a step plan and never called
 back to execute the step — no error, no log, the reviewer's notice saying "being
 read" for ever, and the event sent to recover it swallowed by that key's own
@@ -545,11 +547,23 @@ dedupe to the document already read, and `answerFromRecord` — asked first by
 the inline upload, by the request that would queue a read and by the job —
 files the recorded reading on the case with `attachEvidence` rather than
 reading it again (`evidence.attached`, `read_again: false`, no model call;
-`jobs.test.ts` and `upload-route.test.tsx`). What it cannot reach is an upload
-to a second case while the first read is still running: nothing is recorded
-yet, so it is queued, and the upload's `readKey` (the document id) is the
-first upload's, whose idempotency window swallows it. Keying an attachment's
-read on the case too is a follow-up.
+`jobs.test.ts` and `upload-route.test.tsx`). An upload to a second case while
+the first read is still running has nothing on record to be answered from, so
+it is queued, and until 2026-09-26 it was lost twice over: its `readKey` was
+the document id, the first upload's, so the idempotency window swallowed it;
+and had it run, it would have found the document claimed and reported
+`beingRead` as a success, filing nothing. Now an upload that names a case keys
+its read on the pair, `attachReadKey(document, case)` — deterministic and
+UUID-shaped, so a redelivery of that upload is still one read — and a delivery
+that finds its document claimed *and* has a case to file on fails its step with
+`RetryAfterError` (`ATTACH_WAITS_FOR_READ_MS`, two minutes, three retries)
+rather than succeeding. The retry takes the claim and files the first read's
+recording on the second case with no model call, or reads the document itself
+if the first read failed; a read that outlasts every retry (about six minutes,
+an estimate no slow dense read has been timed against) fails the run where
+`alert-on-failure` sees it, and the reviewer uploads the file to the case
+again. A delivery with no case to file on still answers
+`beingRead` and succeeds (`inngest-job.test.tsx`).
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
