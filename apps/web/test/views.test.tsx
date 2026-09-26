@@ -245,6 +245,27 @@ describe('the case list', () => {
     expect(html).toContain('4 docs');
   });
 
+  it('leads with the review queue and gives writers working section links', () => {
+    const writer = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(writer).toContain('<h1>Deductions</h1>');
+    expect(writer).toContain('No cases need attention right now.');
+    expect(writer.indexOf('id="work-queue-title"')).toBeLessThan(writer.indexOf('aria-label="Deduction overview"'));
+    expect(writer).toContain('href="#ledger"');
+    expect(writer).toContain('href="#documents"');
+    expect(writer).toContain('id="documents"');
+    expect(writer).toContain('0 awaiting a case');
+    expect(writer).toContain('href="#add-document"');
+    expect(writer).toContain('id="add-document"');
+
+    const reader = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload={false} viewer={{ ...viewer, role: 'read_only' }} cases={[]} today={today} />,
+    );
+    expect(reader).not.toContain('href="#documents"');
+    expect(reader).not.toContain('id="documents"');
+  });
+
   it('takes its figures from every case, and says the table holds only the newest', () => {
     // A tenant with 240 cases, of which the store listed the newest two. The
     // figures are the tally's; before, they were summed from the two rows.
@@ -1035,9 +1056,26 @@ describe('the review page', () => {
         today={today}
       />,
     );
-    expect(html).toContain('WALMART STORES, INC.');
+    expect(html).toContain('<h1>WALMART STORES, INC.</h1>');
     expect(html).toContain('not matched to a debtor');
     expect(html).not.toContain('Retailer unknown');
+  });
+
+  it('keeps case references and document access visible under the named heading', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview documents={[document()]} mayAct={false} viewer={viewer}
+        summary={summary({ claimId: undefined, invoiceNumber: 'INV-271003' })}
+        fields={[field()]} reconciliation={undefined} costMicros={0} today={today} />,
+    );
+    expect(html).toContain('<h1>Walmart (APDP)</h1>');
+    expect(html).toContain('Case 11111111');
+    expect(html).toContain('Invoice INV-271003');
+    for (const section of ['evidence', 'decision', 'history']) {
+      expect(html).toContain(`href="#case-${section}"`);
+      expect(html).toContain(`id="case-${section}"`);
+    }
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}"`);
+    expect(html).toContain('Open full document');
   });
 
   it('heads a remittance-originated case with its invoice and the code as printed', () => {

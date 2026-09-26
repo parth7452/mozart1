@@ -159,17 +159,21 @@ export function CaseList({
 
   return (
     <WorkspaceShell viewer={viewer}>
-      <main id="workspace-main" className="workspace-main">
-        <div className="page-heading">
+      <main id="workspace-main" className="workspace-main dashboard-main">
+        <div className="page-heading dashboard-heading">
           <div>
-            <p className="eyebrow">REVENUE, RECONCILED.</p>
-            <h1>
-              Your deductions.
-              <br className="mobile-break" /> In focus.
-            </h1>
+            <p className="eyebrow">YOUR WORKSPACE</p>
+            <h1>Deductions</h1>
             <p className="page-description">
-              From the first notice to the final outcome. Every detail, in one place.
+              {queue.read.total === 0
+                ? 'No cases need attention right now.'
+                : `${queue.read.total.toLocaleString('en-US')} case${queue.read.total === 1 ? '' : 's'} need attention.`}
             </p>
+            <nav className="dashboard-jump" aria-label="On this page">
+              <a href="#work-queue-title">Review queue</a>
+              <a href="#ledger">All deductions</a>
+              {mayUpload ? <a href="#documents">Documents</a> : null}
+            </nav>
           </div>
           {mayUpload ? (
             <a className="button-link" href="#add-document">
@@ -177,22 +181,16 @@ export function CaseList({
             </a>
           ) : null}
         </div>
+        {said === undefined ? null : (
+          <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
+        )}
+        <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
         <section className="metrics" aria-label="Deduction overview">
           <div className="metric featured">
             <span className="metric-label">TOTAL DEDUCTED</span>
             <strong>{money(total)}</strong>
             <span className="metric-note">
               Across {caseCount} recorded case{plural}
-            </span>
-            <span className="metric-bars" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
-              <i />
             </span>
           </div>
           <div className="metric">
@@ -206,7 +204,7 @@ export function CaseList({
             <span className="metric-note">Review and submission</span>
           </div>
           <div className="metric">
-            <span className="metric-label">DEADLINES TO WATCH</span>
+            <span className="metric-label">KNOWN DEADLINES TO WATCH</span>
             <strong>
               {metrics.deadlineCount.toLocaleString('en-US')}
               <span className="metric-dot" aria-hidden="true" />
@@ -214,10 +212,6 @@ export function CaseList({
             <span className="metric-note">Due within {DUE_SOON_DAYS} days or overdue · unfiled</span>
           </div>
         </section>
-        {said === undefined ? null : (
-          <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
-        )}
-        <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
         <section id="ledger" className="card ledger" aria-label="Deduction ledger">
           <div className="ledger-heading">
             <div>
@@ -249,33 +243,38 @@ export function CaseList({
           )}
         </section>
         {mayUpload ? (
-          <MultiUpload
-            formId="add-document"
-            className="card upload"
-            inputId="file"
-            buttonLabel="Read them"
-            notices={browserUploadNotices()}
-          >
-            <label htmlFor="file">
-              <strong>Add documents</strong>
-              <span>
-                A deduction notice opens a case. Anything else is read and waits for a case to be
-                attached to. Nothing is submitted anywhere either way.
-              </span>
-            </label>
-          </MultiUpload>
+          <section id="documents" className="documents-area" aria-labelledby="documents-title">
+            <div className="documents-heading">
+              <div>
+                <p className="eyebrow">FILE AND ORGANIZE</p>
+                <h2 id="documents-title">Documents</h2>
+              </div>
+              <p>{(unattached ?? []).length.toLocaleString('en-US')} awaiting a case</p>
+            </div>
+            <MultiUpload
+              formId="add-document"
+              className="card upload"
+              inputId="file"
+              buttonLabel="Read them"
+              notices={browserUploadNotices()}
+            >
+              <label htmlFor="file">
+                <strong>Add documents</strong>
+                <span>
+                  A deduction notice opens a case. Anything else is read and waits for a case to be
+                  attached to. Nothing is submitted anywhere either way.
+                </span>
+              </label>
+            </MultiUpload>
+            <PossibleDuplicates pairs={duplicates ?? []} />
+            <UnattachedDocuments
+              documents={unattached ?? []}
+              targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
+            />
+            <EmailThatFiledNothing groups={filedNothing ?? []} domain={inboundDomain} />
+            <UnreadDocuments documents={unread ?? []} />
+          </section>
         ) : null}
-        {mayUpload ? <PossibleDuplicates pairs={duplicates ?? []} /> : null}
-        {mayUpload ? (
-          <UnattachedDocuments
-            documents={unattached ?? []}
-            targets={attachTargets ?? { rows: [], total: 0, limit: ATTACH_TARGETS_LIMIT }}
-          />
-        ) : null}
-        {mayUpload ? (
-          <EmailThatFiledNothing groups={filedNothing ?? []} domain={inboundDomain} />
-        ) : null}
-        {mayUpload ? <UnreadDocuments documents={unread ?? []} /> : null}
         <footer className="workspace-footer">
           <span>YOUR REVENUE. ORCHESTRATED.</span>
           <span>mozart.</span>

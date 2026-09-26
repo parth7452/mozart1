@@ -374,10 +374,14 @@ export function CaseReview({
         </Link>
         <div className="page-heading case-heading">
           <div>
-            <p className="eyebrow">THE DETAILS BEHIND THE DEDUCTION</p>
-            <h1>{summary.claimId ?? summary.deductionId.slice(0, 8)}</h1>
-            <p className="page-description">
-              {who.name} · {money(summary.deductionAmountCents)} deducted
+            <p className="eyebrow">CASE REVIEW</p>
+            <h1>{who.name}</h1>
+            <p className="case-amount">{money(summary.deductionAmountCents)} deducted</p>
+            <p className="case-references">
+              {summary.claimId === undefined
+                ? `Case ${summary.deductionId.slice(0, 8)}`
+                : `Claim ${summary.claimId}`}
+              {summary.invoiceNumber === undefined ? null : <> · Invoice {summary.invoiceNumber}</>}
             </p>
           </div>
           <div className="case-badges">
@@ -387,15 +391,20 @@ export function CaseReview({
             {due !== undefined ? <span className={`pill ${due.tone}`}>{due.label}</span> : null}
           </div>
         </div>
+        <nav className="case-jump" aria-label="Case sections">
+          <a href="#case-evidence">Evidence</a>
+          <a href="#case-decision">Decision</a>
+          <a href="#case-history">History</a>
+        </nav>
         <div className="review">
           <div>
-            <div className="card">
+            <div id="case-evidence" className="card">
               <h2 className="section" style={{ marginTop: 0 }}>
-                {who.name}
-                {who.matched ? null : (
-                  <span className="unmatched">not matched to a debtor</span>
-                )} · {money(summary.deductionAmountCents)} deducted
+                Original deduction document
               </h2>
+              {who.matched ? null : (
+                <p className="case-match-note">{who.name} is not matched to a debtor.</p>
+              )}
               {/* What the document printed about this deduction beyond its
                   amount. A remittance-line case has both (ADR 0028); a notice
                   case has the invoice where its notice printed one. Both are
@@ -424,6 +433,14 @@ export function CaseReview({
                 </p>
               ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
+                  <a
+                    className="doc-view-link"
+                    href={`/api/document/${primary.documentId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open full document <span aria-hidden="true">↗</span>
+                  </a>
                   {/* The bytes come back through the same policies as the rest of
                       the page, sandboxed so a document cannot do anything but be
                       looked at. The type is the document's own: a notice that
@@ -532,6 +549,11 @@ export function CaseReview({
               <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
             )}
 
+            <div id="case-decision" className="case-section-heading">
+              <p className="eyebrow">REVIEW WORK</p>
+              <h2>Decision</h2>
+              <p>Review the deadline, evidence and actions available for this case.</p>
+            </div>
             <CaseMergeNotes deductionId={summary.deductionId} merges={merges} mayAct={mayAct} />
 
             {/* Not on a case merged into another (ADR 0042): the database
@@ -634,13 +656,14 @@ export function CaseReview({
               </div>
             ) : null}
 
-            <CaseTimeline workflow={workflow} viewerUserId={viewerUserId} />
+            <section id="case-history" aria-label="History">
+              <CaseTimeline workflow={workflow} viewerUserId={viewerUserId} />
+            </section>
 
             <div className="gate">
-              Nothing leaves this app. A dispute is filed by a person on the retailer&rsquo;s portal
-              and recorded here, and the database refuses a submission that has no approval row for
-              this exact decision — so the approve card is a second person&rsquo;s, and it is the
-              only way this case moves.
+              Nothing leaves this app when you decide. A person files the dispute on the
+              retailer&rsquo;s portal. The database refuses a submission that has no approval row for
+              this exact decision, so a second person must approve it first.
               <br />
               <br />
               {spendSentence({ costMicros, documents, fieldCount: fields.length })}

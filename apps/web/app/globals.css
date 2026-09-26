@@ -675,3 +675,81 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
   .queue-step { grid-row: 3; grid-column: 2; justify-self: end; }
   .queue-bucket h3 { padding-inline: 16px; }.queue-bucket-hint, .queue-more { padding-inline: 16px; }
 }
+
+/* Deductions workspace: keep these overrides on the two review pages. */
+.dashboard-main .dashboard-heading { align-items: flex-start; margin-bottom: 22px; }
+.dashboard-main .dashboard-heading h1 { font-size: clamp(30px, 2.5vw, 38px); }
+.dashboard-main .dashboard-heading .page-description { margin-top: 6px; font-size: 15px; color: var(--ink); }
+.dashboard-jump, .case-jump { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 17px; font-size: 12px; }
+.dashboard-jump a, .case-jump a { color: var(--accent); text-decoration: none; border-bottom: 1px solid #9eabb5; padding-bottom: 3px; }
+.dashboard-jump a:hover, .case-jump a:hover { border-color: var(--accent); }
+.dashboard-main .queue { margin-bottom: 16px; }
+.dashboard-main .queue-columns, .dashboard-main .queue-row { grid-template-columns: minmax(150px, 1.5fr) minmax(120px, 1fr) minmax(90px, .75fr) minmax(135px, 1fr) minmax(165px, 1.2fr); }
+.dashboard-main .queue-row { padding-block: 12px; font-size: 13px; }
+.dashboard-main .queue-case-link, .dashboard-main .case-name-link { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: #aeb9c1; text-underline-offset: 4px; }
+.dashboard-main .queue-case-link:hover, .dashboard-main .case-name-link:hover { text-decoration-color: var(--ink); }
+.dashboard-main .queue-claim, .dashboard-main .case-claim { color: var(--ink-soft); font-size: 11px; }
+.dashboard-main .queue-amount { font-size: 14px; font-weight: 600; }
+.dashboard-main .queue-unknown { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.dashboard-main .queue-unknown.has-unknown { color: var(--warn); }
+.dashboard-main .metrics { margin-bottom: 24px; gap: 10px; }
+.dashboard-main .metric { padding: 15px 17px; min-height: 114px; }
+.dashboard-main .metric-label { font-size: 10px; letter-spacing: .7px; }
+.dashboard-main .metric strong { font-size: 27px; margin: 7px 0 5px; letter-spacing: -.8px; }
+.dashboard-main .metric-note { font-size: 11px; line-height: 1.4; }
+.dashboard-main table.cases td { padding-block: 14px; }
+.dashboard-main .case-name-link { display: inline-block; font-size: 13px; }
+.documents-area { scroll-margin-top: 24px; }
+.documents-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin: 3px 0 15px; }
+.documents-heading .eyebrow { margin-bottom: 4px; }
+.documents-heading h2 { font-size: 21px; letter-spacing: -.5px; font-weight: 500; margin: 0; }
+.documents-heading > p { color: var(--muted); font-size: 12px; margin: 0; }
+.documents-area .card.unattached { padding-top: 22px; }
+.documents-area .card.unattached .eyebrow { margin: 0 0 5px; }
+.documents-area .card.unattached h2.section { color: var(--ink); font-size: 17px; letter-spacing: -.35px; text-transform: none; }
+.document-count { color: var(--muted); font-size: 14px; }
+.document-intro { margin: 6px 0 12px; font-size: 13px; }
+.document-help { color: var(--muted); font-size: 12px; margin-bottom: 15px; }
+.document-help summary { width: fit-content; cursor: pointer; color: var(--accent); }
+.document-help p { max-width: 700px; margin: 7px 0 0; }
+.documents-area .unattached-row { padding-block: 11px; }
+.documents-area .unattached-name { font-weight: 600; }
+.case-main .case-heading { margin-bottom: 10px; }
+.case-main .case-heading h1 { font-size: clamp(29px, 2.8vw, 39px); font-weight: 500; }
+.case-amount { margin: 10px 0 2px; font-size: 20px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.case-references { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.case-main .case-jump { margin: 0 0 21px; }
+.case-main #case-evidence, .case-main #case-decision, .case-main #case-history { scroll-margin-top: 24px; }
+.case-main #case-evidence h2.section { color: var(--ink); font-size: 15px; letter-spacing: -.2px; text-transform: none; }
+.case-match-note { color: var(--muted); font-size: 12px; margin: -2px 0 9px; }
+.doc-view-link { display: inline-flex; gap: 7px; margin: 0 0 10px; font-size: 12px; }
+.case-section-heading { padding: 1px 2px 10px; }
+.case-section-heading .eyebrow { margin-bottom: 4px; }
+.case-section-heading h2 { font-size: 20px; font-weight: 500; margin: 0; }
+.case-section-heading p:last-child { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+.case-main .gate { font-size: 12px; }
+@media(max-width:1200px) {
+  .dashboard-main .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:1180px) {
+  .dashboard-main .queue-columns { display: none; }
+  .dashboard-main .queue-row { grid-template-columns: minmax(0,1fr) auto; gap: 6px 14px; }
+  .dashboard-main .queue-who { grid-row: 1; grid-column: 1; }
+  .dashboard-main .queue-amount { grid-row: 1; grid-column: 2; }
+  .dashboard-main .queue-claim { grid-row: 2; grid-column: 1 / -1; }
+  .dashboard-main .queue-due { grid-row: 3; grid-column: 1; }
+  .dashboard-main .queue-step { grid-row: 3; grid-column: 2; justify-self: end; text-align: right; }
+  .case-main .doc embed { height: 48vh; max-height: 420px; min-height: 0; }
+}
+@media(max-width:760px) {
+  .dashboard-main .dashboard-heading { gap: 15px; }
+  .dashboard-main .dashboard-heading .page-description { font-size: 14px; }
+  .dashboard-main .metric { min-height: 103px; padding: 13px; }
+  .dashboard-main .metric strong { font-size: 23px; }
+  .dashboard-main .metric-label { font-size: 9px; }
+  .dashboard-main .metric-note { font-size: 10px; }
+  .dashboard-main .queue-row { padding: 13px 16px; }
+  .documents-heading { align-items: start; flex-direction: column; gap: 4px; }
+  .case-main .case-heading { gap: 10px; }
+  .case-main .doc embed { height: 280px; max-height: 280px; min-height: 0; }
+}

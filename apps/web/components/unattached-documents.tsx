@@ -45,16 +45,23 @@ export function UnattachedDocuments({
   const open = targets.rows.filter((summary) => !isClosed(summary.state));
 
   return (
-    <div className="card unattached">
+    <div id="unattached-documents" className="card unattached">
+      <p className="eyebrow">Read, not on a case</p>
       <h2 className="section" style={{ marginTop: 0 }}>
-        Read, not on a case
+        Documents awaiting a case <span className="document-count">({documents.length.toLocaleString('en-US')})</span>
       </h2>
-      <p className="empty">
-        These were read and are kept, but no case holds them. A deduction notice or a short-paid
-        remittance opens its own case when the reading is sure; one that is held says why, and a
-        person decides. A delivery receipt, an invoice or a rate confirmation is evidence for a
-        case. Attaching files what was already read — it is not read again.
+      <p className="document-intro">
+        Attach evidence to a case or review a held notice. Attaching uses the reading already
+        recorded; it is not read again.
       </p>
+      <details className="document-help">
+        <summary>How these documents are handled</summary>
+        <p>
+          A deduction notice or short-paid remittance can open a case when the reading is sure.
+          A held document needs a person to decide. Delivery receipts, invoices and rate
+          agreements can be attached as evidence.
+        </p>
+      </details>
       {open.length === 0 ? null : <p className="empty">{offeredLine(open.length, targets)}</p>}
       {/* A list on the review queue's grid (ADR 0043) rather than a table: on a
           phone a row stacks, so its actions are never scrolled out of reach. */}
