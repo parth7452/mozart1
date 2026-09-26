@@ -1,6 +1,7 @@
 import { Inngest, NonRetriableError } from 'inngest';
 import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
+import { RenditionError } from '@recouple/ingest/rendition';
 import {
   CaseMergedAwayError,
   CaseNotFoundError,
@@ -478,6 +479,10 @@ export function asJobFailure(
     // thirty seconds either. It is raised before anything is spent, so a retry
     // would cost nothing — but it would say nothing new, three more times.
     error instanceof ClassificationFloorError ||
+    // A stored TIFF libvips will not decode fails the same way on every try
+    // (ADR 0054 §3); it is raised before anything is spent, and a retry would
+    // only decode it again to hear the same answer.
+    error instanceof RenditionError ||
     isCheckConstraintViolation(error);
 
   const name = error instanceof Error ? error.name : typeof error;

@@ -1,3 +1,4 @@
+import { ALLOWED_MIME_TYPES } from '@recouple/ingest';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MultiUpload } from '../components/multi-upload';
@@ -223,8 +224,23 @@ describe('the upload form', () => {
     expect(html).toContain(`accept="${UPLOAD_ACCEPT}"`);
     expect(html).toContain(`up to ${UPLOAD_MAX_MB} MB each`);
     expect(html).not.toContain('attachToCase');
-    // TIFF is not a type the door accepts, so the picker does not offer it.
-    expect(UPLOAD_ACCEPT).not.toMatch(/tif/);
+    // The picker offers the door's types and nothing else: TIFF since ADR
+    // 0054, and not HEIC, which the door still refuses.
+    const byExtension: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.tif': 'image/tiff',
+      '.tiff': 'image/tiff',
+    };
+    const offered = UPLOAD_ACCEPT.split(',');
+    expect(new Set(offered.map((extension) => byExtension[extension]))).toEqual(
+      new Set(ALLOWED_MIME_TYPES),
+    );
+    expect(UPLOAD_ACCEPT).not.toMatch(/heic|heif/);
   });
 
   it('carries the case it attaches evidence to', () => {

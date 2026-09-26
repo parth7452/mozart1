@@ -13,6 +13,7 @@ import type { StoredDocument } from '@recouple/pipeline';
 
 const EXTRACT_ID = '77777777-7777-7777-7777-777777777777';
 const ZIP_ID = '88888888-8888-8888-8888-888888888888';
+const TIFF_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 function stored(documentId: string, mimeType: string, filename: string, text: string): StoredDocument {
   const bytes = new TextEncoder().encode(text);
@@ -39,6 +40,7 @@ const documents = new Map([
     ),
   ],
   [ZIP_ID, stored(ZIP_ID, 'application/zip', 'claims.zip', 'PK')],
+  [TIFF_ID, stored(TIFF_ID, 'image/tiff', 'FAX_0926.tif', 'II*\u0000')],
 ]);
 
 vi.mock('../lib/session', () => ({
@@ -86,6 +88,12 @@ describe('the document route', () => {
     const response = await get(ZIP_ID);
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
     expect(response.headers.get('content-disposition')).toBe('attachment; filename="claims.zip"');
+  });
+
+  it('downloads a TIFF’s original, which only Safari could draw in place (ADR 0054)', async () => {
+    const response = await get(TIFF_ID);
+    expect(response.headers.get('content-type')).toBe('application/octet-stream');
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="FAX_0926.tif"');
   });
 
   it('answers a document it cannot see with a 404', async () => {

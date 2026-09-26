@@ -87,8 +87,10 @@ Each of these is live in production.
 
 ### Limits to tell the customer: not fixed in 68 hours
 
-- **File types:** PDF, PNG, JPEG, GIF and WebP only. No TIFF, HEIC, XLSX, CSV
-  or Word.
+- **File types:** PDF, PNG, JPEG, GIF, WebP and TIFF (single or multi-page,
+  fax included, ADR 0054). No HEIC, XLSX, CSV or Word. HEIC waits on a
+  founder decision about its LGPL decoder; an iPhone usually sends JPEG
+  anyway.
 - **Size:** about 3.3 MB of attachments per email.
 - **Dense documents:**
   - a remittance past about 120 rows fails loudly (the extraction output
@@ -177,7 +179,7 @@ everything and changes nothing.
   Supabase admin API, and the service role never goes in a request path
   (invariant 6).
 - **Dense remittances**: paging them.
-- **More file types**: XLSX/CSV import, TIFF and HEIC.
+- **More file types**: XLSX/CSV import and HEIC. TIFF is in (ADR 0054).
 - **Duplicates F2–F5**: each needs an ADR.
 - **Large files**: direct-to-storage upload needs an ADR, because it is a new
   place where unscanned bytes sit.
@@ -189,7 +191,7 @@ None of the seven invariants moves for the pilot.
 | When | Work |
 | --- | --- |
 | Week 1 (Sep 28 – Oct 2) | Fix what customer #1 hits. Email-in's failure paths (§5.6–5.8), then give out addresses. Large-file upload (ADR). "Found while writing this" #5 (a decline leaves no trace) and #6 (dash lines). The case-list figures count declined cases as open |
-| Week 2 (Oct 5–9) | Customers 2–5, batched by vertical. Paged extraction for dense remittances. Spreadsheet deduction reports (ADR: a cell's provenance). TIFF and HEIC. A daily digest of held documents and deadlines (ADR: it is a new outbound side effect) |
+| Week 2 (Oct 5–9) | Customers 2–5, batched by vertical. Paged extraction for dense remittances. Spreadsheet deduction reports (ADR: a cell's provenance). HEIC, once its decoder's LGPL licence is decided (TIFF landed early, ADR 0054). A daily digest of held documents and deadlines (ADR: it is a new outbound side effect) |
 | Weeks 3–4 (Oct 12–23) | Customers 6–17. Phase 2 task 04, playbooks, seeded from the pilots' own payers: computed deadlines and the payer-code map, once draft D is accepted. Tasks 01, 02 and 05 need no data. Duplicates F2–F5 (ADRs), before any coverage number is shown to a customer as a result |
 | Month 2 | Phase 4 billing once outcomes land, counting recoveries per surviving duplicate group first (audit). Phase 2 tasks 06, 10 and 11 as decisions and outcomes accrue. Jev when access arrives |
 

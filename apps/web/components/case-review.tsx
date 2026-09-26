@@ -14,7 +14,7 @@ import {
   type MissingEvidence,
   type StoredField,
 } from '@recouple/store-postgres';
-import { displaysInline } from '../lib/document-types';
+import { displaysInline, viewsThroughRendition } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
@@ -450,6 +450,30 @@ export function CaseReview({
                     title="Original deduction document"
                     src={`/api/document/${primary.documentId}`}
                     type={primary.mimeType}
+                    height={820}
+                  />
+                </div>
+              ) : viewsThroughRendition(primary.mimeType) ? (
+                <div className="doc">
+                  <a
+                    className="doc-view-link"
+                    href={`/api/document/${primary.documentId}/view`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open full document <span aria-hidden="true">↗</span>
+                  </a>{' '}
+                  <a className="doc-view-link" href={`/api/document/${primary.documentId}`}>
+                    Download the original
+                  </a>
+                  {/* A TIFF no browser but Safari can draw, shown as the
+                      rendition its read was given — a PNG or a PDF made for
+                      this request and never stored (ADR 0054). The original is
+                      the file that arrived, and it downloads. No `type`: the
+                      rendition's is the response's to say. */}
+                  <embed
+                    title="Original deduction document"
+                    src={`/api/document/${primary.documentId}/view`}
                     height={820}
                   />
                 </div>

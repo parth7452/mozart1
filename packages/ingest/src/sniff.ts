@@ -11,6 +11,8 @@ import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { judgeOpenAction } from './pdf-open-action';
 import { scanPdfNames } from './pdf-names';
+import { RejectedUploadError } from './sniff-errors';
+import { MAX_TIFF_PAGE_PIXELS, MAX_TIFF_TOTAL_PIXELS, inspectTiff, isClassicTiff } from './tiff';
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -26,6 +28,10 @@ export const ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/gif',
   'image/webp',
+  // Fax servers and office scanners write it, often several pages to a file.
+  // Neither reader takes it, so a read gets a rendition derived from it and
+  // never stored (ADR 0054). Classic TIFF only: BigTIFF matches no signature.
+  'image/tiff',
 ] as const;
 
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
@@ -44,25 +50,7 @@ export const EMAIL_BODY_MIME = 'text/plain' as const;
 
 export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME;
 
-export type RejectionCode =
-  | 'empty_file'
-  | 'body_too_short'
-  | 'too_large'
-  | 'type_not_allowed'
-  | 'content_does_not_match_type'
-  | 'encrypted_pdf'
-  | 'active_content_pdf'
-  | 'decompression_bomb'
-  | 'malformed_pdf';
-
-export class RejectedUploadError extends Error {
-  constructor(
-    readonly code: RejectionCode,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { RejectedUploadError, type RejectionCode } from './sniff-errors';
 
 function startsWith(bytes: Uint8Array, signature: readonly number[], offset = 0): boolean {
   if (bytes.length < offset + signature.length) return false;
@@ -78,6 +66,7 @@ const SIGNATURES: Record<AllowedMimeType, (bytes: Uint8Array) => boolean> = {
     startsWith(b, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]),
   'image/webp': (b) =>
     startsWith(b, [0x52, 0x49, 0x46, 0x46]) && startsWith(b, [0x57, 0x45, 0x42, 0x50], 8),
+  'image/tiff': isClassicTiff, // II*\0 or MM\0*
 };
 
 /** What the bytes actually are, regardless of what the upload claimed. */
@@ -423,6 +412,19 @@ export function acceptUpload(
     if (inspection.pageCount === 0) {
       warnings.push('no page objects found: the PDF may be malformed or use an unusual structure');
     }
+  }
+
+  if (detected === 'image/tiff') {
+    // Structure only, never pixels: the door is synchronous and runs before a
+    // byte is stored. The page chain bounds what the read-time decoder will be
+    // asked to do (ADR 0054 §1), so a TIFF past the page or pixel caps is
+    // refused here rather than discovered by libvips.
+    const tiff = inspectTiff(bytes, {
+      maxPages: MAX_PAGES_PER_READ,
+      maxPagePixels: MAX_TIFF_PAGE_PIXELS,
+      maxTotalPixels: MAX_TIFF_TOTAL_PIXELS,
+    });
+    pageCount = tiff.pages.length;
   }
 
   return {

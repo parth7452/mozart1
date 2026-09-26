@@ -33,6 +33,7 @@ export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
  * What the upload forms offer in the file picker: the types the door accepts
  * (`ALLOWED_MIME_TYPES` in `@recouple/ingest`) and nothing else. The door
  * checks magic bytes whatever this says; this only stops the picker offering a
- * TIFF the door will refuse.
+ * file the door will refuse. TIFF since ADR 0054; HEIC waits on a decision
+ * about its decoder's licence.
  */
-export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp';
+export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff';
