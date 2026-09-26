@@ -6,6 +6,10 @@
   id and onto a per-request `readKey`; a document that was queued and never read
   is visible with a way to re-drive it; and the read's own guard is held under a
   per-document lock in the database, because a guard on its own loses a race.
+- Amended: 2026-09-26 — an upload that names a case keys its read on the
+  (document, case) pair, and a delivery that finds its document claimed while
+  it has a case to file on waits for the read in front of it instead of
+  answering `beingRead` (*Amendment, 2026-09-26*, below).
 
 ## Context
 
@@ -164,7 +168,9 @@ set, on its own pool so a connection held for the length of a read cannot starve
 the reads themselves. A delivery that does not get the claim is told so
 (`beingRead`) and spends nothing; it does not wait, because waiting would hold a
 worker for the length of somebody else's model calls to learn something it can
-be told immediately. *Transaction*-scoped and not session-scoped on purpose:
+be told immediately. (Amended 2026-09-26: a delivery with a case to file the
+document on does wait, by retrying rather than by holding a worker — see
+*Amendment, 2026-09-26*, below.) *Transaction*-scoped and not session-scoped on purpose:
 `DATABASE_URL` is Supabase's transaction pooler, where a session lock can be
 taken on one server connection and unlocked on another — which would leave a
 document permanently unreadable. A transaction is the unit that pooler
@@ -210,7 +216,9 @@ as well as the queued one: the record for a delivery that arrives late, the lock
 for one that overlaps.
 
 One interaction survives the change and is worth keeping written down rather than
-rediscovering. An upload's `readKey` *is* the document id, so within the window
+rediscovering. (Amended 2026-09-26: it no longer survives — see *Amendment,
+2026-09-26*, below. The paragraph is kept as it was decided.) An upload's
+`readKey` *is* the document id, so within the window
 the runtime still suppresses a second upload of the same bytes — which is what a
 reviewer does when they attach the same BOL to a second deduction from that
 case's page. The read that upload wanted is a real one: the guard deliberately
@@ -403,3 +411,35 @@ To remove it entirely: delete `apps/web/app/api/inngest/route.ts`,
 `inngest` dependency. `packages/pipeline/src/jobs.ts` can stay — it is two
 functions over the existing ports and `processUpload` is the same code either
 way.
+
+## Amendment, 2026-09-26 — an attachment's read is keyed on its case, and waits
+
+The interaction written down above was met: the same bytes uploaded to a second
+case while the first upload's read was still running had nothing on record to be
+answered from, so they were queued — and lost twice over. The event's `readKey`
+was the document id, the first upload's, so the idempotency window swallowed it;
+and had it run, it would have found the document claimed and answered
+`beingRead` as a success, filing nothing on the second case while the reviewer
+was told the document was being read for it.
+
+Two things change, both in `apps/web/lib`, with no migration:
+
+- **An upload that names a case keys its read on the pair,
+  `attachReadKey(document, case)`** — deterministic and UUID-shaped, so a
+  redelivery of that upload is still one read, and a second case's upload is a
+  different request. An upload that names no case still keys on the document
+  id, and the re-drive route still sets a fresh `randomUUID()`.
+- **A delivery that finds its document claimed and has a case to file on fails
+  its step with `RetryAfterError`** (`ATTACH_WAITS_FOR_READ_MS`, two minutes,
+  with `READ_DOCUMENT_CONFIG.retries` at three) instead of succeeding. This is
+  not the wait the decision above refused: no worker is held for the length of
+  somebody else's model calls, because the runtime schedules the retry. The
+  retry takes the claim and is answered from the record — the first read's
+  recording filed on the second case with `attachEvidence`, no model call — or,
+  if the first read failed, reads the document itself. A read that outlasts
+  every retry fails the run, where `alert-on-failure` (ADR 0052) sees it.
+
+A delivery with no case to file on still answers `beingRead` and succeeds, for
+the reason given above: there is nothing it could do by waiting that the first
+read is not already doing. `apps/web/test/inngest-job.test.tsx` and
+`apps/web/test/upload-route.test.tsx` hold both halves.

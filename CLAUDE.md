@@ -483,13 +483,15 @@ document's claim, `PostgresStore.withDocumentRead`, a `pg_try_advisory_xact_lock
 on `hashtextextended(document_id, 0)` as `app_rw` with the tenant's claims, on
 its own pool so a connection held for a whole read cannot starve the reads. A
 delivery that does not get the claim answers `beingRead` and spends nothing
-rather than waiting. It is transaction-scoped, not session-scoped, because
+rather than waiting — unless it has a case to file the document on, when it
+retries after `ATTACH_WAITS_FOR_READ_MS` (below). It is transaction-scoped, not session-scoped, because
 `DATABASE_URL` is the Supabase transaction pooler: a session lock could be taken
 on one server connection and unlocked on another, and the document would be
 unreadable for ever. *A redelivery of the same event* is also caught by the
 runtime, within its window — `idempotency: 'event.data.readKey'`, where an upload
-sets `readKey` to the document id and the re-drive route sets a fresh
-`randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
+that names no case sets `readKey` to the document id, one that names a case sets
+it to `attachReadKey(document, case)` (since 2026-09-26, below), and the
+re-drive route sets a fresh `randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
 production showed a run invoked once, answered with a step plan and never called
 back to execute the step — no error, no log, the reviewer's notice saying "being
 read" for ever, and the event sent to recover it swallowed by that key's own
