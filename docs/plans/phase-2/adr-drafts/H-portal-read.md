@@ -1,6 +1,8 @@
 # Draft H — Reading a retailer portal, one retailer at a time, and never writing to it
 
-- Status: **proposed**
+> Promoted to ADR 0057 (proposed, 2026-09-26).
+
+- Status: **superseded by ADR 0057**
 - Date: 2026-09-24
 - Builds on: STRATEGY §5.1 and §5.4 (portal **read** moves to Phase 2; portal
   **write** stays in Phase 6), CLAUDE.md ("Portal credentials, when they
