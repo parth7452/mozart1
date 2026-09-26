@@ -63,7 +63,10 @@ export function pipelineDepsFor<S extends PipelineDeps['store']>(
     store,
     scanner,
     classifier: new ClaudeClassifier(),
-    extractor: new ClaudeExtractor(),
+    // No paged reads here (ADR 0053 §6): a dense remittance read in parts takes
+    // minutes, past the 300 s a job may run, and a killed read records none of
+    // what it spent. A cut-off fails loudly with its cost instead.
+    extractor: new ClaudeExtractor({ paging: false }),
     ...(ocr !== undefined ? { ocr } : {}),
     now: () => new Date(),
   };

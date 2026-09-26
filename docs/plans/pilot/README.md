@@ -91,8 +91,13 @@ Each of these is live in production.
   or Word.
 - **Size:** about 3.3 MB of attachments per email.
 - **Dense documents:**
-  - a remittance past about 120 rows fails loudly (the extraction output
-    budget), so large distributor remittances need splitting;
+  - a remittance past about 120 rows is read again in two-page parts and
+    joined (ADR 0053): a 190-row, five-page advice read correctly for about
+    $1.05, but took 344 seconds, past the job's 300-second limit, so the
+    app does not page and a remittance that dense fails loudly in
+    production until the founder picks a fix (ADR 0053 §6); until then,
+    large distributor remittances still need splitting, at about 100 rows a
+    file;
   - a PDF over 100 pages is refused.
 - **Ledgers:** QuickBooks Online only. No NetSuite, Sage or Dynamics.
 - **Filing is theirs.** We file nothing, and there is no per-payer portal
