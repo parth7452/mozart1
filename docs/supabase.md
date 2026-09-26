@@ -279,6 +279,11 @@ machine that runs these commands.
   magic link comes back to the wrong place.
 - **Email confirmations** are what a magic link is; the built-in SMTP is
   rate-limited and fine for a handful of testers, not for customers.
+- **Email templates** are the branded ones in
+  [`docs/email-templates/`](email-templates/README.md), on both projects:
+  Confirm signup, Magic link and Invite user. Authentication → Emails →
+  Templates. The defaults went to Gmail's spam folder on 2026-09-26 with DKIM,
+  SPF and DMARC all passing.
 - A person can only sign in if they were invited, and an invitation is a
   `users` row with their address and a `memberships` row for their tenant:
   an owner writes both on **Settings → Team**, and the operator's SQL

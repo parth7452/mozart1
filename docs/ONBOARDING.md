@@ -82,6 +82,11 @@ On our side, check these once, not per customer:
   then production). Until the hook is enabled, anyone holding the public anon
   key can make an Auth user for any address. Such an account reaches nothing,
   and [§2](#accounts-nobody-invited) lists them so you can delete them.
+- **The auth emails are the branded ones** in
+  [`docs/email-templates/`](email-templates/README.md): Confirm signup (a new
+  person's first link), Magic link and Invite user. Supabase's defaults are
+  plain enough that Gmail put both of our first dashboard invitations in spam
+  (2026-09-26), while the branded sign-in email reached the inbox.
 
 ### Which `org_settings` values matter for a pilot
 
@@ -432,7 +437,8 @@ from the form.
 
 **What the invitee sees.** They type their address on the sign-in page and
 press **Email me a sign-in link**. The first time, the email is Supabase's
-**Confirm signup** email rather than one that says "sign in": its link
+**Confirm signup** email rather than one that says "sign in" (with the
+branded templates, "Welcome to Mozart: your first sign-in link"): its link
 confirms their address and signs them in, through `/auth/callback`. Every link
 after that is an ordinary sign-in link. Each one only works **in the browser
 that asked for it**, and the first one expires **five minutes after it was
