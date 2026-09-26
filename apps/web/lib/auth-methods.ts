@@ -60,7 +60,8 @@ export function tokenFacts(token: string | undefined): TokenFacts | undefined {
 
   const methods: string[] = [];
   for (const entry of amr) {
-    // Older tokens wrote the method as a bare string; current ones an object.
+    // The provider writes objects; a custom access-token hook may write bare
+    // strings (auth-js types the claim as either).
     const method =
       typeof entry === 'string'
         ? entry

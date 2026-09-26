@@ -21,7 +21,7 @@ import { supabaseForRequest } from '../../lib/supabase';
  *
  * This is the form's half of the gate and not the whole of it. The anon key is
  * public, so anyone can call the provider's own endpoints without this form;
- * the provider's `before-user-created` hook (`app.hook_before_user_created`)
+ * the provider's `before-user-created` hook (`hooks.before_user_created`)
  * asks the database the same question for every account, however it was asked
  * for, and `requireSession` refuses a session signed in with a password (ADR
  * 0051 §6).

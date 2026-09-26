@@ -204,6 +204,17 @@ What the source says about the hook, and why layer 3 is still needed:
   `jsonb_build_object` and an integer, and suite 31 pins the exact JSON. An
   exception fails the request closed.
 
+**Three dashboard settings layer 3 depends on, which stay as they are.**
+"Confirm email" on: with it off, `/signup` for an existing unconfirmed address
+hands back a session at once (a `password` one, which layer 3 refuses, but
+nothing should rest on one layer). "Secure email change" on: a session the app
+refuses is still a session to the provider, and without it a password session
+could move the account to an attacker's address and come back through an email
+link. The phone provider off: `otp` is also what a phone code records, though a
+phone-only account has no address `link_auth_user()` could match. A Custom
+Access Token hook could refuse a password session at the provider itself; that
+is a follow-up, not needed for layer 3 to hold.
+
 **What an operator's dashboard invitation does now.** It runs the hook too, so
 inviting an address with no `users` row and membership is refused. Add the
 person first (Settings → Team, or ONBOARDING §1), and then either nothing more
