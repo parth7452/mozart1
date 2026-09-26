@@ -545,11 +545,21 @@ dedupe to the document already read, and `answerFromRecord` — asked first by
 the inline upload, by the request that would queue a read and by the job —
 files the recorded reading on the case with `attachEvidence` rather than
 reading it again (`evidence.attached`, `read_again: false`, no model call;
-`jobs.test.ts` and `upload-route.test.tsx`). What it cannot reach is an upload
-to a second case while the first read is still running: nothing is recorded
-yet, so it is queued, and the upload's `readKey` (the document id) is the
-first upload's, whose idempotency window swallows it. Keying an attachment's
-read on the case too is a follow-up.
+`jobs.test.ts` and `upload-route.test.tsx`). An upload to a second case while
+the first read is still running has nothing on record to be answered from, so
+it is queued, and until 2026-09-26 it was lost twice over: its `readKey` was
+the document id, the first upload's, so the idempotency window swallowed it;
+and had it run, it would have found the document claimed and reported
+`beingRead` as a success, filing nothing. Now an upload that names a case keys
+its read on the pair, `attachReadKey(document, case)` — deterministic and
+UUID-shaped, so a redelivery of that upload is still one read — and a delivery
+that finds its document claimed *and* has a case to file on fails its step with
+`RetryAfterError` (`ATTACH_WAITS_FOR_READ_MS`, two minutes, three retries)
+rather than succeeding. The retry takes the claim and files the first read's
+recording on the second case with no model call, or reads the document itself
+if the first read failed; a read that outlasts every retry fails the run where
+`alert-on-failure` sees it. A delivery with no case to file on still answers
+`beingRead` and succeeds (`inngest-job.test.tsx`).
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
