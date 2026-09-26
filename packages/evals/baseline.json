@@ -1,11 +1,11 @@
 {
-  "recordedAt": "2026-09-25T16:22:24.139Z",
+  "recordedAt": "2026-09-26T08:11:52.131Z",
   "extractModel": "claude-sonnet-5",
-  "recall": 0.9886128364389234,
-  "precision": 0.9906639004149378,
-  "groundedRate": 0.9894597622108418,
+  "recall": 0.9929161747343566,
+  "precision": 0.9940898345153665,
+  "groundedRate": 0.9895948934645489,
   "classificationAccuracy": 1,
-  "totalCostMicros": 2094696,
+  "totalCostMicros": 3145039,
   "suites": {
     "authored": {
       "recall": 1,
@@ -38,6 +38,13 @@
     "dense": {
       "recall": 1,
       "precision": 1,
+      "groundedRate": 1,
+      "classificationAccuracy": 1,
+      "documents": 1
+    },
+    "dense_paged": {
+      "recall": 0.9986263736263736,
+      "precision": 0.9986263736263736,
       "groundedRate": 1,
       "classificationAccuracy": 1,
       "documents": 1
@@ -84,8 +91,5 @@
       "classificationAccuracy": 1,
       "documents": 10
     }
-  },
-  "pendingSuites": {
-    "dense_paged": "not yet recorded: 1 fixture documents, no cassettes. `pnpm record:cassettes --suite dense_paged` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }
