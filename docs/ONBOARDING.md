@@ -401,46 +401,55 @@ select u.email, a.created_at as account_made_at, a.email_confirmed_at, a.last_si
 Team → Add a person (ADR 0051). That writes the `users` row and the membership
 that the create block writes, with the same rules (one row per address
 ignoring capitals, an existing member refused by name, an audit row naming the
-owner). It does **not** create their sign-in: step 1 below is still ours for
-anyone who has never signed in to Mozart. The page tells the owner "Mozart
-still has to send their sign-in invitation", so expect them to tell you, and
-check the **Supabase only** invitation-status query above in the week-one
-routine: a `NOT INVITED` row is someone an owner added. Someone who already
-signs in to another workspace needs nothing from us, and the page tells the
-owner they can sign in at once. Why the page cannot send the invitation itself
-while sign-ups are off is ADR 0051 §6.
+owner). Nothing else is needed from us: the page shows the owner a welcome
+message to send, and the person signs in at
+**https://app.mozart.financial/login** with that address.
 
-The sign-in form never creates an account (`shouldCreateUser: false`, ADR 0045).
-So a person with a `users` row but no Supabase Auth user gets no email, and the
-app logs `otp_disabled`, or `signup_disabled` once sign-ups are off. The
-invitation is what creates that user.
+**The `users` row and membership are the whole invitation.** The sign-in form
+asks the database whether the address is invited (`app.address_is_invited()`:
+exactly one `users` row answers to it ignoring capitals, and that row has a
+membership), and only then lets Supabase create their Auth user, the first
+time they ask for a link (ADR 0051 §6). Any other address gets the same "sent"
+page and no email, and the app logs `otp_disabled`. The before-user-created
+hook (§0) refuses an account for an address nobody invited however it is asked
+for, and the app refuses any session not made by one of its own email links,
+such as a password sign-in.
 
-**For each person** who is not yet `linked` in the query above:
+**For each person**, once step 1 has run: send them the welcome email below.
+Nothing is pressed in the Supabase dashboard. Someone who already signs in to
+another workspace, such as our analyst, already has an Auth user, so the
+invitation-status query above shows them `linked`.
 
-1. Supabase dashboard → **Authentication → Users → Add user → Send
-   invitation**. Use exactly the address from the block.
-2. Send them the welcome email below, **after** the invitation, so it arrives
-   second.
+The dashboard invitation (**Authentication → Users → Add user → Send
+invitation**) still works as a fallback, but is no longer needed. The hook runs
+for it too, so it is refused for an address with no `users` row and
+membership: add the person first. Its link confirms the address and lands on
+the sign-in page still signed out, as it always did, and they then sign in
+from the form.
 
-Skip step 1 for someone who already signs in to another workspace, such as our
-analyst. They already have an Auth user, so the first query shows them
-`linked`.
-
-**What the invitee sees.** An email from Supabase's mailer with a link. The link
-confirms their address and lands on the app's sign-in page, **still signed
-out**. That is expected: the app only accepts a session from `/auth/callback`,
-and the invitation link does not go there (`apps/web/DEPLOY.md`, "Who can sign
-in"). They then sign in from the form: type the address, press **Email me a
-sign-in link**, and open that second email **in the same browser**, because the
-link only works in the browser that asked for it.
+**What the invitee sees.** They type their address on the sign-in page and
+press **Email me a sign-in link**. The first time, the email is Supabase's
+**Confirm signup** email rather than one that says "sign in": its link
+confirms their address and signs them in, through `/auth/callback`. Every link
+after that is an ordinary sign-in link. Each one only works **in the browser
+that asked for it**, and the first one expires **five minutes after it was
+sent**, not five minutes after it is opened.
 
 **If it goes wrong:**
 
-- *No invitation email.* Check spam, then Supabase → Logs → Auth. Re-send from
-  the same screen.
-- *"That link has expired".* They opened the sign-in link in a different
-  browser or app. They should request a new one and paste it into the browser
-  that asked for it.
+- *No email.* Check spam, then the app's log for `[sign-in link]`, which says
+  why for every address it did not send to, and Supabase → Logs → Auth.
+  `NOT SENT to an invited address` means Supabase refused to make the account:
+  check that sign-ups are on and the hook is set as in §0. `no link sent`
+  (`otp_disabled`) means the address is not invited: run the read-back,
+  including R4, since two `users` rows in different capitals are not an
+  invitation.
+- *"That link has expired" on the first link.* They opened it more than five
+  minutes after it was sent. Their address is confirmed anyway: they ask for a
+  new link, and that one works.
+- *"That link has expired" otherwise.* They opened the sign-in link in a
+  different browser or app. They should request a new one and paste it into
+  the browser that asked for it.
 - *Signed straight back out.* They have an Auth user but no membership, or
   their address differs in capitals from another `users` row. Run the
   read-back.
@@ -448,6 +457,8 @@ link only works in the browser that asked for it.
 ### The welcome email
 
 Send it from your own address, one per person. Replace the `<…>` parts.
+Settings → Team shows an owner the same message, without the two paragraphs
+for an owner or an approver, when they add someone.
 
 > **Subject:** Your <Workspace name> workspace on Mozart
 >
@@ -456,20 +467,16 @@ Send it from your own address, one per person. Replace the `<…>` parts.
 > You have been added to <Workspace name>'s workspace on Mozart as
 > **<role in words: an owner / an approver / an analyst / a viewer>**.
 >
-> Getting in takes two emails, about a minute apart:
+> To sign in, go to **https://app.mozart.financial/login**, type **<their
+> address>** under *Work email* and press **Email me a sign-in link**. Open the
+> link in that email **in the same browser**. If your email app opens it
+> somewhere else you will see "that link has expired"; copy it into the browser
+> where you asked for it instead. There is no password.
 >
-> 1. **An invitation from Supabase** (our sign-in provider), sent just before
->    this message. Click its link once. It opens the Mozart sign-in page, and
->    you will **not** be signed in yet. That is expected: the link only
->    confirms your address.
-> 2. On that page, type **<their address>** under *Work email* and press
->    **Email me a sign-in link**. Open the link in that email **in the same
->    browser**. If your email app opens it somewhere else, you'll see "that
->    link has expired". Copy the link into the browser where you asked for it
->    instead.
->
-> From then on, sign in at **https://app.mozart.financial/login** the same way
-> (step 2). There is no password.
+> The first time, the email comes from our sign-in provider and asks you to
+> confirm your address. Open it within five minutes: its link signs you in. If
+> you are too late it says the link has expired, and the next link you ask for
+> will work.
 >
 > <For an owner:> On our call on <day, time> we'll connect your QuickBooks
 > together. You'll need to be able to sign in to QuickBooks Online as an admin
@@ -479,13 +486,46 @@ Send it from your own address, one per person. Replace the `<…>` parts.
 > another. The app will never let the same person do both, so you'll see
 > "Waiting for another approver" on cases you prepared yourself.
 >
-> If either email hasn't arrived within ten minutes, check spam, then reply to
-> me.
+> If the email hasn't arrived within ten minutes, check spam, then reply to me.
 >
 > <Your name>
 
-For `read_only` and `accountant_guest`, say "a viewer": they can see every case
-and document and change nothing.
+For `read_only`, say "a viewer", and for `accountant_guest` "a viewer (outside
+accountant)", as the Team page does: they can see every case and document and
+change nothing.
+
+### Accounts nobody invited
+
+While sign-ups are on and the hook is not enabled, anyone holding the public
+anon key can make a Supabase Auth user for any address. Such an account reaches
+nothing, because the app signs out an identity with no invitation or no
+membership (ADR 0045). But the hook never runs again for an account that
+already exists, so once the hook is enabled, find them and delete them (ADR
+0051 §6).
+
+**Supabase only.** Every Auth user whose address is not a member of any
+workspace. It reads and changes nothing: delete each row it lists in Supabase →
+Authentication → Users. It leaves out anyone whose `users` row names their Auth
+user, such as a person removed from every workspace, whose Auth user stays
+([§5.2](#52-remove-someone-from-a-workspace)).
+
+```sql
+-- onboarding:supabase-only accounts nobody invited
+select a.id, a.email, a.created_at, a.email_confirmed_at, a.last_sign_in_at
+  from auth.users a
+ where not exists (select 1 from public.users u
+                     join public.memberships m on m.user_id = u.id
+                    where lower(u.email) = lower(a.email))
+   and not exists (select 1 from public.users u where u.auth_user_id = a.id)
+ order by a.created_at desc;
+```
+
+One kind it cannot find: an invited person's address that somebody registered
+with a password before the person first asked for a link. When the person
+confirms it, the account is theirs, and the app refuses every session signed in
+with that password (ADR 0051 §6). If the app's log says `[sign-in refused] …
+signed in with a password`, do what that line says, removing the password
+rather than the account once they are `linked` (§5.2).
 
 ---
 
@@ -669,7 +709,8 @@ Delete the membership and nothing else. **Never delete the `users` row**: their
 decisions, approvals and events name it. **Never delete their Supabase Auth
 user** either: if they are invited again later, a new Auth user would be a
 different identity, and `link_auth_user()` refuses an address already linked to
-another one. Without a membership, their next request is refused and they are
+another one. That is why §2's query for accounts nobody invited leaves them out.
+Without a membership, their next request is refused and they are
 signed out at the provider (ADR 0045). If they belong to no workspace at all,
 you may also **Ban** them in Supabase → Authentication → Users.
 
@@ -727,15 +768,17 @@ another approver can still approve it.
 ### 5.3 An outside accountant
 
 Give them `accountant_guest`: they see every case, document and figure, and the
-app and the database refuse every change (ADR 0012). Add them to `people` in
-the create block and run it again:
+app and the database refuse every change (ADR 0012). The workspace's owner adds
+them on Settings → Team, or add them to `people` in the create block and run it
+again:
 
 ```
 {"email": "partner@outside-cpa.example", "full_name": "Pat Lee", "role": "accountant_guest"}
 ```
 
-Then invite them as in step 2, and call them "a viewer" in the welcome email.
-They do not count towards the two people who can write.
+Then send them the welcome email as in step 2, calling them "a viewer (outside
+accountant)". Nothing is needed in the Supabase dashboard: their first link
+makes their account. They do not count towards the two people who can write.
 
 ---
 
