@@ -30,10 +30,11 @@ import { flattenExtraction } from './flatten';
 import { describeFields, renderFieldList } from './paths';
 import { schemaFor } from './schemas';
 import { verifyQuotes } from './verify';
-import { WireExtractionSchema, reassemble, type ReassemblyIssue } from './wire';
+import { MAX_ROWS_PER_GROUP, WireExtractionSchema, reassemble, type ReassemblyIssue } from './wire';
 import {
   PAGING_POLICY,
   chunkInstruction,
+  doubtful,
   halveRange,
   mergeChunkFields,
   pageable,
@@ -56,10 +57,14 @@ export interface ReaderConfig {
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   readonly model?: string;
   /**
-   * How a read that ran out of budget is re-asked in page ranges (ADR 0053),
-   * or `false` to fail it as before. Defaults to `PAGING_POLICY`.
+   * Whether a read that ran out of budget is re-asked in page ranges (ADR
+   * 0053): `true` for `PAGING_POLICY`, a partial policy to adjust it, or
+   * `false`. **Off unless asked for.** A paged read of a dense remittance takes
+   * minutes (344 s recorded), past the 300 s a production job may run, and a
+   * killed process records none of what it spent; so the cut-off fails loudly
+   * with its cost unless the caller can wait for the parts (ADR 0053 §6).
    */
-  readonly paging?: Partial<PagingPolicy> | false;
+  readonly paging?: Partial<PagingPolicy> | boolean;
 }
 
 /** A client for reading untrusted documents. Never given tools. */
@@ -113,6 +118,28 @@ function usageOf(usage: UsageLike | undefined): {
 /** Prompt tokens this call wrote to the cache, priced above plain input. */
 function cacheWritesOf(usage: UsageLike | undefined): number {
   return usage?.cache_creation_input_tokens ?? 0;
+}
+
+/**
+ * A request that failed after the stream had reported usage: the tokens were
+ * spent, and the call record must say so (ADR 0053 §4). Carries the original
+ * error, which is what `describeError` reports.
+ */
+class SpentRequestError extends Error {
+  constructor(
+    readonly original: unknown,
+    readonly usage: UsageLike | undefined,
+  ) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = 'SpentRequestError';
+  }
+}
+
+/** The error a request threw, and what it had spent before throwing. */
+function spentBy(error: unknown): { error: unknown; usage: UsageLike | undefined } {
+  return error instanceof SpentRequestError
+    ? { error: error.original, usage: error.usage }
+    : { error, usage: undefined };
 }
 
 function describeError(error: unknown): { outcome: ModelCallRecord['outcome']; detail: string } {
@@ -237,7 +264,14 @@ export class ClaudeExtractor implements Extractor {
     this.client = createReaderClient(config);
     this.model = config.model ?? modelFor('extract');
     this.paging =
-      config.paging === false ? false : { ...PAGING_POLICY, ...(config.paging ?? {}) };
+      config.paging === undefined || config.paging === false
+        ? false
+        : { ...PAGING_POLICY, ...(config.paging === true ? {} : config.paging) };
+  }
+
+  /** Whether this reader re-asks a cut-off read in page ranges (ADR 0053). */
+  get pagesWhenCutOff(): boolean {
+    return this.paging !== false;
   }
 
   /**
@@ -279,7 +313,9 @@ export class ClaudeExtractor implements Extractor {
       if (snapshot !== undefined && (stopped === 'max_tokens' || stopped === 'refusal')) {
         return { ...snapshot, parsed_output: null };
       }
-      throw error;
+      // Anything else is thrown — with what the stream had spent by then, so
+      // a reply that finished and would not parse is not recorded as free.
+      throw snapshot === undefined ? error : new SpentRequestError(error, snapshot.usage);
     }
   }
 
@@ -370,12 +406,18 @@ export class ClaudeExtractor implements Extractor {
         call: rebuilt.validated ? call : { ...call, outcome: 'schema_mismatch',
           detail: rebuilt.issues.map((i) => `${i.path}: ${i.problem}`).join('; ').slice(0, 500) },
       });
-    } catch (error) {
-      if (error instanceof ExtractionError) throw error;
+    } catch (thrown) {
+      if (thrown instanceof ExtractionError) throw thrown;
+      const { error, usage } = spentBy(thrown);
       const { outcome, detail } = describeError(error);
+      const spent = usageOf(usage);
       throw new ExtractionError(`extraction failed: ${detail}`, {
         ...base,
-        costMicros: 0,
+        ...(usage === undefined ? {} : spent),
+        costMicros:
+          usage === undefined
+            ? 0
+            : costMicros(this.model, { ...spent, cacheWriteTokens: cacheWritesOf(usage) }),
         latencyMs: Date.now() - startedAt,
         outcome,
         detail,
@@ -464,21 +506,28 @@ export class ClaudeExtractor implements Extractor {
             ]),
           ),
         );
-        settled.forEach((outcome, index) => {
-          const range = batch[index] as PageRange;
-          if (outcome.status === 'rejected') {
-            failures.push({ kind: 'error', range, error: outcome.reason });
-            return;
-          }
-          const response = outcome.value;
-          const usage = usageOf(response.usage);
+        const spend = (raw: UsageLike | undefined) => {
+          const usage = usageOf(raw);
           spent.inputTokens += usage.inputTokens;
           spent.outputTokens += usage.outputTokens;
           spent.cachedTokens += usage.cachedTokens;
           spent.costMicros += costMicros(this.model, {
             ...usage,
-            cacheWriteTokens: cacheWritesOf(response.usage),
+            cacheWriteTokens: cacheWritesOf(raw),
           });
+          return usage;
+        };
+        settled.forEach((outcome, index) => {
+          const range = batch[index] as PageRange;
+          if (outcome.status === 'rejected') {
+            // A part that failed after it had spent is still counted.
+            const { error, usage } = spentBy(outcome.reason);
+            if (usage !== undefined) spend(usage);
+            failures.push({ kind: 'error', range, error });
+            return;
+          }
+          const response = outcome.value;
+          const usage = spend(response.usage);
           if (response.stop_reason === 'refusal') {
             failures.push({ kind: 'refused', range });
             return;
@@ -503,24 +552,34 @@ export class ClaudeExtractor implements Extractor {
         // Stop spending at the first batch with a part that failed.
         const failure = failures[0];
         if (failure !== undefined) throw this.partFailed(failure, record, pagedHow());
+        // And at the first batch that takes the rows past the cap: the rest of
+        // the document would be read only to be cut off (ADR 0053 §2).
+        this.refusePastRowCap(mergeChunkFields(readings, descriptors), record, pagedHow());
       }
       wave = next;
     }
 
     const merge = mergeChunkFields(readings, descriptors);
+    this.refusePastRowCap(merge, record, pagedHow());
     const rebuilt = reassemble(merge.fields, descriptors, schema);
+    // A join that dropped something nothing kept, or may count a row twice at
+    // a boundary, is not a typed reading anyone may open cases from unseen: it
+    // is recorded as not validated, and the pipeline holds the document for a
+    // person (ADR 0044's `type_did_not_fit`).
+    const held = doubtful(merge);
+    const validated = rebuilt.validated && !held;
+    const listed = (label: string, items: readonly string[]) =>
+      items.length > 0 ? [`${label} ${items.length}: ${items.join(', ')}`] : [];
+    // Counts before lists and the doubts before everything else, so a detail
+    // cut at its limit still says how many of each there were.
     const detail = [
       pagedHow(),
+      ...(held ? ['held for a person'] : []),
+      ...listed('unaccounted for', merge.unaccounted),
+      ...listed('identical rows either side of a part boundary, both kept', merge.identicalAtBoundary),
+      ...listed('a boundary row printed within the row before it, kept', merge.fragmentsAtBoundary),
+      ...listed('merge dropped', merge.issues.map((i) => i.path)),
       `rows kept ${merge.kept.join(', ')}`,
-      ...(merge.issues.length > 0
-        ? [`merge dropped ${merge.issues.map((i) => i.path).join(', ')}`]
-        : []),
-      ...(merge.identicalAtBoundary.length > 0
-        ? [
-            'identical rows either side of a part boundary, both kept: ' +
-              merge.identicalAtBoundary.join(', '),
-          ]
-        : []),
       // As a single read records it: a document that did not satisfy its
       // schema says which paths did not.
       ...(rebuilt.validated
@@ -531,11 +590,36 @@ export class ClaudeExtractor implements Extractor {
       docType,
       extractor: this.name,
       document: rebuilt.document,
-      validated: rebuilt.validated,
+      validated,
       issues: [...merge.issues, ...rebuilt.issues],
       pageText: document.pageText,
-      call: record(rebuilt.validated ? 'ok' : 'schema_mismatch', detail),
+      call: record(validated ? 'ok' : 'schema_mismatch', detail),
     });
+  }
+
+  /**
+   * Refuses a paged read whose rows pass `MAX_ROWS_PER_GROUP`. A single reply
+   * cannot reach the cap, so there it is a backstop; a paged read can, and
+   * `reassemble` would keep the first 500 rows and validate — a read recorded
+   * `ok` with every later short-pay missing. It fails loudly instead, with
+   * everything spent.
+   */
+  private refusePastRowCap(
+    merge: ReturnType<typeof mergeChunkFields>,
+    record: (outcome: ModelCallRecord['outcome'], detail: string) => ModelCallRecord,
+    how: string,
+  ): void {
+    for (const [group, rows] of merge.rowCounts) {
+      if (rows > MAX_ROWS_PER_GROUP) {
+        throw new ExtractionError(
+          `a paged read found more than ${MAX_ROWS_PER_GROUP} rows of ${group}: split the document and retry`,
+          record(
+            'schema_mismatch',
+            `${how}; ${rows} rows of ${group}, past the ${MAX_ROWS_PER_GROUP}-row cap: refused`,
+          ),
+        );
+      }
+    }
   }
 
   /** The error a failed part ends the read with, carrying everything spent. */

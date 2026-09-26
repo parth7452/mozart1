@@ -13,6 +13,7 @@ import {
   PAGING_POLICY,
   chunkInstruction,
   halveRange,
+  doubtful,
   mergeChunkFields,
   pageable,
   planPageChunks,
@@ -149,6 +150,8 @@ describe('joining the parts', () => {
     ]);
     expect(merged.issues).toEqual([]);
     expect(merged.kept).toEqual(['lines 1-2:2', 'lines 3-4:2', 'lines 5:1']);
+    expect(merged.rowCounts.get('lines')).toBe(5);
+    expect(doubtful(merged)).toBe(false);
     const rebuilt = reassemble(merged.fields, descriptors, RemittanceAdviceSchema);
     expect(rebuilt.validated).toBe(true);
     expect((rebuilt.document as { lines: unknown[] }).lines).toHaveLength(5);
@@ -175,6 +178,24 @@ describe('joining the parts', () => {
           'reported by part 3-4; only the part with page 1 reports fields outside a repeating group: dropped',
       },
     ]);
+    // The part with page 1 reported the total, so nothing printed was lost.
+    expect(merged.unaccounted).toEqual([]);
+    expect(doubtful(merged)).toBe(false);
+  });
+
+  it('holds a field outside the rows that only a later part reported', () => {
+    const merged = mergeChunkFields(
+      [
+        {
+          range: { first: 1, last: 2 },
+          fields: [...header.filter((f) => f.path !== 'payment_total'), ...row(0, 'A', 1)],
+        },
+        { range: { first: 3, last: 4 }, fields: [field('payment_total', '$10.00', 4), ...row(0, 'C', 3)] },
+      ],
+      descriptors,
+    );
+    expect(merged.unaccounted).toEqual(['payment_total of part 3-4']);
+    expect(doubtful(merged)).toBe(true);
   });
 
   it('counts a row both parts read once: the part it starts in keeps it', () => {
@@ -201,6 +222,82 @@ describe('joining the parts', () => {
         problem: 'part 3-4 reported a row that starts on page 2, outside its pages: dropped',
       },
     ]);
+    // Each dropped reading is the row its own part kept: nothing is lost.
+    expect(merged.unaccounted).toEqual([]);
+    expect(doubtful(merged)).toBe(false);
+  });
+
+  it('holds a row that starts on an earlier page when the earlier part never read it', () => {
+    // Review, case A: B starts on page 2, part 1-2 misses it, part 3-4 reads it.
+    const merged = mergeChunkFields(
+      [
+        { range: { first: 1, last: 2 }, fields: [...header, ...row(0, 'A', 1)] },
+        { range: { first: 3, last: 4 }, fields: [...row(0, 'B', 2, '$2.00'), ...row(1, 'C', 3)] },
+      ],
+      descriptors,
+    );
+    expect(merged.unaccounted).toEqual(['lines[0] of part 3-4 (page 2)']);
+    expect(doubtful(merged)).toBe(true);
+  });
+
+  it('holds rows a later part cited by their page within the part', () => {
+    // Review, case C: part 3-4 cites pages 1 and 2, which is what its
+    // instruction tells it not to do. Both rows would vanish from a read that
+    // still validates.
+    const merged = mergeChunkFields(
+      [
+        { range: { first: 1, last: 2 }, fields: [...header, ...row(0, 'A', 1)] },
+        { range: { first: 3, last: 4 }, fields: [...row(0, 'C', 1), ...row(1, 'D', 2)] },
+      ],
+      descriptors,
+    );
+    expect(merged.unaccounted).toEqual(['lines[0] of part 3-4 (page 1)', 'lines[1] of part 3-4 (page 2)']);
+    expect(doubtful(merged)).toBe(true);
+    const rebuilt = reassemble(merged.fields, descriptors, RemittanceAdviceSchema);
+    // What makes the doubt necessary: the schema alone would pass it.
+    expect(rebuilt.validated).toBe(true);
+  });
+
+  it('holds a later row with one field cited a page early, which neither part keeps', () => {
+    const early = [
+      // The invoice number is cited to page 2 (a label printed above the
+      // boundary); the rest of the row is on page 3.
+      field('lines[0].invoice_number', 'C', 2),
+      field('lines[0].net_amount', '$1.00', 3),
+    ];
+    const merged = mergeChunkFields(
+      [
+        { range: { first: 1, last: 2 }, fields: [...header, ...row(0, 'A', 1)] },
+        { range: { first: 3, last: 4 }, fields: [...early, ...row(1, 'D', 4)] },
+      ],
+      descriptors,
+    );
+    expect(merged.unaccounted).toEqual(['lines[0] of part 3-4 (page 2)']);
+    expect(doubtful(merged)).toBe(true);
+  });
+
+  it('holds the tail of a split row read again as a row of its own', () => {
+    // Review, case B: part 1-2 reads B whole; part 3-4 reports only its
+    // wrapped page-3 cell.
+    const merged = mergeChunkFields(
+      [
+        {
+          range: { first: 1, last: 2 },
+          fields: [
+            ...header,
+            field('lines[0].invoice_number', 'B', 2),
+            field('lines[0].deduction_amount', '$1.00', 3),
+          ],
+        },
+        {
+          range: { first: 3, last: 4 },
+          fields: [field('lines[0].deduction_amount', '$1.00', 3), ...row(1, 'C', 3)],
+        },
+      ],
+      descriptors,
+    );
+    expect(merged.fragmentsAtBoundary).toEqual(['lines[1]⊂lines[0]']);
+    expect(doubtful(merged)).toBe(true);
   });
 
   it('keeps a row split across the boundary whole, in the part it starts in', () => {
@@ -246,6 +343,8 @@ describe('joining the parts', () => {
     );
     expect(merged.fields.filter((f) => f.path.endsWith('.invoice_number'))).toHaveLength(2);
     expect(merged.identicalAtBoundary).toEqual(['lines[0]=lines[1]']);
+    // Two deductions, or one read twice under two citations: a person says.
+    expect(doubtful(merged)).toBe(true);
   });
 
   it('refuses parts that overlap: that is a planning error', () => {
@@ -273,6 +372,8 @@ describe('joining the parts', () => {
     const rebuilt = reassemble(merged.fields, descriptors, RemittanceAdviceSchema);
     expect((rebuilt.document as { lines: unknown[] }).lines).toHaveLength(MAX_ROWS_PER_GROUP);
     expect(rebuilt.issues.some((i) => /past the 500-row cap/.test(i.problem))).toBe(true);
+    // Which is why the extractor asks the count first and refuses the read.
+    expect(merged.rowCounts.get('lines')).toBe(550);
   });
 });
 
@@ -282,6 +383,8 @@ interface StubReply {
   readonly stop_reason: 'end_turn' | 'max_tokens' | 'refusal';
   readonly fields?: readonly WireField[];
   readonly usage?: Record<string, number>;
+  /** Finished, spent its tokens, and would not parse. */
+  readonly unparseable?: true;
 }
 
 /**
@@ -316,6 +419,9 @@ function stubClient(
               usage: answer.usage ?? { input_tokens: 1_000, output_tokens: 2_000 },
             };
             for (const listener of listeners) listener({ type: 'message_delta' }, snapshot);
+            if (answer.unparseable === true) {
+              throw new Error('Failed to parse structured output: bad JSON');
+            }
             if (answer.stop_reason === 'end_turn') {
               return { ...snapshot, parsed_output: { fields: answer.fields ?? [] } };
             }
@@ -424,7 +530,7 @@ function pagedReader(
   const extractor = new ClaudeExtractor({
     client: stub.client,
     model: 'claude-sonnet-5',
-    ...(paging !== undefined ? { paging } : {}),
+    paging: paging ?? true,
   });
   return { extractor, requests: stub.requests };
 }
@@ -478,7 +584,7 @@ describe('ClaudeExtractor with paging', () => {
     ['an image', payload({ mimeType: 'image/jpeg' })],
   ])('fails %s that runs out exactly as before', async (_, document) => {
     const stub = stubClient(() => cutOff);
-    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5', paging: true });
     const error = await extractor.extract(document, 'remittance_advice').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ExtractionError);
     expect((error as ExtractionError).message).toBe(
@@ -488,6 +594,21 @@ describe('ClaudeExtractor with paging', () => {
       outcome: 'schema_mismatch',
       detail: 'stop_reason=max_tokens',
       outputTokens: 32_000,
+    });
+    expect(stub.requests).toHaveLength(1);
+  });
+
+  it('does not page unless asked to: a reader built with no paging fails a cut-off loudly', async () => {
+    const stub = stubClient(() => cutOff);
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    expect(extractor.pagesWhenCutOff).toBe(false);
+    expect(new ClaudeExtractor({ client: stub.client, paging: true }).pagesWhenCutOff).toBe(true);
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ExtractionError);
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'schema_mismatch',
+      detail: 'stop_reason=max_tokens',
+      costMicros: costMicros('claude-sonnet-5', { inputTokens: 9_000, outputTokens: 32_000 }),
     });
     expect(stub.requests).toHaveLength(1);
   });
@@ -522,7 +643,7 @@ describe('ClaudeExtractor with paging', () => {
           : { stop_reason: 'end_turn', fields: perfectPart(rangeAsked(params) as PageRange) },
       { sdkResolvesCutOff: true },
     );
-    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5', paging: true });
     const result = await extractor.extract(payload(), 'remittance_advice');
     expect(result.validated).toBe(true);
     expect(stub.requests).toHaveLength(4);
@@ -560,6 +681,26 @@ describe('ClaudeExtractor with paging', () => {
     expect(error).toBeInstanceOf(ExtractionError);
     expect((error as ExtractionError).call.outcome).toBe('error');
     expect((error as Error).message).toMatch(/Failed to parse structured output/);
+  });
+
+  it('records what a reply that finished and would not parse had spent', async () => {
+    const stub = stubClient(() => ({
+      stop_reason: 'end_turn',
+      unparseable: true,
+      usage: { input_tokens: 4_000, output_tokens: 7_000 },
+    }));
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5' });
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ExtractionError);
+    expect((error as Error).message).toBe(
+      'extraction failed: Failed to parse structured output: bad JSON',
+    );
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'error',
+      inputTokens: 4_000,
+      outputTokens: 7_000,
+      costMicros: costMicros('claude-sonnet-5', { inputTokens: 4_000, outputTokens: 7_000 }),
+    });
   });
 
   it('reads a document that ran out in two-page parts, and joins every row in page order', async () => {
@@ -669,7 +810,9 @@ describe('ClaudeExtractor with paging', () => {
     expect(result.document).toEqual(
       reassemble(flattenExpectedAsWire(), descriptors, RemittanceAdviceSchema).document,
     );
-    expect(result.call.detail).toContain('merge dropped lines[76], lines[0]');
+    expect(result.call.outcome).toBe('ok');
+    expect(result.call.detail).toContain('merge dropped 2: lines[76], lines[0]');
+    expect(result.call.detail).not.toContain('held');
   });
 
   it('halves a part that runs out and asks both halves', async () => {
@@ -742,6 +885,132 @@ describe('ClaudeExtractor with paging', () => {
     expect(requests).toHaveLength(2);
     expect((error as ExtractionError).call.costMicros).toBe(
       costMicros('claude-sonnet-5', { inputTokens: 9_000, outputTokens: 32_000 }),
+    );
+  });
+
+  it('adds what a part that would not parse had spent to the failed read', async () => {
+    const partUsage = { input_tokens: 500, output_tokens: 6_000 };
+    const { extractor } = pagedReader(
+      (range) =>
+        range.first === 1
+          ? { stop_reason: 'end_turn', unparseable: true, usage: partUsage }
+          : { stop_reason: 'end_turn', fields: perfectPart(range) },
+      { concurrency: 1 },
+    );
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ExtractionError);
+    expect((error as Error).message).toBe(
+      'extraction failed on pages 1-2: Failed to parse structured output: bad JSON',
+    );
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'error',
+      inputTokens: 9_000 + 500,
+      outputTokens: 32_000 + 6_000,
+      costMicros:
+        costMicros('claude-sonnet-5', { inputTokens: 9_000, outputTokens: 32_000 }) +
+        costMicros('claude-sonnet-5', { inputTokens: 500, outputTokens: 6_000 }),
+    });
+  });
+
+  it('refuses a read whose parts pass the row cap, and stops asking once they do', async () => {
+    // Twelve pages of 46 rows each: 552 rows, past MAX_ROWS_PER_GROUP.
+    const pages = Array.from({ length: 12 }, (_, i) => `page ${i + 1}`);
+    const rowsOf = (range: PageRange): WireField[] => {
+      const out: WireField[] = range.first === 1 ? [field('payer_name', 'Lakeshore', 1), field('payment_reference', 'ACH-1', 1), field('payment_date', '09/28/2026', 1), field('payment_total', '$1.00', 1)] : [];
+      let local = 0;
+      for (let page = range.first; page <= range.last; page++) {
+        for (let r = 0; r < 46; r++) {
+          out.push(field(`lines[${local}].invoice_number`, `P${page}-${r}`, page));
+          out.push(field(`lines[${local}].net_amount`, '$1.00', page));
+          local += 1;
+        }
+      }
+      return out;
+    };
+    const { extractor, requests } = pagedReader(
+      (range) => ({ stop_reason: 'end_turn', fields: rowsOf(range) }),
+      { concurrency: 2 },
+    );
+    const error = await extractor
+      .extract(payload({ pageText: pages }), 'remittance_advice')
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ExtractionError);
+    expect((error as Error).message).toBe(
+      `a paged read found more than ${MAX_ROWS_PER_GROUP} rows of lines: split the document and retry`,
+    );
+    expect((error as ExtractionError).call.outcome).toBe('schema_mismatch');
+    expect((error as ExtractionError).call.detail).toMatch(/\b552 rows of lines, past the 500-row cap: refused/);
+    // Six parts of two pages: the batch of parts 11-12 is the one that passed
+    // the cap, and nothing was asked after it.
+    expect(requests).toHaveLength(1 + 6);
+  });
+
+  it('stops before the last parts once the rows already read pass the cap', async () => {
+    const pages = Array.from({ length: 16 }, (_, i) => `page ${i + 1}`);
+    const rowsOf = (range: PageRange): WireField[] => {
+      const out: WireField[] = [];
+      let local = 0;
+      for (let page = range.first; page <= range.last; page++) {
+        for (let r = 0; r < 46; r++) {
+          out.push(field(`lines[${local}].invoice_number`, `P${page}-${r}`, page));
+          local += 1;
+        }
+      }
+      return out;
+    };
+    const { extractor, requests } = pagedReader(
+      (range) => ({ stop_reason: 'end_turn', fields: rowsOf(range) }),
+      { concurrency: 2 },
+    );
+    await expect(
+      extractor.extract(payload({ pageText: pages }), 'remittance_advice'),
+    ).rejects.toThrow(/more than 500 rows/);
+    // 552 rows are in hand after the third batch (pages 1-12); pages 13-16 are
+    // never asked.
+    expect(requests).toHaveLength(1 + 6);
+  });
+
+  it('holds a joined read that lost a row nothing kept, whatever the schema says', async () => {
+    // The part for pages 3-4 cites its rows by their page within the part.
+    const { extractor } = pagedReader((range) => ({
+      stop_reason: 'end_turn',
+      fields:
+        range.first === 3
+          ? perfectPart(range).map((f) =>
+              f.path.startsWith('lines[') ? { ...f, source_page: f.source_page - 2 } : f,
+            )
+          : perfectPart(range),
+    }));
+    const result = await extractor.extract(payload(), 'remittance_advice');
+    expect(result.validated).toBe(false);
+    expect(result.call.outcome).toBe('schema_mismatch');
+    expect(result.call.detail).toMatch(/; held for a person; unaccounted for 84: lines\[0\] of part 3-4 \(page 1\)/);
+    expect(result.call.detail).not.toMatch(/INV-|\$|LAKESHORE/i);
+  });
+
+  it('holds a joined read with identical rows either side of a boundary', async () => {
+    const lastOfPage2 = DENSE_PAGED_SPLIT_ROW - 1;
+    // The part for pages 3-4 reads page 2's last row again, citing page 3.
+    const { extractor } = pagedReader((range) => {
+      if (range.first !== 3) return { stop_reason: 'end_turn', fields: perfectPart(range) };
+      const again = perfectPart({ first: 2, last: 2 })
+        .filter((f) => /^lines\[/.test(f.path))
+        .filter((f) => {
+          const index = Number(/^lines\[(\d+)\]/.exec(f.path)?.[1]);
+          return index === fixture.rowPages.filter((p) => p === 2).length - 1;
+        })
+        .map((f) => ({ ...f, path: f.path.replace(/^lines\[\d+\]/, 'lines[0]'), source_page: 3 }));
+      const rest = perfectPart(range).map((f) => ({
+        ...f,
+        path: f.path.replace(/^lines\[(\d+)\]/, (_, n: string) => `lines[${Number(n) + 1}]`),
+      }));
+      return { stop_reason: 'end_turn', fields: [...again, ...rest] };
+    });
+    const result = await extractor.extract(payload(), 'remittance_advice');
+    expect(result.validated).toBe(false);
+    expect(result.call.outcome).toBe('schema_mismatch');
+    expect(result.call.detail).toContain(
+      `held for a person; identical rows either side of a part boundary, both kept 1: lines[${lastOfPage2}]=lines[${lastOfPage2 + 1}]`,
     );
   });
 

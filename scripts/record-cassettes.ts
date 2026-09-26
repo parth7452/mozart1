@@ -298,7 +298,8 @@ if (classifyOnly) {
   process.exit();
 }
 
-const extractor = new ClaudeExtractor();
+// Recording can wait for a paged read (ADR 0053); production cannot, and does not page.
+const extractor = new ClaudeExtractor({ paging: true });
 
 if (extractOnly) {
   let spent = 0;

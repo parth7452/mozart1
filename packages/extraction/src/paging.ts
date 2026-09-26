@@ -36,8 +36,10 @@ export interface PagingPolicy {
 /**
  * Two pages a part: a printed remittance holds 40–50 rows a page, so two pages
  * is about 100 rows, under the 32,000-token budget with room. 24 calls is 23
- * parts after the first call, 46 pages — at 46 rows a page already past
- * `MAX_ROWS_PER_GROUP`, so the cap refuses nothing the row cap would keep.
+ * parts after the first call, 46 pages. The call cap is the looser of the two
+ * bounds: at 46 rows a page `MAX_ROWS_PER_GROUP` is reached near page 11, and
+ * a paged read that would keep more rows than that is refused outright, as
+ * soon as it has read them (`readInPages`), never cut down to the cap.
  */
 export const PAGING_POLICY: PagingPolicy = {
   pagesPerChunk: 2,
@@ -149,9 +151,41 @@ export interface ChunkMerge {
   readonly kept: readonly string[];
   /**
    * Adjacent rows either side of a part boundary that print the same values.
-   * Kept — two identical lines are two deductions (ADR 0048) — and named.
+   * Kept — two identical lines are two deductions (ADR 0048) — and named. They
+   * are as likely one row read twice under two citations, so a read that has
+   * any is not trusted to open cases on its own (`doubtful`).
    */
   readonly identicalAtBoundary: readonly string[];
+  /**
+   * The first row a part kept whose every value the previous part's last row
+   * also prints, and prints more besides: the tail of a row split across the
+   * boundary, read again as a row of its own. Kept, named and doubtful.
+   */
+  readonly fragmentsAtBoundary: readonly string[];
+  /**
+   * What the join dropped that no kept reading accounts for: a row that starts
+   * outside its part where the part that owns that page kept no row printing
+   * its values, or a field outside the rows that the part with page 1 did not
+   * report. Something printed is then in no reading at all, so a read with any
+   * is doubtful — never a quiet loss (ADR 0053 §3).
+   */
+  readonly unaccounted: readonly string[];
+  /** Rows kept per repeating group, after the join. */
+  readonly rowCounts: ReadonlyMap<string, number>;
+}
+
+/**
+ * Whether a join left something only a person can settle: a dropped row or
+ * field nothing kept, or a row that may be counted twice at a boundary. A
+ * doubtful read is recorded as not validated, so the document is held rather
+ * than opening cases for a subset — or a superset — of its lines.
+ */
+export function doubtful(merge: ChunkMerge): boolean {
+  return (
+    merge.unaccounted.length > 0 ||
+    merge.identicalAtBoundary.length > 0 ||
+    merge.fragmentsAtBoundary.length > 0
+  );
 }
 
 interface Row {
@@ -166,11 +200,21 @@ function renumber(path: string, group: string, row: number): string {
   return `${group}[${row}]${path.slice(close + 1)}`;
 }
 
-function signature(row: Row, group: string): string {
+/** A row's values by leaf: `invoice_number=A`. Pages and quotes are not part of it. */
+function cells(row: Row, group: string): string[] {
   return row.fields
     .map((f) => `${templatePath(f.path).slice(group.length + 3)}=${f.value.trim()}`)
-    .sort()
-    .join('|');
+    .sort();
+}
+
+function signature(row: Row, group: string): string {
+  return cells(row, group).join('|');
+}
+
+/** Whether every value `part` prints, `whole` prints too. */
+function printedWithin(part: Row, whole: Row, group: string): boolean {
+  const within = new Set(cells(whole, group));
+  return cells(part, group).every((cell) => within.has(cell));
 }
 
 /**
@@ -182,6 +226,11 @@ function signature(row: Row, group: string): string {
  *   `source_page` among its fields. A row that starts outside was read by, or
  *   belongs to, another part, and is dropped with an issue. A row split across
  *   the boundary starts on the earlier page, so the earlier part keeps it whole.
+ * - A drop is accounted for only when the part owning the page it starts on
+ *   kept a row printing every value the dropped one does (a header field: when
+ *   the part with page 1 reported that path). Anything else is `unaccounted`,
+ *   and the read is `doubtful`: a mis-cited row, or one cited by its page within
+ *   the part, would otherwise vanish from a read that still validates.
  * - Kept rows are renumbered in page order: parts sorted by first page, the
  *   model's own order inside a part, gaps in its numbering closed.
  *
@@ -208,8 +257,16 @@ export function mergeChunkFields(
   const issues: ReassemblyIssue[] = [];
   const kept: string[] = [];
   const identicalAtBoundary: string[] = [];
+  const fragmentsAtBoundary: string[] = [];
+  const unaccounted: string[] = [];
   const offsets = new Map<string, number>(groups.map((g) => [g, 0]));
   const lastRowOf = new Map<string, { row: Row; range: PageRange; merged: number }>();
+  /** Rows kept, by group and by the part that kept them. */
+  const keptRows = new Map<string, { range: PageRange; row: Row }[]>(groups.map((g) => [g, []]));
+  /** Dropped rows, checked against the kept ones once every part is in. */
+  const droppedRows: { group: string; part: string; starts: number; row: Row }[] = [];
+  const headerPaths = new Set<string>();
+  const droppedHeader: { path: string; part: string }[] = [];
 
   for (const chunk of ordered) {
     const { range } = chunk;
@@ -224,11 +281,13 @@ export function mergeChunkFields(
         // (which `reassemble` names). Only the part with page 1 reports these.
         if (range.first === 1) {
           fields.push(field);
+          headerPaths.add(field.path);
         } else {
           issues.push({
             path: field.path,
             problem: `reported by ${part}; only the part with page 1 reports fields outside a repeating group: dropped`,
           });
+          droppedHeader.push({ path: field.path, part });
         }
         continue;
       }
@@ -249,6 +308,7 @@ export function mergeChunkFields(
             path: `${group}[${row.index}]`,
             problem: `${part} reported a row that starts on page ${starts}, outside its pages: dropped`,
           });
+          droppedRows.push({ group, part, starts, row });
           continue;
         }
         const merged = offsets.get(group) as number;
@@ -260,7 +320,15 @@ export function mergeChunkFields(
           signature(previous.row, group) === signature(row, group)
         ) {
           identicalAtBoundary.push(`${group}[${previous.merged}]=${group}[${merged}]`);
+        } else if (
+          keptHere === 0 &&
+          previous !== undefined &&
+          previous.range.first !== range.first &&
+          printedWithin(row, previous.row, group)
+        ) {
+          fragmentsAtBoundary.push(`${group}[${merged}]⊂${group}[${previous.merged}]`);
         }
+        keptRows.get(group)?.push({ range, row });
         for (const field of row.fields) {
           fields.push({ ...field, path: renumber(field.path, group, merged) });
         }
@@ -272,5 +340,18 @@ export function mergeChunkFields(
     }
   }
 
-  return { fields, issues, kept, identicalAtBoundary };
+  for (const dropped of droppedRows) {
+    const owner = (keptRows.get(dropped.group) ?? []).filter(
+      (k) => dropped.starts >= k.range.first && dropped.starts <= k.range.last,
+    );
+    if (!owner.some((k) => printedWithin(dropped.row, k.row, dropped.group))) {
+      unaccounted.push(`${dropped.group}[${dropped.row.index}] of ${dropped.part} (page ${dropped.starts})`);
+    }
+  }
+  for (const dropped of droppedHeader) {
+    if (!headerPaths.has(dropped.path)) unaccounted.push(`${dropped.path} of ${dropped.part}`);
+  }
+
+  const rowCounts = new Map(groups.map((g) => [g, offsets.get(g) as number] as const));
+  return { fields, issues, kept, identicalAtBoundary, fragmentsAtBoundary, unaccounted, rowCounts };
 }

@@ -91,9 +91,19 @@ a wave's halvings form the next wave.
 
 **At most 24 calls** per read, the first included. A plan that would pass the
 cap is refused before the wave that would pass it is sent — so a document of
-more than about 46 pages is refused before any part is asked, and says so. At
-46 rows a page that is already past `MAX_ROWS_PER_GROUP`'s 500 rows, so the cap
-refuses nothing the row cap would have kept.
+more than about 46 pages is refused before any part is asked, and says so.
+
+The call cap is the looser bound, not the tighter one. At 46 rows a page,
+`MAX_ROWS_PER_GROUP`'s 500 rows are reached near page 11, well inside 24
+calls — so paging is the first thing that can bring a document past the row
+cap at all, and `reassemble` would keep the first 500 rows, validate, and
+record the read `ok` with every later short-pay missing. A paged read is
+therefore **refused** once the rows it has kept pass the cap: after every
+batch of parts the rows read so far are counted, and a count past 500 throws
+`ExtractionError` "a paged read found more than 500 rows … split the document
+and retry" with everything spent, and no later part is asked. It is never cut
+down to the cap. (First written as "the cap refuses nothing the row cap would
+have kept", which had the arithmetic backwards; review found it.)
 
 ### 3. The merge is at wire level, before `reassemble`, and it drops out loud
 
@@ -118,13 +128,34 @@ refuses nothing the row cap would have kept.
   printed.
 - **Two identical rows either side of a boundary are kept and named.** Two
   lines that print the same invoice and the same amounts are two deductions
-  (ADR 0048), so the merge does not guess; it says so in the call's `detail`.
+  (ADR 0048), so the merge does not guess which it is.
+- **A drop must be accounted for.** A dropped row is safe only when the part
+  that owns the page it starts on kept a row printing every value the dropped
+  one does; a dropped header field only when the part with page 1 reported that
+  path. Anything else is *unaccounted*: a row a later part cited one page early
+  (a mis-citation, or a label printed above the boundary), or cited by its page
+  within the part, which the neighbouring part never read because it does not
+  start there.
+- **A fragment at a boundary is flagged.** A part's first kept row whose every
+  value the previous part's last row also prints, and which prints fewer, is the
+  wrapped tail of a split row read again as a row of its own.
 
-Then the existing `reassemble` and `buildExtractionResult`, unchanged. A row
-the merge lost is a row the schema, the quote check and the reviewer can see is
-missing; a row it doubled is a second case the review queue shows. A required
-field missing from a half-read row fails validation, which records the read as
+Then the existing `reassemble` and `buildExtractionResult`. A required field
+missing from a half-read row fails validation, which records the read as
 `schema_mismatch` exactly as a single read would.
+
+**A join that is doubtful is held for a person.** An unaccounted drop, an
+identical pair at a boundary or a fragment is not something the schema sees —
+the joined document validates with a line missing, doubled or split — and
+`detail` is not something a reviewer sees. Such a read is recorded as **not
+validated**, outcome `schema_mismatch`, `detail` opening with "held for a
+person" and the count and list of each doubt. `validated: false` is what the
+pipeline's gate reads (ADR 0044, `typeFits`), so a notice or remittance whose
+paged read is doubtful is held as `type_did_not_fit` rather than opening cases
+for a subset — or a superset — of its lines, and "Open a case from it" is the
+person's. (As first written, this section said a lost row was one "the schema,
+the quote check and the reviewer can see is missing"; review showed it was
+not, which is why the rule is now a hold rather than a line of `detail`.)
 
 ### 4. One `model_calls` row, whose detail names ranges only
 
@@ -135,8 +166,14 @@ at 1.25× and reads at 0.1× the input rate, and latency the read's wall-clock
 time (the parts overlap, so a sum would overstate it). `detail` says it was
 paged and why, the ranges asked, any halving, the rows kept per part and what
 the merge dropped or flagged — paths, page numbers and counts, never text off
-the page. A read that fails part-way throws `ExtractionError` carrying the
-summed cost of every call made, so `model_calls` records what was spent.
+the page. `detail` is capped at 1,000 characters, so its order is fixed: how
+the read was paged, then whether it is held, then each doubt and the drops as
+a **count** followed by its list, then rows kept. A long list may be cut; the
+counts before it are not. A read that fails part-way throws `ExtractionError`
+carrying the summed cost of every call made, a part that failed after spending
+included (the stream's snapshot says what it used; the same is true of a
+single read that finished and would not parse), so `model_calls` records what
+was spent.
 
 `usageOf` now counts cache reads and writes in `inputTokens`. No existing call
 sends a cache marker, so every existing record is unchanged; without the fix, a
@@ -159,6 +196,19 @@ and retry" (or a paged read) with its tokens and cost, and a refusal is a
 `ModelRefusalError`. A reply that finished and still would not parse is thrown
 exactly as before. The request itself is unchanged, and so is every read that
 parses.
+
+### 6. Paging is off unless the caller asks for it
+
+`ClaudeExtractor` pages only when constructed with `paging: true` (or a
+partial policy). `pnpm record:cassettes` asks for it; the app does not
+(`apps/web/lib/pipeline.ts` passes `paging: false`, and `fail-closed.test.tsx`
+asserts it). The recorded read took 344 seconds, past the 300-second
+`maxDuration` a job may run (*Consequences*), and a process killed mid-read
+writes no `ModelCallRecord`, so paging in production would spend about $1 an
+attempt, four attempts a document, none of it in `model_calls`. With paging off
+a dense read fails as it did before this ADR — loudly, as a `schema_mismatch`
+with its cost recorded, since §5. Turning it on in production waits for one of
+the levers under *Consequences*.
 
 ## Measured
 
@@ -198,10 +248,11 @@ row is unchanged; the eval replays cassettes and never reaches `ClaudeExtractor`
   would be killed during its parts, Inngest would retry the step, and each
   retry would pay the wasted call and the parts again until the retries ran
   out: `read-document` has `retries: 3`, so four attempts, about $4, for a
-  document that never reads.
-  Until that is answered, a document this dense should be expected to fail in
-  production — loudly, but at a cost — and the pilot README's limit is reworded
-  rather than removed. The levers, each the founder's decision: a proactive
+  document that never reads — none of it recorded, because a killed process
+  writes no call record. That is why production does not page (§6): a
+  document this dense fails there as it did before, loudly and with the cost
+  of its one call recorded, and the pilot README's limit is reworded rather
+  than removed. The levers, each the founder's decision: a proactive
   gate (page count or a row estimate from the text layer) that skips the wasted
   call, which alone would roughly halve this read (it runs before the parts,
   which run together); a longer
@@ -212,8 +263,9 @@ row is unchanged; the eval replays cassettes and never reaches `ClaudeExtractor`
   wave or a retry within five minutes reads what the first wave wrote.
 - `reconcileCase` checks a remittance line's own arithmetic, not the advice's
   total against its lines, so a row the merge lost is not caught by arithmetic
-  on a remittance. The row-start rule is what prevents it, and `detail` names
-  every row the merge dropped; a lines-against-total check is a follow-up.
+  on a remittance. The row-start rule and §3's accounting are what catch it: a
+  drop nothing kept holds the document for a person. A lines-against-total
+  check is still a follow-up.
 - The paged prompt is exercised by one recorded document. Real distributor
   layouts — rows wrapped across two printed lines, subtotals per page, a scan
   read through OCR — are not in it.
