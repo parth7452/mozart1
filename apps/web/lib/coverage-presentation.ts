@@ -1,3 +1,4 @@
+import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
 import type { LedgerSyncAnomalyKind, LedgerSyncOutcome } from '@recouple/store-postgres';
 
 /**
@@ -97,9 +98,9 @@ export function errorClassGuide(errorClass: string | undefined, outcome: LedgerS
   }
   if (outcome === 'refused') {
     switch (errorClass) {
-      case 'LedgerConnectionDisabledError':
+      case LEDGER_CONNECTION_DISABLED:
         return 'This connection was disconnected before the run began, so nothing was read. If it should still be connected, connect it again from Settings → QuickBooks.';
-      case 'LedgerSyncRefusedError':
+      case LEDGER_SYNC_REFUSED:
         return 'The member this connection syncs as can no longer write in this workspace. Reconnect as a current owner.';
       default:
         return 'Nothing was read. An engineer should look at the logs for this run.';
