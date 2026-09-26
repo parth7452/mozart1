@@ -437,7 +437,9 @@ Two things change, both in `apps/web/lib`, with no migration:
   retry takes the claim and is answered from the record — the first read's
   recording filed on the second case with `attachEvidence`, no model call — or,
   if the first read failed, reads the document itself. A read that outlasts
-  every retry fails the run, where `alert-on-failure` (ADR 0052) sees it.
+  every retry — about six minutes, an estimate no slow dense read has been
+  timed against — fails the run, where `alert-on-failure` (ADR 0052) sees it,
+  and the reviewer uploads the file to the case again.
 
 A delivery with no case to file on still answers `beingRead` and succeeds, for
 the reason given above: there is nothing it could do by waiting that the first

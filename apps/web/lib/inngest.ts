@@ -235,11 +235,15 @@ export function attachReadKey(documentId: string, caseId: string): string {
  * How long an attachment waits before asking again, when another delivery was
  * reading its document.
  *
- * Two minutes, with `READ_DOCUMENT_CONFIG.retries` at three, covers a read
- * that takes up to about six: a dense remittance streams for a few minutes
- * (CLAUDE.md, ~250 output tokens a row) and OCR comes before it. A read that
- * outlasts that fails this run where `alert-on-failure` sees it, rather than
- * leaving the case without its document and nobody told.
+ * Two minutes, with `READ_DOCUMENT_CONFIG.retries` at three, gives the read in
+ * front about six minutes to finish. That figure is an estimate, not a
+ * measurement: a dense remittance streams for a few minutes (CLAUDE.md, ~250
+ * output tokens a row) and OCR comes before it, but no slow dense read has been
+ * timed against it. A read that outlasts it fails this run loudly —
+ * `alert-on-failure` emails that `read-document` failed (ADR 0052) — and the
+ * reviewer uploads the file to the case again, which files the recorded
+ * reading with no model call. The case is never left without its document and
+ * nobody told.
  */
 export const ATTACH_WAITS_FOR_READ_MS = 2 * 60 * 1000;
 
@@ -332,6 +336,15 @@ export async function runReadRequested(
 
 export interface ReadDocumentInvocation {
   readonly event: { readonly data: unknown };
+  /**
+   * Inngest's zero-indexed attempt number and the most it will make, from the
+   * handler's context. Only a log line reads them, to say whether a claimed
+   * attachment will be asked again; `maxAttempts` is optional in the SDK's
+   * types, and without it the line says only that it asks again if retries
+   * remain.
+   */
+  readonly attempt?: number;
+  readonly maxAttempts?: number;
   readonly step: {
     run(
       id: string,
@@ -368,7 +381,7 @@ export interface ReadDocumentInvocation {
 export function readDocumentSteps(
   context: JobContext,
 ): (invocation: ReadDocumentInvocation) => Promise<ReadDocumentJobResult> {
-  return async ({ event, step }) => {
+  return async ({ event, step, attempt, maxAttempts }) => {
     const where = whereFor(event.data);
     console.log(`[recouple] read job: run entered, ${where}`);
     const result = await step.run('read-document', async () => {
@@ -379,7 +392,13 @@ export function readDocumentSteps(
         '[recouple] read job: step read-document ' +
           (read.beingRead
             ? waitingToFileOn !== undefined
-              ? `found another delivery reading it, spent nothing, and will ask again to file it on case ${waitingToFileOn}`
+              ? `found another delivery reading it, spent nothing, and ${
+                  isLastAttempt(attempt, maxAttempts)
+                    ? 'cannot file it on case ' + waitingToFileOn + ': last attempt; the run will fail'
+                    : maxAttempts === undefined || attempt === undefined
+                      ? 'will ask again, if retries remain, to file it on case ' + waitingToFileOn
+                      : 'will ask again to file it on case ' + waitingToFileOn
+                }`
               : 'found another delivery reading it and spent nothing'
             : read.filedFromRecord
               ? 'found it already read, filed that reading on the case and spent nothing'
@@ -413,6 +432,14 @@ export function readDocumentSteps(
 }
 
 /**
+ * Whether this is the last attempt Inngest will make, when it said how many it
+ * would. The SDK's own final-attempt test, `maxAttempts - 1 === attempt`.
+ */
+function isLastAttempt(attempt: number | undefined, maxAttempts: number | undefined): boolean {
+  return attempt !== undefined && maxAttempts !== undefined && attempt >= maxAttempts - 1;
+}
+
+/**
  * The case an event asks its document to be filed on, if it names one.
  *
  * Read through `parseReadRequested`, which the step has already run on the same
@@ -426,9 +453,12 @@ function attachTargetOf(data: unknown): string | undefined {
  * The failure that sends an attachment round again once the read in front of
  * it has had time to finish.
  *
- * Ids only, the way `asJobFailure` builds its message: this is what reaches the
- * runtime's run history and, if every retry finds the document still claimed,
- * the alert email (ADR 0052), and neither is a place for anything off the page.
+ * Ids only, the way `asJobFailure` builds its message: this is what the
+ * runtime's run history shows, which is not a place for anything off the page.
+ * The message does not reach the alert email: if every retry finds the
+ * document still claimed the run fails, and `alert-on-failure` sends only the
+ * function id, the run id and the error's class name (`parseFailure`, ADR
+ * 0052), with a link to this run where the message can be read.
  */
 function attachAwaitsRead(documentId: string, caseId: string, data: unknown): RetryAfterError {
   const { orgId } = parseReadRequested(data);

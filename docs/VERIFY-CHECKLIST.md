@@ -1446,8 +1446,8 @@ one comes, check that:
 
 ## Found while writing this
 
-None of these is fixed in this PR. Each needs a decision or its own change;
-2 and 3 were fixed by another change the same day.
+Struck items are fixed, and each says what fixed it. The rest each need a
+decision or their own change.
 
 1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
    0047: an address, the webhook, the job, Settings → Email and the sweep.

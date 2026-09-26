@@ -559,8 +559,10 @@ that finds its document claimed *and* has a case to file on fails its step with
 `RetryAfterError` (`ATTACH_WAITS_FOR_READ_MS`, two minutes, three retries)
 rather than succeeding. The retry takes the claim and files the first read's
 recording on the second case with no model call, or reads the document itself
-if the first read failed; a read that outlasts every retry fails the run where
-`alert-on-failure` sees it. A delivery with no case to file on still answers
+if the first read failed; a read that outlasts every retry (about six minutes,
+an estimate no slow dense read has been timed against) fails the run where
+`alert-on-failure` sees it, and the reviewer uploads the file to the case
+again. A delivery with no case to file on still answers
 `beingRead` and succeeds (`inngest-job.test.tsx`).
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
