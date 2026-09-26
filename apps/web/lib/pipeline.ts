@@ -18,6 +18,7 @@ import {
 import type { PostgresStore } from '@recouple/store-postgres';
 import { tenantStore } from './store';
 import {
+  attachReadKey,
   inngestClient,
   inngestKeysFromEnv,
   readRequestedEvent,
@@ -62,7 +63,10 @@ export function pipelineDepsFor<S extends PipelineDeps['store']>(
     store,
     scanner,
     classifier: new ClaudeClassifier(),
-    extractor: new ClaudeExtractor(),
+    // No paged reads here (ADR 0053 §6): a dense remittance read in parts takes
+    // minutes, past the 300 s a job may run, and a killed read records none of
+    // what it spent. A cut-off fails loudly with its cost instead.
+    extractor: new ClaudeExtractor({ paging: false }),
     ...(ocr !== undefined ? { ocr } : {}),
     now: () => new Date(),
   };
@@ -306,7 +310,18 @@ export class InngestRunner implements UploadRunner {
       // The document id, so that two deliveries of *this* upload's event are
       // one read. A re-drive is a different request and carries its own key
       // (`reread`), so it is never swallowed by this one's window.
-      readKey: ingested.documentId,
+      //
+      // An upload that files on a case keys on the case too. The same bytes
+      // uploaded to a second case while the first upload's read is still
+      // running reach here with nothing recorded, and keyed on the document
+      // alone this event was the first one's as far as the window could tell:
+      // dropped, while the reviewer was told it was being read for this case.
+      // The job then waits for that read rather than giving up on it
+      // (`readDocumentSteps`).
+      readKey:
+        options.attachToCase !== undefined
+          ? attachReadKey(ingested.documentId, options.attachToCase)
+          : ingested.documentId,
       ...(options.attachToCase !== undefined ? { attachToCase: options.attachToCase } : {}),
     };
 

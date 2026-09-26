@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { processUpload } from '@recouple/pipeline';
 import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
 import {
+  ClaudeExtractor,
   buildExtractionResult,
   type ClassificationResult,
   type DocType,
@@ -58,6 +59,12 @@ describe('an unconfigured environment', () => {
     expect(result.case).toBeUndefined();
     // And it cost nothing: no model was called on an unscanned file.
     expect(store.modelCalls).toEqual([]);
+  });
+
+  it('reads with no paged extraction, which could not finish inside a job (ADR 0053 §6)', () => {
+    const deps = pipelineDepsFor(new InMemoryStore());
+    expect(deps.extractor).toBeInstanceOf(ClaudeExtractor);
+    expect((deps.extractor as ClaudeExtractor).pagesWhenCutOff).toBe(false);
   });
 
   it('constructs no OCR provider without a key, rather than one that throws', () => {

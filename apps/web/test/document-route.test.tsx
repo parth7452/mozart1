@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { StoredDocument } from '@recouple/pipeline';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { servingRefusal, type StoredDocument, type UploadSource } from '@recouple/pipeline';
+
+/** A latest verdict's status, as `servingRefusal` takes it. */
+type ScanStatus = NonNullable<Parameters<typeof servingRefusal>[0]['scan']>;
 
 /**
  * `/api/document/[id]`: what a browser is let render in place.
@@ -13,7 +16,13 @@ import type { StoredDocument } from '@recouple/pipeline';
 
 const EXTRACT_ID = '77777777-7777-7777-7777-777777777777';
 const ZIP_ID = '88888888-8888-8888-8888-888888888888';
-const TIFF_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const NOTICE_ID = '55555555-5555-5555-5555-555555555555';
+const INFECTED_ID = '66666666-6666-6666-6666-666666666666';
+const UNSCANNED_ID = '44444444-4444-4444-4444-444444444444';
+const SCAN_ERROR_ID = '33333333-3333-3333-3333-333333333333';
+const EMAILED_UNSCANNED_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ANOTHER_TENANTS_ID = '99999999-9999-9999-9999-999999999999';
+const TIFF_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 function stored(documentId: string, mimeType: string, filename: string, text: string): StoredDocument {
   const bytes = new TextEncoder().encode(text);
@@ -29,19 +38,76 @@ function stored(documentId: string, mimeType: string, filename: string, text: st
   };
 }
 
-const documents = new Map([
+/**
+ * What the tenant can see: the document, its latest scan verdict and the door
+ * it came through — the two things `servingRefusal` decides on. Another
+ * tenant's document is not in the map at all, as RLS leaves it.
+ */
+const documents = new Map<
+  string,
+  { document: StoredDocument; scan: ScanStatus | null; source: UploadSource | null }
+>([
   [
     EXTRACT_ID,
-    stored(
-      EXTRACT_ID,
-      'application/json',
-      'ledger-extract-INV-1001.json',
-      '{\n  "kind": "ledger_short_pay_extract",\n  "candidate": { "customerName": "<b>Sysco</b>" }\n}',
-    ),
+    {
+      document: stored(
+        EXTRACT_ID,
+        'application/json',
+        'ledger-extract-INV-1001.json',
+        '{\n  "kind": "ledger_short_pay_extract",\n  "candidate": { "customerName": "<b>Sysco</b>" }\n}',
+      ),
+      // Our own code wrote it, and nothing scans it (ADR 0029).
+      scan: null,
+      source: 'erp_sync',
+    },
   ],
-  [ZIP_ID, stored(ZIP_ID, 'application/zip', 'claims.zip', 'PK')],
-  [TIFF_ID, stored(TIFF_ID, 'image/tiff', 'FAX_0926.tif', 'II*\u0000')],
+  [ZIP_ID, { document: stored(ZIP_ID, 'application/zip', 'claims.zip', 'PK'), scan: 'clean', source: 'web_upload' }],
+  [
+    NOTICE_ID,
+    { document: stored(NOTICE_ID, 'application/pdf', 'notice.pdf', '%PDF-1.7'), scan: 'clean', source: 'web_upload' },
+  ],
+  [
+    INFECTED_ID,
+    {
+      document: stored(INFECTED_ID, 'application/pdf', 'invoice-EICAR.pdf', 'X5O!P%@AP'),
+      scan: 'infected',
+      source: 'email_in',
+    },
+  ],
+  [
+    UNSCANNED_ID,
+    {
+      document: stored(UNSCANNED_ID, 'application/pdf', 'never-scanned.pdf', '%PDF-1.7'),
+      scan: null,
+      source: 'web_upload',
+    },
+  ],
+  [
+    SCAN_ERROR_ID,
+    {
+      document: stored(SCAN_ERROR_ID, 'application/pdf', 'scanner-down.pdf', '%PDF-1.7'),
+      scan: 'error',
+      source: 'web_upload',
+    },
+  ],
+  [
+    EMAILED_UNSCANNED_ID,
+    {
+      document: stored(EMAILED_UNSCANNED_ID, 'text/plain', 'body.txt', 'Deduction notice'),
+      scan: null,
+      source: 'email_body',
+    },
+  ],
+  [
+    TIFF_ID,
+    { document: stored(TIFF_ID, 'image/tiff', 'FAX_0926.tif', 'II*\u0000'), scan: 'clean', source: 'web_upload' },
+  ],
 ]);
+
+/** Every id whose bytes were fetched, so a refusal can be shown to fetch none. */
+const fetched: string[] = [];
+/** Every store call the route made, in order, so one read can be shown to be one. */
+const calls: string[] = [];
 
 vi.mock('../lib/session', () => ({
   requireSession: async () => ({
@@ -51,8 +117,26 @@ vi.mock('../lib/session', () => ({
     orgs: [],
   }),
   storeFor: () => ({
+    // The verdict and the bytes as the store answers them: one call, the
+    // bytes only when the verdict in that same call allows them.
+    async servableDocument(id: string) {
+      calls.push(`servableDocument:${id}`);
+      const found = documents.get(id);
+      if (found === undefined) return undefined;
+      const refusal = servingRefusal({ scan: found.scan, source: found.source });
+      if (refusal !== undefined) return { refusal };
+      fetched.push(id);
+      return { document: found.document };
+    },
+    // A route that asked the verdict and then fetched apart from it would call
+    // these, and the test below says it does not.
+    async documentServing(id: string) {
+      calls.push(`documentServing:${id}`);
+      return undefined;
+    },
     async getDocument(id: string) {
-      return documents.get(id);
+      calls.push(`getDocument:${id}`);
+      return undefined;
     },
     async close() {
       return undefined;
@@ -97,7 +181,73 @@ describe('the document route', () => {
   });
 
   it('answers a document it cannot see with a 404', async () => {
-    const response = await get('99999999-9999-9999-9999-999999999999');
+    const response = await get(ANOTHER_TENANTS_ID);
     expect(response.status).toBe(404);
+  });
+});
+
+/**
+ * Only a document that scanned clean is served (`servingRefusal`). The scan
+ * gate fails closed for reading; this is the other way bytes leave the store,
+ * and a download is not something a sandbox header governs.
+ */
+describe('the document route and the scan verdict', () => {
+  beforeEach(() => {
+    fetched.length = 0;
+    calls.length = 0;
+  });
+
+  it('asks the verdict and fetches the bytes in one store read, never as two', async () => {
+    // Two calls would be two transactions, and a verdict recorded between them
+    // would not be seen by the fetch. `servableDocument` is one.
+    for (const id of [NOTICE_ID, INFECTED_ID, ANOTHER_TENANTS_ID]) {
+      calls.length = 0;
+      await get(id);
+      expect(calls).toEqual([`servableDocument:${id}`]);
+    }
+  });
+
+  it('serves a document that scanned clean', async () => {
+    const response = await get(NOTICE_ID);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/pdf');
+    expect(await response.text()).toBe('%PDF-1.7');
+    expect(fetched).toEqual([NOTICE_ID]);
+  });
+
+  it('refuses an infected document with a 409, never fetching its bytes or naming it', async () => {
+    const response = await get(INFECTED_ID);
+    expect(response.status).toBe(409);
+    expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(response.headers.get('content-disposition')).toBeNull();
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    const body = await response.text();
+    expect(body).toContain('infected');
+    expect(body).not.toContain('EICAR');
+    expect(body).not.toContain('X5O');
+    expect(fetched).toEqual([]);
+  });
+
+  it('refuses a document with no verdict, or only a scanner error, from any door a stranger can use', async () => {
+    for (const id of [UNSCANNED_ID, SCAN_ERROR_ID, EMAILED_UNSCANNED_ID]) {
+      const response = await get(id);
+      expect(response.status).toBe(409);
+      expect(await response.text()).toContain('no clean scan verdict');
+    }
+    expect(fetched).toEqual([]);
+  });
+
+  it('serves a ledger extract nothing scanned, because our own code wrote it', async () => {
+    const response = await get(EXTRACT_ID);
+    expect(response.status).toBe(200);
+    expect(fetched).toEqual([EXTRACT_ID]);
+  });
+
+  it('keeps the 404 for another tenant’s document, ahead of any verdict', async () => {
+    const response = await get(ANOTHER_TENANTS_ID);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('not found');
+    expect(fetched).toEqual([]);
   });
 });

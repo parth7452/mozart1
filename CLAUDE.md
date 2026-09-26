@@ -87,7 +87,7 @@ what enforces each one.
 | --- | --- |
 | `pnpm test` | Vitest across every package (includes the money property tests). The Postgres integration tests read `TEST_DATABASE_URL`, never `DATABASE_URL`, and skip without it |
 | `pnpm typecheck` | `tsc` over the workspace |
-| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
+| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites, then the onboarding runbook SQL check (`scripts/check-onboarding-sql.sh`) against the same scratch DB. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
 | `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
 | `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
 | `pnpm verify` | typecheck + db:test + test + eval — what CI runs, in that order |
@@ -145,8 +145,8 @@ append-only tables.
 | Package | Remember |
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee. `parseMoneyToCents` reads digits past the cents only when they are all `0`, never rounds a fraction of a cent, and never reads one decimal place. A unit price is `parseUnitPrice`'s: stored rounded half-up to the cent, and multiplied or compared only at the digits the page printed (`shortageCentsAt`, `compareUnitPrices`), never at its stored cent (ADR 0049) |
-| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016). A TIFF (classic, not BigTIFF) is accepted by its page chain, walked without decoding a pixel (`inspectTiff`: pages, per-page and total pixel caps); every reader — Reducto, the classifier, the extractor — gets `renderForReading`'s PNG or one-page-per-page PDF, made after the scan gate, deterministic, and **never stored**: `documents` keeps the file that arrived, its hash and its arrival, and `/api/document/[id]/view` renders it for the case page under the same RLS and only on a clean latest verdict (ADR 0054). `@recouple/ingest/rendition` loads sharp and is not re-exported from the index. HEIC is refused until its LGPL decoder is decided |
-| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to. A money field (`moneyKindOf`: `unit_cost`, `*_amount*`, `*_total*`) is quote-verified only when the page prints its value whole, to the cent, where it was quoted — a label or a number cut short is not (ADR 0050) |
+| `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read, and no bytes served (`servingRefusal`). A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) A TIFF (classic, not BigTIFF) is accepted by its page chain, walked without decoding a pixel (`inspectTiff`: pages, per-page and total pixel caps); every reader — Reducto, the classifier, the extractor — gets `renderForReading`'s PNG or one-page-per-page PDF, made after the scan gate, deterministic, and **never stored**: `documents` keeps the file that arrived, its hash and its arrival, and `/api/document/[id]/view` renders it for the case page under the same RLS and only on a clean latest verdict (ADR 0054). `@recouple/ingest/rendition` loads sharp and is not re-exported from the index. HEIC is refused until its LGPL decoder is decided |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to. A money field (`moneyKindOf`: `unit_cost`, `*_amount*`, `*_total*`) is quote-verified only when the page prints its value whole, to the cent, where it was quoted — a label or a number cut short is not (ADR 0050). A read cut off at the output budget on a PDF of two or more pages whose type has a repeating group is re-read in two-page parts over the same document and joined on the wire before `reassemble` (`paging.ts`, ADR 0053): header fields from the part with page 1, a row kept by the part it starts in, rows renumbered in page order. A drop nothing kept, identical rows either side of a boundary or a split row's tail read again makes the read not validated, so the document is held for a person; rows past the cap refuse the read; drops are counted on the call's `detail`. Paging is off unless the caller passes `paging: true` — `record:cassettes` does, the app does not (§6) |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
@@ -156,7 +156,7 @@ append-only tables.
 | `adapters` | Interfaces only until their phase; a channel that submits still has to pass the DB approval gate |
 | `packets` (Phase 3) | Append-only; the hash an approval names is a foreign key to the packet that was assembled, so an approval cannot authorise a packet nobody built. A packet's decision must be the same tenant's and the same case's — the foreign keys say each id exists, not that they are one case |
 | `declined_candidates` | Every case we decline to fight gets a row with what it was worth and what was missing. A discard is not a decision; coverage has no numerator without this (docs/STRATEGY.md, ADD-1). `discovered_from` is **derived** from the notice's own `uploads` row, never passed in — a case whose notice records no arrival is refused (`ProvenanceUnknownError`), because a channel credited on a caller's say-so is a number that looks right. `uploads` is append-only since ADR 0024, so that row cannot be re-labelled after the declines attributed to it were counted; a notice stored before provenance existed gets its channel from a `document_arrivals` row an operator writes with `pnpm link:provenance`, which the database refuses for any document ingest already recorded an arrival for and for any channel but the three doors that existed then. `provenance_kind` says which of the two answered — derived like `discovered_from`, never passed in — so a coverage number can report the split rather than needing three joins to find it |
-| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
+| `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
 | `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token |
@@ -204,7 +204,7 @@ with every invariant verified there, and email-in through Postmark (ADR 0047),
 live since 2026-09-25 on `in.mozart.financial`: its first message, from Gmail,
 was held by email and opened by a person (`docs/VERIFY-CHECKLIST.md` §5).
 
-Eleven recorded suites, every one of them scored
+Twelve recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -214,6 +214,7 @@ does):
 | held_out | does it generalise | 100% / 100% | 99.1% | 12/12 |
 | scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
 | dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
+| dense_paged | does a 190-row remittance read in page ranges join up | 99.9% / 99.9% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
@@ -237,7 +238,8 @@ fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
 ($0.39, OCR through Reducto for the twelve photographs), `formats` on
 2026-09-24 ($0.10), and `public` and `public_scanned` on 2026-09-25 ($0.54,
-and $0.31 with OCR through Reducto), so `pendingSuites` is empty.
+and $0.31 with OCR through Reducto), and `dense_paged` on 2026-09-26 ($1.07),
+so `pendingSuites` is empty.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -303,7 +305,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 77/77. Before `customer`, the two field
+Classification is 78/78. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -318,11 +320,14 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 622 of 1,722 fields carry a
-bounding box a reviewer can follow. Extraction streams with a 32,000
-output-token budget because a dense document costs ~250 output tokens per row —
-roughly 120 rows before a read is cut off, at which point it fails loudly rather
-than storing a truncated document as a complete one.
+About $0.0272 per document across the 77 read in one call (the paged
+remittance alone is $1.05), and 622 of 2,506 fields carry a bounding box a
+reviewer can follow. Extraction streams with a 32,000 output-token budget
+because a dense document costs ~250 output tokens per row — roughly 120 rows
+before a read is cut off. A cut-off PDF of two or more pages whose type has a
+repeating group is then re-read in two-page parts and joined (ADR 0053, below);
+anything else fails loudly rather than storing a truncated document as a
+complete one.
 
 `apps/review-prototype` renders a reviewer's workspace over the recorded output —
 the scan with every field boxed and traceable to its quote. It is a prototype, not
@@ -483,13 +488,15 @@ document's claim, `PostgresStore.withDocumentRead`, a `pg_try_advisory_xact_lock
 on `hashtextextended(document_id, 0)` as `app_rw` with the tenant's claims, on
 its own pool so a connection held for a whole read cannot starve the reads. A
 delivery that does not get the claim answers `beingRead` and spends nothing
-rather than waiting. It is transaction-scoped, not session-scoped, because
+rather than waiting — unless it has a case to file the document on, when it
+retries after `ATTACH_WAITS_FOR_READ_MS` (below). It is transaction-scoped, not session-scoped, because
 `DATABASE_URL` is the Supabase transaction pooler: a session lock could be taken
 on one server connection and unlocked on another, and the document would be
 unreadable for ever. *A redelivery of the same event* is also caught by the
 runtime, within its window — `idempotency: 'event.data.readKey'`, where an upload
-sets `readKey` to the document id and the re-drive route sets a fresh
-`randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
+that names no case sets `readKey` to the document id, one that names a case sets
+it to `attachReadKey(document, case)` (since 2026-09-26, below), and the
+re-drive route sets a fresh `randomUUID()`. The key was `event.data.documentId` until 2026-09-21, when
 production showed a run invoked once, answered with a step plan and never called
 back to execute the step — no error, no log, the reviewer's notice saying "being
 read" for ever, and the event sent to recover it swallowed by that key's own
@@ -545,11 +552,23 @@ dedupe to the document already read, and `answerFromRecord` — asked first by
 the inline upload, by the request that would queue a read and by the job —
 files the recorded reading on the case with `attachEvidence` rather than
 reading it again (`evidence.attached`, `read_again: false`, no model call;
-`jobs.test.ts` and `upload-route.test.tsx`). What it cannot reach is an upload
-to a second case while the first read is still running: nothing is recorded
-yet, so it is queued, and the upload's `readKey` (the document id) is the
-first upload's, whose idempotency window swallows it. Keying an attachment's
-read on the case too is a follow-up.
+`jobs.test.ts` and `upload-route.test.tsx`). An upload to a second case while
+the first read is still running has nothing on record to be answered from, so
+it is queued, and until 2026-09-26 it was lost twice over: its `readKey` was
+the document id, the first upload's, so the idempotency window swallowed it;
+and had it run, it would have found the document claimed and reported
+`beingRead` as a success, filing nothing. Now an upload that names a case keys
+its read on the pair, `attachReadKey(document, case)` — deterministic and
+UUID-shaped, so a redelivery of that upload is still one read — and a delivery
+that finds its document claimed *and* has a case to file on fails its step with
+`RetryAfterError` (`ATTACH_WAITS_FOR_READ_MS`, two minutes, three retries)
+rather than succeeding. The retry takes the claim and files the first read's
+recording on the second case with no model call, or reads the document itself
+if the first read failed; a read that outlasts every retry (about six minutes,
+an estimate no slow dense read has been timed against) fails the run where
+`alert-on-failure` sees it, and the reviewer uploads the file to the case
+again. A delivery with no case to file on still answers
+`beingRead` and succeeds (`inngest-job.test.tsx`).
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
@@ -1538,3 +1557,42 @@ them is misconfigured and logged as an error, and the variables are Production
 only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
 (VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents
 waiting to be read" stays that check.
+
+**A dense remittance is read in page ranges** (ADR 0053, no migration). A read
+past about 120 rows stops at the 32,000-token budget. `ClaudeExtractor` keeps
+its one call byte for byte, and only when that call stops at `max_tokens` on a
+PDF of two or more pages whose type has a repeating group does it re-ask the
+same document in two-page parts (`paging.ts`): the shared blocks carry a cache
+marker and one range block follows, the part with page 1 alone reports the
+header, a part that runs out is halved, a single page that runs out fails
+loudly, and 24 calls is the cap, refused before the wave that would pass it.
+`mergeChunkFields` joins the parts on the wire before `reassemble`: a row is
+kept by the part it starts in (the smallest `source_page` among its fields),
+so a row both parts read counts once and a row split across a boundary
+survives whole, and rows are renumbered in page order, the order ADR 0048's
+`#n` counts in. A drop is accounted for only when the part owning its start
+page kept a row printing its values; an unaccounted drop, an identical pair at
+a boundary or a split row's tail read as its own row makes the read not
+validated, so the document is held for a person rather than opening cases for a
+subset of its lines, and a read whose rows pass `MAX_ROWS_PER_GROUP` is refused
+rather than cut to 500 (a review found both: the joined document validated and
+was recorded `ok`). Everything spent is one `ModelCallRecord` whose `detail`
+counts, then lists, what was held, dropped and kept — never page text — and a
+part that fails throws with the summed cost, including what a part that would
+not parse had spent. Recording it found the backstop had never
+been reachable: the SDK parses structured output at `message_stop`, so a
+cut-off reply threw "Failed to parse structured output" before `stop_reason`
+was read, and the read was recorded as an `error` costing nothing. The
+extractor now reads the stop reason from the stream's snapshot, so a cut-off
+is a `schema_mismatch` with its cost and a refusal a `ModelRefusalError`.
+`dense_paged` (190 rows, five pages, one invoice printed either side of the
+page 2/3 boundary) read in three parts for $1.05: 190 of 190 rows in order,
+784 quotes all on their pages, 99.9% recall (`payer_name` read as the payee).
+It took 344 seconds, past the Inngest route's 300-second `maxDuration`, where it
+would be killed and retried at full cost (`retries: 3`, about $4) with none of
+it recorded, so **paging is off in the app**: `ClaudeExtractor` pages only when
+constructed with `paging: true`, which `pnpm record:cassettes` is and
+`pipelineDepsFor` is not (`fail-closed.test.tsx`). In production a document
+that dense still fails loudly, now with its one call's cost recorded, until a
+proactive gate, a longer duration or a step per part is chosen — the founder's
+call.

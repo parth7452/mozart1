@@ -30,7 +30,21 @@ import { flattenExtraction } from './flatten';
 import { describeFields, renderFieldList } from './paths';
 import { schemaFor } from './schemas';
 import { verifyQuotes } from './verify';
-import { WireExtractionSchema, reassemble, type ReassemblyIssue } from './wire';
+import { MAX_ROWS_PER_GROUP, WireExtractionSchema, reassemble, type ReassemblyIssue } from './wire';
+import {
+  PAGING_POLICY,
+  chunkInstruction,
+  doubtful,
+  halveRange,
+  mergeChunkFields,
+  pageable,
+  planPageChunks,
+  rangeLabel,
+  repeatingGroupsOf,
+  type ChunkReading,
+  type PageRange,
+  type PagingPolicy,
+} from './paging';
 
 export interface ReaderConfig {
   /** Pass a client to share connection pooling, or let each reader build one. */
@@ -42,6 +56,15 @@ export interface ReaderConfig {
   readonly maxTokens?: number;
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   readonly model?: string;
+  /**
+   * Whether a read that ran out of budget is re-asked in page ranges (ADR
+   * 0053): `true` for `PAGING_POLICY`, a partial policy to adjust it, or
+   * `false`. **Off unless asked for.** A paged read of a dense remittance takes
+   * minutes (344 s recorded), past the 300 s a production job may run, and a
+   * killed process records none of what it spent; so the cut-off fails loudly
+   * with its cost unless the caller can wait for the parts (ADR 0053 §6).
+   */
+  readonly paging?: Partial<PagingPolicy> | boolean;
 }
 
 /** A client for reading untrusted documents. Never given tools. */
@@ -69,18 +92,54 @@ interface UsageLike {
   input_tokens?: number | null;
   output_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
 }
 
+/**
+ * Tokens as `model_calls` counts them. The API's `input_tokens` is only the
+ * part of the prompt read at full price; cache reads and writes are reported
+ * beside it. `inputTokens` is the whole prompt and `cachedTokens` the part read
+ * from the cache, which is what `costMicros` expects. A call with no cache
+ * marker reports zero for both, so its record is what it always was.
+ */
 function usageOf(usage: UsageLike | undefined): {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
 } {
+  const cacheRead = usage?.cache_read_input_tokens ?? 0;
   return {
-    inputTokens: usage?.input_tokens ?? 0,
+    inputTokens: (usage?.input_tokens ?? 0) + cacheRead + cacheWritesOf(usage),
     outputTokens: usage?.output_tokens ?? 0,
-    cachedTokens: usage?.cache_read_input_tokens ?? 0,
+    cachedTokens: cacheRead,
   };
+}
+
+/** Prompt tokens this call wrote to the cache, priced above plain input. */
+function cacheWritesOf(usage: UsageLike | undefined): number {
+  return usage?.cache_creation_input_tokens ?? 0;
+}
+
+/**
+ * A request that failed after the stream had reported usage: the tokens were
+ * spent, and the call record must say so (ADR 0053 §4). Carries the original
+ * error, which is what `describeError` reports.
+ */
+class SpentRequestError extends Error {
+  constructor(
+    readonly original: unknown,
+    readonly usage: UsageLike | undefined,
+  ) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = 'SpentRequestError';
+  }
+}
+
+/** The error a request threw, and what it had spent before throwing. */
+function spentBy(error: unknown): { error: unknown; usage: UsageLike | undefined } {
+  return error instanceof SpentRequestError
+    ? { error: error.original, usage: error.usage }
+    : { error, usage: undefined };
 }
 
 function describeError(error: unknown): { outcome: ModelCallRecord['outcome']; detail: string } {
@@ -199,10 +258,77 @@ export class ClaudeExtractor implements Extractor {
   readonly name = 'claude-vision';
   private readonly client: Anthropic;
   private readonly model: string;
+  private readonly paging: PagingPolicy | false;
 
   constructor(private readonly config: ReaderConfig = {}) {
     this.client = createReaderClient(config);
     this.model = config.model ?? modelFor('extract');
+    this.paging =
+      config.paging === undefined || config.paging === false
+        ? false
+        : { ...PAGING_POLICY, ...(config.paging === true ? {} : config.paging) };
+  }
+
+  /** Whether this reader re-asks a cut-off read in page ranges (ADR 0053). */
+  get pagesWhenCutOff(): boolean {
+    return this.paging !== false;
+  }
+
+  /**
+   * One streamed extraction call. Every call a read makes goes through here,
+   * so none of them can be given `tools` (invariant 4): the parameter is not in
+   * this request, and nothing a caller passes can put it there.
+   */
+  private async request(content: Array<Record<string, unknown>>) {
+    // Streamed, and given real headroom. A dense remittance measured 10,794
+    // output tokens for 42 rows — roughly 250 a row — so a 60-row advice would
+    // have run into a 16,000-token ceiling, and a non-streaming request that
+    // large risks the HTTP timeout before it risks the ceiling.
+    const stream = this.client.messages.stream({
+      model: this.model,
+      max_tokens: this.config.maxTokens ?? 32_000,
+      system: EXTRACTION_SYSTEM,
+      thinking: { type: 'adaptive' },
+      messages: [{ role: 'user', content: content as never }],
+      output_config: {
+        format: zodOutputFormat(WireExtractionSchema),
+        effort: this.config.effort ?? 'medium',
+      },
+    });
+    // The SDK parses the structured output when the message stops, and a reply
+    // cut off at `max_tokens` is unterminated JSON: `finalMessage` then throws
+    // "Failed to parse structured output" before any `stop_reason` can be read,
+    // and the read was recorded as an `error` costing nothing. The snapshot the
+    // stream builds says why it stopped and what it used, so a reply that
+    // stopped at the budget or was refused is answered from it, with no parsed
+    // output, and every other failure is thrown as it was.
+    let snapshot: Anthropic.Message | undefined;
+    stream.on('streamEvent', (_event, message) => {
+      snapshot = message;
+    });
+    try {
+      return await stream.finalMessage();
+    } catch (error) {
+      const stopped = snapshot?.stop_reason;
+      if (snapshot !== undefined && (stopped === 'max_tokens' || stopped === 'refusal')) {
+        return { ...snapshot, parsed_output: null };
+      }
+      // Anything else is thrown — with what the stream had spent by then, so
+      // a reply that finished and would not parse is not recorded as free.
+      throw snapshot === undefined ? error : new SpentRequestError(error, snapshot.usage);
+    }
+  }
+
+  /** The blocks every call of a read shares: document, text layer, instruction. */
+  private readContent(document: DocumentPayload, docType: DocType) {
+    return buildReadContent(
+      document,
+      extractionInstruction(docType),
+      // An OCR transcription is withheld here on purpose: the model
+      // anchors on it and inherits its character errors. It still backs
+      // the quote check and the boxes (ADR 0009).
+      { includeTextLayer: document.pageTextSource !== 'ocr' },
+    );
   }
 
   async extract(document: DocumentPayload, docType: DocType): Promise<ExtractionResult> {
@@ -217,40 +343,16 @@ export class ClaudeExtractor implements Extractor {
     const descriptors = describeFields(schema);
 
     try {
-      // Streamed, and given real headroom. A dense remittance measured 10,794
-      // output tokens for 42 rows — roughly 250 a row — so a 60-row advice would
-      // have run into a 16,000-token ceiling, and a non-streaming request that
-      // large risks the HTTP timeout before it risks the ceiling.
-      const stream = this.client.messages.stream({
-        model: this.model,
-        max_tokens: this.config.maxTokens ?? 32_000,
-        system: EXTRACTION_SYSTEM,
-        thinking: { type: 'adaptive' },
-        messages: [
-          {
-            role: 'user',
-            content: buildReadContent(
-              document,
-              extractionInstruction(docType),
-              // An OCR transcription is withheld here on purpose: the model
-              // anchors on it and inherits its character errors. It still backs
-              // the quote check and the boxes (ADR 0009).
-              { includeTextLayer: document.pageTextSource !== 'ocr' },
-            ) as never,
-          },
-        ],
-        output_config: {
-          format: zodOutputFormat(WireExtractionSchema),
-          effort: this.config.effort ?? 'medium',
-        },
-      });
-      const response = await stream.finalMessage();
+      const response = await this.request(this.readContent(document, docType));
 
       const usage = usageOf(response.usage);
       const call: ModelCallRecord = {
         ...base,
         ...usage,
-        costMicros: costMicros(this.model, usage),
+        costMicros: costMicros(this.model, {
+          ...usage,
+          cacheWriteTokens: cacheWritesOf(response.usage),
+        }),
         latencyMs: Date.now() - startedAt,
         outcome: 'ok',
       };
@@ -263,9 +365,20 @@ export class ClaudeExtractor implements Extractor {
         });
       }
       if (response.stop_reason === 'max_tokens') {
+        if (this.paging !== false && pageable(document, descriptors)) {
+          // Too many rows for one reply: ask for them a page range at a time
+          // over the same document (ADR 0053). Only a read that would
+          // otherwise fail here takes this path.
+          return await this.readInPages(document, docType, {
+            startedAt,
+            first: call,
+            policy: this.paging,
+          });
+        }
         // The backstop, not the plan: a document dense enough to exhaust even a
-        // 32,000-token budget needs splitting, and failing loudly here is what
-        // stops a truncated read being stored as a complete one.
+        // 32,000-token budget, which cannot be read in page ranges, needs
+        // splitting, and failing loudly here is what stops a truncated read
+        // being stored as a complete one.
         throw new ExtractionError(
           `the extraction was cut off at ${usage.outputTokens} output tokens: split the document and retry`,
           { ...call, outcome: 'schema_mismatch', detail: 'stop_reason=max_tokens' },
@@ -293,19 +406,266 @@ export class ClaudeExtractor implements Extractor {
         call: rebuilt.validated ? call : { ...call, outcome: 'schema_mismatch',
           detail: rebuilt.issues.map((i) => `${i.path}: ${i.problem}`).join('; ').slice(0, 500) },
       });
-    } catch (error) {
-      if (error instanceof ExtractionError) throw error;
+    } catch (thrown) {
+      if (thrown instanceof ExtractionError) throw thrown;
+      const { error, usage } = spentBy(thrown);
       const { outcome, detail } = describeError(error);
+      const spent = usageOf(usage);
       throw new ExtractionError(`extraction failed: ${detail}`, {
         ...base,
-        costMicros: 0,
+        ...(usage === undefined ? {} : spent),
+        costMicros:
+          usage === undefined
+            ? 0
+            : costMicros(this.model, { ...spent, cacheWriteTokens: cacheWritesOf(usage) }),
         latencyMs: Date.now() - startedAt,
         outcome,
         detail,
       });
     }
   }
+
+  /**
+   * The paged read (ADR 0053): the same document asked for page range by page
+   * range, in waves of `policy.concurrency`, a part that runs out of budget
+   * halved into the next wave, at most `policy.maxCalls` calls in all. The
+   * replies are joined by `mergeChunkFields` and then take exactly the path a
+   * single reply takes. What was spent is summed into one call record, on
+   * success and on every failure alike.
+   */
+  private async readInPages(
+    document: DocumentPayload,
+    docType: DocType,
+    input: { startedAt: number; first: ModelCallRecord; policy: PagingPolicy },
+  ): Promise<ExtractionResult> {
+    const { startedAt, first, policy } = input;
+    const schema = schemaFor(docType);
+    const descriptors = describeFields(schema);
+    const groups = repeatingGroupsOf(descriptors);
+    const pageCount = document.pageText?.length ?? 0;
+
+    // Every part shares these blocks, so the last of them carries the cache
+    // marker and only the part's own range block follows it.
+    const shared = this.readContent(document, docType);
+    const lastShared = shared.length - 1;
+    const cached = shared.map((block, index) =>
+      index === lastShared ? { ...block, cache_control: { type: 'ephemeral' } } : block,
+    );
+
+    const spent = {
+      calls: 1,
+      inputTokens: first.inputTokens ?? 0,
+      outputTokens: first.outputTokens ?? 0,
+      cachedTokens: first.cachedTokens ?? 0,
+      costMicros: first.costMicros,
+    };
+    const asked: PageRange[] = [];
+    const halved: string[] = [];
+    const readings: ChunkReading[] = [];
+    const record = (outcome: ModelCallRecord['outcome'], detail: string): ModelCallRecord => ({
+      purpose: 'extract',
+      provider: 'anthropic',
+      modelVersion: this.model,
+      documentId: document.documentId,
+      inputTokens: spent.inputTokens,
+      outputTokens: spent.outputTokens,
+      cachedTokens: spent.cachedTokens,
+      costMicros: spent.costMicros,
+      latencyMs: Date.now() - startedAt,
+      outcome,
+      detail: detail.slice(0, PAGED_DETAIL_LIMIT),
+    });
+    const pagedHow = () =>
+      `paged after stop_reason=max_tokens at ${first.outputTokens ?? 0} output tokens: ` +
+      `${spent.calls} calls, pages ${asked.map(rangeLabel).join(',')}` +
+      (halved.length > 0 ? `; halved ${halved.join(', ')}` : '');
+
+    let wave = planPageChunks(pageCount, policy.pagesPerChunk);
+    while (wave.length > 0) {
+      if (spent.calls + wave.length > policy.maxCalls) {
+        throw new ExtractionError(
+          `a paged read of ${pageCount} pages would need more than ${policy.maxCalls} calls: ` +
+            'split the document and retry',
+          record(
+            'schema_mismatch',
+            `${pagedHow()}; refused ${wave.length} more parts past the ${policy.maxCalls}-call cap`,
+          ),
+        );
+      }
+      const next: PageRange[] = [];
+      const failures: PartFailure[] = [];
+      for (let at = 0; at < wave.length; at += policy.concurrency) {
+        const batch = wave.slice(at, at + policy.concurrency);
+        spent.calls += batch.length;
+        asked.push(...batch);
+        const settled = await Promise.allSettled(
+          batch.map((range) =>
+            this.request([
+              ...cached,
+              { type: 'text', text: chunkInstruction({ range, pageCount, groups }) },
+            ]),
+          ),
+        );
+        const spend = (raw: UsageLike | undefined) => {
+          const usage = usageOf(raw);
+          spent.inputTokens += usage.inputTokens;
+          spent.outputTokens += usage.outputTokens;
+          spent.cachedTokens += usage.cachedTokens;
+          spent.costMicros += costMicros(this.model, {
+            ...usage,
+            cacheWriteTokens: cacheWritesOf(raw),
+          });
+          return usage;
+        };
+        settled.forEach((outcome, index) => {
+          const range = batch[index] as PageRange;
+          if (outcome.status === 'rejected') {
+            // A part that failed after it had spent is still counted.
+            const { error, usage } = spentBy(outcome.reason);
+            if (usage !== undefined) spend(usage);
+            failures.push({ kind: 'error', range, error });
+            return;
+          }
+          const response = outcome.value;
+          const usage = spend(response.usage);
+          if (response.stop_reason === 'refusal') {
+            failures.push({ kind: 'refused', range });
+            return;
+          }
+          if (response.stop_reason === 'max_tokens') {
+            const halves = halveRange(range);
+            if (halves === undefined) {
+              failures.push({ kind: 'cut_off', range, outputTokens: usage.outputTokens });
+              return;
+            }
+            halved.push(`${rangeLabel(range)}→${halves.map(rangeLabel).join('+')}`);
+            next.push(...halves);
+            return;
+          }
+          const parsed = response.parsed_output;
+          if (parsed === null || parsed === undefined) {
+            failures.push({ kind: 'unparseable', range });
+            return;
+          }
+          readings.push({ range, fields: parsed.fields });
+        });
+        // Stop spending at the first batch with a part that failed.
+        const failure = failures[0];
+        if (failure !== undefined) throw this.partFailed(failure, record, pagedHow());
+        // And at the first batch that takes the rows past the cap: the rest of
+        // the document would be read only to be cut off (ADR 0053 §2).
+        this.refusePastRowCap(mergeChunkFields(readings, descriptors), record, pagedHow());
+      }
+      wave = next;
+    }
+
+    const merge = mergeChunkFields(readings, descriptors);
+    this.refusePastRowCap(merge, record, pagedHow());
+    const rebuilt = reassemble(merge.fields, descriptors, schema);
+    // A join that dropped something nothing kept, or may count a row twice at
+    // a boundary, is not a typed reading anyone may open cases from unseen: it
+    // is recorded as not validated, and the pipeline holds the document for a
+    // person (ADR 0044's `type_did_not_fit`).
+    const held = doubtful(merge);
+    const validated = rebuilt.validated && !held;
+    const listed = (label: string, items: readonly string[]) =>
+      items.length > 0 ? [`${label} ${items.length}: ${items.join(', ')}`] : [];
+    // Counts before lists and the doubts before everything else, so a detail
+    // cut at its limit still says how many of each there were.
+    const detail = [
+      pagedHow(),
+      ...(held ? ['held for a person'] : []),
+      ...listed('unaccounted for', merge.unaccounted),
+      ...listed('identical rows either side of a part boundary, both kept', merge.identicalAtBoundary),
+      ...listed('a boundary row printed within the row before it, kept', merge.fragmentsAtBoundary),
+      ...listed('merge dropped', merge.issues.map((i) => i.path)),
+      `rows kept ${merge.kept.join(', ')}`,
+      // As a single read records it: a document that did not satisfy its
+      // schema says which paths did not.
+      ...(rebuilt.validated
+        ? []
+        : [rebuilt.issues.map((i) => `${i.path}: ${i.problem}`).join('; ')]),
+    ].join('; ');
+    return buildExtractionResult({
+      docType,
+      extractor: this.name,
+      document: rebuilt.document,
+      validated,
+      issues: [...merge.issues, ...rebuilt.issues],
+      pageText: document.pageText,
+      call: record(validated ? 'ok' : 'schema_mismatch', detail),
+    });
+  }
+
+  /**
+   * Refuses a paged read whose rows pass `MAX_ROWS_PER_GROUP`. A single reply
+   * cannot reach the cap, so there it is a backstop; a paged read can, and
+   * `reassemble` would keep the first 500 rows and validate — a read recorded
+   * `ok` with every later short-pay missing. It fails loudly instead, with
+   * everything spent.
+   */
+  private refusePastRowCap(
+    merge: ReturnType<typeof mergeChunkFields>,
+    record: (outcome: ModelCallRecord['outcome'], detail: string) => ModelCallRecord,
+    how: string,
+  ): void {
+    for (const [group, rows] of merge.rowCounts) {
+      if (rows > MAX_ROWS_PER_GROUP) {
+        throw new ExtractionError(
+          `a paged read found more than ${MAX_ROWS_PER_GROUP} rows of ${group}: split the document and retry`,
+          record(
+            'schema_mismatch',
+            `${how}; ${rows} rows of ${group}, past the ${MAX_ROWS_PER_GROUP}-row cap: refused`,
+          ),
+        );
+      }
+    }
+  }
+
+  /** The error a failed part ends the read with, carrying everything spent. */
+  private partFailed(
+    failure: PartFailure,
+    record: (outcome: ModelCallRecord['outcome'], detail: string) => ModelCallRecord,
+    how: string,
+  ): ExtractionError {
+    const pages = rangeLabel(failure.range);
+    switch (failure.kind) {
+      case 'refused':
+        return new ModelRefusalError(
+          `the extractor declined pages ${pages} of this document`,
+          record('refusal', `${how}; refused on pages ${pages}`),
+        );
+      case 'cut_off':
+        return new ExtractionError(
+          `page ${pages} alone was cut off at ${failure.outputTokens} output tokens: ` +
+            'split the document and retry',
+          record('schema_mismatch', `${how}; stop_reason=max_tokens on page ${pages} alone`),
+        );
+      case 'unparseable':
+        return new ExtractionError(
+          `the extractor returned no parseable output for pages ${pages}`,
+          record('schema_mismatch', `${how}; no parseable output on pages ${pages}`),
+        );
+      case 'error': {
+        const { outcome, detail } = describeError(failure.error);
+        return new ExtractionError(
+          `extraction failed on pages ${pages}: ${detail}`,
+          record(outcome, `${how}; pages ${pages}: ${detail}`),
+        );
+      }
+    }
+  }
 }
+
+/** How long a paged read's `detail` may run: ranges and paths, never page text. */
+const PAGED_DETAIL_LIMIT = 1_000;
+
+/** Why a part of a paged read did not come back as rows. */
+type PartFailure =
+  | { readonly kind: 'refused'; readonly range: PageRange }
+  | { readonly kind: 'cut_off'; readonly range: PageRange; readonly outputTokens: number }
+  | { readonly kind: 'unparseable'; readonly range: PageRange }
+  | { readonly kind: 'error'; readonly range: PageRange; readonly error: unknown };
 
 /**
  * Turns a validated document object into a result: flatten to fields, then check
