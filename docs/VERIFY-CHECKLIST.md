@@ -1447,8 +1447,8 @@ one comes, check that:
 
 ## Found while writing this
 
-None of these is fixed in this PR. Each needs a decision or its own change;
-2 and 3 were fixed by another change the same day.
+Struck items are fixed; each links the change. The rest each need a
+decision or their own change.
 
 1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
    0047: an address, the webhook, the job, Settings → Email and the sweep.
@@ -1468,8 +1468,8 @@ None of these is fixed in this PR. Each needs a decision or its own change;
 5. **A decline leaves no trace on the case page** once its notice is gone
    (§6).
 6. ~~**A line with a printed dash is counted as "unreadable"** rather than
-   "paid in full" (§8).~~ **Fixed** on 2026-09-26 (branch
-   `claude/dash-is-no-amount`): a deduction column printing only a dash
+   "paid in full" (§8).~~ **Fixed** on 2026-09-26 by
+   [parth7452/mozart1#117](https://github.com/parth7452/mozart1/pull/117): a deduction column printing only a dash
    (`-`, `–`, `—`, `$ -`) is read as no amount (`printsNoAmount`), so the
    line is priced by gross less net as ADR 0028 §2 says. "No money impact"
    held for this page only: a dash line whose gross exceeded its net was

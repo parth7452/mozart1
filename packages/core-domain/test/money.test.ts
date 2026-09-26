@@ -353,14 +353,29 @@ describe('printsNoAmount', () => {
     expect(printsNoAmount(text)).toBe(false);
   });
 
+  // Built from the pieces a dash cell is made of, so most draws are one and
+  // the property runs over them rather than over random text that never is.
+  const dashHeavy = fc.oneof(
+    fc
+      .array(fc.constantFrom('-', '\u2013', '\u2014', '\u2212', '$', 'USD', ' ', '0', '5', '.', ','), {
+        maxLength: 6,
+      })
+      .map((parts) => parts.join('')),
+    fc.string({ maxLength: 8 }),
+  );
+
   it('never answers where parseMoneyToCents does', () => {
+    let dashed = 0;
     for (const text of dashes) expect(() => parseMoneyToCents(text)).toThrow(MoneyError);
     fc.assert(
-      fc.property(fc.string({ maxLength: 8 }), (text) => {
+      fc.property(dashHeavy, (text) => {
         if (!printsNoAmount(text)) return;
+        dashed += 1;
         expect(() => parseMoneyToCents(text)).toThrow(MoneyError);
       }),
+      { numRuns: 1000 },
     );
+    expect(dashed).toBeGreaterThan(20);
     fc.assert(
       fc.property(fc.integer({ min: -9_000_000_000, max: 9_000_000_000 }), (n) => {
         expect(printsNoAmount(formatCents(cents(n)))).toBe(false);
