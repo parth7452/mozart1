@@ -8,6 +8,7 @@ import {
   type JobStoreHandle,
 } from '../../../lib/inngest';
 import { ledgerSyncFunctions } from '../../../lib/inngest-ledger';
+import { alertOnFailureFunction } from '../../../lib/alerts';
 import { inboundStoreFor, readInboundEmailFunction } from '../../../lib/inbound';
 import { pipelineDepsFor, storeForActor } from '../../../lib/pipeline';
 import { connectionsToSync, ledgerSyncDepsFor } from '../../../lib/ledger-sync';
@@ -130,6 +131,10 @@ function handlers(): Served | undefined {
         },
         depsFor: (identity) => ledgerSyncDepsFor(identity),
       }),
+      // An email to the operator when one of the four above fails after its
+      // retries (ADR 0052). Registered whether or not mail is configured, so
+      // its run says why no email came. It opens no database connection.
+      alertOnFailureFunction(client),
     ],
   });
   return served;

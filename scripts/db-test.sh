@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
 # Applies every migration to a scratch database, then runs the invariant, RLS
 # and separation-of-duties suites. Any failure exits non-zero, so this is safe
-# as a CI gate and as the `on-Stop` hook for Claude Code.
+# as a CI gate.
 #
-#   DATABASE_URL=postgres://…/recouple_test ./scripts/db-test.sh
+#   TEST_DATABASE_URL=postgres://…/recouple_test RECOUPLE_TEST_DATABASE=1 ./scripts/db-test.sh
 #
-# The connection must own the schema (it creates roles and triggers). Point it
-# at a throwaway database — the suites roll back, but the migrations do not.
+# The connection must own the schema (it creates roles and triggers). It reads
+# TEST_DATABASE_URL, never DATABASE_URL — that is the operator scripts' and the
+# app's, and on 2026-09-25 the integration tests reached production through it
+# (docs/audits/tests-against-production/). The suites roll back; the migrations
+# and `_supabase_shape.sql` do not.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Local convenience: fall back to .env when DATABASE_URL is not already set.
-if [ -z "${DATABASE_URL:-}" ] && [ -f "$ROOT/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$ROOT/.env"
-  set +a
-fi
 
-: "${DATABASE_URL:?set DATABASE_URL to a scratch Postgres database owned by the connecting role}"
+# The test-database guard (scripts/test-database.ts), before anything is
+# applied: it takes TEST_DATABASE_URL and RECOUPLE_TEST_DATABASE from the
+# environment, else from .env and nothing else there, refuses a Supabase host or
+# a database carrying recouple_app, supabase_admin or applied Supabase
+# migrations, and prints the URL it checked. A refusal exits here.
+TEST_DATABASE_URL="$("$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/check-test-database.ts")"
 
-psql_run() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q --no-psqlrc -f "$1"; }
+psql_run() { psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q --no-psqlrc -f "$1"; }
 
 # Supabase's request roles and the default privileges it grants them, before
 # any migration runs. Production has both and `postgres:16` has neither, so

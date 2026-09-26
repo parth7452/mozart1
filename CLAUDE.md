@@ -85,15 +85,25 @@ what enforces each one.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm test` | Vitest across every package (includes the money property tests) |
+| `pnpm test` | Vitest across every package (includes the money property tests). The Postgres integration tests read `TEST_DATABASE_URL`, never `DATABASE_URL`, and skip without it |
 | `pnpm typecheck` | `tsc` over the workspace |
 | `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
 | `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
 | `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
 | `pnpm verify` | typecheck + db:test + test + eval — what CI runs, in that order |
 
-`pnpm db:test` needs `DATABASE_URL` pointing at a throwaway database owned by
-the connecting role.
+`pnpm db:test` and the integration tests need `TEST_DATABASE_URL` pointing at a
+throwaway database owned by the connecting role, and `RECOUPLE_TEST_DATABASE=1`.
+`DATABASE_URL` is the app's and the operator commands' and no test reads it: on
+2026-09-25 a clone's `.env` named production there and the Stop hook ran the
+integration tests against it, leaving rows in append-only tables for good
+(`docs/audits/tests-against-production/`). The test-database guard
+(`scripts/test-database.ts`) runs before any test file loads and before
+`db:test` applies anything, and refuses — the run fails, nothing is sent — a
+test process holding `DATABASE_URL`, a `TEST_DATABASE_URL` without the opt-in
+(or the opt-in without one), a Supabase host, or a database carrying a
+`recouple_app` login, a `supabase_admin` role or applied Supabase migrations.
+It has no override. The Stop hook runs `env -u DATABASE_URL pnpm test`.
 
 ## Build order (do not reorder)
 
@@ -1509,3 +1519,22 @@ lost it after the read; `buildExtractionResult` now names each one on the
 extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
 page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
 read a duplex scan through the pipeline and back out of Postgres.
+
+**A failed job reaches a person** (ADR 0052, no migration). Inngest has no
+built-in alert for a failed run on any plan, so `alert-on-failure`
+(`apps/web/lib/alerts.ts`) listens for `inngest/function.failed`, filtered to
+`read-document`, `read-inbound-email`, `sync-ledger` and `ledger-sync-fan-out`
+by the ids built from their own configs, and emails `ALERT_EMAIL_TO` through
+Resend with a send-only key. The email carries the function id, a run id
+checked as a ULID, `error.name` checked as an identifier, and a link to the
+run. `parseFailure` never reads `error.message` or `event`, which can quote the
+page, and a test puts a marker in every other field to prove it. One email per
+function per hour (`rateLimit`), `retries: 2`, a Resend refusal that will
+repeat is non-retriable, and a failed send is a log line, because Inngest
+reports no failure of a failure handler. `alertsFromEnv` is `scannerFromEnv`'s
+shape: none of the three variables means off and logged (at most once per job per
+hour, the rate limit still applying), some of
+them is misconfigured and logged as an error, and the variables are Production
+only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
+(VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents
+waiting to be read" stays that check.

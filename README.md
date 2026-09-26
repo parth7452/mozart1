@@ -51,7 +51,7 @@ Requires Node 20+, pnpm 10+, and a Postgres 16 you can throw away.
 
 ```bash
 pnpm install
-cp .env.example .env            # only DATABASE_URL matters for Phase 0
+cp .env.example .env            # only TEST_DATABASE_URL and RECOUPLE_TEST_DATABASE matter here
 
 pnpm typecheck
 pnpm test                       # 149 unit, property and pipeline tests
@@ -60,9 +60,14 @@ pnpm eval                       # replays cassettes, scores against ground truth
 pnpm verify                     # all four, in the order CI runs them
 ```
 
-`pnpm db:test` applies every migration to the database in `DATABASE_URL` and then
-runs the invariant suites. Point it at a scratch database — the suites roll back,
-the migrations do not.
+`pnpm db:test` applies every migration to the database in `TEST_DATABASE_URL` and
+then runs the invariant suites; `pnpm test` runs the Postgres integration tests
+against the same database. Point it at a scratch database — the suites roll back,
+the migrations and the integration tests' rows do not. Neither reads
+`DATABASE_URL`, which is the app's and the operator commands', and both refuse to
+start unless `RECOUPLE_TEST_DATABASE=1` is set and the database is plainly a
+throwaway: not a Supabase host, no `recouple_app` login, no `supabase_admin`
+role, no applied Supabase migrations (`scripts/test-database.ts`).
 
 Expected tail of `pnpm db:test`:
 

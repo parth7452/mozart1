@@ -75,7 +75,7 @@ Nothing else is needed.
 
 Do **2** first (sign-in; it needs migration 0035 and the hook, see its
 *Before you start*), then **4** (make the test workspace), then **2.7**,
-**3**, **1**, **6**, **7**, **8** and **9**. **5** waits for your Postmark
+**3**, **1**, **6**, **7**, **8**, **9** and **10**. **5** waits for your Postmark
 setup; see its first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
@@ -1336,6 +1336,71 @@ select action, subject_id, payload, actor_id, observed_at
 
 Expect `membership.invited`, `membership.role_changed` and `membership.removed`
 rows naming you as `actor_id`, and no row for the refusals.
+
+---
+
+## 10. A failed background job reaches your inbox
+
+**What it proves:** a job that fails after its retries emails you, and the
+email says which job failed and nothing from the document (ADR 0052). §9 is
+kept for Settings → Team (parth7452/mozart1#109).
+
+**When:** any time after the variables below are set. It touches no
+workspace and no database row.
+
+**10.1 Set it up, once.**
+
+- **Resend** → **API Keys** → **Create API key**:
+  - permission **Sending access**;
+  - domain: the one Supabase's sign-in mail is sent from.
+- **Vercel** → the web project → **Settings** → **Environment Variables**.
+  Add three, with **Production** ticked and **Preview** not ticked:
+  - `RESEND_API_KEY`: the key just created;
+  - `ALERT_EMAIL_FROM`: an address on that domain, for example
+    `alerts@<that domain>`;
+  - `ALERT_EMAIL_TO`: your own address. One address, with no name and no
+    list.
+- **Redeploy production.**
+
+**10.2 Send the test.**
+
+- **Do:** Inngest → the production environment → **Events** → **Send
+  event**, and paste:
+
+  ```json
+  { "name": "recouple/alert.test", "data": {} }
+  ```
+
+- **You should see:** within a minute, an email from "Mozart alerts":
+  - subject "[TEST] Mozart: failure alerts are working";
+  - first line "This is a test. Nothing failed."
+- **Inngest:** Runs → a run of **Email a failed run** that ends
+  **Completed**, with output `{"outcome":"sent","test":true}`.
+- **Vercel logs:** search `alert:`. You should find
+  `[recouple] alert: sent for test`.
+
+**If no email arrives,** look at the run's output:
+
+- `not_configured`: none of the three variables reached this deployment.
+  Check that they are on Production, then redeploy.
+- `misconfigured`: the Vercel log line `alerts are misconfigured — …` names
+  the variable to fix.
+- **The run failed:** the log line `alert: not sent for test: Resend
+  answered …` gives Resend's status:
+  - `401` or `403`: the key, or a sender address that is not on its domain;
+  - `422`: an address Resend will not take.
+- `outcome: sent` but nothing in your inbox: check spam, then Resend →
+  **Emails** for its delivery status.
+
+**10.3 What a real one looks like.** You don't need to cause a failure. When
+one comes, check that:
+
+- the subject is "Mozart: a background job failed (…)", with the job's name;
+- the body gives the function, the run id, an error class such as
+  `NonRetriableError`, and a link that opens that run in Inngest;
+- there is no claim number, amount, retailer or document text anywhere in it;
+- a second failure of the same job within the hour sends nothing, and the
+  Runs page lists it.
 
 ---
 
