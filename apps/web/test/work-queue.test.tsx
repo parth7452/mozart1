@@ -212,6 +212,20 @@ describe('the review queue view', () => {
     expect(render(read(rows))).not.toContain('Showing the');
   });
 
+  it('scopes unknown deadlines to displayed queue rows, including a truncated zero', () => {
+    const rows = [
+      row({ disputeDeadline: undefined }),
+      row({ disputeDeadline: day(2) }),
+    ];
+    const html = render(read(rows, { total: 612, limit: 2 }));
+    expect(html).toContain('1 deadline unknown in the displayed queue.');
+    expect(html).toContain('More cases are outside this view.');
+
+    const noUnknown = render(read([row({ disputeDeadline: day(2) })], { total: 612, limit: 1 }));
+    expect(noUnknown).toContain('0 deadlines unknown in the displayed queue.');
+    expect(noUnknown).toContain('More cases are outside this view.');
+  });
+
   it('says why it is empty, and counts what is waiting on the retailer', () => {
     const filed = render(read([], { waitingOnRetailer: 3 }));
     expect(filed).toContain('Nothing needs a person right now · 3 filed, waiting on the retailer');

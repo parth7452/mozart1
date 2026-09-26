@@ -72,8 +72,8 @@ export function CaseTable({
         <table className="cases">
           <thead>
             <tr>
-              <th scope="col">Claim</th>
               <th scope="col">Customer / retailer</th>
+              <th scope="col">Claim</th>
               <th scope="col" className="money">
                 Deducted
               </th>
@@ -89,18 +89,26 @@ export function CaseTable({
               return (
                 <tr key={row.deductionId}>
                   <td>
-                    <Link href={`/cases/${row.deductionId}`} className="mono claim-link">
-                      {row.claimId ?? row.deductionId.slice(0, 8)}
+                    <Link
+                      href={`/cases/${row.deductionId}`}
+                      className="customer-name case-name-link"
+                      aria-label={who.name === '—'
+                        ? `Review case ${row.claimId ?? row.deductionId.slice(0, 8)}`
+                        : undefined}
+                    >
+                      {who.name === '—' ? (row.claimId ?? row.deductionId.slice(0, 8)) : who.name}
                     </Link>
+                    {/* Nothing was read for a name: say so, and link by the claim. */}
+                    {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
+                    {who.matched ? null : <span className="unmatched">not matched</span>}
+                  </td>
+                  <td>
+                    <span className="mono case-claim">{row.claimId ?? row.deductionId.slice(0, 8)}</span>
                     {row.invoiceNumber === undefined ? null : (
                       <div className="unmatched" style={{ marginLeft: 0 }}>
                         invoice {row.invoiceNumber}
                       </div>
                     )}
-                  </td>
-                  <td>
-                    <span className="customer-name">{who.name}</span>
-                    {who.matched ? null : <span className="unmatched">not matched</span>}
                   </td>
                   <td className="money">{money(row.deductionAmountCents)}</td>
                   <td>

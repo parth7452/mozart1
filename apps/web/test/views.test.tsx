@@ -28,7 +28,7 @@ import {
   PossibleDuplicates,
 } from '../components/possible-duplicates';
 import { DISPUTE_REASONS } from '../components/case-actions';
-import { confidencePercent, deadline, fieldLabel, money } from '../lib/format';
+import { UNATTACHED_SHOWN, confidencePercent, deadline, fieldLabel, money, unattachedCount } from '../lib/format';
 import { displaysInline } from '../lib/document-types';
 import { tallyOf } from './case-tally';
 
@@ -243,6 +243,53 @@ describe('the case list', () => {
     expect(html).toContain('7d overdue');
     expect(html).toContain('1 doc<');
     expect(html).toContain('4 docs');
+  });
+
+  it('says "1 case needs attention", not "need"', () => {
+    const one = { ...NO_QUEUE, read: { ...NO_QUEUE.read, total: 1 } };
+    const html = renderToStaticMarkup(
+      <EveryCaseList queue={one} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(html).toContain('1 case needs attention.');
+    expect(html).not.toContain('1 case need attention.');
+  });
+
+  it('links a case that has no name by its claim id, never by a bare dash', () => {
+    const html = renderToStaticMarkup(
+      <EveryCaseList
+        queue={NO_QUEUE}
+        mayUpload
+        viewer={viewer}
+        cases={[summary({ debtorName: undefined, retailerKey: undefined, retailerNameAsPrinted: undefined })]}
+        today={today}
+      />,
+    );
+    const link = html.match(/<a[^>]*href="\/cases\/11111111-2222-3333-4444-555555555555"[^>]*>([^<]*)<\/a>/);
+    expect(link?.[1]).toBe('APDP-99812');
+  });
+
+  it('leads with the review queue and gives writers working section links', () => {
+    const writer = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload viewer={viewer} cases={[summary()]} today={today} />,
+    );
+    expect(writer).toContain('<h1>Deductions</h1>');
+    expect(writer).toContain('No cases need attention right now.');
+    expect(writer.indexOf('id="work-queue-title"')).toBeLessThan(writer.indexOf('aria-label="Deduction overview"'));
+    expect(writer).toContain('href="#ledger"');
+    expect(writer).toContain('href="#documents"');
+    expect(writer).toContain('id="documents"');
+    expect(writer).toContain('0 awaiting a case');
+    // The store returns at most UNATTACHED_SHOWN, newest first, and no total.
+    expect(unattachedCount(UNATTACHED_SHOWN - 1)).toBe(String(UNATTACHED_SHOWN - 1));
+    expect(unattachedCount(UNATTACHED_SHOWN)).toBe(`${UNATTACHED_SHOWN}+`);
+    expect(writer).toContain('href="#add-document"');
+    expect(writer).toContain('id="add-document"');
+
+    const reader = renderToStaticMarkup(
+      <EveryCaseList queue={NO_QUEUE} mayUpload={false} viewer={{ ...viewer, role: 'read_only' }} cases={[]} today={today} />,
+    );
+    expect(reader).not.toContain('href="#documents"');
+    expect(reader).not.toContain('id="documents"');
   });
 
   it('takes its figures from every case, and says the table holds only the newest', () => {
@@ -1035,9 +1082,26 @@ describe('the review page', () => {
         today={today}
       />,
     );
-    expect(html).toContain('WALMART STORES, INC.');
+    expect(html).toContain('<h1>WALMART STORES, INC.</h1>');
     expect(html).toContain('not matched to a debtor');
     expect(html).not.toContain('Retailer unknown');
+  });
+
+  it('keeps case references and document access visible under the named heading', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview documents={[document()]} mayAct={false} viewer={viewer}
+        summary={summary({ claimId: undefined, invoiceNumber: 'INV-271003' })}
+        fields={[field()]} reconciliation={undefined} costMicros={0} today={today} />,
+    );
+    expect(html).toContain('<h1>Walmart (APDP)</h1>');
+    expect(html).toContain('Case 11111111');
+    expect(html).toContain('Invoice INV-271003');
+    for (const section of ['evidence', 'decision', 'history']) {
+      expect(html).toContain(`href="#case-${section}"`);
+      expect(html).toContain(`id="case-${section}"`);
+    }
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}"`);
+    expect(html).toContain('Open full document');
   });
 
   it('heads a remittance-originated case with its invoice and the code as printed', () => {

@@ -2,6 +2,20 @@ import { DUE_SOON_DAYS } from '@recouple/core-domain';
 import type { DocType } from '@recouple/extraction';
 
 /** Money is integer cents everywhere; it becomes a string only to be read. */
+/**
+ * How many documents read-but-on-no-case the case list asks the store for.
+ * The store returns at most this many, newest first, and no total, so a
+ * count that reaches it is a floor, never the number waiting.
+ */
+export const UNATTACHED_SHOWN = 50;
+
+/** "12", or "50+" when the list stopped at `UNATTACHED_SHOWN`. */
+export function unattachedCount(shown: number): string {
+  return shown >= UNATTACHED_SHOWN
+    ? `${UNATTACHED_SHOWN.toLocaleString('en-US')}+`
+    : shown.toLocaleString('en-US');
+}
+
 export function money(cents: number): string {
   const sign = cents < 0 ? '-' : '';
   const abs = Math.abs(cents);

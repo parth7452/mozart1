@@ -105,6 +105,7 @@ export function WorkQueue({
   viewer: QueueViewer;
 }) {
   const ranked = rankForReview(queue.rows, today);
+  const unknownDeadlines = ranked.filter((row) => row.bucket === 'no_deadline').length;
   const waiting = queue.waitingOnRetailer;
   const waitingText = `${waiting.toLocaleString('en-US')} filed, waiting on the retailer`;
   const needText =
@@ -119,6 +120,11 @@ export function WorkQueue({
           <h2 id="work-queue-title">What to work on next</h2>
           <p className="ledger-summary">
             {needText} · {waitingText}
+          </p>
+          <p className={unknownDeadlines > 0 ? 'queue-unknown has-unknown' : 'queue-unknown'}>
+            {unknownDeadlines.toLocaleString('en-US')} deadline
+            {unknownDeadlines === 1 ? '' : 's'} unknown in the displayed queue.
+            {ranked.length < queue.total ? ' More cases are outside this view.' : null}
           </p>
         </div>
         <span className="ledger-tag">REVIEW QUEUE</span>
@@ -136,8 +142,8 @@ export function WorkQueue({
               a deadline, a step in words — so a screen reader is not asked to
               match cells to headers, and a phone can stack the row. */}
           <div className="queue-columns" aria-hidden="true">
-            <span>Claim</span>
             <span>Customer / retailer</span>
+            <span>Claim</span>
             <span className="money">Deducted</span>
             <span>When</span>
             <span>Next step</span>
@@ -168,20 +174,27 @@ export function WorkQueue({
                     const step = nextStepLabel(row, viewer);
                     return (
                       <li key={row.case.deductionId} className="queue-row">
-                        <span className="queue-claim">
+                        <span className="queue-who">
                           <Link
                             href={`/cases/${row.case.deductionId}`}
-                            className="mono claim-link"
+                            className="customer-name queue-case-link"
+                            aria-label={who.name === '—'
+                              ? `Review case ${row.case.claimId ?? row.case.deductionId.slice(0, 8)}`
+                              : undefined}
                           >
-                            {row.case.claimId ?? row.case.deductionId.slice(0, 8)}
+                            {who.name === '—'
+                              ? (row.case.claimId ?? row.case.deductionId.slice(0, 8))
+                              : who.name}
                           </Link>
+                          {/* Nothing was read for a name: say so, and link by the claim. */}
+                          {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
+                          {who.matched ? null : <span className="unmatched">not matched</span>}
+                        </span>
+                        <span className="queue-claim">
+                          <span className="mono">{row.case.claimId ?? row.case.deductionId.slice(0, 8)}</span>
                           {row.case.invoiceNumber === undefined ? null : (
                             <span className="unmatched">invoice {row.case.invoiceNumber}</span>
                           )}
-                        </span>
-                        <span className="queue-who">
-                          <span className="customer-name">{who.name}</span>
-                          {who.matched ? null : <span className="unmatched">not matched</span>}
                         </span>
                         <span className="queue-amount">
                           {money(row.case.deductionAmountCents)}
