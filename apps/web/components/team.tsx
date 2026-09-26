@@ -97,9 +97,8 @@ export function TeamPage({
           <section className="card team" aria-label="Welcome message">
             <h2>Welcome message for {welcomeFor.fullName ?? welcomeFor.email}</h2>
             <p className="empty">
-              {welcomeFor.hasSignedIn
-                ? 'They can now sign in at app.mozart.financial with this address. Copy this and send it from your own email.'
-                : 'Mozart sends their sign-in invitation; until it does, the sign-in form sends them nothing. Send this after it has gone.'}
+              They can now sign in at app.mozart.financial with this address. Copy this and send it
+              from your own email.
             </p>
             <label htmlFor="welcome-message">Copy and send</label>
             <textarea
@@ -111,7 +110,6 @@ export function TeamPage({
                 fullName: welcomeFor.fullName,
                 email: welcomeFor.email,
                 role: welcomeFor.role,
-                hasSignedIn: welcomeFor.hasSignedIn,
               })}
             />
           </section>
@@ -191,9 +189,8 @@ export function TeamPage({
               </button>
             </form>
             <p className="empty">
-              Someone who already signs in to Mozart can sign in here at once. Anyone else gets a
-              sign-in invitation from Mozart first; the page shows a welcome message to send them
-              either way.
+              They can sign in at once with this address: the first sign-in link they ask for
+              makes their account. The page then shows a welcome message to send them.
             </p>
           </section>
         ) : (

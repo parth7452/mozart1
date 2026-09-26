@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { PostgresTeamStore, TeamChangeRefusedError } from '../src/team';
+import { addressIsInvited } from '../src/session';
 import { closeAllPools } from '../src/store';
 
 const connectionString = process.env.DATABASE_URL;
@@ -131,5 +132,12 @@ describeDb('Settings → Team on Postgres', () => {
     expect((await owner.members()).some((member) => member.userId === readerId)).toBe(false);
     const { rows } = await admin.query<{ n: string }>(`select count(*) as n from users where id = $1`, [readerId]);
     expect(Number(rows[0]?.n)).toBe(1);
+  });
+
+  it('answers the sign-in form’s question with no claims, one bit per address', async () => {
+    expect(await addressIsInvited(config, `TEAM-A-${suffix}@example.test`)).toBe(true);
+    expect(await addressIsInvited(config, `nobody-${suffix}@example.test`)).toBe(false);
+    // Removed above from their only workspace: no longer an invitation.
+    expect(await addressIsInvited(config, `team-r-${suffix}@example.test`)).toBe(false);
   });
 });

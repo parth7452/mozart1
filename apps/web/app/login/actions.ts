@@ -1,40 +1,65 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { addressIsInvited } from '@recouple/store-postgres';
 import { env } from '../../lib/env';
 import { signInDenied, type SignInNoticeKey } from '../../lib/notices';
 import { supabaseForRequest } from '../../lib/supabase';
 
 /**
- * Sends a magic link to an address that already has an account, and creates
- * none (ADR 0045).
+ * Sends a magic link, and lets the provider create an account only for an
+ * address somebody invited (ADR 0045, ADR 0051 §6).
  *
- * `shouldCreateUser: false` is the whole of closing sign-ups in code. Without
- * it auth-js sends `create_user: true`, and every address typed here became a
- * Supabase Auth user holding a working link. The database still refused them at
- * `app.link_auth_user()`, but they held a session the proxy kept refreshing,
- * and the list of auth users stopped being a list of the people anyone invited.
- * An invitation now creates the auth user, from the dashboard (apps/web/DEPLOY.md).
+ * `shouldCreateUser` is decided by the database, not by the form: it is `true`
+ * only when `app.address_is_invited()` says exactly one `users` row answers to
+ * the address and it has a membership — someone an owner added on Settings →
+ * Team, or an operator added by SQL. Then the provider creates the account and
+ * mails one link, and nobody has to press anything in the Supabase dashboard.
+ * For every other address it is `false`, exactly as ADR 0045 made it: auth-js
+ * would otherwise send `create_user: true`, and every address typed here would
+ * become a Supabase Auth user holding a working link.
+ *
+ * This is the form's half of the gate and not the whole of it. The anon key is
+ * public, so anyone can call the provider's own endpoints without this form;
+ * the provider's `before-user-created` hook (`app.hook_before_user_created`)
+ * asks the database the same question for every account, however it was asked
+ * for, and `requireSession` refuses a session signed in with a password (ADR
+ * 0051 §6).
  *
  * The redirect is the same for every address the provider will not send to,
- * which is what keeps this form from saying who has an account. See
- * `failureToShow` for which failures are still shown, and why so few.
+ * invited or not, which is what keeps this form from saying who has an account
+ * or an invitation. See `failureToShow` for which failures are still shown, and
+ * why so few. A fault asking the database is shown, with a reference: it does
+ * not depend on the address, so saying so tells nobody anything about one.
  */
 export async function sendSignInLink(formData: FormData): Promise<void> {
   const email = String(formData.get('email') ?? '').trim();
   if (email === '') redirect(signInDenied('no_address'));
+
+  let invited: boolean;
+  try {
+    invited = await addressIsInvited({ connectionString: env.databaseUrl }, email);
+  } catch (cause) {
+    const reference = new Date().toISOString();
+    console.error(
+      `[sign-in link] ${reference} — not sent: asking the database whether the address is ` +
+        `invited failed. This is a configuration or connectivity fault, not a refusal. ` +
+        `${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    redirect(signInDenied('not_completed', reference));
+  }
 
   const supabase = await supabaseForRequest();
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
       emailRedirectTo: `${env.siteUrl}/auth/callback`,
-      shouldCreateUser: false,
+      shouldCreateUser: invited,
     },
   });
 
   if (error !== null) {
-    const shown = failureToShow(error);
+    const shown = failureToShow(error, invited);
     if (shown !== undefined) redirect(signInDenied(shown.key, shown.reference));
   }
   redirect('/login?sent=1');
@@ -90,11 +115,24 @@ interface ShownFailure {
  * looks for "I was invited and no mail came". The sent notice tells the person
  * what to do if nothing arrives, and every address gets that notice.
  */
-function failureToShow(error: SendError): ShownFailure | undefined {
+function failureToShow(error: SendError, invited: boolean): ShownFailure | undefined {
   const reference = new Date().toISOString();
   const detail = `${error.name} ${error.code ?? '(no code)'}, HTTP ${error.status ?? '(none)'}`;
 
   if (error.code !== undefined && REFUSED_ADDRESS.has(error.code)) {
+    if (invited) {
+      // The database said this address is invited and the provider still would
+      // not make its account: sign-ups are switched off at the provider, or the
+      // hook disagrees with the database. Somebody invited is getting no mail,
+      // which is an operator's problem — logged as one, answered as sent all
+      // the same, so the page says nothing about who is invited.
+      console.error(
+        `[sign-in link] ${reference} — NOT SENT to an invited address: the provider refused ` +
+          `to create its account (${detail}). Check "Allow new users to sign up" and the ` +
+          `before-user-created hook (ADR 0051 §6). Answered as sent. ${error.message}`,
+      );
+      return undefined;
+    }
     // Expected for every stranger, and not a fault. Logged without the
     // provider's message, which is the same every time and says nothing more.
     console.warn(

@@ -27,50 +27,37 @@ export const ROLE_WORDS: Readonly<Record<MembershipRole, { readonly name: string
 export const SIGN_IN_URL = 'https://app.mozart.financial/login';
 
 /**
- * The welcome message, from docs/ONBOARDING.md §2's wording.
- *
- * Two versions: someone who has signed in before can sign in now; anyone else
- * first gets an invitation from Supabase, which Mozart still sends by hand
- * (ADR 0051 §6), so the message says to expect it.
+ * The welcome message, from docs/ONBOARDING.md §2's wording, the same for
+ * everyone. Somebody who has never signed in to Mozart gets their account made
+ * by the sign-in form the first time they ask for a link (ADR 0051 §6), and
+ * that first email asks them to confirm their address; its link signs them in.
+ * Its code expires five minutes after it was sent rather than after the click
+ * (supabase/auth `internal/models/flow_state.go`, `IsExpired`): a late click
+ * still confirms the address, and the next link — an ordinary magic link — works.
  */
 export function welcomeMessage(input: {
   readonly workspace: string;
   readonly fullName?: string | undefined;
   readonly email: string;
   readonly role: MembershipRole;
-  readonly hasSignedIn: boolean;
 }): string {
   const first = input.fullName?.trim().split(/\s+/)[0];
   const greeting = first === undefined || first === '' ? 'Hi,' : `Hi ${first},`;
-  const added =
-    `You have been added to ${input.workspace}'s workspace on Mozart as ` +
-    `${ROLE_WORDS[input.role].name}.`;
-  const signIn = input.hasSignedIn
-    ? [
-        `Sign in at ${SIGN_IN_URL} with ${input.email}: type it under Work email and press ` +
-          '"Email me a sign-in link". Open the link in that email in the same browser. ' +
-          'There is no password.',
-      ]
-    : [
-        'Getting in takes two emails:',
-        '',
-        '1. An invitation from Supabase (our sign-in provider). Click its link once. It opens ' +
-          'the Mozart sign-in page, and you will not be signed in yet. That is expected: the ' +
-          'link only confirms your address.',
-        `2. On that page, type ${input.email} under Work email and press "Email me a sign-in ` +
-          'link". Open the link in that email in the same browser. If your email app opens it ' +
-          'somewhere else you will see "that link has expired"; copy it into the browser where ' +
-          'you asked for it instead.',
-        '',
-        `From then on, sign in at ${SIGN_IN_URL} the same way (step 2). There is no password.`,
-      ];
   return [
     `Subject: Your ${input.workspace} workspace on Mozart`,
     '',
     greeting,
     '',
-    added,
+    `You have been added to ${input.workspace}'s workspace on Mozart as ` +
+      `${ROLE_WORDS[input.role].name}.`,
     '',
-    ...signIn,
+    `To sign in, go to ${SIGN_IN_URL}, type ${input.email} under Work email and press ` +
+      '"Email me a sign-in link". Open the link in that email in the same browser. If your ' +
+      'email app opens it somewhere else you will see "that link has expired"; copy it into ' +
+      'the browser where you asked for it instead. There is no password.',
+    '',
+    'The first time, the email comes from our sign-in provider and asks you to confirm your ' +
+      'address. Open it within five minutes: its link signs you in. If you are too late it says ' +
+      'the link has expired, and the next link you ask for will work.',
   ].join('\n');
 }

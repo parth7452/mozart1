@@ -1,11 +1,12 @@
 # 0051 — An owner manages their own team
 
-- Status: proposed (2026-09-26), for the founder
+- Status: proposed (2026-09-26), for the founder; §6 records the founder's
+  decision the same day to switch "Allow new users to sign up" on
 - Date: 2026-09-26
 - Amends: ADR 0015 (who creates a `users` row), ADR 0039 §8 (owner-only
-  membership writes now have a door and a floor)
-- Leaves open: how a new person's Supabase Auth user is created (§6) — a
-  decision for the founder, with the options set out below
+  membership writes now have a door and a floor), ADR 0045 §1 (the form lets
+  the provider create an account for an invited address, and a session not made
+  by an email link is refused)
 
 ## Context
 
@@ -120,78 +121,160 @@ No append-only table is touched. `memberships` and `users` keep exactly the
 grants they had (0006's mutable list); no UPDATE or DELETE grant is added
 anywhere.
 
-### 6. What this does not do: create the person's sign-in
+### 6. The person's sign-in: the form makes the account, and three layers gate it
 
-**The preferred design does not work while sign-ups are off.** It was: the
-login action asks the database (a claimless definer function, 0033's shape)
-whether the address has a `users` row with a membership, and only then calls
-`signInWithOtp` with `shouldCreateUser: true`, so Supabase creates the Auth
-user and mails one link. Supabase Auth's own code rules it out
-(`supabase/auth`, `internal/api/magic_link.go` and `signup.go`, read
-2026-09-26): for an address with no Auth user, or one never confirmed, the
-magic-link path calls `Signup`, and `Signup` begins
+**What was found first.** The preferred design — the login action asks the
+database whether the address is invited and only then calls `signInWithOtp`
+with `shouldCreateUser: true` — does not work while "Allow new users to sign
+up" is off. Supabase Auth's own code rules it out (`supabase/auth` master at
+`ce9a8ee`, read 2026-09-26): for an address with no Auth user, or an
+unconfirmed one, the magic-link path calls `Signup`, and `Signup` begins
+`if config.DisableSignup { return … "signup_disabled" }`
+(`internal/api/magic_link.go`, `signup.go`). The first version of this ADR
+stopped there and set out options A–F for the founder.
 
-```go
-if config.DisableSignup {
-    return … ErrorCodeSignupDisabled, "Signups not allowed for this instance"
-}
-```
+**The founder's decision (2026-09-26): sign-ups on.** That makes the form work,
+and it also reopens what ADR 0045 closed. The anon key is public, so anyone can
+call the provider's `/signup` and `/otp` directly, whatever our form decides.
+Reading the source showed that this is worse than stray accounts:
 
-So with "Allow new users to sign up" off — production's setting since ADR 0045
-— `shouldCreateUser: true` still answers `signup_disabled` for exactly the
-people it was meant to reach. ADR 0045 §1 described the same path from the
-other side.
+- **Pre-registration takeover.** An attacker calls `/signup` with an invitee's
+  address and a password they choose. The provider makes an unconfirmed
+  account and mails the invitee a confirmation, which looks exactly like the
+  invitation they were told to expect. When the invitee clicks it, the account
+  is confirmed *with the attacker's password*. The invitee asking our form for
+  a link does not help: for an unconfirmed account `Signup` deliberately does
+  not touch it ("we can't be sure of their claimed identity", `signup.go`), so
+  the password survives. The attacker then signs in with it, and
+  `link_auth_user()` resolves the session to the invitee's `users` row.
+- **Strays.** Every other address typed at `/signup` becomes an Auth user.
 
-This ADR therefore stops there, as the brief required, and ships the half that
-does not depend on it: an owner adds, re-roles and removes people with no SQL.
-The Auth user is still created as today, by the founder's dashboard invitation,
-and the page says so rather than claiming the person can sign in:
+So "sign-ups on" ships with three layers, and each covers a gap in the others:
 
-- an invitee whose `users` row is already linked (`auth_user_id` not null — for
-  example our analyst, who signs in to other workspaces) can sign in at once,
-  and the page says "They can now sign in at app.mozart.financial with this
-  address";
-- anyone else is shown as **waiting for their sign-in invitation**, with the
-  copyable welcome message for when it has been sent.
+1. **The form asks the database.** `app.address_is_invited(email)` — definer,
+   pinned, EXECUTE for `app_rw`, refused to any caller carrying a claim
+   (0033's guard), one boolean — is true when exactly one `users` row answers
+   to the address ignoring capitals and it has a membership. Two rows answering
+   is not an invitation, because `link_auth_user()` would refuse the sign-in
+   anyway. `sendSignInLink` sets `shouldCreateUser` to that answer. Every
+   address still gets the same "sent" page, invited or not; a fault asking the
+   database is shown with a reference, because it does not depend on the
+   address. The first email an invitee gets is the provider's "Confirm signup"
+   template, whose link signs them in through `/auth/callback` (PKCE,
+   `email/signup`).
+2. **The provider asks the database.** `hooks.before_user_created(event
+   jsonb)`, the before-user-created hook, answers `{}` for an address
+   `app.invited_address()` accepts and
+   `{"error":{"http_code":403,"message":…}}` for everything else, so a direct
+   `/signup`, `/otp`, OAuth or anonymous sign-in cannot make an account for an
+   address nobody invited. It lives in its own schema, `hooks`, so
+   `supabase_auth_admin` — the role the provider connects as — holds USAGE on
+   one function and nothing in `app`. It is definer and pinned, and refuses any
+   caller carrying a claim. **The founder enables it** in the dashboard:
+   Authentication → Hooks → Before User Created → Postgres →
+   `hooks.before_user_created`.
+3. **The app refuses a session it did not make.** `requireSession` reads the
+   `amr` claim of the access token `getUser()` has just had the provider
+   verify, checks its `sub` is the verified user, and refuses — before the
+   database is asked who this is — any session whose methods are not all
+   `otp`, `magiclink` or `email/signup`. Those three are the only ways this
+   app signs anyone in: a PKCE magic link, a PKCE sign-up confirmation, and a
+   `token_hash` link (`internal/models/factor.go`, `verify.go`, `token.go`).
+   A password sign-in is recorded as `password` for the session's whole life,
+   refreshes included (`sessions.go`, `CalculateAALAndAMR`), so the takeover
+   above is refused, and logged as an account somebody holds a password for.
+   Only that session is signed out (`local` scope), so the invitee's own
+   session survives. A token that cannot be read is a fault, not a guess.
 
-The options, for the founder:
+What the source says about the hook, and why layer 3 is still needed:
 
-| | Option | What it costs |
-| --- | --- | --- |
-| A | Keep the dashboard invitation (this PR as it stands) | One click per person by us. No new risk. The customer's owner cannot finish an invitation alone |
-| B | Turn sign-ups back on, gated by a **`before-user-created` Auth hook** (a Postgres function the Auth server calls before it creates any user) that refuses an address with no invited `users` row + membership, and switch the login action to `shouldCreateUser: true` for invited addresses | The gate stays in the database, and covers every creation path (the form, a direct call to the Auth API with the public anon key, OAuth), not only our form. Costs a migration granting `supabase_auth_admin` EXECUTE on one function, a dashboard change, and a way to test it (the hook cannot run in `pnpm db:test`'s vanilla Postgres; the function can). The first link is Supabase's confirmation email rather than its magic-link template. Recommended if A is too slow |
-| C | Turn sign-ups on and gate only in the login action | **Loosens.** The anon key is public, so anyone can call `/auth/v1/otp` or `/signup` directly and create Auth users for any address — exactly what ADR 0045 closed. Not recommended |
-| D | Call the Admin API (`inviteUserByEmail`) from a route | Needs the service-role key in a request path. **Forbidden by invariant 6** |
-| E | Call the Admin API from an Inngest job queued by the invite route | Invariant 6's letter allows a server-side job; but the key would sit in the same Vercel deployment as every request path, CLAUDE.md's `web` row says it "appears nowhere", and it is a new outbound side effect (Supabase mails the person). Needs its own ADR |
-| F | An operator command, `pnpm invite:auth`, run by us with the service-role key from `.env` | No request path touches the key; still us, but no dashboard. Marginal over A |
+- **Which paths call it.** Sign-up (and so a magic link with `create_user`),
+  phone OTP, OAuth, OIDC, SAML, web3, anonymous sign-in, generated sign-up and
+  invite links, and **the admin invitation the dashboard sends**
+  (`internal/api/hooks.go` and its callers). The one path that does not is the
+  admin create-user endpoint (`admin.go`), which needs the service-role key.
+- **An account that already exists, unconfirmed, never reaches it.** Anything
+  pre-registered while sign-ups were on and the hook was off is past the hook
+  for good. Layer 3 is what makes such an account harmless, and the operator
+  can find and delete them (PR body, and ONBOARDING §2).
+- **It is a gate on creation, not on use.** Once an account exists, the hook
+  has nothing to say about how it signs in.
+- **The output must be exact.** An error with no message, or an `http_code`
+  sent as a string, *allows* the account. The function builds its answer with
+  `jsonb_build_object` and an integer, and suite 31 pins the exact JSON. An
+  exception fails the request closed.
 
-Sending our own invitation email is also a new outbound side effect and is not
-done here.
+**What an operator's dashboard invitation does now.** It runs the hook too, so
+inviting an address with no `users` row and membership is refused. Add the
+person first (Settings → Team, or ONBOARDING §1), and then either nothing more
+is needed — their first link makes the account — or the dashboard invitation
+works as before.
+
+**Enumeration is no worse than before.** With the hook on, a direct `/otp` with
+`create_user` answers 403 for an address nobody invited and 200 for an invited
+one or an existing account. With sign-ups off it answered 422 for a new address
+and 200 for an existing account. Both have told an anon-key holder whether an
+address is a Mozart user. Our own form answers every address alike.
+
+**Timing.** The first link's PKCE code expires five minutes after it was
+*sent*, not after the click (`flow_state.go`, `IsExpired`, for any method but
+`magiclink`). A late click still confirms the address, the callback then says
+"that link has expired", and the next link — now an ordinary magic link —
+works. The welcome message says so.
+
+**Options not taken.** C (gate only in the form) is what "sign-ups on" would
+have been without layers 2 and 3. D (Admin API from a route) is forbidden by
+invariant 6. E (Admin API from a job) and F (an operator script) still need
+the service-role key and are unnecessary now. Sending our own invitation email
+would be a new outbound side effect and is not done.
 
 ## Consequences
 
-- A customer's owner can add a teammate, change a role and remove someone from
-  **Settings → Team**. For a new address, we still send the dashboard
-  invitation until §6 is decided. The SQL route in ONBOARDING stays as the
-  fallback and is still tested.
+- A customer's owner adds a teammate, changes a role and removes someone from
+  **Settings → Team**, and the person signs in at app.mozart.financial with
+  that address: the first link they ask for makes their account. Nobody
+  presses anything in the Supabase dashboard. The SQL route in ONBOARDING
+  stays as the fallback and is still tested.
+- The founder must enable the before-user-created hook after migration 0035 is
+  applied. Until then, layer 1 and layer 3 hold, and strays can still be made
+  through the API.
+- An operator's dashboard invitation now needs the `users` row and membership
+  first, because the hook refuses anyone else.
 - The last-owner rule now holds on every path, the operator's included.
 - Everyone in a workspace sees its member list: names, addresses, roles and
   whether each has signed in. `read_only` and `accountant_guest` included. That
   was already readable through RLS (0010's `users` policy); now it is shown.
+- Every request now reads the verified token's `amr`. Supabase has always
+  written it; if a custom access-token hook ever rewrote it, every sign-in
+  would fail loudly with a reference rather than let a session through.
 
 ## Invariants touched
 
 - **2 (append-only):** no table's mutability changes; `audit_log` gains rows
   only. No UPDATE/DELETE grant added.
 - **6 (RLS; no service role in a request path):** the only definer writes are
-  the three functions, bounded by the caller's claims and ownership. The
-  service role appears nowhere (§6 rejects D).
+  the three team functions, bounded by the caller's claims and ownership. The
+  two definer reads (`app.address_is_invited`, `hooks.before_user_created`)
+  answer one bit about one address, and refuse any caller carrying a claim.
+  `supabase_auth_admin` gets USAGE on the `hooks` schema and EXECUTE on the one
+  function, and nothing else. The service role appears nowhere (§6 rejects D).
 
 ## Rollback
 
-`drop function app.invite_member(text, text, membership_role),
-app.change_member_role(uuid, membership_role), app.remove_member(uuid)`;
+First disable the hook in the dashboard (Authentication → Hooks): while it is
+enabled, a dropped function is an error on every account the provider would
+create, which fails closed but fails everyone.
+
+Then drop what 0035 added:
+`drop function hooks.before_user_created(jsonb); drop schema hooks;`
+`drop function app.address_is_invited(text), app.invited_address(text),
+app.invite_member(text, text, membership_role),
+app.change_member_role(uuid, membership_role), app.remove_member(uuid),
+app.team_owner_org(text), app.team_member_holds(uuid, uuid, text)`;
 `drop trigger membership_keeps_an_owner on memberships; drop function
-app.membership_keeps_an_owner()`. The audit rows stay (append-only), and the
-memberships they describe are ordinary rows. The page would then fail loudly on
-its first write, so revert the web change with it.
+app.membership_keeps_an_owner()`.
+
+The audit rows stay, because `audit_log` is append-only, and the memberships
+they describe are ordinary rows. Revert the web change with it, since the login
+form asks `app.address_is_invited()` on every send. If the migration is rolled
+back and sign-ups stay on, switch them off: layers 1 and 2 are gone.

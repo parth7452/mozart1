@@ -175,8 +175,7 @@ const EVERY_KEY: readonly string[] = [
   'team_holds_email',
   'team_holds_ledger',
   'team_invalid',
-  'team_invited_ready',
-  'team_invited_waiting',
+  'team_invited',
   'team_last_owner',
   'team_not_member',
   'team_remove_confirm',
@@ -414,6 +413,7 @@ describe('the sign-in notice table', () => {
     linked_elsewhere: [],
     no_membership: [],
     not_completed: [reference],
+    email_link_only: [],
     link_expired: [],
     link_incomplete: [],
   };

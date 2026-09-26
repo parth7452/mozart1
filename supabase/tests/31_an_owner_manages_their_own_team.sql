@@ -29,7 +29,8 @@ begin
       from pg_proc p join pg_namespace s on s.oid = p.pronamespace
      where s.nspname = 'app'
        and p.proname in ('invite_member', 'change_member_role', 'remove_member',
-                         'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner')
+                         'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner',
+                         'invited_address', 'address_is_invited')
   loop
     perform test.ok(
       coalesce(fn.proconfig @> array['search_path=pg_catalog, public, extensions'], false),
@@ -42,7 +43,7 @@ begin
                 and not has_function_privilege('authenticated', fn.oid, 'execute')
                 and not has_function_privilege('service_role', fn.oid, 'execute'),
       format('no Supabase request role may execute app.%s', fn.proname));
-    if fn.proname in ('invite_member', 'change_member_role', 'remove_member') then
+    if fn.proname in ('invite_member', 'change_member_role', 'remove_member', 'address_is_invited') then
       perform test.ok(fn.prosecdef, format('app.%s is security definer', fn.proname));
       perform test.ok(has_function_privilege('app_rw', fn.oid, 'execute'),
         format('app_rw may execute app.%s', fn.proname));
@@ -55,8 +56,9 @@ begin
   select count(*) into n from pg_proc p join pg_namespace s on s.oid = p.pronamespace
    where s.nspname = 'app'
      and p.proname in ('invite_member', 'change_member_role', 'remove_member',
-                       'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner');
-  perform test.ok(n = 6, format('exactly six functions, no stray overload (saw %s)', n));
+                       'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner',
+                       'invited_address', 'address_is_invited');
+  perform test.ok(n = 8, format('exactly eight functions, no stray overload (saw %s)', n));
 
   -- No grant widened: audit_log is still insert-and-read for app_rw, and
   -- memberships/users hold what 0006 gave them.
@@ -276,6 +278,103 @@ begin
   perform test.ok(n = 3, format('three removals (saw %s)', n));
   select count(*) into n from audit_log where org_id = org_b and action like 'membership.%';
   perform test.ok(n = 0, 'nothing was recorded in B');
+
+  -- =========================================================================
+  -- Is this address invited? — the sign-in form's one bit (ADR 0051 §6)
+  -- =========================================================================
+  insert into users (email) values ('lonely-31@example.test');
+  insert into memberships (org_id, user_id, role)
+    select org_b, id, 'read_only' from users where email = 'twin@example.test';
+  set role app_rw;
+
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a::text)::text, true);
+  perform test.expect_error(
+    $$select app.address_is_invited('teama-owner@example.test')$$,
+    'takes no claims', 'the invited-address question is refused to a subject');
+  perform test.as_member(org_a, owner_a);
+  perform test.expect_error(
+    $$select app.address_is_invited('teama-owner@example.test')$$,
+    'takes no claims', 'and to a member acting for a tenant');
+
+  perform test.as_nobody();
+  perform test.ok(app.address_is_invited('teama-owner@example.test'),
+    'with no claims: a member''s address is invited');
+  perform test.ok(app.address_is_invited('  TeamA-Owner@Example.TEST '),
+    'ignoring capitals and surrounding spaces');
+  perform test.ok(app.address_is_invited('teamb-analyst@example.test'),
+    'a person removed from one workspace and still in another is invited');
+  perform test.ok(not app.address_is_invited('new.person@example.test'),
+    'a person removed from their only workspace is not');
+  perform test.ok(not app.address_is_invited('lonely-31@example.test'),
+    'a users row with no membership is not an invitation');
+  perform test.ok(not app.address_is_invited('twin@example.test'),
+    'an address two rows answer to is not, even when one has a membership');
+  perform test.ok(not app.address_is_invited('stranger-31@example.test'),
+    'a stranger is not');
+  perform test.ok(not app.address_is_invited('') and not app.address_is_invited(null),
+    'nor is nothing');
+  reset role;
+
+  -- =========================================================================
+  -- The provider's hook asks the same question, as supabase_auth_admin
+  -- =========================================================================
+  perform test.ok(has_function_privilege('supabase_auth_admin',
+      'hooks.before_user_created(jsonb)', 'execute')
+    and has_schema_privilege('supabase_auth_admin', 'hooks', 'usage'),
+    'supabase_auth_admin may call the hook');
+  perform test.ok(not has_schema_privilege('supabase_auth_admin', 'app', 'usage'),
+    'and has no usage on app');
+  perform test.ok(not has_function_privilege('app_rw', 'hooks.before_user_created(jsonb)', 'execute')
+    and not has_function_privilege('app_ro', 'hooks.before_user_created(jsonb)', 'execute')
+    and not has_function_privilege('public', 'hooks.before_user_created(jsonb)', 'execute'),
+    'the app roles and PUBLIC may not');
+  perform test.ok(not has_schema_privilege('anon', 'hooks', 'usage')
+    and not has_schema_privilege('authenticated', 'hooks', 'usage')
+    and not has_schema_privilege('service_role', 'hooks', 'usage'),
+    'no request role can reach the hooks schema');
+
+  -- The harness is a schema of its own; lend it to the provider's role for this
+  -- transaction only (rolled back with everything else).
+  grant usage on schema test to supabase_auth_admin;
+  grant execute on all functions in schema test to supabase_auth_admin;
+  perform test.as_nobody();
+  set role supabase_auth_admin;
+  perform test.ok(
+    hooks.before_user_created('{"metadata": {"name": "before-user-created"},
+                                "user": {"email": "teama-owner@example.test"}}'::jsonb) = '{}'::jsonb,
+    'an invited address: {} lets the provider create the account');
+  perform test.ok(
+    hooks.before_user_created('{"user": {"email": "TEAMA-OWNER@example.test"}}'::jsonb) = '{}'::jsonb,
+    'in any capitals');
+  perform test.ok(
+    hooks.before_user_created('{"user": {"email": "stranger-31@example.test"}}'::jsonb)
+      = '{"error": {"http_code": 403, "message": "Accounts are created by invitation only."}}'::jsonb,
+    'a stranger: an error with a message, which the provider answers with 403');
+  perform test.ok(
+    hooks.before_user_created('{"user": {"email": "lonely-31@example.test"}}'::jsonb) ? 'error'
+    and hooks.before_user_created('{"user": {"email": "twin@example.test"}}'::jsonb) ? 'error'
+    and hooks.before_user_created('{"user": {"email": "new.person@example.test"}}'::jsonb) ? 'error',
+    'no membership, two rows, or removed from their only workspace: refused');
+  perform test.ok(
+    hooks.before_user_created('{"user": {"phone": "15555550100"}}'::jsonb) ? 'error'
+    and hooks.before_user_created('{"user": {}}'::jsonb) ? 'error'
+    and hooks.before_user_created('{}'::jsonb) ? 'error',
+    'no email at all (a phone, anonymous, an empty event): refused');
+  perform test.expect_error(
+    $$select app.address_is_invited('teama-owner@example.test')$$,
+    'permission denied', 'supabase_auth_admin cannot ask app''s own functions');
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_a::text)::text, true);
+  perform test.expect_error(
+    $$select hooks.before_user_created('{"user": {"email": "teama-owner@example.test"}}'::jsonb)$$,
+    'takes no claims', 'and the hook refuses a caller carrying a claim');
+  reset role;
+
+  set role app_rw;
+  perform test.as_nobody();
+  perform test.expect_error(
+    $$select hooks.before_user_created('{"user": {"email": "teama-owner@example.test"}}'::jsonb)$$,
+    'permission denied', 'app_rw cannot call the hook');
+  reset role;
 end
 $test$;
 rollback;

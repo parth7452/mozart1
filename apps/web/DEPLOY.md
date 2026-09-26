@@ -136,6 +136,9 @@ Add the deployment origin to **Authentication → URL Configuration**:
 Without it, Supabase ignores the app's `emailRedirectTo` and falls back to the
 Site URL, so the magic link lands somewhere that cannot complete the sign-in.
 
+Then the two settings **Who can sign in** depends on: sign-ups on, and the
+before-user-created hook once migration 0035 is applied.
+
 ## Who can sign in
 
 Only an address that already has a `users` row and a `memberships` row.
@@ -143,10 +146,10 @@ Only an address that already has a `users` row and a `memberships` row.
 entitlement (ADR 0015). An identity it refuses, or one with no membership left,
 is signed out at the provider rather than kept with a live cookie (ADR 0045).
 
-The login form creates no Supabase Auth user (`shouldCreateUser: false`, ADR
-0045), so inviting someone takes three steps. For a new customer, follow
+Adding someone takes two steps, and neither is in the Supabase dashboard (ADR
+0051 §6). For a new customer, follow
 [`docs/ONBOARDING.md`](../../docs/ONBOARDING.md), which does step 1 for a whole
-workspace in one tested SQL block and has the welcome email for step 3.
+workspace in one tested SQL block and has the welcome email.
 
 1. Their `users` row and a `memberships` row for their tenant. **An owner of
    the workspace does this in the app**: Settings → Team → Add a person (ADR
@@ -155,25 +158,65 @@ workspace in one tested SQL block and has the welcome email for step 3.
    records a `membership.invited` audit row. The same page changes a role and
    removes someone, and the database refuses leaving a workspace with no owner.
    The operator's SQL (ONBOARDING §1 and §5) still works and is the fallback.
-2. In the Supabase dashboard: **Authentication → Users → Add user → Send
-   invitation**, with the same address. This creates the auth user and emails
-   the invitation.
-3. They follow the invitation link once, which confirms the address, then sign
-   in from the login form. The invitation link does not sign them in by itself.
-   It lands on the Site URL with the session in the URL fragment, and the app
-   only takes a session from `/auth/callback`.
+2. They sign in at `https://app.mozart.financial/login` with that address. The
+   form asks `app.address_is_invited()` — exactly one `users` row answers to
+   the address ignoring capitals, and it has a membership — and passes the
+   answer as `shouldCreateUser`, so the provider makes their Auth account on
+   their first link request, and the form asks it to make one for nobody else.
+   That first email is the provider's "Confirm signup" template, and its link
+   signs them in through `/auth/callback`; every later one is an ordinary magic
+   link. The first link's code expires five minutes after it was *sent*: a late
+   click still confirms the address and says "that link has expired", and the
+   next link works.
 
-Step 2 is still ours, from the dashboard, for anyone who has never signed in
-to Mozart: Settings → Team says "Mozart still has to send their sign-in
-invitation" for them, and "They can now sign in" for someone whose `users` row
-is already linked (they sign in to another workspace). Doing step 2 without the
-dashboard was the plan, and does not work while "Allow new users to sign up" is
-off: Supabase Auth answers `shouldCreateUser: true` with `signup_disabled` for
-exactly those people. ADR 0051 §6 sets out the options for the founder.
+The dashboard's **Add user → Send invitation** is no longer needed. It still
+works, but only after step 1: the hook below refuses it for anyone else. Its
+link confirms the address and does not sign them in by itself; they then sign
+in from the form.
 
-Skip step 2 and the form still says a link is on its way. It says that for
-every address, so it cannot be used to find out who has an account. The app's
-log records `otp_disabled` instead. With "Allow new users to sign up" switched
-off (recommended, the founder's switch, docs/supabase.md), someone who has not
-yet followed their invitation gets `signup_disabled` in the log and no mail.
-Re-send the invitation.
+This depends on two settings in Supabase, both the founder's:
+
+- **"Allow new users to sign up" on** (Authentication → Sign In / Providers),
+  as it has been since 2026-09-26. With it off, the provider answers
+  `shouldCreateUser: true` with `signup_disabled`, so exactly the people step 2
+  is for get no mail.
+- **The before-user-created hook, enabled**: Authentication → Hooks → Before
+  User Created → Postgres → schema `hooks`, function `before_user_created`.
+  Migration 0035 creates the function and nothing turns it on, so enable it
+  on a project once 0035 is applied there — `mozart-preview` first, then
+  production; it is on neither yet. The anon key is public, so anyone can call
+  the provider's `/signup` or `/otp` without our form; the hook refuses (403)
+  an account for any address that is not invited, however it was asked for,
+  the dashboard's invitation included. It is not called by the admin
+  create-user endpoint, which needs the service-role key, and never for an
+  address that already has an unconfirmed Auth account. Until it is on, the
+  form and the session check below still hold, and strays can still be made
+  through the API.
+
+Apply 0035 to a project before this web change runs against it: the form asks
+`app.address_is_invited()` on every send, and where that function does not
+exist every address is answered with a fault and a reference, and nobody gets a
+link.
+
+The session check needs no setting. `requireSession` refuses any session whose
+`amr` methods are not all `otp`, `magiclink` or `email/signup` — a password
+sign-in, above all — and signs out only that session (`local` scope), with the
+notice "this app signs in by email link only" (`email_link_only`). That is what
+stops a pre-registration: with sign-ups on, anyone can call `/signup` with an
+invitee's address and a password of their own, and the invitee's confirmation
+click confirms that account, password and all. The log names the auth user;
+remove the password, or the account, in Authentication → Users.
+
+An account made while sign-ups were on and the hook was off is past the hook
+for good. ONBOARDING §2 has the read-only query that lists the Auth users whose
+address is not invited (Supabase only, since it reads `auth.users`); run it
+first, then delete them in the dashboard.
+
+The form says a link is on its way for every address, invited or not, so it
+cannot be used to find out who has an account. For an address nobody invited
+and with no account, the app's log records `otp_disabled`, whatever the sign-up
+switch says, because the form asks the provider to make nothing for it. So does
+an address two `users` rows answer to in different capitals: that is not an
+invitation. A log line saying **NOT SENT to an invited address** means the
+provider would not make an invited person's account: check the sign-up switch
+and the hook.

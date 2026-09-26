@@ -17,7 +17,7 @@ with the values at the top.
 | --- | --- | --- | --- |
 | [0. Before you start](#0-before-you-start) | founder | this page | 10 min |
 | [1. Create the workspace](#1-create-the-workspace-one-sql-block) | founder | Supabase SQL editor, production | 10 min |
-| [2. Invite each person](#2-invite-each-person) | founder | Supabase dashboard, then email | 5 min per person |
+| [2. Invite each person](#2-invite-each-person) | founder (after day one, the customer's owner) | email (after day one, Settings → Team). Nothing in the Supabase dashboard | 5 min per person |
 | [3. Map payer names](#3-map-the-payer-names-printed-on-documents) | founder | your machine, `pnpm link:retailer` | as names appear |
 | [4. The owner's first sign-in](#4-the-owners-first-sign-in) | customer's owner | the app | 15 min, on the call |
 | [5. Changing a role, removing someone](#5-later-changing-a-role-removing-someone-adding-an-accountant) | customer's owner (founder as fallback) | the app, Settings → Team (SQL editor as fallback) | as needed |
@@ -71,9 +71,17 @@ On our side, check these once, not per customer:
 
 - **Sign-in email reaches outside addresses** (pilot B5). Supabase →
   Authentication → SMTP must be custom SMTP, not the built-in mailer.
-- **Open sign-ups are off** (VERIFY-CHECKLIST §2.5). The runbook works either
-  way. With sign-ups off, an address that has not followed its invitation gets
-  no sign-in email at all.
+- **Sign-ups are on, and the before-user-created hook is enabled** (ADR 0051
+  §6). "Allow new users to sign up" has been on since 2026-09-26. Switched off,
+  Supabase would refuse to make an account even for an invited address
+  (`signup_disabled`), so a new person's first link would never come, and only
+  the dashboard invitation (§2) would get them in. The hook is what keeps
+  sign-ups invitation-only: Supabase → Authentication → Hooks → Before User
+  Created → Postgres → schema `hooks`, function `before_user_created`. That
+  function exists once migration 0035 is applied (to `mozart-preview` first,
+  then production). Until the hook is enabled, anyone holding the public anon
+  key can make an Auth user for any address. Such an account reaches nothing,
+  and [§2](#accounts-nobody-invited) lists them so you can delete them.
 
 ### Which `org_settings` values matter for a pilot
 
@@ -366,14 +374,15 @@ select u.email, u.full_name, m.role, u.auth_user_id is not null as has_reached_t
  order by m.role, u.email;
 ```
 
-**Supabase only.** Whether each person has an invitation at the provider (R3,
-for this workspace). Run it after step 2.
+**Supabase only.** How far each person has got at the provider (R3, for this
+workspace). Their account is made the first time they ask for a sign-in link,
+so `no account yet` only means they have not asked.
 
 ```sql
 -- onboarding:supabase-only invitation status
-select u.email, a.invited_at, a.email_confirmed_at, a.last_sign_in_at,
-       case when a.id is null then 'NOT INVITED: send the invitation (step 2)'
-            when u.auth_user_id is null then 'invited, not yet reached the app'
+select u.email, a.created_at as account_made_at, a.email_confirmed_at, a.last_sign_in_at,
+       case when a.id is null then 'no account yet: they have not asked for a link'
+            when u.auth_user_id is null then 'has an account, not yet reached the app'
             when u.auth_user_id = a.id then 'linked'
             else 'LINKED TO ANOTHER IDENTITY: refused' end as status
   from memberships m

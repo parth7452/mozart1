@@ -803,17 +803,11 @@ export const NOTICES = {
 
   // --- Team (ADR 0051) -------------------------------------------------------
   team_role: { tone: 'bad', text: 'only an owner can add, re-role or remove people' },
-  team_invited_ready: {
+  team_invited: {
     tone: 'good',
     text:
       'added. They can now sign in at app.mozart.financial with this address. A welcome ' +
       'message you can send them is below.',
-  },
-  team_invited_waiting: {
-    tone: 'good',
-    text:
-      'added. Mozart still has to send their sign-in invitation, and until it does the sign-in ' +
-      'form sends them nothing. A welcome message to send once it has gone is below.',
   },
   team_invalid: {
     tone: 'bad',
@@ -1041,6 +1035,10 @@ export const SIGN_IN_NOTICES = {
   linked_elsewhere: { tone: 'bad', text: 'that address is already linked to another sign-in' },
   no_membership: { tone: 'bad', text: 'no membership for this account' },
   not_completed: { tone: 'bad', text: 'sign-in could not be completed (reference {0})' },
+  email_link_only: {
+    tone: 'bad',
+    text: 'this app signs in by email link only. Enter your address below to get one.',
+  },
 
   // --- where the link lands (`app/auth/callback/route.ts`) ------------------
   link_expired: { tone: 'bad', text: 'that link has expired' },

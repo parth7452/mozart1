@@ -95,3 +95,37 @@ export async function resolveSession(
     }
   }
 }
+
+/**
+ * Whether the sign-in form may let the provider create an account for this
+ * address (ADR 0051 §6): exactly one `users` row answers to it ignoring
+ * capitals, and it has a membership.
+ *
+ * Asked with no claims, like `resolveSession`'s first question, because
+ * `app.address_is_invited()` refuses any caller that carries one. One bit comes
+ * back and nothing else; a fault throws, and the form says so without saying
+ * anything about the address.
+ */
+export async function addressIsInvited(
+  config: SessionResolverConfig,
+  email: string,
+): Promise<boolean> {
+  const client = await sessionPool(config).connect();
+  try {
+    await client.query('begin');
+    await client.query(`set local role ${config.role ?? 'app_rw'}`);
+    await client.query(`select set_config('request.jwt.claims', '', true)`);
+    const { rows } = await client.query<{ invited: boolean | null }>(
+      'select app.address_is_invited($1) as invited',
+      [email],
+    );
+    await client.query('commit');
+    // `=== true`: a null is not an invitation.
+    return rows[0]?.invited === true;
+  } catch (error) {
+    await client.query('rollback').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}

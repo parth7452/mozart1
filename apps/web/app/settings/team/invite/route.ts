@@ -17,8 +17,10 @@ const NAME_MAX = 200;
 /**
  * Adds a person to this workspace (ADR 0051): a `users` row, reused when one
  * already answers to the address ignoring capitals, and a membership. Creates
- * no sign-in: an address that has never signed in waits for Mozart's
- * invitation (§6), and the notice says which of the two this was.
+ * no sign-in here: the sign-in form lets the provider create their account the
+ * first time they ask for a link, because the database now says the address is
+ * invited (§6). The notice is the same whether or not they have signed in
+ * before, so adding an address tells an owner nothing about it.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
@@ -49,11 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       `[recouple] team member invited: user ${invited.userId} as ${role} org ${identity.orgId} ` +
         `by ${identity.userId} (users row ${invited.usersRowCreated ? 'created' : 'reused'})`,
     );
-    return teamRedirect(
-      request,
-      invited.hasSignedIn ? 'team_invited_ready' : 'team_invited_waiting',
-      { param: 'invited', userId: invited.userId },
-    );
+    return teamRedirect(request, 'team_invited', { param: 'invited', userId: invited.userId });
   } catch (error) {
     const refused = teamRefusalNotice(error);
     if (refused !== undefined) return teamRedirect(request, refused);

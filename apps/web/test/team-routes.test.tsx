@@ -196,22 +196,28 @@ describe('every write', () => {
 });
 
 describe('adding a person', () => {
-  it('invites as the owner, and says they wait for Mozart’s invitation when they have never signed in', async () => {
+  it('invites as the owner, and says they can sign in now', async () => {
     const response = await invite(
       request('/settings/team/invite', { email: ADDRESS, fullName: 'New Person', role: 'approver' }),
     );
     expect(response.status).toBe(303);
-    expect(landed(response)).toMatchObject({ invited: MEMBER_ID, said: expect.stringMatching(/Mozart still has to send/) });
+    expect(landed(response)).toMatchObject({
+      invited: MEMBER_ID,
+      said: expect.stringMatching(/They can now sign in at app\.mozart\.financial with this address/),
+    });
     expect(harness.invites).toEqual([{ email: ADDRESS, fullName: 'New Person', role: 'approver' }]);
     expect(harness.identities).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
     expect(logged.join('\n')).not.toContain(ADDRESS);
     expect(logged.join('\n')).not.toContain('New Person');
   });
 
-  it('says they can sign in now when they already have', async () => {
-    harness.signedIn = true;
-    const response = await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }));
-    expect(landed(response).said).toMatch(/They can now sign in at app\.mozart\.financial/);
+  it('says the same whether or not the address has signed in before, so adding one tells nothing', async () => {
+    const said = [];
+    for (const signedIn of [true, false]) {
+      harness.signedIn = signedIn;
+      said.push(landed(await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }))));
+    }
+    expect(said[0]).toEqual(said[1]);
   });
 
   it('refuses what is not an address, a name or a role before the store is asked', async () => {
@@ -283,9 +289,10 @@ describe('the page', () => {
   });
 
   it('shows the welcome message for the person just invited, and a confirmation for a removal', async () => {
-    const html = await page({ team: 'team_invited_waiting', invited: MEMBER_ID });
+    const html = await page({ team: 'team_invited', invited: MEMBER_ID });
     expect(html).toContain('Welcome message for New Person');
-    expect(html).toContain('An invitation from Supabase');
+    expect(html).toContain('Email me a sign-in link');
+    expect(html).toContain('They can now sign in at app.mozart.financial with this address');
 
     const confirming = await page({ team: 'team_remove_confirm', confirm: MEMBER_ID });
     expect(confirming).toContain('Remove New Person');
@@ -310,16 +317,18 @@ describe('the page', () => {
 });
 
 describe('the welcome message', () => {
-  it('says to sign in now for someone who has, and to expect an invitation otherwise', () => {
-    const now = welcomeMessage({ workspace: 'Acme Foods', fullName: 'Dana Reyes', email: ADDRESS, role: 'owner', hasSignedIn: true });
-    expect(now).toContain('Hi Dana,');
-    expect(now).toContain('as an owner');
-    expect(now).toContain(`Sign in at https://app.mozart.financial/login with ${ADDRESS}`);
-    expect(now).not.toContain('Supabase');
+  it('names the workspace, the role and the address, and says how the first sign-in goes', () => {
+    const text = welcomeMessage({ workspace: 'Acme Foods', fullName: 'Dana Reyes', email: ADDRESS, role: 'owner' });
+    expect(text).toContain('Subject: Your Acme Foods workspace on Mozart');
+    expect(text).toContain('Hi Dana,');
+    expect(text).toContain('as an owner');
+    expect(text).toContain(`go to https://app.mozart.financial/login, type ${ADDRESS}`);
+    expect(text).toContain('asks you to confirm your address');
+    expect(text).toContain('within five minutes');
+    expect(text).not.toMatch(/Send invitation|dashboard/);
 
-    const later = welcomeMessage({ workspace: 'Acme Foods', email: ADDRESS, role: 'read_only', hasSignedIn: false });
-    expect(later).toContain('Hi,');
-    expect(later).toContain('as a viewer');
-    expect(later).toContain('An invitation from Supabase');
+    const viewer = welcomeMessage({ workspace: 'Acme Foods', email: ADDRESS, role: 'read_only' });
+    expect(viewer).toContain('Hi,');
+    expect(viewer).toContain('as a viewer');
   });
 });

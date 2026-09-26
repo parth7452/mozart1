@@ -357,7 +357,144 @@ revoke all on function app.remove_member(uuid) from public;
 grant execute on function app.remove_member(uuid) to app_rw;
 
 -- ---------------------------------------------------------------------------
--- 6. The end state, re-read. Abort, do not warn.
+-- 6. Is this address invited? — for the sign-in form (ADR 0051 §6)
+-- ---------------------------------------------------------------------------
+-- The one predicate both callers below share. An address is invited when
+-- exactly one users row answers to it ignoring capitals and that row has a
+-- membership somewhere. Two rows answering is not an invitation: link_auth_user
+-- would refuse the sign-in (0033), so an account made for it could never be
+-- used. Not granted to anyone; the definer functions below run as its owner.
+create or replace function app.invited_address(candidate text) returns boolean
+  language sql
+  stable
+  set search_path = pg_catalog, public, extensions
+as $$
+  select (select count(*) from users u
+           where lower(u.email) = lower(btrim(coalesce(candidate, '')))) = 1
+     and exists (select 1 from users u join memberships m on m.user_id = u.id
+                  where lower(u.email) = lower(btrim(coalesce(candidate, ''))));
+$$;
+
+revoke all on function app.invited_address(text) from public;
+
+-- The sign-in form asks this before it lets the provider create an account.
+-- `link_auth_user()`'s shape (0033): definer, because users and memberships are
+-- tenant-scoped and the form has no tenant; refused to any caller carrying a
+-- claim, because its one caller has none; and it answers one bit. It never
+-- raises for a particular address — an answer that differed by address other
+-- than through the bit would be a second way to ask it.
+create or replace function app.address_is_invited(candidate_email text)
+  returns boolean
+  language plpgsql
+  stable
+  security definer
+  set search_path = pg_catalog, public, extensions
+as $$
+begin
+  if app.current_org_id() is not null or app.current_user_id() is not null then
+    raise exception
+      'address_is_invited is the sign-in form''s question and takes no claims: a '
+      'caller acting for a tenant or a subject has no business asking it'
+      using errcode = 'insufficient_privilege';
+  end if;
+  return app.invited_address(candidate_email);
+end
+$$;
+
+comment on function app.address_is_invited(text) is
+  'Whether an address has exactly one users row (ignoring capitals) with a '
+  'membership — the only addresses the sign-in form lets the provider create an '
+  'account for (ADR 0051 §6). One boolean; refused to any caller carrying a claim.';
+
+revoke all on function app.address_is_invited(text) from public;
+grant execute on function app.address_is_invited(text) to app_rw;
+
+-- ---------------------------------------------------------------------------
+-- 7. The provider asks the same question: a before-user-created hook
+-- ---------------------------------------------------------------------------
+-- With "Allow new users to sign up" on, the provider will create an account for
+-- anyone holding the public anon key, whatever the form above decides. Supabase
+-- Auth calls a before-user-created hook, when one is configured, on every path
+-- that creates a user except the admin create-user endpoint: sign-up (and so a
+-- magic link with create_user), the admin invitation the dashboard sends,
+-- generated invite and sign-up links, OAuth, SAML, OIDC, web3 and anonymous
+-- sign-in (supabase/auth internal/api/hooks.go and its callers).
+--
+-- It runs `select "hooks"."before_user_created"(<event>)` as
+-- supabase_auth_admin, with a two-second statement timeout
+-- (internal/hooks/hookspgfunc). `{}` lets the account be made; an `error` with
+-- a non-empty message refuses it with that HTTP status; an exception fails the
+-- request, which is closed rather than open.
+--
+-- Its own schema, so supabase_auth_admin is given USAGE on one function and
+-- nothing in `app`, where PUBLIC can execute helpers nobody revoked. Definer,
+-- so the one function reads users and memberships through the shared predicate
+-- without supabase_auth_admin holding any grant on them.
+--
+-- Nothing here turns the hook on: the founder points Authentication → Hooks →
+-- Before User Created at this function in the dashboard (ADR 0051 §6).
+create schema if not exists hooks;
+revoke all on schema hooks from public;
+comment on schema hooks is
+  'Functions Supabase Auth calls (ADR 0051 §6). Usage for supabase_auth_admin only.';
+
+create or replace function hooks.before_user_created(event jsonb)
+  returns jsonb
+  language plpgsql
+  stable
+  security definer
+  set search_path = pg_catalog, public, extensions
+as $$
+begin
+  -- The provider's connection carries no request claims. One that does is not
+  -- the provider, and is refused outright rather than answered.
+  if app.current_org_id() is not null or app.current_user_id() is not null then
+    raise exception 'before_user_created is Supabase Auth''s hook and takes no claims'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if app.invited_address(event -> 'user' ->> 'email') then
+    return '{}'::jsonb;
+  end if;
+
+  -- The wording is the provider's to show; it says nothing the status does not.
+  return jsonb_build_object('error', jsonb_build_object(
+    'http_code', 403,
+    'message', 'Accounts are created by invitation only.'));
+end
+$$;
+
+comment on function hooks.before_user_created(jsonb) is
+  'Supabase Auth before-user-created hook (ADR 0051 §6): allows an account only '
+  'for an address app.invited_address() accepts — exactly one users row, '
+  'ignoring capitals, with a membership — and refuses every other with 403.';
+
+revoke all on function hooks.before_user_created(jsonb) from public;
+
+-- Supabase's own role; absent on a bare Postgres unless the suite's platform
+-- shape made it, so granted only where it exists (0006's pattern for
+-- `authenticated`).
+-- And taken, by name, from the request roles: default privileges on a platform
+-- are not something to count on in either direction (ADR 0037).
+do $$
+declare
+  r text;
+begin
+  if exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
+    execute 'grant usage on schema hooks to supabase_auth_admin';
+    execute 'grant execute on function hooks.before_user_created(jsonb) to supabase_auth_admin';
+  end if;
+  foreach r in array array['anon', 'authenticated', 'service_role', 'app_rw', 'app_ro'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('revoke all on schema hooks from %I', r);
+      execute format('revoke all on function hooks.before_user_created(jsonb) from %I', r);
+    end if;
+  end loop;
+end
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 8. The end state, re-read. Abort, do not warn.
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -368,7 +505,8 @@ begin
       from pg_proc p join pg_namespace s on s.oid = p.pronamespace
      where s.nspname = 'app'
        and p.proname in ('invite_member', 'change_member_role', 'remove_member',
-                         'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner')
+                         'team_owner_org', 'team_member_holds', 'membership_keeps_an_owner',
+                         'invited_address', 'address_is_invited')
   loop
     if not coalesce(fn.proconfig @> array['search_path=pg_catalog, public, extensions'], false) then
       raise exception '0035: app.% has no pinned search_path', fn.proname;
@@ -377,7 +515,7 @@ begin
        or has_function_privilege('app_ro', fn.oid, 'execute') then
       raise exception '0035: app.% is executable beyond app_rw', fn.proname;
     end if;
-    if fn.proname in ('invite_member', 'change_member_role', 'remove_member') then
+    if fn.proname in ('invite_member', 'change_member_role', 'remove_member', 'address_is_invited') then
       if not fn.prosecdef then
         raise exception '0035: app.% is not security definer', fn.proname;
       end if;
@@ -393,6 +531,29 @@ begin
                   where tgrelid = 'memberships'::regclass
                     and tgname = 'membership_keeps_an_owner' and not tgisinternal) then
     raise exception '0035: memberships has no membership_keeps_an_owner trigger';
+  end if;
+
+  -- The hook: definer, pinned, and callable by supabase_auth_admin alone.
+  select p.oid, p.proname, p.prosecdef, p.proconfig into fn
+    from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+   where s.nspname = 'hooks' and p.proname = 'before_user_created';
+  if fn.oid is null or not fn.prosecdef
+     or not coalesce(fn.proconfig @> array['search_path=pg_catalog, public, extensions'], false) then
+    raise exception '0035: hooks.before_user_created is missing, not definer, or not pinned';
+  end if;
+  if has_function_privilege('public', fn.oid, 'execute')
+     or has_function_privilege('app_rw', fn.oid, 'execute')
+     or has_function_privilege('app_ro', fn.oid, 'execute') then
+    raise exception '0035: hooks.before_user_created is executable beyond supabase_auth_admin';
+  end if;
+  if exists (select 1 from pg_roles where rolname in ('anon', 'authenticated', 'service_role')
+               and (has_function_privilege(rolname, fn.oid, 'execute')
+                    or has_schema_privilege(rolname, 'hooks', 'usage'))) then
+    raise exception '0035: a request role can reach hooks.before_user_created';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'supabase_auth_admin')
+     and not has_function_privilege('supabase_auth_admin', fn.oid, 'execute') then
+    raise exception '0035: supabase_auth_admin cannot execute hooks.before_user_created';
   end if;
 end
 $$;
