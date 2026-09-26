@@ -10,7 +10,7 @@ coded reason attached. Only 20–30% of deductions are ever disputed, and about 
 of the disputed ones are won back, so the unchallenged majority is the prize —
 not the win rate on the filed minority.
 
-recouple is the paperwork, automated: ingest the notice → classify it → plan the
+Mozart is the paperwork, automated: ingest the notice → classify it → plan the
 evidence → decide → assemble a packet in the payer's required format → **a human
 approves and files it** → detect the recovery → bill a share of what was actually
 recovered.
