@@ -126,6 +126,30 @@ update the URL in Postmark, and watch the 401s stop — Postmark retries the mai
 that met the old one. The founder's full setup is ADR 0047's "What the founder
 does"; the click-through is `docs/VERIFY-CHECKLIST.md` §5.
 
+### Failure alerts: Production only
+
+When one of the four background jobs fails after its retries, the app emails
+one person (ADR 0052). The email goes through Resend with a key that can only
+send. All three variables go on **Production only**, never Preview:
+
+| Variable | Why |
+| --- | --- |
+| `ALERT_EMAIL_TO` | The one address alerts go to. A single bare address |
+| `ALERT_EMAIL_FROM` | The sender. It must be on the domain the key is restricted to, the one Supabase's sign-in mail already uses |
+| `RESEND_API_KEY` | A Resend key with **Sending access** only, restricted to that domain. It can send mail and do nothing else |
+
+Set all three or none:
+
+- **None:** there are no alerts. A failure logs `alerts are not configured`,
+  and the alert's run output says `not_configured`. The rate limit still
+  applies, so later failures of the same job within the hour log nothing.
+  Count failures in the Inngest dashboard, not from these lines.
+- **Some, or an address that is not one address:** logged as an error naming
+  the variable, and nothing is sent.
+
+To prove it works, send `recouple/alert.test` from the Inngest dashboard
+(`docs/VERIFY-CHECKLIST.md` §10).
+
 ## Supabase, after the first deploy
 
 Add the deployment origin to **Authentication → URL Configuration**:

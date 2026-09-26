@@ -331,6 +331,7 @@ What each environment gets on Vercel:
 | `CLAMAV_SCAN_URL`, `CLAMAV_SCAN_TOKEN` | shared | shared (the scanner keeps nothing) |
 | `POSTMARK_INBOUND_SECRET`, `INBOUND_DOMAIN` | set | **never**: a preview's `/api/inbound/postmark` answers 503, so Postmark's one webhook URL reaches production only (ADR 0047 §14). A preview holding the inbound credential would be the 2026-09-23 Inngest incident with email in it |
 | `POSTMARK_SERVER_TOKEN` | **never** — the operator's own `.env`, for `pnpm sweep:inbound` | never |
+| `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM`, `RESEND_API_KEY` | set (ADR 0052) | **never**: a preview has no Inngest keys, so it serves no functions and has nothing to alert about, and a mail key there is one more thing a preview could send as us with |
 
 `sslmode=no-verify` is there because this driver treats `require` as
 `verify-full`, and the pooler's certificate is not signed by a public CA: the
