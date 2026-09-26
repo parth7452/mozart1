@@ -1,7 +1,7 @@
 # 0056 — A spreadsheet row is a document line, and a cell is its quote
 
-- Status: proposed (2026-09-26). Awaiting the founder on the decisions in §11.
-  Nothing here is built: no code, no migration, no fixture.
+- Status: accepted (2026-09-26), with the recommended option in each of §9's
+  decisions. Nothing here is built yet: no code, no migration.
 - Date: 2026-09-26
 - Adds, if accepted: two accepted file types at the door (XLSX and CSV), a
   reader that is code and not a model, versioned column mappings as playbook
