@@ -19,13 +19,13 @@ import { processUpload, reconcileCase, type PipelineDeps } from '@recouple/pipel
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 
 /**
  * These run against a real database with the real migrations applied, so they
  * test what the in-memory store cannot: that the schema, its constraints and its
  * RLS policies actually support the pipeline. `pnpm db:test` prepares the
- * database; without DATABASE_URL there is nothing to test against.
+ * database; without TEST_DATABASE_URL there is nothing to test against.
  */
 const describeDb = connectionString === undefined ? describe.skip : describe;
 

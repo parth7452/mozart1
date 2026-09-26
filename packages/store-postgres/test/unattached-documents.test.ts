@@ -26,7 +26,7 @@ import { closeAllPools, PostgresStore } from '../src/store';
  * transaction, and RLS keeping one tenant's documents out of another's list.
  */
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 interface Given {

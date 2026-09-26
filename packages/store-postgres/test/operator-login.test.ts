@@ -12,7 +12,7 @@ import {
 } from '../src/operator';
 import { closeAllPools, PostgresStore } from '../src/store';
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.TEST_DATABASE_URL;
 const describeDb = connectionString === undefined ? describe.skip : describe;
 
 const run = promisify(execFile);
@@ -22,7 +22,7 @@ const TSX = `${ROOT}node_modules/.bin/tsx`;
 /**
  * The operator commands, on the login `docs/supabase.md` prescribes (ADR 0034).
  *
- * Every other Postgres test here connects as whatever `DATABASE_URL` names,
+ * Every other Postgres test here connects as whatever `TEST_DATABASE_URL` names,
  * which in CI is the owner — so a command that reads past RLS on a raw
  * connection passes every one of them and fails in production with "permission
  * denied for schema app". This test makes the production login itself: a fresh
