@@ -816,12 +816,12 @@ select o.id, u.id, 'analyst'
 on conflict (org_id, user_id) do nothing;
 ```
 
-Nothing in the Supabase dashboard: tester B's first sign-in link makes their
-account.
+Nothing in the Supabase dashboard: if tester B's address has never signed
+in, their first sign-in link makes their account.
 
 **4.2 Tester B signs in** in a separate private window or browser profile,
-from the form, as in 2.4: the first email is the **Confirm signup** one, and
-its link signs them in.
+from the form, as in 2.4: for an address that has never signed in, the first
+email is the **Confirm signup** one, and its link signs them in.
 
 - **You should see:**
   - "Test Tenant B" under **YOUR WORKSPACE** in the sidebar;
