@@ -265,34 +265,90 @@ like `recouple_app` and runs each command as it.
   magic link comes back to the wrong place.
 - **Email confirmations** are what a magic link is; the built-in SMTP is
   rate-limited and fine for a handful of testers, not for customers.
-- A person can only sign in if they were invited, and an invitation has two
-  halves (ADR 0045):
-  1. A `users` row with their address and a `memberships` row for their
-     tenant. Seed those as the owner. `app.link_auth_user()` refuses an
-     address with no invitation, on purpose.
-  2. **Authentication → Users → Add user → Send invitation**, with the same
-     address. The login form creates no auth user (`shouldCreateUser: false`),
-     so without this the form answers "sent" and no mail ever goes out.
-  The person follows the invitation link once, which confirms the address,
-  and then signs in from the login form. The invitation link does not sign
-  them in by itself: it lands on the Site URL with the session in the URL
-  fragment, and this app only takes a session from `/auth/callback`.
-- **An invited address that gets no mail** leaves its trace in the app's log,
-  not on the page. The form answers every address alike, and logs why a link
-  was not sent: `otp_disabled` (no auth user, so step 2 above was missed),
-  `signup_disabled` (sign-ups are off and the invitation has not been
-  followed; re-send it), or `NOT SENT` with the provider's reason (a cooldown,
-  the mail quota, the mailer).
+- A person can only sign in if they were invited, and an invitation is a
+  `users` row with their address and a `memberships` row for their tenant:
+  an owner writes both on **Settings → Team**, and the operator's SQL
+  (`docs/ONBOARDING.md` §1) is the fallback. `app.link_auth_user()` refuses an
+  address with no invitation, on purpose. Nothing is pressed in the dashboard
+  any more (ADR 0051 §6). The person signs in at
+  `https://app.mozart.financial/login`, and the form asks
+  `app.address_is_invited()` — exactly one `users` row answering to the
+  address ignoring capitals, with a membership — and passes the answer as
+  `shouldCreateUser`, so the provider makes an invited person's Auth user on
+  their first request for a link and nobody else's. Every address gets the
+  same "sent" page. That first email is the provider's **Confirm signup**
+  template, and its link signs them in through `/auth/callback`. Its code
+  expires five minutes after it was *sent*, not after the click: a late click
+  still confirms the address, the callback says "that link has expired", and
+  the next link, an ordinary magic link, works.
+- **Authentication → Users → Add user → Send invitation** is a fallback, no
+  longer a step. The hook below runs for it too, so it is refused for an
+  address with no `users` row and membership: add the person first. Its link
+  confirms the address but does not sign them in — it lands on the Site URL
+  with the session in the URL fragment, and this app only takes a session from
+  `/auth/callback` — so they then sign in from the form.
+- **An invited address that gets no mail** leaves its trace in the app's log
+  (`[sign-in link]`), not on the page. The form answers every address alike,
+  and logs why a link was not sent: `no link sent` with `otp_disabled` (the
+  database does not count the address as invited, so no account was asked
+  for; for someone who should be, run ONBOARDING §1's read-back, since two
+  `users` rows in different capitals are not an invitation), `NOT SENT to an
+  invited address` (the provider would not make an account the database
+  allowed: check the sign-up switch and the hook below), or `NOT SENT` with the
+  provider's reason (a cooldown, the mail quota, the mailer). With
+  `create_user` false, an address with no Auth user is `otp_disabled` whatever
+  the sign-up switch says; `signup_disabled` comes back only while sign-ups
+  are off, for an Auth user that never confirmed or for an invited address
+  whose account the form asked for.
 
-**The sign-up switch is the founder's, and comes after.** "Allow new users to
-sign up" (Authentication → Sign In / Providers) off is a second lock no code
-can set: nothing but an invitation can then create a user, whatever a client
-sends. Flip it after the ADR 0045 web change is deployed and both members have
-signed in through it, so that anything that depended on sign-up being open has
-shown itself while that change is the only one. Its one cost: an invited person
-who has not yet followed their invitation cannot get a link from the form until
-they do, so re-send the invitation rather than telling them to try the form
-again. Invitations keep working, because the dashboard invite is not a sign-up.
+**Sign-ups are on, and three layers keep them invitation-only** (ADR 0051 §6).
+"Allow new users to sign up" (Authentication → Sign In / Providers) was off in
+production until the founder switched it on on 2026-09-26. Off, the provider
+refuses `shouldCreateUser: true` (`signup_disabled`) for exactly the invited
+people the form asks it for, so their first link never comes and only the
+dashboard invitation gets them in. On, anyone holding the public anon key can
+call the provider's `/signup` and `/otp` directly, whatever the form decides,
+so the form is only the first layer:
+
+1. **The form asks the database**, as above.
+2. **The provider asks the database**: the before-user-created hook, below.
+3. **The app refuses a session it did not make.** `requireSession` refuses any
+   session whose `amr` methods are not all `otp`, `magiclink` or
+   `email/signup` — a password sign-in above all — before the database is
+   asked who it is, signs out that session alone (`local` scope, so the
+   invitee's own survives), and shows the login page's `email_link_only`
+   notice. This is what stops a pre-registration takeover: someone registering
+   an invitee's address at `/signup` with a password of their own, which the
+   invitee's confirmation click would otherwise make a way in. The hook cannot
+   stop that, because the address is invited.
+
+If migration 0035 is rolled back, switch sign-ups off again: layers 1 and 2 go
+with it.
+
+**The before-user-created hook is the founder's to enable, once migration 0035
+is applied.** 0035 is applied nowhere yet. Like every migration it goes to
+`mozart-preview` first, then production, and the hook is enabled in each
+project after its apply: **Authentication → Hooks → Before User Created →
+Postgres**, schema `hooks`, function `before_user_created`. The migration makes
+the function in a schema of its own, EXECUTE held by `supabase_auth_admin`
+alone, and turns nothing on. It answers `{}` for an invited address and 403
+for any other, on every path that creates an Auth user — sign-up (and so a
+magic link with `create_user`), OAuth, anonymous sign-in, generated links and
+the dashboard's **Send invitation** — except the admin create-user endpoint,
+which needs the service-role key. It gates creation, not use: it never runs for
+an address that already has an Auth user, unconfirmed included. Until it is
+enabled, layers 1 and 3 hold and strays can still be made through the API. To
+roll 0035 back, disable the hook here first: an enabled hook whose function is
+gone fails every account the provider would create.
+
+**Accounts made before the hook.** While sign-ups are on and the hook is off,
+any address can be given an Auth user. It reaches nothing — the app signs out
+an identity with no invitation or no membership (ADR 0045) — but the hook will
+never see it, so once the hook is enabled, list them and delete each one in
+Authentication → Users. The read-only query is `docs/ONBOARDING.md` §2,
+"Accounts nobody invited" (Supabase only: it reads `auth.users`). It cannot
+find an invitee's address somebody registered with a password first; layer 3
+is what makes that one harmless.
 
 ## Preview deployments have their own project
 
