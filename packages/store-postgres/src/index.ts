@@ -35,3 +35,4 @@ export {
   type ReviewQueueRow,
 } from './review-queue';
 export * from './inbound';
+export * from './team';

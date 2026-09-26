@@ -148,8 +148,13 @@ The login form creates no Supabase Auth user (`shouldCreateUser: false`, ADR
 [`docs/ONBOARDING.md`](../../docs/ONBOARDING.md), which does step 1 for a whole
 workspace in one tested SQL block and has the welcome email for step 3.
 
-1. Insert their `users` row and a `memberships` row for their tenant, as the
-   owner.
+1. Their `users` row and a `memberships` row for their tenant. **An owner of
+   the workspace does this in the app**: Settings → Team → Add a person (ADR
+   0051). It calls `app.invite_member()`, which reuses a `users` row that
+   answers to the address ignoring capitals, refuses an existing member, and
+   records a `membership.invited` audit row. The same page changes a role and
+   removes someone, and the database refuses leaving a workspace with no owner.
+   The operator's SQL (ONBOARDING §1 and §5) still works and is the fallback.
 2. In the Supabase dashboard: **Authentication → Users → Add user → Send
    invitation**, with the same address. This creates the auth user and emails
    the invitation.
@@ -157,6 +162,14 @@ workspace in one tested SQL block and has the welcome email for step 3.
    in from the login form. The invitation link does not sign them in by itself.
    It lands on the Site URL with the session in the URL fragment, and the app
    only takes a session from `/auth/callback`.
+
+Step 2 is still ours, from the dashboard, for anyone who has never signed in
+to Mozart: Settings → Team says "Mozart still has to send their sign-in
+invitation" for them, and "They can now sign in" for someone whose `users` row
+is already linked (they sign in to another workspace). Doing step 2 without the
+dashboard was the plan, and does not work while "Allow new users to sign up" is
+off: Supabase Auth answers `shouldCreateUser: true` with `signup_disabled` for
+exactly those people. ADR 0051 §6 sets out the options for the founder.
 
 Skip step 2 and the form still says a link is on its way. It says that for
 every address, so it cannot be used to find out who has an account. The app's

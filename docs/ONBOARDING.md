@@ -6,7 +6,9 @@ is a row the database already expects, or a screen that already exists.*
 
 Creating a workspace is done by hand, on purpose. `organizations` and `users`
 have read-only policies for the app's database role, so no request can create a
-tenant or invite a person. That is the database owner's job, done in the
+tenant. Since ADR 0051 a workspace's owner adds, re-roles and removes people
+from Settings → Team, through three definer functions; the first people, and
+the workspace itself, are still the database owner's job, done in the
 Supabase SQL editor (ADR 0015, `docs/supabase.md`). This runbook turns what used
 to be four hand-edited inserts (VERIFY-CHECKLIST §4.1 and §2.4) into one block
 with the values at the top.
@@ -18,7 +20,7 @@ with the values at the top.
 | [2. Invite each person](#2-invite-each-person) | founder | Supabase dashboard, then email | 5 min per person |
 | [3. Map payer names](#3-map-the-payer-names-printed-on-documents) | founder | your machine, `pnpm link:retailer` | as names appear |
 | [4. The owner's first sign-in](#4-the-owners-first-sign-in) | customer's owner | the app | 15 min, on the call |
-| [5. Changing a role, removing someone](#5-later-changing-a-role-removing-someone-adding-an-accountant) | founder | Supabase SQL editor | as needed |
+| [5. Changing a role, removing someone](#5-later-changing-a-role-removing-someone-adding-an-accountant) | customer's owner (founder as fallback) | the app, Settings → Team (SQL editor as fallback) | as needed |
 | [6. Day one and week one](#6-day-one-checklist-and-the-week-one-routine) | us | the app, your machine | daily |
 
 **Every SQL block on this page is tested.** `scripts/check-onboarding-sql.sh`
@@ -386,6 +388,19 @@ select u.email, a.invited_at, a.email_confirmed_at, a.last_sign_in_at,
 
 ## 2. Invite each person
 
+**After day one, the customer's owner adds people themselves**: Settings →
+Team → Add a person (ADR 0051). That writes the `users` row and the membership
+that the create block writes, with the same rules (one row per address
+ignoring capitals, an existing member refused by name, an audit row naming the
+owner). It does **not** create their sign-in: step 1 below is still ours for
+anyone who has never signed in to Mozart. The page tells the owner "Mozart
+still has to send their sign-in invitation", so expect them to tell you, and
+check the **Supabase only** invitation-status query above in the week-one
+routine: a `NOT INVITED` row is someone an owner added. Someone who already
+signs in to another workspace needs nothing from us, and the page tells the
+owner they can sign in at once. Why the page cannot send the invitation itself
+while sign-ups are off is ADR 0051 §6.
+
 The sign-in form never creates an account (`shouldCreateUser: false`, ADR 0045).
 So a person with a `users` row but no Supabase Auth user gets no email, and the
 app logs `otp_disabled`, or `signup_disabled` once sign-ups are off. The
@@ -562,9 +577,18 @@ On the onboarding call, with the owner sharing their screen:
 
 ## 5. Later: changing a role, removing someone, adding an accountant
 
-Memberships are ordinary rows (migration 0006's mutable list). The app has
-no screen for them, so you change them in the SQL editor. Each block below is
-all-or-nothing and refuses to leave the workspace unable to finish a case.
+**The customer's owner does this in the app**: Settings → Team → **Change
+role** or **Remove…** (ADR 0051). The database refuses there exactly what the
+blocks below refuse — no owner left, fewer than two people who can write, and
+the two responsibilities below — each with its own message, and every change
+leaves an audit row naming who made it. Use the blocks when nobody who can
+sign in is an owner, or on the owner's behalf.
+
+Memberships are ordinary rows (migration 0006's mutable list). Each block
+below is all-or-nothing and refuses to leave the workspace unable to finish a
+case. Since migration 0035 the database itself also refuses any change that
+leaves a workspace with no owner, on every path, with the same "that would
+leave … with no owner" message; to hand over, make the new owner first.
 
 Two things act **as a person**, and so block that person's demotion or removal
 until they are moved:

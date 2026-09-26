@@ -74,7 +74,7 @@ Nothing else is needed.
 ### Suggested order
 
 Do **2** first (sign-in), then **4** (make the test workspace), then **3**,
-**1**, **6**, **7** and **8**. **5** waits for your Postmark setup; see its
+**1**, **6**, **7**, **8** and **9**. **5** waits for your Postmark setup; see its
 first step.
 
 The fixture files mentioned below are synthetic test documents. Download each
@@ -1114,6 +1114,55 @@ In the last query, expect 12 lines `opened`. The 30 lines that were paid in
 full are likely to show as `unreadable` rather than `not_short_paid`. That
 is a known quirk of how this page prints a dash for "no deduction". It does
 not change the money; it is in the list below.
+
+---
+
+## 9. Settings → Team: an owner adds, re-roles and removes a teammate
+
+**What it proves:** an owner manages their own team with no SQL (ADR 0051,
+migration 0035), and the database, not the page, refuses what would strand a
+workspace. It does **not** prove a new person can sign in without the
+dashboard invitation: that is ADR 0051 §6, still the founder's decision.
+
+**Before:** migration 0035 applied to the project you are testing
+(`mozart-preview` first). **Where:** the **test workspace** from §4, as its
+owner.
+
+**9.1 Everyone sees the list.** Open **Team** in the sidebar.
+
+- **You should see:** every member with their role and "has signed in" or
+  "has not signed in yet", and the note that disputes need two people. As a
+  `read_only` member, the same list and no controls.
+
+**9.2 Add a person.** Under **Add a person**: a new address of yours, a name,
+**Analyst**, then **Add to this workspace**.
+
+- **You should see:** "added. Mozart still has to send their sign-in
+  invitation…", and a **Welcome message** box ready to copy. Add an address
+  that already signs in to another workspace instead and it says "They can now
+  sign in at app.mozart.financial with this address".
+- **Refusals:** add the same address again, in other capitals → "already a
+  member of this workspace". A new address has no sign-in until you send the
+  dashboard invitation (ONBOARDING §2, step 1).
+
+**9.3 The last owner cannot leave.** As the only owner, change your own role to
+**Approver** → "a workspace must keep at least one owner". **Remove…** yourself
+→ confirm → the same.
+
+**9.4 Change a role, then remove.** Make the new person **Approver** → "role
+changed". **Remove…** → the page asks first → **Remove them** → "removed".
+
+**Read back** (SQL editor, read-only):
+
+```sql
+select action, subject_id, payload, actor_id, observed_at
+  from audit_log
+ where action like 'membership.%'
+ order by id desc limit 10;
+```
+
+Expect `membership.invited`, `membership.role_changed` and `membership.removed`
+rows naming you as `actor_id`, and no row for the refusals.
 
 ---
 

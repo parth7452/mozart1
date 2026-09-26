@@ -801,6 +801,69 @@ export const NOTICES = {
   },
   email_failed: { tone: 'bad', text: 'that did not go through, and nothing changed. Try again.' },
 
+  // --- Team (ADR 0051) -------------------------------------------------------
+  team_role: { tone: 'bad', text: 'only an owner can add, re-role or remove people' },
+  team_invited_ready: {
+    tone: 'good',
+    text:
+      'added. They can now sign in at app.mozart.financial with this address. A welcome ' +
+      'message you can send them is below.',
+  },
+  team_invited_waiting: {
+    tone: 'good',
+    text:
+      'added. Mozart still has to send their sign-in invitation, and until it does the sign-in ' +
+      'form sends them nothing. A welcome message to send once it has gone is below.',
+  },
+  team_invalid: {
+    tone: 'bad',
+    text: 'enter a work email address, a name of at most 200 characters and a role; nobody was added',
+  },
+  team_already_member: {
+    tone: 'bad',
+    text: 'that address is already a member of this workspace. Change their role in the list instead.',
+  },
+  team_address_ambiguous: {
+    tone: 'bad',
+    text:
+      'two accounts answer to that address in different capitals, so nobody can sign in with it. ' +
+      'Ask Mozart to fix it; nobody was added.',
+  },
+  team_role_changed: { tone: 'good', text: 'role changed. It takes effect on their next page.' },
+  team_role_unchanged: { tone: 'good', text: 'they already have that role; nothing changed' },
+  team_removed: {
+    tone: 'good',
+    text:
+      'removed. Their next request is refused and they are signed out. Their past work stays ' +
+      'on the record.',
+  },
+  team_remove_confirm: {
+    tone: 'bad',
+    text: 'nobody was removed yet. Confirm below if you still want to.',
+  },
+  team_last_owner: {
+    tone: 'bad',
+    text: 'a workspace must keep at least one owner. Make someone else an owner first.',
+  },
+  team_too_few_writers: {
+    tone: 'bad',
+    text:
+      'that would leave fewer than two people who can write, so nobody could approve what the ' +
+      'other prepared. Add someone first.',
+  },
+  team_holds_ledger: {
+    tone: 'bad',
+    text:
+      'the QuickBooks connection runs as them. Another owner must press Connect QuickBooks ' +
+      'under Settings → QuickBooks first.',
+  },
+  team_holds_email: {
+    tone: 'bad',
+    text: 'an email address acts as them. Another owner must press Adopt under Settings → Email first.',
+  },
+  team_not_member: { tone: 'bad', text: 'that person is not a member of this workspace; nothing changed' },
+  team_failed: { tone: 'bad', text: 'that did not go through, and nothing changed. Try again.' },
+
   // One per `RejectionCode`, because the door's refusal is a closed set and its
   // message is a sentence built around a filename somebody else chose.
   upload_rejected: { tone: 'bad', text: 'that file was not accepted, and nothing was stored' },
