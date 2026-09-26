@@ -1457,9 +1457,9 @@ export const DECLINED_BY_TOLERANCE = 'remittance_tolerance';
  * is not such a field: it prints no amount (`printsOwnDeduction`), so the line
  * falls to `gross − net` — paid in full when the two are equal, a short-pay
  * when they are not, and unreadable only when it prints no gross or net to
- * check it by. Both callers that precompute a whole advice's `shortPays` (the
+ * check it by. Both callers that precompute a whole advice's short-pays (the
  * line loop, and `remittanceLineOfCase` for `legacyOwner`) get that answer
- * from here.
+ * from here, through `lineShortPays`.
  */
 function shortPayOnLine(
   line: unknown,
@@ -1591,7 +1591,7 @@ export async function openCasesFromRemittance(
   // Each line's short-pay, up front, so which line of a repeated invoice owns a
   // case opened under the old key does not depend on the order lines are
   // processed in (ADR 0048 §3).
-  const shortPays = rows.map((row) => shortPayOnLine(row));
+  const shortPays = lineShortPays(rows, keys);
   // Cases this advice opened. Its own lines are never candidates for each
   // other, exact or probable (ADR 0048 §2).
   const openedHere = new Set<string>();
@@ -1610,22 +1610,12 @@ export async function openCasesFromRemittance(
     };
 
     const key = keys[index];
-    if (key?.sharesGrossAndNet === true && !printsOwnDeduction(line)) {
-      // `gross − net` here is the whole invoice's short-pay, which another line
-      // of this advice also claims. Given to every line it would count the same
-      // dollars once per line (ADR 0048 §4). A dash is no deduction of its own,
-      // asked the way `shortPayOnLine` asks it, or a dash line would take the
-      // whole invoice's gap.
-      note({
-        outcome: 'unreadable',
-        detail:
-          'the line repeats its invoice\'s gross and net alongside another line of this advice ' +
-          'and prints no deduction of its own, so its share of the short-pay cannot be told',
-      });
-      continue;
+    // A line that repeats its invoice's gross and net and prints no deduction of
+    // its own comes back as a problem here, from `lineShortPays` (ADR 0048 §4).
+    const shortPay = shortPays[index];
+    if (shortPay === undefined) {
+      throw new Error(`remittance: no short-pay was computed for line ${index}`);
     }
-
-    const shortPay = shortPays[index] ?? shortPayOnLine(line);
     if ('problem' in shortPay) {
       note({ outcome: 'unreadable', detail: shortPay.problem });
       continue;
@@ -1965,6 +1955,36 @@ function lineClaimIds(
       sharesGrossAndNet,
     };
   });
+}
+
+/**
+ * Every line's short-pay over a whole advice, with ADR 0048 §4 applied: a line
+ * that repeats its invoice's gross and net beside another line of the advice,
+ * and prints no deduction of its own — none at all, or a dash
+ * (`printsOwnDeduction`) — is a problem, not `gross − net`. That difference is
+ * the whole invoice's short-pay, which another line also claims; given to every
+ * line it would count the same dollars once per line.
+ *
+ * Both the line loop and `legacyOwner` read this one array, so a line that
+ * cannot claim a share cannot own a case opened under the old key either.
+ * Were it only the loop's rule, a dash or blank line printed ahead of the line
+ * that prints the deduction would own the legacy case by amount, be refused as
+ * unreadable, and leave the real line to open a second case for the same
+ * dollars (found in review, 2026-09-26).
+ */
+function lineShortPays(
+  rows: readonly unknown[],
+  keys: readonly (LineKey | undefined)[],
+): readonly ReturnType<typeof shortPayOnLine>[] {
+  return rows.map((row, index) =>
+    keys[index]?.sharesGrossAndNet === true && !printsOwnDeduction(row)
+      ? {
+          problem:
+            "the line repeats its invoice's gross and net alongside another line of this advice " +
+            'and prints no deduction of its own, so its share of the short-pay cannot be told',
+        }
+      : shortPayOnLine(row),
+  );
 }
 
 /**
@@ -2507,7 +2527,7 @@ async function remittanceLineOfCase(
     // line that owns it by amount (ADR 0048 §3).
     let index = keys.findIndex((key) => key?.claimId === record.claimId);
     if (index === -1) {
-      const shortPays = rows.map((row) => shortPayOnLine(row));
+      const shortPays = lineShortPays(rows, keys);
       const legacy = keys.find((key) => key?.legacyClaimId === record.claimId);
       index =
         legacy === undefined || record.deductionAmountCents === undefined
