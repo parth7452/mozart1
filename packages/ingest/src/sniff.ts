@@ -12,6 +12,7 @@ import { inflateSync } from 'node:zlib';
 import { judgeOpenAction } from './pdf-open-action';
 import { scanPdfNames } from './pdf-names';
 import { RejectedUploadError } from './sniff-errors';
+import { HEIC_MIME, inspectHeif, isHeif, normaliseHeifType } from './heif';
 import { MAX_TIFF_PAGE_PIXELS, MAX_TIFF_TOTAL_PIXELS, inspectTiff, isClassicTiff } from './tiff';
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -32,6 +33,9 @@ export const ALLOWED_MIME_TYPES = [
   // Neither reader takes it, so a read gets a rendition derived from it and
   // never stored (ADR 0054). Classic TIFF only: BigTIFF matches no signature.
   'image/tiff',
+  // A phone's photograph of a page. Read and viewed as a JPEG derived at read
+  // time and never stored; `image/heif` is stored as this (ADR 0054 §5).
+  HEIC_MIME,
 ] as const;
 
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
@@ -67,6 +71,7 @@ const SIGNATURES: Record<AllowedMimeType, (bytes: Uint8Array) => boolean> = {
   'image/webp': (b) =>
     startsWith(b, [0x52, 0x49, 0x46, 0x46]) && startsWith(b, [0x57, 0x45, 0x42, 0x50], 8),
   'image/tiff': isClassicTiff, // II*\0 or MM\0*
+  'image/heic': isHeif, // an ftyp box naming a HEVC or generic HEIF brand, and no AVIF-only one
 };
 
 /** What the bytes actually are, regardless of what the upload claimed. */
@@ -372,7 +377,10 @@ export function acceptUpload(
     );
   }
   // The declared type is a hint we check, never a fact we act on.
-  if (options.declaredMimeType !== undefined && options.declaredMimeType !== detected) {
+  if (
+    options.declaredMimeType !== undefined &&
+    normaliseHeifType(options.declaredMimeType) !== detected
+  ) {
     warnings.push(
       `upload claimed ${options.declaredMimeType} but the bytes are ${detected}; using ${detected}`,
     );
@@ -425,6 +433,12 @@ export function acceptUpload(
       maxTotalPixels: MAX_TIFF_TOTAL_PIXELS,
     });
     pageCount = tiff.pages.length;
+  }
+
+  if (detected === HEIC_MIME) {
+    // The ftyp box only: its pixels are bounded at read time, before decoding.
+    inspectHeif(bytes);
+    pageCount = 1;
   }
 
   return {

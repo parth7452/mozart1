@@ -87,10 +87,9 @@ Each of these is live in production.
 
 ### Limits to tell the customer: not fixed in 68 hours
 
-- **File types:** PDF, PNG, JPEG, GIF, WebP and TIFF (single or multi-page,
-  fax included, ADR 0054). No HEIC, XLSX, CSV or Word. HEIC waits on a
-  founder decision about its LGPL decoder; an iPhone usually sends JPEG
-  anyway.
+- **File types:** PDF, PNG, JPEG, GIF, WebP, TIFF (single or multi-page,
+  fax included) and HEIC/HEIF (an iPhone photo), ADR 0054. No AVIF, XLSX,
+  CSV or Word.
 - **Size:** about 3.3 MB of attachments per email.
 - **Dense documents:**
   - a remittance past about 120 rows is read again in two-page parts and
@@ -199,7 +198,7 @@ everything and changes nothing.
   Supabase admin API, and the service role never goes in a request path
   (invariant 6).
 - **Dense remittances**: paging them.
-- **More file types**: XLSX/CSV import and HEIC. TIFF is in (ADR 0054).
+- **More file types**: XLSX/CSV import. TIFF and HEIC are in (ADR 0054).
 - **Duplicates F2–F5**: each needs an ADR.
 - **Large files**: direct-to-storage upload needs an ADR, because it is a new
   place where unscanned bytes sit.

@@ -225,7 +225,7 @@ describe('the upload form', () => {
     expect(html).toContain(`up to ${UPLOAD_MAX_MB} MB each`);
     expect(html).not.toContain('attachToCase');
     // The picker offers the door's types and nothing else: TIFF since ADR
-    // 0054, and not HEIC, which the door still refuses.
+    // 0054, HEIC since its §5 (a `.heif` is stored as `image/heic`).
     const byExtension: Record<string, string> = {
       '.pdf': 'application/pdf',
       '.png': 'image/png',
@@ -235,12 +235,14 @@ describe('the upload form', () => {
       '.webp': 'image/webp',
       '.tif': 'image/tiff',
       '.tiff': 'image/tiff',
+      '.heic': 'image/heic',
+      '.heif': 'image/heic',
     };
     const offered = UPLOAD_ACCEPT.split(',');
     expect(new Set(offered.map((extension) => byExtension[extension]))).toEqual(
       new Set(ALLOWED_MIME_TYPES),
     );
-    expect(UPLOAD_ACCEPT).not.toMatch(/heic|heif/);
+    expect(UPLOAD_ACCEPT).not.toMatch(/avif/);
   });
 
   it('carries the case it attaches evidence to', () => {

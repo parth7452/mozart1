@@ -673,7 +673,7 @@ makes their account. They do not count towards the two people who can write.
       person and approved by the other.
 - [ ] Agreed: the backlog hand-off, who files and how, and a weekly review.
 - [ ] Told them the limits (pilot README, "Limits to tell the customer"): PDF,
-      PNG, JPEG, GIF, WebP and TIFF only (no HEIC); a remittance past about 120 rows needs
+      PNG, JPEG, GIF, WebP, TIFF and HEIC only; a remittance past about 120 rows needs
       splitting; they do the filing; nothing is sent to anyone.
 
 ### Every day in week one (us, about 15 minutes per workspace)

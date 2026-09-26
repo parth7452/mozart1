@@ -15,6 +15,7 @@
     "@recouple/fixtures": "workspace:*"
   },
   "dependencies": {
+    "heic-decode": "^2.1.0",
     "pdf-lib": "^1.17.1",
     "sharp": "0.35.4"
   }

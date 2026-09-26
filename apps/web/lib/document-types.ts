@@ -26,6 +26,7 @@ const INLINE_TYPES: ReadonlySet<string> = new Set([
   // Not `image/tiff`: only Safari draws one, so in every other browser an
   // embed of it was a broken frame or a download. A TIFF is shown through its
   // rendition, `/api/document/[id]/view`, and its original downloads (ADR 0054).
+  // Nor `image/heic`, which only Safari draws either (§5).
 ]);
 
 /** Whether `/api/document/[id]` serves this type inline, so a page may embed it. */
@@ -36,7 +37,7 @@ export function displaysInline(mimeType: string): boolean {
 /**
  * Whether a document is shown through `/api/document/[id]/view` — a rendition
  * made for viewing and never stored — rather than in place (ADR 0054 §4). A
- * TIFF, today: no browser but Safari draws one.
+ * TIFF or a HEIC: no browser but Safari draws either.
  */
 export function viewsThroughRendition(mimeType: string): boolean {
   return !displaysInline(mimeType) && hasRendition(mimeType);

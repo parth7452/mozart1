@@ -1,3 +1,4 @@
+/// <reference path="./heic-decode.d.ts" />
 /**
  * What a reader is given for a stored document: its bytes, or a rendition
  * derived from them at read time and never stored (ADR 0054).
@@ -22,8 +23,10 @@
  * `@recouple/ingest/rendition`, by server code only.
  */
 
+import decodeHeic from 'heic-decode';
 import { PDFDocument } from 'pdf-lib';
 import sharp from 'sharp';
+import { HEIC_MIME } from './heif';
 import { MAX_MODEL_PAYLOAD_BYTES, MAX_PAGES_PER_READ } from './sniff';
 import { RejectedUploadError } from './sniff-errors';
 import {
@@ -46,6 +49,15 @@ export const MAX_RENDITION_EDGE_PX = 8000;
  * as a page rather than a poster.
  */
 export const ASSUMED_DPI = 200;
+
+/**
+ * The most pixels one HEIC image may decode to: 50 MP, past any phone camera
+ * that photographs a page. More is refused before a pixel is decoded.
+ */
+export const MAX_HEIC_PIXELS = 50_000_000;
+
+/** The JPEG quality a HEIC is rendered at. */
+export const HEIC_JPEG_QUALITY = 90;
 
 /** The PDF user-space ceiling on a page's side, in points (ISO 32000-1 C.2). */
 const MAX_PAGE_POINTS = 14_400;
@@ -76,6 +88,13 @@ export interface Rendition {
  */
 export class RenditionError extends Error {
   override readonly name = 'RenditionError';
+  constructor(
+    message: string,
+    /** Set when the refusal is the door's kind: an image past its pixel cap. */
+    readonly code?: 'decompression_bomb',
+  ) {
+    super(message);
+  }
 }
 
 export { hasRendition };
@@ -88,6 +107,7 @@ export { hasRendition };
  */
 export async function renderForReading(bytes: Uint8Array, mimeType: string): Promise<Rendition> {
   if (!hasRendition(mimeType)) return { mimeType, bytes };
+  if (mimeType === HEIC_MIME) return renderHeic(bytes);
   return renderTiff(bytes);
 }
 
@@ -239,5 +259,93 @@ async function renderPage(bytes: Uint8Array, index: number, page: TiffPage): Pro
     if (error instanceof RenditionError) throw error;
     const reason = error instanceof Error ? error.message.split('\n')[0] : String(error);
     throw new RenditionError(`page ${pageNumber} of the stored TIFF will not decode: ${reason}`);
+  }
+}
+
+/** heic-decode's own test of the major brand (`isHeic`), which it applies before decoding. */
+const DECODER_MAJOR_BRANDS: ReadonlySet<string> = new Set(['mif1', 'msf1', 'heic', 'heix', 'hevc', 'hevx']);
+
+/**
+ * A HEIC as one JPEG at quality 90 (ADR 0054 §5).
+ *
+ * `heic-decode` (libheif and libde265, compiled to WebAssembly, LGPL-3.0)
+ * decodes; sharp encodes. The primary image's size is read from the container
+ * and refused past `MAX_HEIC_PIXELS` as `decompression_bomb` before a pixel is
+ * decoded. Orientation: libheif applies the file's `irot`/`imir` transforms as
+ * it decodes, and those are how HEIF records a turned photograph — the EXIF
+ * orientation a phone also writes says the same turn, and the HEIF spec says a
+ * reader must not apply it a second time, so the decoded pixels are upright
+ * and nothing here turns them again. The long edge is capped at
+ * `MAX_RENDITION_EDGE_PX` and the JPEG at `MAX_RENDITION_IMAGE_BYTES`; the
+ * encoder options are fixed and no metadata is written, so the same bytes
+ * render to the same bytes every time.
+ */
+async function renderHeic(bytes: Uint8Array): Promise<Rendition> {
+  // heic-decode reads the major brand alone and refuses a file the door took by
+  // a compatible one (`heim`, `heis`, or `heic` behind another major). The
+  // decoder, not the brand, is what reads the images, so it is given an
+  // in-memory copy whose major brand says `mif1`. Never stored.
+  let input = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (input.length >= 12 && !DECODER_MAJOR_BRANDS.has(input.subarray(8, 12).toString('latin1'))) {
+    input = Buffer.from(input);
+    input.write('mif1', 8, 'latin1');
+  }
+
+  let images: Awaited<ReturnType<typeof decodeHeic.all>>;
+  try {
+    images = await decodeHeic.all({ buffer: input });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.split('\n')[0] : String(error);
+    throw new RenditionError(`the stored HEIC will not decode: ${reason}`);
+  }
+  try {
+    const primary = images[0];
+    if (primary === undefined) throw new RenditionError('the stored HEIC holds no image');
+    const pixels = primary.width * primary.height;
+    if (!(primary.width > 0 && primary.height > 0)) {
+      throw new RenditionError(`the stored HEIC's image is ${primary.width} × ${primary.height}`);
+    }
+    if (pixels > MAX_HEIC_PIXELS) {
+      throw new RenditionError(
+        `the HEIC's image is ${primary.width} × ${primary.height}, over the ${MAX_HEIC_PIXELS} pixel limit`,
+        'decompression_bomb',
+      );
+    }
+
+    let decoded: { width: number; height: number; data: Uint8ClampedArray };
+    try {
+      decoded = await primary.decode();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message.split('\n')[0] : String(error);
+      throw new RenditionError(`the stored HEIC will not decode: ${reason}`);
+    }
+
+    const shrink = Math.min(1, MAX_RENDITION_EDGE_PX / Math.max(decoded.width, decoded.height));
+    let pipeline = sharp(Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength), {
+      raw: { width: decoded.width, height: decoded.height, channels: 4 },
+    }).flatten({ background: '#ffffff' });
+    if (shrink < 1) {
+      pipeline = pipeline.resize(
+        Math.max(1, Math.round(decoded.width * shrink)),
+        Math.max(1, Math.round(decoded.height * shrink)),
+        { fit: 'fill', kernel: 'lanczos3' },
+      );
+    }
+    const encoded = await pipeline
+      .jpeg({ quality: HEIC_JPEG_QUALITY, chromaSubsampling: '4:4:4', mozjpeg: false, progressive: false })
+      .toBuffer();
+    if (encoded.byteLength > MAX_RENDITION_IMAGE_BYTES) {
+      throw new RenditionError(
+        `the HEIC renders to ${encoded.byteLength} bytes as JPEG, over the ${MAX_RENDITION_IMAGE_BYTES} byte image limit`,
+      );
+    }
+    return {
+      mimeType: 'image/jpeg',
+      bytes: new Uint8Array(encoded.buffer, encoded.byteOffset, encoded.byteLength),
+      derivedFrom: HEIC_MIME,
+      pageCount: 1,
+    };
+  } finally {
+    images.dispose();
   }
 }

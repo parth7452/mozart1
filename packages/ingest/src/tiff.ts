@@ -65,10 +65,10 @@ const TYPE_RATIONAL = 5;
 /**
  * Whether a stored type is read, and viewed, through a rendition derived at
  * read time (ADR 0054). Here rather than beside `renderForReading` so a view
- * can ask without loading libvips.
+ * can ask without loading libvips. A TIFF, and since §5 a HEIC.
  */
 export function hasRendition(mimeType: string): boolean {
-  return mimeType === 'image/tiff';
+  return mimeType === 'image/tiff' || mimeType === 'image/heic';
 }
 
 /** Whether the bytes begin as a classic TIFF, either byte order. */

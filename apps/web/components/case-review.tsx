@@ -454,8 +454,8 @@ export function CaseReview({
                   <a className="doc-view-link" href={`/api/document/${primary.documentId}`}>
                     Download the original
                   </a>
-                  {/* A TIFF no browser but Safari can draw, shown as the
-                      rendition its read was given — a PNG or a PDF made for
+                  {/* A TIFF or a HEIC, which no browser but Safari draws, shown as the
+                      rendition its read was given — a PNG, a JPEG or a PDF made for
                       this request and never stored (ADR 0054). The original is
                       the file that arrived, and it downloads. No `type`: the
                       rendition's is the response's to say. */}

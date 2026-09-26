@@ -179,6 +179,21 @@ The storage and serving rules this ADR sets stay as they are. Until then, HEIC
 is still `type_not_allowed`. That costs less than it sounds: iOS Safari's file
 picker and iPhone Mail usually transcode HEIC to JPEG already.
 
+**Amended 2026-09-26: HEIC is in.** The founder approved the LGPL-3.0
+dependency (`heic-decode`, over libheif-js) on 2026-09-26. The door accepts an
+ISO-BMFF `ftyp` box whose major or a compatible brand is heic, heix, heim,
+heis, hevc, hevx, mif1 or msf1, and refuses one whose only HEIF brand is
+generic beside an AVIF brand; the box must be sane (`inspectHeif`), else
+`content_does_not_match_type`. It is stored as `image/heic`, and a declared
+`image/heif` is read as that. `renderForReading` makes it one JPEG at quality
+90: decoded by `heic-decode`, encoded by sharp with fixed options and no
+metadata, the long edge capped at 8000 px and the JPEG at 5 MB, and more than
+50 MP refused as `decompression_bomb` before a pixel is decoded. Orientation is
+libheif's `irot`/`imir`, applied once; the EXIF orientation a phone also writes
+says the same turn and is not applied again. It is shown through
+`/api/document/[id]/view`, and `.heic,.heif` are in `UPLOAD_ACCEPT`. Storage
+and serving are unchanged.
+
 ## Options not taken
 
 - **Store the rendition as a second document.** Rejected for the reasons in
