@@ -259,6 +259,20 @@ Running one of them against the owner login is not needed and not supported.
 `packages/store-postgres/test/operator-login.test.ts` creates a login shaped
 like `recouple_app` and runs each command as it.
 
+**`DATABASE_URL` is the operator's, never the tests'.** The operator commands
+read it from `.env`, and until 2026-09-25 so did every Postgres integration
+test: `vitest.setup.ts` loaded the whole of `.env`, the Stop hook in
+`.claude/settings.json` runs `pnpm test` after every Claude Code turn, and a
+clone whose `.env` named production — as the owner, `postgres` — ran the suite
+there (`docs/audits/tests-against-production/`). The tests now read
+`TEST_DATABASE_URL` and take only it and `RECOUPLE_TEST_DATABASE` from `.env`,
+and the test-database guard (`scripts/test-database.ts`) refuses a run whose
+environment holds `DATABASE_URL`, and a test database on a Supabase host or
+carrying `recouple_app`, `supabase_admin` or applied Supabase migrations — so
+production, the preview project and any branch are refused whichever variable
+names them. Keep production's URL in `DATABASE_URL` only, and only on the
+machine that runs these commands.
+
 ### Auth settings to check in the dashboard
 
 - **Site URL and redirect URLs** must include the app's `/auth/callback`, or the

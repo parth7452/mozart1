@@ -29,8 +29,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    # The tests' own variable and the opt-in the test-database guard requires
+    # (scripts/test-database.ts). Never DATABASE_URL: that is the operator
+    # scripts' and the app's, and a test run refuses to hold it.
     env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/recouple_test
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/recouple_test
+      RECOUPLE_TEST_DATABASE: '1'
 
     steps:
       - uses: actions/checkout@v4
