@@ -4,6 +4,7 @@ import type {
   CaseMerges,
   CaseWorkflow,
   PossibleDuplicatePair,
+  ServingRefusal,
   UnattachedDocument,
 } from '@recouple/pipeline';
 import {
@@ -11,11 +12,12 @@ import {
   MISSING_EVIDENCE_TYPES,
   type CaseDocument,
   type CaseSummary,
-  type MissingEvidence,
   type StoredField,
 } from '@recouple/store-postgres';
+import { DECLINE_LABELS, MISSING_EVIDENCE_LABELS } from '../lib/decline-labels';
 import { displaysInline } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
+import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
@@ -261,39 +263,6 @@ export interface CaseReviewProps {
 }
 
 /**
- * The reasons a case can be declined, in the words a reviewer uses rather than
- * the enum's. The values are the enum's — the database is the referee, and an
- * unknown one is refused there.
- */
-const DECLINE_LABELS: Readonly<Record<(typeof DECLINE_REASONS)[number], string>> = {
-  below_economic_floor: 'Not worth the work',
-  deadline_passed: 'The dispute window has closed',
-  evidence_unavailable: 'What would prove it cannot be got',
-  deduction_valid: 'They were right — nothing to recover',
-  duplicate_of_other: 'Same deduction, already handled',
-  below_confidence_floor: 'We could not read it well enough to act',
-  tenant_declined: 'The customer said not to',
-  other: 'Something else',
-};
-
-/**
- * Evidence a reviewer can say was missing, in a person's words. The values are
- * the canonical ones the store will accept — the point of recording them is to
- * add them up later, so "no POD" has to be one thing across a thousand declines
- * rather than a hundred spellings. `detail` is where the prose goes.
- */
-const MISSING_EVIDENCE_LABELS: Readonly<Record<MissingEvidence, string>> = {
-  proof_of_delivery: 'Proof of delivery',
-  bill_of_lading: 'Bill of lading',
-  invoice: 'Invoice',
-  purchase_order: 'Purchase order',
-  receiving_report: 'Receiving report',
-  timesheet: 'Timesheet',
-  rate_agreement: 'Rate or pricing agreement',
-  correspondence: 'Correspondence with the customer',
-};
-
-/**
  * A reviewer's workspace for one case.
  *
  * Every value carries the document and page it was read from and the quote as
@@ -364,7 +333,18 @@ export function CaseReview({
   for (const named of [...fields, ...documents]) {
     if (named.filename !== '') filenames.set(named.documentId, named.filename);
   }
+  // What the document route will refuse, so the packet does not link to it.
+  const unservable = new Map<string, ServingRefusal>();
+  for (const document of documents) {
+    if (document.servingRefusal !== null) {
+      unservable.set(document.documentId, document.servingRefusal);
+    }
+  }
   const said = resolveNotice(notice, noticeAbout ?? []);
+  // A decline moves no state (ADR 0043), so the case still reads `classified`;
+  // this is what says it is decided. Either read answers: the workflow's row,
+  // or the summary's flag from the queue's own predicate.
+  const declined = workflow?.decline !== undefined || summary.declined === true;
 
   return (
     <WorkspaceShell viewer={viewer} detail>
@@ -388,6 +368,7 @@ export function CaseReview({
             <span className={`pill state-${summary.state}`}>
               {summary.state.replace(/_/g, ' ')}
             </span>
+            {declined ? <span className="pill declined">declined</span> : null}
             {due !== undefined ? <span className={`pill ${due.tone}`}>{due.label}</span> : null}
           </div>
         </div>
@@ -430,6 +411,13 @@ export function CaseReview({
                   {documents.length === 0
                     ? 'No document is on this case yet.'
                     : 'This case has no record of the document it was opened from.'}
+                </p>
+              ) : primary.servingRefusal !== null ? (
+                // The route would answer 409; a frame of that answer is a
+                // broken page, so the page says it in place.
+                <p className="empty">
+                  {primary.filename === '' ? 'The original document' : primary.filename} is on this
+                  case and is not shown. {SERVING_REFUSED[primary.servingRefusal]}
                 </p>
               ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
@@ -586,12 +574,15 @@ export function CaseReview({
               mayAct={mayAct}
             />
 
+            {/* A declined case is not being fought, so it is not asked for a
+                deadline to fight it by; one a person already entered is
+                still said. */}
             <DisputeDeadline
               deductionId={summary.deductionId}
               state={summary.state}
               disputeDeadline={summary.disputeDeadline}
               deadlineSet={workflow?.deadlineSet}
-              mayAct={mayAct}
+              mayAct={mayAct && !declined}
               today={today}
             />
 
@@ -599,18 +590,25 @@ export function CaseReview({
               deductionId={summary.deductionId}
               state={summary.state}
               workflow={workflow}
+              declined={declined}
               mayAct={mayAct}
               mayApprove={mayApprove}
               viewerUserId={viewerUserId}
               filenames={filenames}
+              unservable={unservable}
             />
 
             {/* Fighting and declining are the two answers to the same
                 question, so they are offered together and only while the
                 question is open. Once a decision is recorded the case has left
                 `classified`, and declining a case somebody decided to dispute
-                is not a thing to offer. */}
-            {mayAct && summary.state === 'classified' && workflow?.decision === undefined ? (
+                is not a thing to offer — nor declining one already declined,
+                which the store refuses either way (`AlreadyDeclinedError`,
+                `CaseNotDeclinableError`). */}
+            {mayAct &&
+            summary.state === 'classified' &&
+            workflow?.decision === undefined &&
+            !declined ? (
               <div className="card decline" style={{ marginTop: 18 }}>
                 <h2 className="section" style={{ marginTop: 0 }}>
                   Not worth fighting?
@@ -657,7 +655,11 @@ export function CaseReview({
             ) : null}
 
             <section id="case-history" aria-label="History">
-              <CaseTimeline workflow={workflow} viewerUserId={viewerUserId} />
+              <CaseTimeline
+                workflow={workflow}
+                viewerUserId={viewerUserId}
+                viewerEmail={viewer.email}
+              />
             </section>
 
             <div className="gate">

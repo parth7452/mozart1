@@ -443,3 +443,26 @@ export function formatCents(amount: Cents): string {
   const frac = String(abs % 100).padStart(2, '0');
   return `${negative ? '-' : ''}$${whole.toLocaleString('en-US')}.${frac}`;
 }
+
+/**
+ * Whether a money field prints a dash where an amount would go: `-`, `--`,
+ * `–`, `—`, `−`, or one of those after `$` or `USD` (`$ -`, the accounting
+ * format's zero). A column of amounts prints that on the rows it has nothing
+ * for — the dense remittance's paid-in-full lines print `-` as their deduction.
+ *
+ * It says the field printed no amount, and nothing about what the amount is:
+ * a dash is never zero cents, and `parseMoneyToCents` still refuses one, so
+ * whoever asks decides what an absent amount means where it is asked (a
+ * remittance line falls back to `gross − net`, ADR 0028 §2). `0` and `$0.00`
+ * are amounts and parse; `N/A`, `-5` and `CB-203` are not dashes.
+ *
+ * The dash class is `DASH_CLASS` in `packages/extraction/src/markup.ts`,
+ * copied rather than imported because core-domain depends on nothing; the two
+ * should name the same characters.
+ */
+export function printsNoAmount(text: string): boolean {
+  return NO_AMOUNT.test(text);
+}
+
+const NO_AMOUNT_DASH = '[-\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]';
+const NO_AMOUNT = new RegExp(`^\\s*(?:\\$|USD)?\\s*${NO_AMOUNT_DASH}{1,3}\\s*$`, 'i');

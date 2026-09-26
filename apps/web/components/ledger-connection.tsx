@@ -1,3 +1,4 @@
+import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
 import type { LedgerConnectionOverview } from '@recouple/store-postgres';
 import { resolveNotice } from '../lib/notices';
 import { WorkspaceShell } from './workspace-shell';
@@ -268,7 +269,7 @@ export function needsReconnect(
   if (run?.outcome === 'failed' && run.errorClass === 'CredentialUnreadableError') {
     return 'Its stored sign-in could not be opened on the last sync.';
   }
-  if (run?.outcome === 'refused' && run.errorClass === 'LedgerSyncRefusedError') {
+  if (run?.outcome === 'refused' && run.errorClass === LEDGER_SYNC_REFUSED) {
     return 'The member it syncs as can no longer write in this workspace. Reconnect as a current owner.';
   }
   return undefined;
@@ -288,6 +289,11 @@ export function lastSyncSentence(connection: LedgerConnectionOverview): string {
     case 'not_configured':
       return `${when}: not read — this deployment could not reach QuickBooks`;
     case 'refused':
+      // Shown when the same owner reconnects: the row is reused, so a run
+      // refused while it was off can still be this connection's last.
+      if (run.errorClass === LEDGER_CONNECTION_DISABLED) {
+        return `${when}: not read — it was disconnected when this run started`;
+      }
       return `${when}: not read — refused${run.errorClass === undefined ? '' : ` (${run.errorClass})`}`;
     case 'failed':
       return `${when}: failed${run.errorClass === undefined ? '' : ` (${run.errorClass})`}`;

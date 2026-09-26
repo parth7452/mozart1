@@ -494,6 +494,8 @@ th.money { text-align: right!important; }
 .state-won, .state-partial { background: #e9f2e0; color: #466d29; }
 .state-lost, .state-written_off { background: #f2eae7; color: #8e5d4f; }
 .state-merged { background: #eeeeee; color: #6b6f73; }
+/* A decline moves no state, so it is a pill of its own beside the state. */
+.pill.declined { background: #f2eae7; color: #8e5d4f; margin-left: 6px; }
 .unmatched { display: block; font-size: 9px; margin: 3px 0 0; }
 .table-foot { display: flex; justify-content: space-between; gap: 12px; padding: 14px 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 .ledger .empty { padding: 34px 24px; max-width: 650px; line-height: 1.8; }

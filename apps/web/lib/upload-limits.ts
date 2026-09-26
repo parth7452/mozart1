@@ -7,7 +7,7 @@
  * (ADR 0047, context item 8), so the 25 MB this used to say was a promise a
  * 5–25 MB file met with Vercel's bare error page rather than our sentence. The
  * file limit is set so that the file plus its multipart framing stays under the
- * platform's body limit, and `upload-limits.test.tsx` holds that sum.
+ * platform's body limit, and `test/multi-upload.test.tsx` holds that sum.
  *
  * A larger file needs somewhere to go that is not a function body —
  * direct-to-storage upload — and that is a new place unscanned bytes sit, so

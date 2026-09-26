@@ -1,4 +1,5 @@
-import { Inngest, NonRetriableError } from 'inngest';
+import { createHash } from 'node:crypto';
+import { Inngest, NonRetriableError, RetryAfterError } from 'inngest';
 import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
 import {
@@ -99,6 +100,14 @@ export interface ReadRequestedData {
    * stalled read unrecoverable for twenty-four hours, because the recovery was
    * an event for the same document (ADR 0021).
    *
+   * An upload that names a case to attach to keys on the document *and* the
+   * case (`attachReadKey`), since 2026-09-26. The same bytes uploaded to case A
+   * and then to case B before A's read has recorded anything dedupe to one
+   * document, and keyed on the document alone B's event was A's for the
+   * window's purposes: swallowed, while the reviewer on B was told the file was
+   * being read for B. Keyed on the pair, a redelivery of B's own upload is
+   * still one event and B's upload is no longer A's.
+   *
    * Not a secret and not a claim: it decides nothing about who may read what.
    */
   readonly readKey: string;
@@ -192,6 +201,52 @@ export function inngestClient(keys: InngestKeys): Inngest {
   return cached.client;
 }
 
+/**
+ * The `readKey` of an upload that attaches its document to a case: one value
+ * per (document, case), the same every time it is asked.
+ *
+ * Deterministic on purpose, and not a `randomUUID()`. The key's whole promise
+ * is that a redelivery of one upload's event is one read; a random key per
+ * upload would keep that for nothing but the upload-with-no-case. Two uploads
+ * of the same bytes to the same case are the same request — the second is
+ * answered from the record once the first has finished, and swallowed by the
+ * window while it has not, which is right, because the first will file it
+ * there.
+ *
+ * UUID-shaped because `parseReadRequested` refuses anything else: the first
+ * sixteen bytes of SHA-256 over `read:<document>:<case>`, with the version
+ * nibble set to 8 (RFC 9562's custom version) and the RFC variant bits, so it
+ * can never be mistaken for a random (version 4) one. Both ids are lowercased
+ * first, so a case id written in capitals is still the same key. Not a secret:
+ * it decides nothing about who may read what.
+ */
+export function attachReadKey(documentId: string, caseId: string): string {
+  const bytes = createHash('sha256')
+    .update(`read:${documentId.toLowerCase()}:${caseId.toLowerCase()}`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = ((bytes[6] as number) & 0x0f) | 0x80;
+  bytes[8] = ((bytes[8] as number) & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * How long an attachment waits before asking again, when another delivery was
+ * reading its document.
+ *
+ * Two minutes, with `READ_DOCUMENT_CONFIG.retries` at three, gives the read in
+ * front about six minutes to finish. That figure is an estimate, not a
+ * measurement: a dense remittance streams for a few minutes (CLAUDE.md, ~250
+ * output tokens a row) and OCR comes before it, but no slow dense read has been
+ * timed against it. A read that outlasts it fails this run loudly —
+ * `alert-on-failure` emails that `read-document` failed (ADR 0052) — and the
+ * reviewer uploads the file to the case again, which files the recorded
+ * reading with no model call. The case is never left without its document and
+ * nobody told.
+ */
+export const ATTACH_WAITS_FOR_READ_MS = 2 * 60 * 1000;
+
 /** What the upload route sends once the bytes are stored and scanned clean. */
 export function readRequestedEvent(data: ReadRequestedData): {
   name: string;
@@ -281,6 +336,15 @@ export async function runReadRequested(
 
 export interface ReadDocumentInvocation {
   readonly event: { readonly data: unknown };
+  /**
+   * Inngest's zero-indexed attempt number and the most it will make, from the
+   * handler's context. Only a log line reads them, to say whether a claimed
+   * attachment will be asked again; `maxAttempts` is optional in the SDK's
+   * types, and without it the line says only that it asks again if retries
+   * remain.
+   */
+  readonly attempt?: number;
+  readonly maxAttempts?: number;
   readonly step: {
     run(
       id: string,
@@ -317,16 +381,25 @@ export interface ReadDocumentInvocation {
 export function readDocumentSteps(
   context: JobContext,
 ): (invocation: ReadDocumentInvocation) => Promise<ReadDocumentJobResult> {
-  return async ({ event, step }) => {
+  return async ({ event, step, attempt, maxAttempts }) => {
     const where = whereFor(event.data);
     console.log(`[recouple] read job: run entered, ${where}`);
     const result = await step.run('read-document', async () => {
       console.log(`[recouple] read job: step read-document entered, ${where}`);
       const read = await runReadRequested(event.data, context);
+      const waitingToFileOn = read.beingRead ? attachTargetOf(event.data) : undefined;
       console.log(
         '[recouple] read job: step read-document ' +
           (read.beingRead
-            ? 'found another delivery reading it and spent nothing'
+            ? waitingToFileOn !== undefined
+              ? `found another delivery reading it, spent nothing, and ${
+                  isLastAttempt(attempt, maxAttempts)
+                    ? 'cannot file it on case ' + waitingToFileOn + ': last attempt; the run will fail'
+                    : maxAttempts === undefined || attempt === undefined
+                      ? 'will ask again, if retries remain, to file it on case ' + waitingToFileOn
+                      : 'will ask again to file it on case ' + waitingToFileOn
+                }`
+              : 'found another delivery reading it and spent nothing'
             : read.filedFromRecord
               ? 'found it already read, filed that reading on the case and spent nothing'
               : read.alreadyRead
@@ -338,11 +411,62 @@ export function readDocumentSteps(
           // said; `haltedBecause` stays yes-or-no for the reason above.
           `held ${read.held ?? 'no'}`,
       );
+      // Another delivery holds the document, and this one was asked to file it
+      // on a case. Saying "spent nothing" and succeeding would leave that case
+      // without the document for good: the other delivery was not asked to put
+      // it there, and nothing else will. So this step fails and asks the
+      // runtime to try it again after the other read has had time to finish;
+      // the retry takes the claim and files the recorded reading on the case
+      // with no model call (`answerFromRecord`), or — if that read failed —
+      // reads it itself, which is what an upload to this case would have done.
+      // A delivery with no case to file on keeps the old answer: the read that
+      // is running is the one it asked for.
+      if (waitingToFileOn !== undefined) {
+        throw attachAwaitsRead(read.documentId, waitingToFileOn, event.data);
+      }
       return read;
     });
     console.log(`[recouple] read job: run returned, ${where}`);
     return result;
   };
+}
+
+/**
+ * Whether this is the last attempt Inngest will make, when it said how many it
+ * would. The SDK's own final-attempt test, `maxAttempts - 1 === attempt`.
+ */
+function isLastAttempt(attempt: number | undefined, maxAttempts: number | undefined): boolean {
+  return attempt !== undefined && maxAttempts !== undefined && attempt >= maxAttempts - 1;
+}
+
+/**
+ * The case an event asks its document to be filed on, if it names one.
+ *
+ * Read through `parseReadRequested`, which the step has already run on the same
+ * payload, so a value here is an id and nothing else.
+ */
+function attachTargetOf(data: unknown): string | undefined {
+  return parseReadRequested(data).attachToCase;
+}
+
+/**
+ * The failure that sends an attachment round again once the read in front of
+ * it has had time to finish.
+ *
+ * Ids only, the way `asJobFailure` builds its message: this is what the
+ * runtime's run history shows, which is not a place for anything off the page.
+ * The message does not reach the alert email: if every retry finds the
+ * document still claimed the run fails, and `alert-on-failure` sends only the
+ * function id, the run id and the error's class name (`parseFailure`, ADR
+ * 0052), with a link to this run where the message can be read.
+ */
+function attachAwaitsRead(documentId: string, caseId: string, data: unknown): RetryAfterError {
+  const { orgId } = parseReadRequested(data);
+  return new RetryAfterError(
+    `document ${documentId} for org ${orgId} is being read by another delivery; ` +
+      `filing it on case ${caseId} after that read`,
+    ATTACH_WAITS_FOR_READ_MS,
+  );
 }
 
 /**
@@ -397,7 +521,16 @@ const READ_CONCURRENCY: [ConcurrencyOption, ConcurrencyOption] = [
  * is. An upload sets it to the document id, so a redelivery of that upload's
  * own event is still one read. A deliberate re-drive sets a fresh UUID, so it
  * is a different request and the window has nothing to say about it. The thing
- * the old key refused was the recovery; this one cannot refuse it.
+ * the old key refused was the recovery; this one cannot refuse it. An upload
+ * that attaches to a case sets it to `attachReadKey(document, case)`, so the
+ * key names the document and the case it is to be filed on: the same bytes
+ * uploaded to a second case while the first read is running are a second
+ * request, not a redelivery of the first (2026-09-26).
+ *
+ * That second request usually runs beside the first — two reads per tenant at
+ * once — and finds the document claimed. It does not report that as done: it
+ * fails with `RetryAfterError` and waits `ATTACH_WAITS_FOR_READ_MS` for the
+ * first read to finish, so `retries` is also how long an attachment will wait.
  *
  * It is a window, not the guarantee. What actually stops a second read costing
  * money is in the database, under the tenant's claims, and holds for every

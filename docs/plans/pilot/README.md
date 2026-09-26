@@ -83,7 +83,7 @@ Each of these is live in production.
 | Q1 | **Most cases have no dispute deadline.** Remittance-line and QuickBooks cases never get one, and about 65% of the fixture notices print none | Put the customer's per-payer windows in the onboarding notes. The queue falls back to age |
 | Q2 | **The decide form offers 20 of the 47 canonical codes.** Short-dated, unsaleables, detention, missed appointment, routing guide and administrative fee are in the taxonomy but not on the form. There is no billback code at all | Use "Something else" and say what it is in the rationale |
 | Q3 | **Duplicate F1:** a notice and then its remittance line open two cases that are never listed as a pair | Watch for them by hand. Do not quote coverage numbers to a customer yet |
-| Q4 | **Onboarding is manual:** four SQL inserts plus a dashboard invitation per person. The invitation link lands on a signed-out page | The runbook ([E8](../../ONBOARDING.md)) and a welcome email that says "then sign in from the form" |
+| Q4 | ~~**Onboarding is manual:** four SQL inserts plus a dashboard invitation per person. The invitation link lands on a signed-out page~~ **Mostly done.** A workspace is one SQL file (ONBOARDING §1, `docs/onboarding/create-workspace.sql`), and since ADR 0051 there is no dashboard invitation: an invited person asks for a link on the sign-in form, and after day one the owner adds people from Settings → Team | The runbook ([E8](../../ONBOARDING.md)) and its welcome email |
 
 ### Limits to tell the customer: not fixed in 68 hours
 
@@ -133,7 +133,22 @@ PR with `pnpm verify` green.
 | E5 | **Expose the existing codes** the pilot verticals need on the decide form. No change to the taxonomy: new codes such as billbacks are ADR-tracked, in Phase 2 task 04 | 1h | Codes and labels in `case-actions.tsx` |
 | E6 | **A deadline a person enters**, only where none is recorded, with a `case.deadline_set` event naming who entered it and on what basis. A printed deadline is never overwritten | 3–4h | Remittance and QuickBooks cases can carry a deadline |
 | E7 | **Duplicate F1**: also append `case.possible_duplicate`, plus a one-off backfill (`docs/audits/duplicate-counting/`). No migration | 3h | The notice-then-remittance repro is listed as a pair |
-| E8 | **An onboarding runbook** ([`docs/ONBOARDING.md`](../../ONBOARDING.md)): one parameterised SQL block (organisation, settings, users, memberships, the customer's payers as debtors), the dashboard invitation, `pnpm link:retailer` for the aliases, and the welcome email | 2h | The test workspace is rebuilt from it with no edits |
+| E8 | **An onboarding runbook** ([`docs/ONBOARDING.md`](../../ONBOARDING.md)): one parameterised SQL block (organisation, settings, users, memberships, the customer's payers as debtors), the invitation (since ADR 0051, a first sign-in from the form, and Settings → Team after day one; no dashboard invitation), `pnpm link:retailer` for the aliases, and the welcome email | 2h | The test workspace is rebuilt from it with no edits |
+
+**Where E1–E8 stand** (audited 2026-09-26 against `main`). All eight merged on
+2026-09-25, in PRs #102–#107. What is left is the production run each "Done
+when" names, which only the founder can do:
+
+| # | Code | Done when |
+| --- | --- | --- |
+| E1 | Merged (#107) | Not yet run: VERIFY-CHECKLIST **§11.4–11.7** (Assemble again, the letter, the zip) |
+| E2 | Merged (#105) | Not yet run: VERIFY-CHECKLIST **§11.2** (a 6 MB PDF) |
+| E3 | Merged (#105) | Not yet run: VERIFY-CHECKLIST **§11.1** (20 files in one selection) |
+| E4 | Merged (#102) | **Met** in VERIFY-CHECKLIST §4, 2026-09-26 |
+| E5 | Merged (#106) | Met: the eleven pilot codes are on the form, and `reason-words.test.ts` now pins them there |
+| E6 | Merged (#106) | Met in tests; VERIFY-CHECKLIST **§11.3** enters one in production |
+| E7 | Merged (#104) | Met in tests; VERIFY-CHECKLIST **§7.1b** is the repro in production. `pnpm link:duplicates` (dry run, then for real) has not been run against production, so a pair opened before the fix is not listed there yet |
+| E8 | Merged (#103) | **Failed** on 2026-09-26: the block, pasted from the page, arrived cut short twice, and the test workspace was made by hand. The block is now its own file, pasted whole and checked by its last line (ONBOARDING §1), and `pnpm db:test` runs it in CI. Rebuilding a workspace from the file is still to do, on `mozart-preview` first |
 
 Founder on Saturday: run VERIFY-CHECKLIST **§2** (sign-in), **§4** (a second
 workspace, which becomes the dry-run workspace) and **§3** (read-only). Add
@@ -193,7 +208,7 @@ None of the seven invariants moves for the pilot.
 
 | When | Work |
 | --- | --- |
-| Week 1 (Sep 28 – Oct 2) | Fix what customer #1 hits. Email-in's failure paths (§5.6–5.8), then give out addresses. Large-file upload (ADR). "Found while writing this" #5 (a decline leaves no trace) and #6 (dash lines). The case-list figures count declined cases as open |
+| Week 1 (Sep 28 – Oct 2) | Fix what customer #1 hits. Email-in's failure paths (§5.6–5.8), then give out addresses. Large-file upload (ADR). "Found while writing this" ~~#5 (a decline leaves no trace)~~ **done** and #6 (dash lines). ~~The case-list figures count declined cases as open~~ **done**: a declined case is its own row of the tally, by the review queue's own predicate, and is out of OPEN CASES, APPROVAL STAGE and DEADLINES TO WATCH |
 | Week 2 (Oct 5–9) | Customers 2–5, batched by vertical. Paged extraction for dense remittances. Spreadsheet deduction reports (ADR: a cell's provenance). TIFF and HEIC. A daily digest of held documents and deadlines (ADR: it is a new outbound side effect) |
 | Weeks 3–4 (Oct 12–23) | Customers 6–17. Phase 2 task 04, playbooks, seeded from the pilots' own payers: computed deadlines and the payer-code map, once draft D is accepted. Tasks 01, 02 and 05 need no data. Duplicates F2–F5 (ADRs), before any coverage number is shown to a customer as a result |
 | Month 2 | Phase 4 billing once outcomes land, counting recoveries per surviving duplicate group first (audit). Phase 2 tasks 06, 10 and 11 as decisions and outcomes accrue. Jev when access arrives |

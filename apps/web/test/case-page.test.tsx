@@ -123,6 +123,7 @@ const store = {
         role: 'notice',
         read: true,
         readForCase: true,
+        servingRefusal: null,
       },
     ];
   },
@@ -246,6 +247,7 @@ describe('the review page for a case a remittance line opened', () => {
         role: d.role,
         read: true,
         readForCase: d.paid,
+        servingRefusal: null,
       }));
     },
     async fieldsForCase() {

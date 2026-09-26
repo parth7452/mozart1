@@ -21,15 +21,17 @@ import {
   type StoredDocument,
 } from '@recouple/pipeline';
 import { UnscannedDocumentError } from '@recouple/ingest';
-import { NonRetriableError } from 'inngest';
+import { NonRetriableError, RetryAfterError } from 'inngest';
 import { AlwaysCleanScanner, InMemoryStore } from '@recouple/pipeline/testing';
 import {
+  ATTACH_WAITS_FOR_READ_MS,
   INNGEST_PLAN_CONCURRENCY_LIMIT,
   READS_IN_FLIGHT,
   READS_IN_FLIGHT_PER_ORG,
   READ_DOCUMENT_CONFIG,
   READ_REQUESTED,
   asJobFailure,
+  attachReadKey,
   parseReadRequested,
   readDocumentSteps,
   runReadRequested,
@@ -408,6 +410,227 @@ describe('the read job', () => {
     expect(store.extractions).toEqual([]);
     expect(store.cases.size).toBe(0);
     expect(store.closed).toBe(1);
+  });
+});
+
+/**
+ * The same bytes uploaded to a second case while the first upload's read is
+ * still running (2026-09-26).
+ *
+ * Two holes, and closing either alone did nothing. The second upload's event
+ * carried the first one's key, so the runtime's idempotency window dropped it;
+ * and had it run, it would have found the document claimed and reported
+ * `beingRead` as a success, filing nothing on the second case.
+ */
+describe('an attachment that arrives while its document is being read', () => {
+  const CASE_A = '33333333-3333-3333-3333-333333333333';
+  const CASE_B = '44444444-4444-4444-4444-444444444444';
+
+  it('keys each (document, case) pair once, as an id the queue accepts', () => {
+    const documentId = '55555555-5555-5555-5555-555555555555';
+    const a = attachReadKey(documentId, CASE_A);
+    const b = attachReadKey(documentId, CASE_B);
+
+    // The same question gives the same answer, so a redelivery of one upload's
+    // event is still one read — and capitals do not make it a second request.
+    expect(attachReadKey(documentId, CASE_A)).toBe(a);
+    expect(attachReadKey(documentId.toUpperCase(), CASE_A.toUpperCase())).toBe(a);
+    // A different case, or a different document, is a different request.
+    expect(b).not.toBe(a);
+    expect(attachReadKey(CASE_B, CASE_A)).not.toBe(a);
+    expect(a).not.toBe(documentId);
+    // Version 8, RFC variant: never mistaken for a random key a re-drive sets.
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(
+      parseReadRequested({
+        documentId,
+        orgId: ORG_ID,
+        userId: USER_ID,
+        readKey: a,
+        attachToCase: CASE_A,
+      }).readKey,
+    ).toBe(a);
+  });
+
+  it('asks the runtime to try again later rather than reporting the claim as done', async () => {
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const caseB = await store.openCase({ orgId: ORG_ID });
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      // Another delivery holds the document for the whole of this one.
+      let thrown: unknown;
+      await store.withDocumentRead(documentId, async () => {
+        thrown = await readDocumentSteps(context)({
+          event: {
+            data: {
+              documentId,
+              orgId: ORG_ID,
+              userId: USER_ID,
+              readKey: attachReadKey(documentId, caseB.deductionId),
+              attachToCase: caseB.deductionId,
+            },
+          },
+          step: { run: async (_id, work) => work() },
+          attempt: 0,
+          maxAttempts: READ_DOCUMENT_CONFIG.retries + 1,
+        }).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      });
+
+      expect(thrown).toBeInstanceOf(RetryAfterError);
+      const error = thrown as RetryAfterError;
+      expect(error.retryAfter).toBe(String(ATTACH_WAITS_FOR_READ_MS / 1000));
+      // Ids only: this is what the run history carries. The alert email
+      // carries only the class name (ADR 0052).
+      expect(error.message).toContain(documentId);
+      expect(error.message).toContain(ORG_ID);
+      expect(error.message).toContain(caseB.deductionId);
+      expect(error.message).not.toContain(notice.filename);
+      expect(error.message).not.toContain('APDP-99812');
+      expect(error.cause).toBeUndefined();
+
+      // Nothing was spent and nothing was filed while it waited.
+      expect(store.modelCalls).toHaveLength(0);
+      expect(store.links).toEqual([]);
+      expect(lines.find((line) => line.includes('found another delivery'))).toContain(
+        `will ask again to file it on case ${caseB.deductionId}`,
+      );
+      expect(lines.join('\n')).not.toContain(notice.filename);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('says on the last attempt that the run will fail, and without a count only that it may ask again', async () => {
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const caseB = await store.openCase({ orgId: ORG_ID });
+    const { context } = contextOver(store);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const maxAttempts = READ_DOCUMENT_CONFIG.retries + 1;
+    const attemptWith = (counts: { attempt?: number; maxAttempts?: number }) =>
+      readDocumentSteps(context)({
+        event: {
+          data: {
+            documentId,
+            orgId: ORG_ID,
+            userId: USER_ID,
+            readKey: attachReadKey(documentId, caseB.deductionId),
+            attachToCase: caseB.deductionId,
+          },
+        },
+        step: { run: async (_id, work) => work() },
+        ...counts,
+      });
+
+    try {
+      await store.withDocumentRead(documentId, async () => {
+        await expect(attemptWith({ attempt: maxAttempts - 1, maxAttempts })).rejects.toBeInstanceOf(
+          RetryAfterError,
+        );
+        await expect(attemptWith({ attempt: 0 })).rejects.toBeInstanceOf(RetryAfterError);
+      });
+      const claimed = lines.filter((line) => line.includes('found another delivery'));
+      expect(claimed).toHaveLength(2);
+      expect(claimed[0]).toContain(
+        `cannot file it on case ${caseB.deductionId}: last attempt; the run will fail`,
+      );
+      expect(claimed[0]).not.toContain('will ask again');
+      expect(claimed[1]).toContain(
+        `will ask again, if retries remain, to file it on case ${caseB.deductionId}`,
+      );
+      expect(store.modelCalls).toHaveLength(0);
+      expect(store.links).toEqual([]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('still reports a claimed document as done when there is no case to file it on', async () => {
+    // The read that is running is the one this delivery asked for.
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const { context } = contextOver(store);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      let result: Awaited<ReturnType<ReturnType<typeof readDocumentSteps>>> | undefined;
+      await store.withDocumentRead(documentId, async () => {
+        result = await readDocumentSteps(context)({
+          event: { data: { documentId, orgId: ORG_ID, userId: USER_ID, readKey: documentId } },
+          step: { run: async (_id, work) => work() },
+        });
+      });
+      expect(result).toMatchObject({ beingRead: true, alreadyRead: true, deductionId: null });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('files the first read on the second case when it is tried again, and reads nothing', async () => {
+    const store = jobStore();
+    const documentId = await storedNotice(store);
+    const caseA = await store.openCase({ orgId: ORG_ID });
+    const caseB = await store.openCase({ orgId: ORG_ID });
+    const { context } = contextOver(store);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const eventFor = (caseId: string) => ({
+      data: {
+        documentId,
+        orgId: ORG_ID,
+        userId: USER_ID,
+        readKey: attachReadKey(documentId, caseId),
+        attachToCase: caseId,
+      },
+    });
+    const step = { run: async (_id: string, work: () => Promise<never>) => work() };
+
+    try {
+      // B arrives while A's read holds the document, and is sent round again.
+      await store.withDocumentRead(documentId, async () => {
+        await expect(
+          readDocumentSteps(context)({ event: eventFor(caseB.deductionId), step }),
+        ).rejects.toBeInstanceOf(RetryAfterError);
+      });
+      // A's read finishes and records its reading.
+      const first = await readDocumentSteps(context)({ event: eventFor(caseA.deductionId), step });
+      expect(first).toMatchObject({ alreadyRead: false, deductionId: caseA.deductionId });
+      const calls = store.modelCalls.length;
+      expect(calls).toBe(2);
+
+      // The retry takes the claim and files that reading on B.
+      const retried = await readDocumentSteps(context)({ event: eventFor(caseB.deductionId), step });
+
+      expect(retried).toMatchObject({
+        alreadyRead: true,
+        filedFromRecord: true,
+        beingRead: false,
+        deductionId: caseB.deductionId,
+      });
+      expect(store.modelCalls).toHaveLength(calls);
+      expect(store.extractions.filter((e) => e.documentId === documentId)).toHaveLength(1);
+      expect(
+        store.links.filter((l) => l.documentId === documentId).map((l) => l.deductionId),
+      ).toEqual([caseA.deductionId, caseB.deductionId]);
+      expect(
+        store.events
+          .filter((e) => e.deductionId === caseB.deductionId)
+          .map((e) => [e.eventType, e.payload.read_again]),
+      ).toEqual([['evidence.attached', false]]);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
