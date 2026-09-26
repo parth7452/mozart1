@@ -14,6 +14,7 @@ import { SCHEMA_VERSION } from './field';
 import { classifyTemperatureFor, costMicros, modelFor } from './models';
 import {
   DOC_TYPES,
+  DocumentTooLargeError,
   ExtractionError,
   ModelRefusalError,
   type Classifier,
@@ -39,11 +40,13 @@ import {
   mergeChunkFields,
   pageable,
   planPageChunks,
+  proactivePlan,
   rangeLabel,
   repeatingGroupsOf,
   type ChunkReading,
   type PageRange,
   type PagingPolicy,
+  type ProactivePlan,
 } from './paging';
 
 export interface ReaderConfig {
@@ -57,12 +60,13 @@ export interface ReaderConfig {
   readonly effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   readonly model?: string;
   /**
-   * Whether a read that ran out of budget is re-asked in page ranges (ADR
-   * 0053): `true` for `PAGING_POLICY`, a partial policy to adjust it, or
-   * `false`. **Off unless asked for.** A paged read of a dense remittance takes
-   * minutes (344 s recorded), past the 300 s a production job may run, and a
-   * killed process records none of what it spent; so the cut-off fails loudly
-   * with its cost unless the caller can wait for the parts (ADR 0053 §6).
+   * Whether a dense document is read in page ranges (ADR 0053): `true` for
+   * `PAGING_POLICY` (paged up front when the text layer says one reply cannot
+   * hold it, and paged after a cut-off, with no time budget), a partial policy
+   * to adjust it, or `false`. **Off unless asked for.** Production asks for the
+   * up-front path alone, under a time budget, because a read that pages only
+   * after a cut-off has already spent three of the job's five minutes
+   * (ADR 0053's 2026-09-26 amendment).
    */
   readonly paging?: Partial<PagingPolicy> | boolean;
 }
@@ -271,7 +275,21 @@ export class ClaudeExtractor implements Extractor {
 
   /** Whether this reader re-asks a cut-off read in page ranges (ADR 0053). */
   get pagesWhenCutOff(): boolean {
-    return this.paging !== false;
+    return this.paging !== false && this.paging.reactive;
+  }
+
+  /** Whether this reader pages a document the text layer says is too dense, before any call. */
+  get pagesUpFront(): boolean {
+    return this.paging !== false && this.paging.proactive;
+  }
+
+  /** The wall-clock a paged read may take, or undefined for none. */
+  get pagedTimeBudgetMs(): number | undefined {
+    return this.paging === false ? undefined : this.paging.timeBudgetMs;
+  }
+
+  private get maxTokens(): number {
+    return this.config.maxTokens ?? 32_000;
   }
 
   /**
@@ -286,7 +304,7 @@ export class ClaudeExtractor implements Extractor {
     // large risks the HTTP timeout before it risks the ceiling.
     const stream = this.client.messages.stream({
       model: this.model,
-      max_tokens: this.config.maxTokens ?? 32_000,
+      max_tokens: this.maxTokens,
       system: EXTRACTION_SYSTEM,
       thinking: { type: 'adaptive' },
       messages: [{ role: 'user', content: content as never }],
@@ -342,7 +360,27 @@ export class ClaudeExtractor implements Extractor {
     const schema = schemaFor(docType);
     const descriptors = describeFields(schema);
 
+    // The proactive gate: the document's own text layer, counted without a
+    // model, says whether one reply can hold its rows. Only when it cannot is
+    // the read paged before any call; every other read is the single call
+    // below, unchanged byte for byte.
+    const upFront =
+      this.paging !== false && this.paging.proactive
+        ? proactivePlan(document, descriptors, {
+            maxTokens: this.maxTokens,
+            maxPagesPerPart: this.paging.pagesPerChunk,
+          })
+        : undefined;
+
     try {
+      if (upFront !== undefined && this.paging !== false) {
+        return await this.readInPages(document, docType, {
+          startedAt,
+          policy: this.paging,
+          why: { kind: 'estimate', plan: upFront },
+        });
+      }
+
       const response = await this.request(this.readContent(document, docType));
 
       const usage = usageOf(response.usage);
@@ -365,21 +403,22 @@ export class ClaudeExtractor implements Extractor {
         });
       }
       if (response.stop_reason === 'max_tokens') {
-        if (this.paging !== false && pageable(document, descriptors)) {
+        if (this.paging !== false && this.paging.reactive && pageable(document, descriptors)) {
           // Too many rows for one reply: ask for them a page range at a time
           // over the same document (ADR 0053). Only a read that would
           // otherwise fail here takes this path.
           return await this.readInPages(document, docType, {
             startedAt,
-            first: call,
             policy: this.paging,
+            why: { kind: 'cut_off', first: call },
           });
         }
         // The backstop, not the plan: a document dense enough to exhaust even a
-        // 32,000-token budget, which cannot be read in page ranges, needs
-        // splitting, and failing loudly here is what stops a truncated read
-        // being stored as a complete one.
-        throw new ExtractionError(
+        // 32,000-token budget, which cannot be read in page ranges here — or
+        // whose density the proactive gate did not see — needs splitting, and
+        // failing loudly here is what stops a truncated read being stored as a
+        // complete one.
+        throw new DocumentTooLargeError(
           `the extraction was cut off at ${usage.outputTokens} output tokens: split the document and retry`,
           { ...call, outcome: 'schema_mismatch', detail: 'stop_reason=max_tokens' },
         );
@@ -436,9 +475,10 @@ export class ClaudeExtractor implements Extractor {
   private async readInPages(
     document: DocumentPayload,
     docType: DocType,
-    input: { startedAt: number; first: ModelCallRecord; policy: PagingPolicy },
+    input: { startedAt: number; policy: PagingPolicy; why: PagedBecause },
   ): Promise<ExtractionResult> {
-    const { startedAt, first, policy } = input;
+    const { startedAt, policy, why } = input;
+    const first = why.kind === 'cut_off' ? why.first : undefined;
     const schema = schemaFor(docType);
     const descriptors = describeFields(schema);
     const groups = repeatingGroupsOf(descriptors);
@@ -453,11 +493,11 @@ export class ClaudeExtractor implements Extractor {
     );
 
     const spent = {
-      calls: 1,
-      inputTokens: first.inputTokens ?? 0,
-      outputTokens: first.outputTokens ?? 0,
-      cachedTokens: first.cachedTokens ?? 0,
-      costMicros: first.costMicros,
+      calls: first === undefined ? 0 : 1,
+      inputTokens: first?.inputTokens ?? 0,
+      outputTokens: first?.outputTokens ?? 0,
+      cachedTokens: first?.cachedTokens ?? 0,
+      costMicros: first?.costMicros ?? 0,
     };
     const asked: PageRange[] = [];
     const halved: string[] = [];
@@ -476,14 +516,42 @@ export class ClaudeExtractor implements Extractor {
       detail: detail.slice(0, PAGED_DETAIL_LIMIT),
     });
     const pagedHow = () =>
-      `paged after stop_reason=max_tokens at ${first.outputTokens ?? 0} output tokens: ` +
+      (why.kind === 'cut_off'
+        ? `paged after stop_reason=max_tokens at ${why.first.outputTokens ?? 0} output tokens: `
+        : `paged up front: the text layer prints about ${why.plan.rows} rows, ` +
+          `more than the ${why.plan.holds} one reply holds: `) +
       `${spent.calls} calls, pages ${asked.map(rangeLabel).join(',')}` +
       (halved.length > 0 ? `; halved ${halved.join(', ')}` : '');
 
-    let wave = planPageChunks(pageCount, policy.pagesPerChunk);
+    // The wall-clock guard. A batch is not started when the time already spent
+    // plus every batch still to come in this wave, at the longest a batch has
+    // taken (or the policy's estimate before one has), would pass the budget:
+    // the read is refused with what it spent, rather than killed by the
+    // platform part-way through a batch with nothing recorded.
+    let longestBatchMs = 0;
+    const refuseIfOverBudget = (batchesAhead: number) => {
+      const budget = policy.timeBudgetMs;
+      if (budget === undefined) return;
+      const elapsed = Date.now() - startedAt;
+      const perBatch = Math.max(policy.batchEstimateMs, longestBatchMs);
+      const expected = elapsed + batchesAhead * perBatch;
+      if (expected <= budget) return;
+      throw new DocumentTooLargeError(
+        `a paged read of ${pageCount} pages would pass its ${Math.round(budget / 1000)} s budget: ` +
+          'split the document and retry',
+        record(
+          'timeout',
+          `${pagedHow()}; refused ${batchesAhead} more batch(es) at ${Math.round(elapsed / 1000)} s: ` +
+            `about ${Math.round(perBatch / 1000)} s each would pass the ${Math.round(budget / 1000)} s budget`,
+        ),
+      );
+    };
+
+    let wave: readonly PageRange[] =
+      why.kind === 'estimate' ? why.plan.ranges : planPageChunks(pageCount, policy.pagesPerChunk);
     while (wave.length > 0) {
       if (spent.calls + wave.length > policy.maxCalls) {
-        throw new ExtractionError(
+        throw new DocumentTooLargeError(
           `a paged read of ${pageCount} pages would need more than ${policy.maxCalls} calls: ` +
             'split the document and retry',
           record(
@@ -495,9 +563,11 @@ export class ClaudeExtractor implements Extractor {
       const next: PageRange[] = [];
       const failures: PartFailure[] = [];
       for (let at = 0; at < wave.length; at += policy.concurrency) {
+        refuseIfOverBudget(Math.ceil((wave.length - at) / policy.concurrency));
         const batch = wave.slice(at, at + policy.concurrency);
         spent.calls += batch.length;
         asked.push(...batch);
+        const batchStartedAt = Date.now();
         const settled = await Promise.allSettled(
           batch.map((range) =>
             this.request([
@@ -506,6 +576,7 @@ export class ClaudeExtractor implements Extractor {
             ]),
           ),
         );
+        longestBatchMs = Math.max(longestBatchMs, Date.now() - batchStartedAt);
         const spend = (raw: UsageLike | undefined) => {
           const usage = usageOf(raw);
           spent.inputTokens += usage.inputTokens;
@@ -611,7 +682,7 @@ export class ClaudeExtractor implements Extractor {
   ): void {
     for (const [group, rows] of merge.rowCounts) {
       if (rows > MAX_ROWS_PER_GROUP) {
-        throw new ExtractionError(
+        throw new DocumentTooLargeError(
           `a paged read found more than ${MAX_ROWS_PER_GROUP} rows of ${group}: split the document and retry`,
           record(
             'schema_mismatch',
@@ -636,7 +707,7 @@ export class ClaudeExtractor implements Extractor {
           record('refusal', `${how}; refused on pages ${pages}`),
         );
       case 'cut_off':
-        return new ExtractionError(
+        return new DocumentTooLargeError(
           `page ${pages} alone was cut off at ${failure.outputTokens} output tokens: ` +
             'split the document and retry',
           record('schema_mismatch', `${how}; stop_reason=max_tokens on page ${pages} alone`),
@@ -656,6 +727,11 @@ export class ClaudeExtractor implements Extractor {
     }
   }
 }
+
+/** Why a read is paged: a single call ran out, or the text layer said it would. */
+type PagedBecause =
+  | { readonly kind: 'cut_off'; readonly first: ModelCallRecord }
+  | { readonly kind: 'estimate'; readonly plan: ProactivePlan };
 
 /** How long a paged read's `detail` may run: ranges and paths, never page text. */
 const PAGED_DETAIL_LIMIT = 1_000;

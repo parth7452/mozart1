@@ -1,6 +1,7 @@
 import { Inngest, NonRetriableError } from 'inngest';
 import type { ConcurrencyOption } from 'inngest/types';
 import { UnscannedDocumentError } from '@recouple/ingest';
+import { DocumentTooLargeError } from '@recouple/extraction';
 import {
   CaseMergedAwayError,
   CaseNotFoundError,
@@ -478,6 +479,10 @@ export function asJobFailure(
     // thirty seconds either. It is raised before anything is spent, so a retry
     // would cost nothing — but it would say nothing new, three more times.
     error instanceof ClassificationFloorError ||
+    // A document too large for the read (a cut-off with no paging, a paged
+    // read past its call, row or time budget: ADR 0053) is too large next time
+    // as well, and each retry would pay for the parts again to hear it.
+    error instanceof DocumentTooLargeError ||
     isCheckConstraintViolation(error);
 
   const name = error instanceof Error ? error.name : typeof error;

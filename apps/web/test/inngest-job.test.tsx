@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import {
+  DocumentTooLargeError,
+  ExtractionError,
   buildExtractionResult,
+  type ModelCallRecord,
   type ClassificationResult,
   type DocType,
   type DocumentPayload,
@@ -448,6 +451,14 @@ describe('what a failed read says to Inngest', () => {
   });
 
   it('marks the settled failures non-retriable and leaves the rest alone', () => {
+    const extractCall: ModelCallRecord = {
+      purpose: 'extract',
+      provider: 'anthropic',
+      modelVersion: 'claude-sonnet-5',
+      costMicros: 0,
+      latencyMs: 0,
+      outcome: 'timeout',
+    };
     // Retrying any of these would spend money three more times to be told the
     // same thing — two of them are only settled *after* a model call.
     const settled = [
@@ -461,6 +472,9 @@ describe('what a failed read says to Inngest', () => {
       // either (ADR 0044); both reasons it can give are settled.
       new ClassificationFloorError(ORG_ID, 'missing'),
       new ClassificationFloorError(ORG_ID, 'unreadable'),
+      // A document too large for the read is too large next time (ADR 0053),
+      // and a retry would pay for its parts again.
+      new DocumentTooLargeError('a paged read of 20 pages would pass its 240 s budget', extractCall),
     ];
     for (const error of settled) {
       expect(asJobFailure(error, ids)).toBeInstanceOf(NonRetriableError);
@@ -472,6 +486,15 @@ describe('what a failed read says to Inngest', () => {
     expect(notFound).toBeInstanceOf(Error);
     expect(notFound).not.toBeInstanceOf(NonRetriableError);
     expect((notFound as Error).message).toContain('DocumentNotFoundError');
+    // An extraction that failed for any other reason — an overloaded API, a
+    // dropped connection — may well answer next time.
+    const transient = asJobFailure(new ExtractionError('extraction failed: 529', extractCall), ids);
+    expect(transient).not.toBeInstanceOf(NonRetriableError);
+    const tooLarge = asJobFailure(
+      new DocumentTooLargeError('page 3 alone was cut off', extractCall),
+      ids,
+    );
+    expect((tooLarge as Error).message).toContain('DocumentTooLargeError');
   });
 
   it('does not retry a row the database refused on its contents', () => {

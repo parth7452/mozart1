@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { ClaudeClassifier, ClaudeExtractor, ReductoOcr } from '@recouple/extraction';
+import {
+  ClaudeClassifier,
+  ClaudeExtractor,
+  ReductoOcr,
+  type PagingPolicy,
+} from '@recouple/extraction';
 import { scannerFromEnv } from '@recouple/ingest';
 import {
   answerFromRecord,
@@ -23,6 +28,22 @@ import {
   readRequestedEvent,
   type ReadRequestedData,
 } from './inngest';
+
+/**
+ * The wall-clock a paged read may take in a job: 240 of the 300 seconds
+ * `maxDuration` gives the read route, leaving a minute for the scan check,
+ * OCR, classification and the writes around the extraction. A paged read that
+ * would pass it is refused with its cost rather than killed with none of it
+ * recorded (ADR 0053, amendment of 2026-09-26).
+ */
+export const PAGED_READ_BUDGET_MS = 240_000;
+
+/** Paging as production may afford it: up front, never after a cut-off, within budget. */
+export const PRODUCTION_PAGING = {
+  proactive: true,
+  reactive: false,
+  timeBudgetMs: PAGED_READ_BUDGET_MS,
+} as const satisfies Partial<PagingPolicy>;
 
 /**
  * The real pipeline, assembled from configuration.
@@ -62,10 +83,12 @@ export function pipelineDepsFor<S extends PipelineDeps['store']>(
     store,
     scanner,
     classifier: new ClaudeClassifier(),
-    // No paged reads here (ADR 0053 §6): a dense remittance read in parts takes
-    // minutes, past the 300 s a job may run, and a killed read records none of
-    // what it spent. A cut-off fails loudly with its cost instead.
-    extractor: new ClaudeExtractor({ paging: false }),
+    // Paged up front only (ADR 0053, amendment of 2026-09-26): a document the
+    // text layer says is too dense is read in page ranges with no single call
+    // first, all its parts at once, under a wall-clock budget. Never after a
+    // cut-off — that first call has already spent three of the job's five
+    // minutes — so a cut-off the estimate missed fails loudly with its cost.
+    extractor: new ClaudeExtractor({ paging: PRODUCTION_PAGING }),
     ...(ocr !== undefined ? { ocr } : {}),
     now: () => new Date(),
   };

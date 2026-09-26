@@ -25,27 +25,177 @@ export interface PageRange {
 }
 
 export interface PagingPolicy {
-  /** Pages asked for in one part before any halving. */
+  /**
+   * Pages asked for in one part before any halving: the reactive plan's size,
+   * and the most pages the proactive plan puts in one part.
+   */
   readonly pagesPerChunk: number;
   /** Every call a paged read may make, the first (cut-off) call included. */
   readonly maxCalls: number;
   /** Parts asked at once. */
   readonly concurrency: number;
+  /**
+   * Page up front, with no single call first, when the text layer says one
+   * reply cannot hold the rows (`proactivePlan`, ADR 0053's 2026-09-26
+   * amendment). A document under the threshold is read exactly as before.
+   */
+  readonly proactive: boolean;
+  /**
+   * Page a single read that ran out of budget (ADR 0053 §1). That read has
+   * already spent a whole budget's worth of time — about three minutes — so a
+   * caller with a wall-clock limit cannot afford it.
+   */
+  readonly reactive: boolean;
+  /**
+   * The wall-clock a paged read may take, from the start of `extract`, or
+   * undefined for none. A batch of parts is not started when the time already
+   * spent plus `batchEstimateMs` would pass it; the read is refused with what
+   * it spent rather than killed by the platform with nothing recorded.
+   */
+  readonly timeBudgetMs: number | undefined;
+  /**
+   * What one batch of parts is assumed to take before one has been measured;
+   * after that, the longest batch measured, if longer.
+   */
+  readonly batchEstimateMs: number;
 }
 
 /**
- * Two pages a part: a printed remittance holds 40–50 rows a page, so two pages
- * is about 100 rows, under the 32,000-token budget with room. 24 calls is 23
- * parts after the first call, 46 pages. The call cap is the looser of the two
- * bounds: at 46 rows a page `MAX_ROWS_PER_GROUP` is reached near page 11, and
- * a paged read that would keep more rows than that is refused outright, as
- * soon as it has read them (`readInPages`), never cut down to the cap.
+ * Two pages a part at most: a printed remittance holds 40–50 rows a page, so
+ * two pages is about 100 rows, under the 32,000-token budget with room. 24
+ * calls is 23 parts after the first call, 46 pages. The call cap is the looser
+ * of the two bounds: at 46 rows a page `MAX_ROWS_PER_GROUP` is reached near
+ * page 11, and a paged read that would keep more rows than that is refused
+ * outright, as soon as it has read them (`readInPages`), never cut down to the
+ * cap.
+ *
+ * Sixteen parts at once, so that every part of a document the row cap allows —
+ * at one page a part, up to about eleven dense pages; at two, sixteen sparse
+ * ones — is asked in one batch, and the read takes about as long as its
+ * slowest part. Both kinds of paging are on and there is no time budget: this
+ * is what `pnpm record:cassettes` reads with. Production turns the reactive
+ * path off and sets a budget (`apps/web/lib/pipeline.ts`).
  */
 export const PAGING_POLICY: PagingPolicy = {
   pagesPerChunk: 2,
   maxCalls: 24,
-  concurrency: 4,
+  concurrency: 16,
+  proactive: true,
+  reactive: true,
+  timeBudgetMs: undefined,
+  batchEstimateMs: 150_000,
 };
+
+// ─── The proactive gate ──────────────────────────────────────────────────────
+
+/**
+ * Output tokens a row is assumed to cost. Measured per line printing an amount
+ * to the cent, reply and thinking included: 253 on `crosswind-dense-remittance`
+ * (10,871 tokens, 43 lines), 275 on `eb-utah-fleet-rates` (7,158, 26), 297 on
+ * `northgate-chargeback-merged-cells` (5,043, 17), 280 across the parts of
+ * `lakeshore-dense-paged-remittance`. The highest, rounded up.
+ */
+export const ROW_TOKENS_ESTIMATE = 300;
+
+/**
+ * The share of the output budget the estimated rows may fill before one reply
+ * is judged unable to hold them. The rest is headroom for the fields outside
+ * the rows, adaptive thinking, and the estimate being short. At 300 tokens a
+ * row and 32,000 tokens that is 64 rows; the single read that measured it ran
+ * out near 115.
+ */
+export const SINGLE_READ_BUDGET_SHARE = 0.6;
+
+/** An amount printed to the cent: `1,234.56`, `$84.00`, `(12.50)`. */
+const AMOUNT_TO_THE_CENT = /\d[\d,]*\.\d{2}(?!\d)/;
+
+/**
+ * Rows the text layer prints, page by page: every printed line carrying an
+ * amount to the cent.
+ *
+ * A line is a newline in a text layer, or a table row in OCR's HTML (`<tr`),
+ * which can put a whole table on one line. A repeating-group row on a
+ * remittance, an invoice, a PO or a notice prints its money, so it is counted;
+ * a heading, a column head, a date, an address or a page label prints none,
+ * so it is not. A total or subtotal is counted, and a row whose amount wraps
+ * onto a second line counts twice: both over-count, which pages a document
+ * that might have fit — the cheap mistake. What under-counts is a row printing
+ * no amount to the cent (whole-dollar amounts, `1.234,56`), and that read then
+ * fails loudly as it did before this gate.
+ *
+ * Deterministic and over the text the pipeline already has; no model is asked.
+ */
+export function estimateRowsByPage(pageText: readonly string[]): number[] {
+  return pageText.map(
+    (page) => page.split(/\n|<tr[\s>]/i).filter((line) => AMOUNT_TO_THE_CENT.test(line)).length,
+  );
+}
+
+/** How many rows one reply of `maxTokens` is trusted to hold. */
+export function rowsOneReplyHolds(maxTokens: number): number {
+  return Math.floor((maxTokens * SINGLE_READ_BUDGET_SHARE) / ROW_TOKENS_ESTIMATE);
+}
+
+/**
+ * Consecutive pages grouped into parts that each fit one reply by the same
+ * estimate: a page joins the part before it while the part stays at or under
+ * `rowsPerPart` and `maxPages`. A page that alone is over stays a part of its
+ * own; a part that still runs out is halved as any other.
+ */
+export function planByEstimate(
+  rowsByPage: readonly number[],
+  rowsPerPart: number,
+  maxPages: number,
+): PageRange[] {
+  if (rowsByPage.length < 1) throw new RangeError('cannot plan a paged read of 0 pages');
+  if (!Number.isInteger(maxPages) || maxPages < 1) {
+    throw new RangeError(`cannot read ${maxPages} pages a part`);
+  }
+  const ranges: PageRange[] = [];
+  let first = 1;
+  let rows = rowsByPage[0] as number;
+  for (let page = 2; page <= rowsByPage.length; page++) {
+    const here = rowsByPage[page - 1] as number;
+    if (page - first + 1 <= maxPages && rows + here <= rowsPerPart) {
+      rows += here;
+      continue;
+    }
+    ranges.push({ first, last: page - 1 });
+    first = page;
+    rows = here;
+  }
+  ranges.push({ first, last: rowsByPage.length });
+  return ranges;
+}
+
+export interface ProactivePlan {
+  /** Rows the text layer is estimated to print. */
+  readonly rows: number;
+  /** Rows one reply is trusted to hold. */
+  readonly holds: number;
+  readonly ranges: readonly PageRange[];
+}
+
+/**
+ * Whether a read is paged before its first call, and in which parts.
+ *
+ * Only a document `pageable` already allows (a PDF of two or more text pages
+ * whose type has a repeating group), and only when its estimated rows are
+ * more than one reply holds. Undefined otherwise: that read is the single call
+ * it has always been, byte for byte.
+ */
+export function proactivePlan(
+  document: Pick<DocumentPayload, 'mimeType' | 'pageText'>,
+  descriptors: readonly FieldDescriptor[],
+  input: { readonly maxTokens: number; readonly maxPagesPerPart: number },
+): ProactivePlan | undefined {
+  if (!pageable(document, descriptors)) return undefined;
+  const byPage = estimateRowsByPage(document.pageText ?? []);
+  const rows = byPage.reduce((sum, n) => sum + n, 0);
+  const holds = rowsOneReplyHolds(input.maxTokens);
+  if (rows <= holds) return undefined;
+  return { rows, holds, ranges: planByEstimate(byPage, holds, input.maxPagesPerPart) };
+}
 
 export function rangeLabel(range: PageRange): string {
   return range.first === range.last ? `${range.first}` : `${range.first}-${range.last}`;

@@ -1,17 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
   DENSE_PAGED_PAGES,
   DENSE_PAGED_ROWS,
   DENSE_PAGED_SPLIT_ROW,
+  denseDocuments,
   densePagedRemittance,
+  everyDocument,
+  type FixtureDocument,
 } from '@recouple/fixtures';
 import { ClaudeExtractor } from '../src/claude';
 import { flattenExtraction } from '../src/flatten';
 import { costMicros } from '../src/models';
 import {
   PAGING_POLICY,
+  ROW_TOKENS_ESTIMATE,
+  SINGLE_READ_BUDGET_SHARE,
   chunkInstruction,
+  estimateRowsByPage,
+  planByEstimate,
+  proactivePlan,
+  rowsOneReplyHolds,
   halveRange,
   doubtful,
   mergeChunkFields,
@@ -22,8 +31,14 @@ import {
   type PagingPolicy,
 } from '../src/paging';
 import { describeFields } from '../src/paths';
-import { ExtractionError, ModelRefusalError, type DocumentPayload } from '../src/ports';
-import { RemittanceAdviceSchema } from '../src/schemas';
+import {
+  DocumentTooLargeError,
+  ExtractionError,
+  ModelRefusalError,
+  type DocType,
+  type DocumentPayload,
+} from '../src/ports';
+import { RemittanceAdviceSchema, schemaFor } from '../src/schemas';
 import { verifyQuotes } from '../src/verify';
 import { MAX_ROWS_PER_GROUP, reassemble, type WireField } from '../src/wire';
 
@@ -530,7 +545,9 @@ function pagedReader(
   const extractor = new ClaudeExtractor({
     client: stub.client,
     model: 'claude-sonnet-5',
-    paging: paging ?? true,
+    // The reactive path: the first call runs out, then the parts. The proactive
+    // gate would page this fixture before any call, so it is off here.
+    paging: { proactive: false, ...paging },
   });
   return { extractor, requests: stub.requests };
 }
@@ -643,7 +660,11 @@ describe('ClaudeExtractor with paging', () => {
           : { stop_reason: 'end_turn', fields: perfectPart(rangeAsked(params) as PageRange) },
       { sdkResolvesCutOff: true },
     );
-    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5', paging: true });
+    const extractor = new ClaudeExtractor({
+      client: stub.client,
+      model: 'claude-sonnet-5',
+      paging: { proactive: false },
+    });
     const result = await extractor.extract(payload(), 'remittance_advice');
     expect(result.validated).toBe(true);
     expect(stub.requests).toHaveLength(4);
@@ -1049,3 +1070,298 @@ function flattenExpectedAsWire(): WireField[] {
   });
   return fields;
 }
+
+// ─── The proactive gate (ADR 0053, amendment of 2026-09-26) ──────────────────
+
+describe('estimating rows from the text layer', () => {
+  it('counts every line that prints an amount to the cent, and nothing else', () => {
+    const page = [
+      'LAKESHORE FOODSERVICE DISTRIBUTION',
+      'Payment Date: 09/28/2026',
+      'Invoice          Gross   Deduction   Net Paid  Code',
+      '-'.repeat(40),
+      'INV-1001    $1,250.00           -    $1,250.00',
+      'INV-1002      $980.00      $45.00      $935.00  SHORT',
+      'INV-1003    (12.50)',
+      'Qty 12 at 3.5 per case, 1.0125 a pound',
+      'Page 1 of 2',
+    ].join('\n');
+    expect(estimateRowsByPage([page, ''])).toEqual([3, 0]);
+  });
+
+  it('counts the rows of an OCR table that puts them all on one line', () => {
+    const html =
+      '<table><tr><th>Invoice</th><th>Amount</th></tr>' +
+      '<tr><td>A-1</td><td>$10.00</td></tr><tr><td>A-2</td><td>$20.00</td></tr>' +
+      '<tr class="x"><td>A-3</td><td>$30.00</td></tr></table>';
+    expect(estimateRowsByPage([html])).toEqual([3]);
+  });
+
+  it('trusts one 32,000-token reply with 64 rows: 60% of the budget at 300 tokens a row', () => {
+    expect(ROW_TOKENS_ESTIMATE).toBe(300);
+    expect(SINGLE_READ_BUDGET_SHARE).toBe(0.6);
+    expect(rowsOneReplyHolds(32_000)).toBe(64);
+  });
+
+  const rows = (n: number) =>
+    Array.from({ length: n }, (_, i) => `INV-${1000 + i}   $${100 + i}.00`).join('\n');
+  const twoPages = (n: number) => ({
+    mimeType: 'application/pdf',
+    pageText: [rows(Math.ceil(n / 2)), rows(Math.floor(n / 2))],
+  });
+  const at = { maxTokens: 32_000, maxPagesPerPart: 2 };
+
+  it('does not page a document at the threshold, and pages one a row past it', () => {
+    expect(proactivePlan(twoPages(64), descriptors, at)).toBeUndefined();
+    expect(proactivePlan(twoPages(65), descriptors, at)).toEqual({
+      rows: 65,
+      holds: 64,
+      ranges: [
+        { first: 1, last: 1 },
+        { first: 2, last: 2 },
+      ],
+    });
+  });
+
+  it('pages only what pageable() allows, however dense', () => {
+    const dense = twoPages(400);
+    expect(proactivePlan({ ...dense, mimeType: 'image/jpeg' }, descriptors, at)).toBeUndefined();
+    expect(proactivePlan({ ...dense, pageText: [rows(400)] }, descriptors, at)).toBeUndefined();
+    expect(
+      proactivePlan(dense, descriptors.filter((d) => d.group === undefined), at),
+    ).toBeUndefined();
+  });
+
+  it('groups pages into parts one reply holds, never more than the page cap', () => {
+    expect(planByEstimate([10, 10, 10, 10, 10], 64, 2)).toEqual([
+      { first: 1, last: 2 },
+      { first: 3, last: 4 },
+      { first: 5, last: 5 },
+    ]);
+    expect(planByEstimate([10, 10, 10], 64, 3)).toEqual([{ first: 1, last: 3 }]);
+    expect(planByEstimate([40, 30, 90, 5, 5], 64, 2)).toEqual([
+      { first: 1, last: 1 },
+      { first: 2, last: 2 },
+      { first: 3, last: 3 },
+      { first: 4, last: 5 },
+    ]);
+    expect(() => planByEstimate([], 64, 2)).toThrow(RangeError);
+  });
+
+  it('pages the dense_paged fixture up front, one page a part', () => {
+    expect(estimateRowsByPage(fixture.document.pageText)).toEqual([34, 42, 42, 42, 31]);
+    expect(proactivePlan(payload(), descriptors, at)).toEqual({
+      rows: 191,
+      holds: 64,
+      ranges: [1, 2, 3, 4, 5].map((page) => ({ first: page, last: page })),
+    });
+  });
+
+  it('leaves the 42-row dense remittance, and every other fixture, to one call', () => {
+    const crosswind = denseDocuments()[0] as FixtureDocument;
+    expect(crosswind.pageText).toHaveLength(2);
+    expect(estimateRowsByPage(crosswind.pageText).reduce((a, b) => a + b, 0)).toBe(43);
+    const paged = everyDocument().filter(
+      (d) =>
+        proactivePlan(d, describeFields(schemaFor(d.docType as DocType)), at) !== undefined,
+    );
+    expect(paged.map((d) => d.key)).toEqual(['lakeshore-dense-paged-remittance']);
+  });
+});
+
+describe('ClaudeExtractor paging up front', () => {
+  /** A reader whose parts answer perfectly; any call with no range is a single read that runs out. */
+  function upFrontReader(
+    paging: Partial<PagingPolicy> | boolean,
+    part: (range: PageRange) => StubReply | Error = (range) => ({
+      stop_reason: 'end_turn',
+      fields: perfectPart(range),
+      usage: { input_tokens: 300, output_tokens: 11_000, cache_creation_input_tokens: 8_700 },
+    }),
+  ) {
+    const stub = stubClient((params) => {
+      const range = rangeAsked(params);
+      return range === undefined ? cutOff : part(range);
+    });
+    const extractor = new ClaudeExtractor({ client: stub.client, model: 'claude-sonnet-5', paging });
+    return { extractor, requests: stub.requests };
+  }
+
+  it('pages a document the text layer says is too dense with no single call first', async () => {
+    const { extractor, requests } = upFrontReader(true);
+    const result = await extractor.extract(payload(), 'remittance_advice');
+    expect(requests.map(rangeAsked)).toEqual(
+      [1, 2, 3, 4, 5].map((page) => ({ first: page, last: page })),
+    );
+    for (const request of requests) expect(request).not.toHaveProperty('tools');
+    expect(result.validated).toBe(true);
+    expect(result.document).toEqual(
+      reassemble(flattenExpectedAsWire(), descriptors, RemittanceAdviceSchema).document,
+    );
+    const usage = { inputTokens: 9_000, outputTokens: 11_000, cachedTokens: 0 };
+    expect(result.call).toMatchObject({
+      outcome: 'ok',
+      inputTokens: 5 * 9_000,
+      outputTokens: 5 * 11_000,
+      costMicros: 5 * costMicros('claude-sonnet-5', { ...usage, cacheWriteTokens: 8_700 }),
+    });
+    expect(result.call.detail).toBe(
+      'paged up front: the text layer prints about 191 rows, more than the 64 one reply holds: ' +
+        '5 calls, pages 1,2,3,4,5; rows kept lines 1:34, lines 2:42, lines 3:42, lines 4:42, lines 5:30',
+    );
+  });
+
+  it('asks every part of a sixteen-page document in one batch', async () => {
+    const page = (n: number) =>
+      Array.from({ length: 40 }, (_, i) => `R-${n}-${i}  $1.00`).join('\n');
+    const pageText = Array.from({ length: 16 }, (_, i) => page(i + 1));
+    let inFlight = 0;
+    let most = 0;
+    const client = {
+      messages: {
+        stream() {
+          inFlight += 1;
+          most = Math.max(most, inFlight);
+          return {
+            on() {
+              return this;
+            },
+            finalMessage: async () => {
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              inFlight -= 1;
+              return { stop_reason: 'end_turn', usage: {}, parsed_output: { fields: [] } };
+            },
+          };
+        },
+      },
+    } as unknown as Anthropic;
+    const extractor = new ClaudeExtractor({ client, model: 'claude-sonnet-5', paging: true });
+    const result = await extractor.extract(payload({ pageText }), 'remittance_advice');
+    expect(most).toBe(16);
+    expect(result.call.detail).toMatch(/^paged up front: the text layer prints about 640 rows/);
+  });
+
+  it('reads a document under the threshold with exactly one request, byte for byte as with no paging', async () => {
+    const crosswind = denseDocuments()[0] as FixtureDocument;
+    const document = payload({ pageText: crosswind.pageText, filename: crosswind.filename });
+    const answer = (): StubReply => ({ stop_reason: 'end_turn', fields: [] });
+    const production = stubClient(answer);
+    const off = stubClient(answer);
+    await new ClaudeExtractor({
+      client: production.client,
+      model: 'claude-sonnet-5',
+      paging: { reactive: false, timeBudgetMs: 240_000 },
+    }).extract(document, 'remittance_advice');
+    await new ClaudeExtractor({ client: off.client, model: 'claude-sonnet-5' }).extract(
+      document,
+      'remittance_advice',
+    );
+    expect(production.requests).toHaveLength(1);
+    expect(JSON.stringify(production.requests[0])).toBe(JSON.stringify(off.requests[0]));
+    expect(JSON.stringify(production.requests[0])).not.toMatch(/PAGED READ|cache_control/);
+  });
+
+  it('fails a cut-off the estimate missed loudly when only the up-front path is on', async () => {
+    const crosswind = denseDocuments()[0] as FixtureDocument;
+    const { extractor, requests } = upFrontReader({ reactive: false, timeBudgetMs: 240_000 });
+    expect(extractor.pagesUpFront).toBe(true);
+    expect(extractor.pagesWhenCutOff).toBe(false);
+    const error = await extractor
+      .extract(payload({ pageText: crosswind.pageText }), 'remittance_advice')
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DocumentTooLargeError);
+    expect((error as Error).message).toBe(
+      'the extraction was cut off at 32000 output tokens: split the document and retry',
+    );
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'schema_mismatch',
+      costMicros: costMicros('claude-sonnet-5', { inputTokens: 9_000, outputTokens: 32_000 }),
+    });
+    expect(requests).toHaveLength(1);
+  });
+});
+
+describe('the paged read’s wall-clock guard', () => {
+  let clock = 1_000_000;
+  beforeEach(() => {
+    clock = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('refuses before any call a plan whose batches could not finish inside the budget', async () => {
+    const stub = stubClient(() => ({ stop_reason: 'end_turn', fields: [] }));
+    const extractor = new ClaudeExtractor({
+      client: stub.client,
+      model: 'claude-sonnet-5',
+      // Five parts two at a time is three batches: 450 s at 150 s each.
+      paging: { reactive: false, concurrency: 2, timeBudgetMs: 240_000, batchEstimateMs: 150_000 },
+    });
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DocumentTooLargeError);
+    expect((error as Error).message).toBe(
+      'a paged read of 5 pages would pass its 240 s budget: split the document and retry',
+    );
+    expect((error as ExtractionError).call).toMatchObject({ outcome: 'timeout', costMicros: 0 });
+    expect((error as ExtractionError).call.detail).toContain('refused 3 more batch(es) at 0 s');
+    expect(stub.requests).toHaveLength(0);
+  });
+
+  it('refuses the next batch when the one before took long enough that it would not finish', async () => {
+    const stub = stubClient((params, call) => {
+      // The first batch takes 210 s of wall-clock.
+      if (call === 1) clock += 210_000;
+      return {
+        stop_reason: 'end_turn',
+        fields: perfectPart(rangeAsked(params) as PageRange),
+        usage: { input_tokens: 1_000, output_tokens: 10_000 },
+      };
+    });
+    const extractor = new ClaudeExtractor({
+      client: stub.client,
+      model: 'claude-sonnet-5',
+      paging: { reactive: false, concurrency: 3, timeBudgetMs: 400_000, batchEstimateMs: 150_000 },
+    });
+    // Up front, two batches at 150 s fit 400 s. After the first took 210 s,
+    // one more at 210 s a batch does not.
+    const error = await extractor.extract(payload(), 'remittance_advice').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DocumentTooLargeError);
+    expect(stub.requests).toHaveLength(3);
+    expect((error as ExtractionError).call).toMatchObject({
+      outcome: 'timeout',
+      outputTokens: 30_000,
+      costMicros: 3 * costMicros('claude-sonnet-5', { inputTokens: 1_000, outputTokens: 10_000 }),
+      latencyMs: 210_000,
+    });
+    expect((error as ExtractionError).call.detail).toContain(
+      'refused 1 more batch(es) at 210 s: about 210 s each would pass the 400 s budget',
+    );
+  });
+
+  it('runs a read that fits, and has no budget unless one is set', async () => {
+    const answer = (params: Record<string, unknown>): StubReply => {
+      clock += 100_000;
+      return { stop_reason: 'end_turn', fields: perfectPart(rangeAsked(params) as PageRange) };
+    };
+    const within = stubClient(answer);
+    await expect(
+      new ClaudeExtractor({
+        client: within.client,
+        model: 'claude-sonnet-5',
+        paging: { reactive: false, timeBudgetMs: 240_000 },
+      }).extract(payload(), 'remittance_advice'),
+    ).resolves.toMatchObject({ validated: true });
+    const unlimited = stubClient(answer);
+    await expect(
+      new ClaudeExtractor({
+        client: unlimited.client,
+        model: 'claude-sonnet-5',
+        paging: { concurrency: 1 },
+      }).extract(payload(), 'remittance_advice'),
+    ).resolves.toMatchObject({ validated: true });
+    expect(unlimited.requests).toHaveLength(5);
+    expect(PAGING_POLICY.timeBudgetMs).toBeUndefined();
+  });
+});

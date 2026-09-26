@@ -144,3 +144,16 @@ export class ExtractionError extends Error {
 
 /** Raised when a model declines the request (`stop_reason: "refusal"`). */
 export class ModelRefusalError extends ExtractionError {}
+
+/**
+ * A read refused because the document is too large for the way it may be read
+ * here: a reply cut off at its output budget where it may not be paged, one
+ * page that alone runs out, more parts than the call cap, more rows than
+ * `MAX_ROWS_PER_GROUP`, or a paged read that would pass its wall-clock budget
+ * (ADR 0053). The same document asks the same question again, so a job does
+ * not retry it — a retry would pay again to hear the same answer. The call
+ * record carries everything the read spent before it was refused.
+ */
+export class DocumentTooLargeError extends ExtractionError {
+  override readonly name = 'DocumentTooLargeError';
+}

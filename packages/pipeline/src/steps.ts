@@ -20,6 +20,7 @@ import {
   DeductionNoticeSchema,
   InvoiceSchema,
   isMoneyFieldPath,
+  ExtractionError,
   locateQuote,
   OcrError,
   PurchaseOrderSchema,
@@ -884,7 +885,24 @@ export async function readDocument(
 
   const classification = await deps.classifier.classify(readable.payload);
 
-  const extraction = await readExtraction(readable, classification.docType, deps);
+  let extraction: ExtractionResult;
+  try {
+    extraction = await readExtraction(readable, classification.docType, deps);
+  } catch (error) {
+    // A read that failed still spent: the OCR and the classification, and an
+    // extraction that failed carries every call it made — a paged read's parts
+    // included (ADR 0053). Written down before the failure goes on, loudly, to
+    // whoever called; nothing else of the read is recorded.
+    const spent = [
+      ...readable.calls,
+      classification.call,
+      ...(error instanceof ExtractionError ? [error.call] : []),
+    ];
+    for (const call of spent) {
+      await deps.store.recordModelCall(withCase(call, caseRecord?.deductionId));
+    }
+    throw error;
+  }
 
   // Everything the read produced, written down. Kept as a closure so it can run
   // either side of `openCaseFromNotice`: the argument is the case the spend and

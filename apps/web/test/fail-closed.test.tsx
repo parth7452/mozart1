@@ -10,7 +10,14 @@ import {
   type ExtractionResult,
 } from '@recouple/extraction';
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
-import { InlineRunner, InngestRunner, pipelineDepsFor, runnerFromEnv } from '../lib/pipeline';
+import {
+  InlineRunner,
+  InngestRunner,
+  PAGED_READ_BUDGET_MS,
+  pipelineDepsFor,
+  runnerFromEnv,
+} from '../lib/pipeline';
+import { maxDuration } from '../app/api/inngest/route';
 import { INBOUND_SECRET_MIN_LENGTH, inboundEmailFromEnv } from '../lib/inbound';
 
 /**
@@ -61,10 +68,17 @@ describe('an unconfigured environment', () => {
     expect(store.modelCalls).toEqual([]);
   });
 
-  it('reads with no paged extraction, which could not finish inside a job (ADR 0053 §6)', () => {
+  it('pages a dense document up front, never after a cut-off, inside the job’s time (ADR 0053)', () => {
     const deps = pipelineDepsFor(new InMemoryStore());
     expect(deps.extractor).toBeInstanceOf(ClaudeExtractor);
-    expect((deps.extractor as ClaudeExtractor).pagesWhenCutOff).toBe(false);
+    const extractor = deps.extractor as ClaudeExtractor;
+    expect(extractor.pagesUpFront).toBe(true);
+    // A read that pages only after a cut-off has spent three of the job's five
+    // minutes on the call that ran out; it cannot finish, so it is not tried.
+    expect(extractor.pagesWhenCutOff).toBe(false);
+    expect(extractor.pagedTimeBudgetMs).toBe(PAGED_READ_BUDGET_MS);
+    // With a minute to spare for OCR, classification and the writes.
+    expect(PAGED_READ_BUDGET_MS).toBeLessThanOrEqual((maxDuration - 60) * 1_000);
   });
 
   it('constructs no OCR provider without a key, rather than one that throws', () => {
