@@ -87,7 +87,7 @@ what enforces each one.
 | --- | --- |
 | `pnpm test` | Vitest across every package (includes the money property tests). The Postgres integration tests read `TEST_DATABASE_URL`, never `DATABASE_URL`, and skip without it |
 | `pnpm typecheck` | `tsc` over the workspace |
-| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
+| `pnpm db:test` | Applies migrations to a scratch DB, then the invariant/RLS suites, then the onboarding runbook SQL check (`scripts/check-onboarding-sql.sh`) against the same scratch DB. Run it **before** `pnpm test`: the Postgres integration tests need those migrations |
 | `pnpm eval` | Replays recorded cassettes, scores against ground truth, fails on regression |
 | `pnpm record:cassettes` | **Spends money.** Calls the API and re-records the fixture cassettes |
 | `pnpm verify` | typecheck + db:test + test + eval — what CI runs, in that order |
