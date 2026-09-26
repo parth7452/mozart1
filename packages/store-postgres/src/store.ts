@@ -43,11 +43,14 @@ import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extract
 import type { ScanVerdict } from '@recouple/ingest';
 import {
   ActorIsNotTheSessionError,
+  AlreadyDeclinedError,
   AmbiguousIdentityError,
   CaseMergedAwayError,
+  CaseNotDeclinableError,
   ClassificationFloorError,
   ClassificationRefusedError,
   DOCUMENT_HELD,
+  DECLINABLE_STATES,
   DOCUMENT_HOLD_RELEASED,
   DuplicateCaseError,
   holdAuditPayload,
@@ -124,6 +127,14 @@ export { DuplicateCaseError };
  * same reason `DuplicateCaseError` is.
  */
 export { AmbiguousIdentityError };
+
+/**
+ * A decline refused because the case already carries one, or because it is
+ * being fought. Defined with the pipeline's ports, for the reason
+ * `DuplicateCaseError` is: the in-memory store refuses a decline with the same
+ * classes, and the workflow contract holds the two to it.
+ */
+export { AlreadyDeclinedError, CaseNotDeclinableError, DECLINABLE_STATES };
 
 /**
  * The one sentence a duplicate claim is reported with, wherever it was caught.
@@ -547,64 +558,6 @@ export type MissingEvidence = (typeof MISSING_EVIDENCE_TYPES)[number];
 
 export function isMissingEvidence(value: unknown): value is MissingEvidence {
   return typeof value === 'string' && (MISSING_EVIDENCE_TYPES as readonly string[]).includes(value);
-}
-
-/**
- * Raised when a case already carries a decline.
- *
- * `coverage_by_period` sums `estimated_recoverable_cents` over every declined
- * row, so a second decline of the same case counts its dollars twice in the
- * denominator — a double-clicked form would quietly move the one number this
- * feature exists to produce. The row is refused rather than the number being
- * wrong, and the first decline stands.
- */
-export class AlreadyDeclinedError extends Error {
-  constructor(
-    readonly deductionId: string,
-    readonly declinedCandidateId: string,
-    readonly decidedAt: string,
-  ) {
-    super(`case ${deductionId} was already declined at ${decidedAt}`);
-    this.name = 'AlreadyDeclinedError';
-  }
-}
-
-/**
- * The states a case may be declined from: before anybody decided to fight it.
- *
- * The decline card is offered on a `classified` case with no decision (ADR
- * 0043), and a `discovered` case is one nothing has read further yet — ADR
- * 0029's "declinable the day it is opened". Past those a case is being fought,
- * and declining it would count it as given up on *and* acted on, which is the
- * double count `CaseAlreadyDeclinedError` refuses from the other side.
- */
-export const DECLINABLE_STATES = ['discovered', 'classified'] as const satisfies readonly CaseState[];
-
-/**
- * Raised when a case is past the point a decline makes sense: a decision names
- * it, or its state is not one of {@link DECLINABLE_STATES}.
- *
- * "Fought or declined, never both" used to hold one way only: deciding refused
- * a declined case, but nothing but the page's hiding of the card stopped a
- * decline of a case awaiting approval or already filed. A hand-made POST could
- * put a filed case into the coverage denominator as given up on. Refused here,
- * before anything is written, and the case is left as it was.
- */
-export class CaseNotDeclinableError extends Error {
-  constructor(
-    readonly deductionId: string,
-    readonly state: CaseState,
-    /** The decision that already says this case is fought, when one does. */
-    readonly decisionId?: string,
-  ) {
-    super(
-      decisionId !== undefined
-        ? `case ${deductionId} has a decision (${decisionId}) to dispute it and cannot be declined`
-        : `case ${deductionId} is ${state}; only a case that is ` +
-            `${DECLINABLE_STATES.join(' or ')} can be declined`,
-    );
-    this.name = 'CaseNotDeclinableError';
-  }
 }
 
 /**
@@ -4083,10 +4036,17 @@ export class PostgresStore
         }
         throw new Error(`case ${input.deductionId} is not visible to this tenant`);
       }
-      // Fought or declined, never both. Asked under the case's row lock, so a
-      // decision racing this decline is either already here or waits for it
-      // (`recordHumanDecision` takes the same lock and then refuses a declined
-      // case). A merged-away case is refused by the name the database would
+      // Fought or declined, never both. Asked under the case's row lock, and
+      // it is the *state* check below that holds the race, not the decision
+      // subquery. `recordHumanDecision` moves `deductions.state` out of
+      // `classified` under the same row lock, so a decision that committed
+      // while this decline waited is seen: `for update` re-reads the locked
+      // row's current version, and its state is no longer declinable. The
+      // scalar `decisions` subquery alone would not see it — it reads the
+      // statement's snapshot, taken before the wait, so a decision inserted
+      // meanwhile is invisible to it and `decision_id` comes back null.
+      // (`recordHumanDecision` in turn refuses a declined case.) A merged-away
+      // case is refused by the name the database would
       // give it (`RCM01`), since that is the reason and not its state as such.
       if (found.state === 'merged') {
         throw new CaseMergedAwayError(input.deductionId, 'declined_candidates');

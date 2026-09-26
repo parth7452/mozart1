@@ -1453,8 +1453,8 @@ one comes, check that:
 
 ## Found while writing this
 
-None of these is fixed in this PR. Each needs a decision or its own change;
-2 and 3 were fixed by another change the same day, and 5 later.
+Struck items are fixed; each says what fixed it, with a link where one PR
+did. The rest each need a decision or a change of their own.
 
 1. ~~**Email-in is not wired** (§5).~~ **Live** since 2026-09-25 under ADR
    0047: an address, the webhook, the job, Settings → Email and the sweep.
@@ -1472,7 +1472,9 @@ None of these is fixed in this PR. Each needs a decision or its own change;
    arrives *before* the remittance, both cases open, but they never appear
    under Possible duplicates (§7).
 5. ~~**A decline leaves no trace on the case page** once its notice is gone
-   (§6).~~ **Fixed** (2026-09-26): the case page reads the decline back,
+   (§6).~~ **Fixed** by
+   [parth7452/mozart1#119](https://github.com/parth7452/mozart1/pull/119)
+   (2026-09-26): the case page reads the decline back,
    shows a **declined** pill beside the state and a **Declined, not fought**
    entry under *What has happened*, and no longer offers Decide, Decline or
    a deadline on it. `declineCase` now also refuses a case a decision names

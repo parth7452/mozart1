@@ -82,17 +82,31 @@ describe('ledger presentation', () => {
       state: 'merged',
       declined: true,
     });
-    expect(
-      caseMetrics(tallyOf([open, declinedDue, declinedApproval, declinedMerged], today)),
-    ).toEqual({
-      caseCount: 4,
+    // Declined and in a closed state: never open work, so not among the
+    // declined the open count set aside either.
+    const declinedClosed = row({
+      deductionId: 'declined-closed',
+      deductionAmountCents: 300,
+      state: 'written_off',
+      declined: true,
+    });
+    const cases = [open, declinedDue, declinedApproval, declinedMerged, declinedClosed];
+    const metrics = caseMetrics(tallyOf(cases, today));
+    expect(metrics).toEqual({
+      caseCount: 5,
       // Every deduction that was withheld, the merged-away copy aside.
-      totalCents: 12_345 + 50_000 + 7_000,
+      totalCents: 12_345 + 50_000 + 7_000 + 300,
       openCount: 1,
       approvalStageCount: 0,
       deadlineCount: 1,
       declinedCount: 2,
     });
+    // "N declined, not counted" is exact: what the open count would have been
+    // with the declines left in, less what it is.
+    const undeclined = cases.map(({ declined: _declined, ...c }): CaseSummary => c);
+    expect(metrics.openCount + metrics.declinedCount).toBe(
+      caseMetrics(tallyOf(undeclined, today)).openCount,
+    );
   });
 
   // What a search matches is the database's answer now, over every case

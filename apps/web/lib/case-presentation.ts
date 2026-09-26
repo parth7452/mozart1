@@ -18,7 +18,9 @@ import { CASE_SEARCH_QUERY_MAX, type CaseStateTally } from '@recouple/store-post
  * review queue's own predicate. It is not open work — not in the open cases,
  * the approval stage or the deadlines to watch, exactly as the queue leaves it
  * out — but the deduction was still withheld and is still a recorded case, so
- * it stays in `caseCount` and the total, and `declinedCount` says how many.
+ * it stays in `caseCount` and the total. `declinedCount` is how many the open
+ * count left out on that account — declined and otherwise open — so it and
+ * `openCount` add up to what the open count would have been.
  */
 export function caseMetrics(tally: readonly CaseStateTally[]) {
   const live = tally.filter((row) => !row.declined);
@@ -38,8 +40,14 @@ export function caseMetrics(tally: readonly CaseStateTally[]) {
       open.filter((row) => row.state !== 'submitted'),
       (row) => row.dueSoonOrPast,
     ),
-    // Declined and still a deduction of its own: a merged-away one is neither.
-    declinedCount: count(tally.filter((row) => row.declined && row.state !== 'merged')),
+    // Exactly the declined cases the open count leaves out, so the page's
+    // "N declined, not counted" is that number and no other: a declined case
+    // in a closed state (`isClosed`, merged away included) was never going to be
+    // counted as open, and saying it was "not counted" would overstate what
+    // the figure set aside.
+    declinedCount: count(
+      tally.filter((row) => row.declined && !isClosed(row.state)),
+    ),
   };
 }
 

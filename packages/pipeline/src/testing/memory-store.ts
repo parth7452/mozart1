@@ -47,10 +47,14 @@ import { DOC_TYPES, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
+  AlreadyDeclinedError,
   CaseAlreadyDeclinedError,
+  CaseMergedAwayError,
+  CaseNotDeclinableError,
   CaseNotVisibleError,
   CaseWorkflowError,
   ConfirmationNumberRequiredError,
+  DECLINABLE_STATES,
   DeadlineAlreadySetError,
   DecisionNotForCaseError,
   DecisionNotFoundError,
@@ -944,7 +948,13 @@ export class InMemoryStore
    * is not a case to dispute, and the case page says it was declined — so
    * `CaseAlreadyDeclinedError` and `getWorkflow`'s `decline` are rules both
    * stores are held to by the contract suite rather than ones only Postgres
-   * has. The amount is the case's, as there.
+   * has. The amount is the case's, as there, and a case with none is a fault
+   * rather than a zero-dollar decline (`deduction_amount_cents` is NOT NULL).
+   *
+   * The refusals are Postgres's, in its order: a merged-away case, a case a
+   * decision names, a state past {@link DECLINABLE_STATES}, and a second
+   * decline — each by the class `PostgresStore.declineCase` raises, before
+   * anything is recorded.
    *
    * Not a method of `CaseWorkflowStore` — that port has no `declineCase`. Like
    * `addMember` and `addOrg`, this is a seam a test sets the world up through,
@@ -960,12 +970,38 @@ export class InMemoryStore
     } = {},
   ): { readonly declinedCandidateId: string } {
     const existing = this.caseOrThrow(deductionId);
+    if (existing.state === 'merged') {
+      throw new CaseMergedAwayError(deductionId, 'declined_candidates');
+    }
+    // The earliest, as Postgres picks it: decisions are kept in the order made.
+    const decision = this.decisions.find((d) => d.deductionId === deductionId);
+    if (decision !== undefined) {
+      throw new CaseNotDeclinableError(deductionId, existing.state, decision.decisionId);
+    }
+    if (!(DECLINABLE_STATES as readonly CaseState[]).includes(existing.state)) {
+      throw new CaseNotDeclinableError(deductionId, existing.state);
+    }
+    const estimatedRecoverableCents = existing.deductionAmountCents;
+    if (estimatedRecoverableCents === undefined || !Number.isSafeInteger(estimatedRecoverableCents)) {
+      throw new Error(
+        `deduction_amount_cents is ${String(estimatedRecoverableCents)} on case ${deductionId}, ` +
+          'which is not an exact amount to decline',
+      );
+    }
+    const standing = this.declinedCandidates.find((d) => d.deductionId === deductionId);
+    if (standing !== undefined) {
+      throw new AlreadyDeclinedError(
+        deductionId,
+        standing.declinedCandidateId,
+        standing.decidedAt.toISOString(),
+      );
+    }
     const declinedCandidateId = randomUUID();
     this.declinedCandidates.push({
       declinedCandidateId,
       deductionId,
       reason: input.reason ?? 'below_economic_floor',
-      estimatedRecoverableCents: existing.deductionAmountCents ?? 0,
+      estimatedRecoverableCents,
       missingEvidence: input.missingEvidence ?? [],
       ...(input.detail !== undefined ? { detail: input.detail } : {}),
       decidedBy: input.decidedBy ?? 'analyst',

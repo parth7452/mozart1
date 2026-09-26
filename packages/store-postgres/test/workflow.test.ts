@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import {
+  AlreadyDeclinedError,
   CaseAlreadyDeclinedError,
+  CaseNotDeclinableError,
   CaseWorkflowError,
   ConfirmationNumberRequiredError,
   DuplicateApprovalError,
@@ -519,6 +521,33 @@ function workflowContract(
         }),
       ).rejects.toBeInstanceOf(CaseAlreadyDeclinedError);
       expect((await h.store(h.analyst).getWorkflow(deductionId))?.decision).toBeUndefined();
+    });
+
+    // Fought or declined, never both — from the decline's side this time, and
+    // with the same classes on both stores, so a route tested against memory
+    // is not tested against a more permissive system than the one that ships.
+    it('refuses to decline a case a decision names, and a case declined already', async () => {
+      const fought = await h.newCase();
+      const decisionId = await decide(h, fought);
+      const refusal = h.decline(fought);
+      await expect(refusal).rejects.toBeInstanceOf(CaseNotDeclinableError);
+      await expect(refusal).rejects.toMatchObject({ decisionId, state: 'analyst_review' });
+      expect((await h.store(h.reader).getWorkflow(fought))?.decline).toBeUndefined();
+
+      const filed = await h.newCase();
+      const { decisionId: filedDecision } = await toSubmitted(h, filed);
+      await expect(h.decline(filed)).rejects.toMatchObject({
+        name: 'CaseNotDeclinableError',
+        decisionId: filedDecision,
+      });
+
+      const once = await h.newCase();
+      await h.decline(once);
+      const first = (await h.store(h.reader).getWorkflow(once))?.decline;
+      const again = h.decline(once);
+      await expect(again).rejects.toBeInstanceOf(AlreadyDeclinedError);
+      await expect(again).rejects.toMatchObject({ deductionId: once });
+      expect((await h.store(h.reader).getWorkflow(once))?.decline).toEqual(first);
     });
 
     // A decline moves no state, so without this the case page read a declined
