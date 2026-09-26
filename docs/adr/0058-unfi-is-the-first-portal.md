@@ -33,10 +33,23 @@ that already holds legacy credentials, and the natural portal appears to let
 an owner add users. The first reason is the founder's market knowledge; the
 research did not measure it.
 
+### UNFI is not the beachhead `CLAUDE.md` names
+
 `CLAUDE.md` names foodservice manufacturers selling through broadline
-distributors as the current focus, and calls that a decision still under
-discovery. This ADR does not change that. It picks the pilot's first portal,
-and the choice is data: a recipe and a code map. No code names UNFI.
+distributors (Sysco, US Foods, PFG, Gordon) as the current focus, and calls
+that a decision still under discovery. UNFI is not a broadline foodservice
+distributor. It is a natural and specialty grocery wholesaler. So the pilot's
+market is not `CLAUDE.md`'s named beachhead, and `docs/plans/pilot/README.md`
+describes a waitlist of foodservice manufacturers and logistics companies.
+
+The plan rests on the pilot customer being a UNFI supplier; its name is kept
+off the repository. This ADR records that as a discovery finding. Whether
+`CLAUDE.md`'s go-to-market paragraph and the pilot plan change is the
+founder's call. If they do, the `CLAUDE.md` edit is part of the change that
+accepts ADR 0057 and amends the build order (ADR 0057 §14).
+
+Either way the engine stays payer-agnostic. This ADR picks the pilot's first
+portal, and the choice is data: a recipe and a code map. No code names UNFI.
 
 ### How far the research can be trusted
 
@@ -44,9 +57,10 @@ The research (`docs/plans/unfi-portal/research.md`, 2026-09-26) was verified
 claim by claim against its sources. Only claims verified as confirmed, or
 partly confirmed and corrected, appear here. Three limits apply to all of it:
 
-- Most UNFI-owned pages sit behind bot protection. The Supplier Terms and the
-  myUNFI Terms of Use were seen only as search-result excerpts, not read on
-  the page.
+- Most UNFI-owned pages sit behind bot protection. The Supplier Terms, the
+  myUNFI Terms of Use and UNFI's site Terms of Use were seen only as
+  search-result excerpts, not read on the page. Direct Commerce's terms were
+  not found at all.
 - Most detail comes from deduction vendors' articles (SPS Commerce,
   SupplyPike, Glimpse, Crisp, Confido), not from UNFI.
 - Nothing has been checked against a real UNFI document or a real login. The
@@ -54,8 +68,8 @@ partly confirmed and corrected, appear here. Three limits apply to all of it:
 
 ## What the research says
 
-Every claim below has its source. The labels resolve to the list at the end
-of this ADR.
+Every claim below has its source. The labels are defined at the end of this
+ADR, and `research.md` lists each address with its verdict.
 
 ### 1. Two sides, several systems
 
@@ -109,8 +123,9 @@ of this ADR.
   snippets only, because the help centre could not be read, and one search
   result was titled "Help Center Closed". [zd-add-user] [zd-manager]
   [slideplayer]
-- **MCB documents go to one person.** Confido says UNFI "only allows one
-  person" to get the weekly MCB emails. [confido-cash]
+- **MCB documents go to one person.** Confido says of the weekly MCB emails:
+  "UNFI only allows one person can get these emails". [confido-blog]
+  [confido-cash]
 - **SVHarbor (conventional) access is managed by an administrator.** Its
   terms of July 2, 2020 say: "SVHarbor subscribers are subject to an annual
   subscription fee that is deducted from payments to Vendors (brokers are
@@ -123,10 +138,11 @@ of this ADR.
 
 ### 3. Sign-in, SSO and MFA
 
-- **myUNFI signs in through Azure AD B2C.** Its login redirects to
+- **myUNFI signs in through Azure AD B2C.** Its login
+  (`www.myunfi.com/api/authenticate/login`) redirects (302) to
   `unfib2c.b2clogin.com`, policy `B2C_1A_P1_V1_SI_PE_PROD`, with a
   username-first `signInName` field. The Dispute Center uses the SAML policy
-  `B2C_1A_P1_V1_SI_PE_SAML_DCIApp_PROD`. [myunfi-root] [myunfi-bundle]
+  `B2C_1A_P1_V1_SI_PE_SAML_DCIApp_PROD`. [myunfi-login] [myunfi-bundle]
 - **The password rules** are ten characters minimum, three of four character
   classes, and not matching the user id. [myunfi-enroll-bundle]
 - **The Harbor apps** (`epass`, `svcportal`, `svinquire`) are fronted by F5
@@ -134,7 +150,7 @@ of this ADR.
   `B2C_1A_P1_V1_SI_PE_SAML_F5_POCAPPS_PROD`). [svh-epass-home]
   [myunfi-bundle]
 - **No MFA statement was found.** The B2C page carries only its standard
-  email-verification strings. [myunfi-root]
+  email-verification strings. [myunfi-login]
 
 ### 4. Bot protection
 
@@ -142,7 +158,14 @@ of this ADR.
   Imperva Incapsula challenges. The help centres answer with Cloudflare
   challenges.
 - An unauthenticated ePASS request ends at a BIG-IP logout page.
-- `robots.txt` on `www.unfi.com` has no Disallow line.
+- `robots.txt` on `www.unfi.com` has no Disallow line. That file covers no
+  portal host.
+- `my.directcommerce.com/robots.txt`, on the Dispute Center's host, reads
+  `User-agent: *` / `Disallow: /`: it disallows all user agents (fetched
+  2026-09-26). [dc-robots]
+- The other portal hosts publish no robots file. `www.myunfi.com/robots.txt`
+  returns the app's HTML page, and `suppliers.unfi.com/robots.txt` answers a
+  redirect (302). [myunfi-robots] [suppliers-robots]
 
 [unfi-terms] [suppliers-login] [zd-deductions] [unfi-robots] [svh-epass-home]
 
@@ -191,8 +214,12 @@ UNFI recipe may stop at sign-in, which the walk-through will show.
   emailed when generated". [confido-blog] [crisp-open]
 
 Email-in is live (ADR 0047). A customer can forward UNFI's remittance and
-backup emails to their workspace address today, and each is held for a person
-by email. That needs no portal and no build.
+backup emails to their workspace address today. PDF and image attachments,
+and the body, are stored and held by email for a person. The door takes no
+other type (`packages/ingest/src/sniff.ts:26-39`): a zip attachment is
+recorded as a refused part and not stored, and so is a spreadsheet until ADR
+0056 is built (`packages/pipeline/src/inbound.ts:146`). A SharePoint link is
+not followed. That needs no portal and no build.
 
 ### 7. EDI
 
@@ -228,7 +255,7 @@ SVHarbor's EDI page gives only a helpline address. [crstl] [endless-edi]
   - what it cannot deduct within 30 days it bills, due immediately;
   - disputes go to senior management within 30 days, then mediation, then
     arbitration in Providence, RI;
-  - there is no deduction-dispute deadline.
+  - no deduction-dispute deadline appeared in the excerpts seen.
 
   [unfi-terms]
 
@@ -245,8 +272,10 @@ What the research found. The founder's reading (Decision §2) replaces this.
   that might compromise the security of the Site". [myunfi-tou]
 - **UNFI's site Terms of Use** (excerpt) say users "may not mirror or frame...
   may not connect 'deep links'". [unfi-site-tou]
-- **No wording on robots, spiders, scrapers, bots or automated access** was
-  found in any UNFI or Direct Commerce terms. [myunfi-tou] [unfi-site-tou]
+- **No wording on robots, spiders, scrapers, bots or automated access**
+  appeared in the search excerpts of the myUNFI and site Terms of Use. Their
+  full texts, and Direct Commerce's terms, have not been read. [myunfi-tou]
+  [unfi-site-tou]
 - **The Supplier Terms' confidential information** includes "any reports
   provided by UNFI to Supplier". In excerpt, the terms say the supplier "may
   not disclose any Confidential Information to a third-party without written
@@ -281,10 +310,17 @@ the Dispute Center and emailed backup are there and because conventional users
 may carry a per-user fee (*What the research says*, §2). The walk-through confirms
 which.
 
+This ADR is also the per-portal ADR for the Dispute Center, which Direct
+Commerce built and runs and myUNFI links to (ADR 0057 §16). That holds only
+if the founder's reading of Direct Commerce's own terms (§2, question 1)
+allows it. Otherwise `my.directcommerce.com` stays off the allowlist (§6).
+Crisp is not covered (§5).
+
 ### 2. The terms check comes before any automated read: pending
 
-No recipe runs against any UNFI host, on the schedule or by the agent, until
-the founder has read UNFI's terms in a browser and recorded the answer here.
+No recipe runs against any UNFI host, on the schedule, in a dry run or by the
+agent, until the founder has read UNFI's terms in a browser and recorded the
+answer here (ADR 0057 §2).
 This ADR is not accepted with this section empty.
 
 The founder answers:
@@ -293,7 +329,9 @@ The founder answers:
    myUNFI Terms of Use, UNFI's site Terms of Use, the Supplier Terms, the
    Dispute Center's own terms (Direct Commerce), the SVHarbor terms if the
    conventional side is used, and the Supplier Code of Conduct.
-2. Does any of them forbid automated access, scripts, bots or scraping?
+2. Does any of them forbid automated access, scripts, bots or scraping? And
+   does Direct Commerce's `robots.txt`, which disallows every user agent
+   (*What the research says*, §4), bind a user the supplier authorised?
 3. Is a separate user, created by the supplier's owner for a service provider
    acting for the supplier, allowed? Or is it the "user or password sharing"
    the myUNFI terms forbid?
@@ -322,6 +360,14 @@ map, the identity match) goes ahead on uploaded documents.
   never a person's own login. It gets the least role that can see
   deductions, payments and backup. If a role exists that cannot dispute,
   that is the one.
+- **The dispute systems need that role.** The Dispute Center's host
+  (`my.directcommerce.com`) and ePASS's (`epass.svharbor.com`) are where
+  disputes are filed ("Create PASS#" in ePASS). They go on the allowlist (§6)
+  only if the dedicated user's role cannot dispute there. That is recorded on
+  the walk-through (§11, item 3) and checked by the fixture portal's decoy
+  test (plan, step 6). If no such role exists, those hosts stay off the
+  allowlist, and what they hold is read by hand or by email (*What the
+  research says*, §6).
 - The credential is entered by our owner in Settings → Portals and sealed
   (ADR 0057 §7). It is never sent in chat, email or the repository.
 - On the conventional side, the owner is told a user may add to the SVHarbor
@@ -329,11 +375,13 @@ map, the identity match) goes ahead on uploaded documents.
 
 ### 4. Sign-in and MFA
 
-B2C is username-first, and no MFA policy is published. The walk-through
-records what the dedicated user is actually asked. The recipe answers TOTP if
-the account can enrol it. It answers email codes only if ADR 0057 §8's
-code-address variant is built. Anything else stops the run with
-`mfa_unanswerable`, and the customer is back on upload and email.
+B2C is username-first. No MFA statement was found in the public sign-in page
+or scripts [myunfi-login] [myunfi-bundle]. Whether MFA applies is pending the
+walk-through (§11, item 4), which records what the dedicated user is actually
+asked. The recipe answers TOTP if the account can enrol it. It answers email
+codes only if ADR 0057 §8's code-address variant is built. Anything else
+stops the run with `mfa_unanswerable`, and the customer is back on upload and
+email.
 
 ### 5. What the recipe reads, in order
 
@@ -351,9 +399,11 @@ under this ADR (ADR 0057 §16).
 - **Never click**, in addition to the runner's own list: anything that starts,
   saves, submits or appeals a dispute; attaches or bulk-uploads a file; or
   creates a PASS#. The walk-through records each control's exact text.
-- **Hosts** (seed): `www.myunfi.com`, `unfib2c.b2clogin.com`,
-  `my.directcommerce.com`, `suppliers.unfi.com`, and `epass.svharbor.com` for
-  the conventional side. Crisp's hosts are not on it.
+- **Hosts** (seed): `www.myunfi.com`, `unfib2c.b2clogin.com` and
+  `suppliers.unfi.com`. `my.directcommerce.com`, and `epass.svharbor.com` for
+  the conventional side, are added only under §3's condition (a role that
+  cannot dispute) and, for Direct Commerce, §1's (its terms allow it).
+  Crisp's hosts are not on it.
 
 ### 7. Rate and schedule
 
@@ -365,31 +415,56 @@ person looks.
 
 ### 8. Captures are held for a person
 
-Every UNFI capture that would open a case is held as `by_portal` (ADR 0057
-§10), and a person opens it. Lifting that is a later amendment to this ADR.
+Every UNFI capture that would open a case is held as `by_portal`, as ADR 0057
+§10 holds every portal's, and a person opens it. Lifting the hold follows ADR
+0057 §10: an ADR, and a one-way guarded row keyed by the portal key, never a
+setting and never code that names UNFI.
 
 ### 9. Identity with QuickBooks
 
 - **UNFI's key.** UNFI keys a deduction by a value Crisp shows in the Invoice
-  Number column. For a `-111` that value is the supplier's invoice number with
-  a suffix: `(Invoice#)-111`, or `1234567-111-East` in the Dispute Center. The
-  whole key is recorded as `portal_claim_id`.
+  Number column, which "provides the keys UNFI uses to identify the
+  deduction" [crisp-open]. SPS prints the natural form for a `-111` as
+  `(Invoice#)-111` [sps-natural]. For the Dispute Center, SPS describes an
+  adjustment number in three sections, `<adjustment number>-<0 or
+  111>-<East or West>`, with the examples `9876543–111–EAST` and
+  `1234567-0-East`. It calls the first section "the adjustment number that is
+  unique to that specific adjustment", and the middle one "0 = deduction, 111
+  = invoice chargeback" [sps-dc]. Whether the Dispute Center's adjustment
+  number is the supplier's invoice number is not known. The whole key is
+  recorded as the case's `claim_id`, with source `portal_fetch` (ADR 0057
+  §11), so a UNFI notice forwarded by email that prints the same key meets
+  the capture exactly.
 - **The invoice number.** It is recorded only where the page prints the
   supplier's invoice as its own field. Taking it from the key's prefix is
   UNFI's convention. If done at all, it is a playbook rule with provenance,
   never code, and never a fuzzy match.
 - **Meeting the short-pay.** The first demo's deduction and its QuickBooks
-  short-pay meet as a `probable` pair (invoice, amount, date). A person
-  confirms the pair and it is merged (ADR 0057 §11, ADR 0032, ADR 0042).
+  short-pay meet as a `probable` pair only when three things hold (ADR 0057
+  §11):
+  - the capture prints the supplier's invoice number as its own field (§11,
+    item 20);
+  - the QuickBooks gap on that invoice equals this one deduction to the
+    cent, which holds only when it is the only deduction on the invoice;
+  - the deduction date is within seven days of the invoice's last payment
+    date in QuickBooks.
+
+  A person then confirms the pair and it is merged (ADR 0032, ADR 0042). If
+  the short-pay arrives second instead, and the capture recorded the invoice
+  number, it resolves `exact` to the portal case on the invoice number and
+  opens nothing; after ADR 0057 §11's triage change, it does so only when the
+  amounts agree to the cent. If the capture recorded no invoice number, the
+  two never meet and both stay open (ADR 0057 §11).
 - **What QuickBooks sees.** How the customer's books record a UNFI deduction
   (left open on the invoice, or cleared to a deductions account) decides
   whether the ledger sees a short-pay at all. The walk-through asks.
 - **Not every line is a new deduction.** Per the research, a `PP` suffix is a
   prepayment or reversal netting to zero, and `PB` and `DM` mark a repayment
-  or correction of a disputed deduction. Draft D's code-map rows map a printed
-  code to a canonical code and have no way to say "not a deduction" or "a
-  repayment of one". That is a gap Draft D must close before those lines are
-  mapped. Until then they are left unmapped and shown to a person.
+  or correction of a disputed deduction [confido-blog] [sps-natural]
+  [glimpse-dispute]. Draft D's code-map rows map a printed code to a
+  canonical code and have no way to say "not a deduction" or "a repayment of
+  one". That is a gap Draft D must close before those lines are mapped. Until
+  then they are left unmapped and shown to a person.
 
 ### 10. Codes
 
@@ -404,9 +479,18 @@ Every UNFI capture that would open a case is held as `by_portal` (ADR 0057
     Supplier".
 - `-111` maps to nothing by code. A person picks `shortage_quantity` or
   `price_discrepancy` from the backup.
+- **A reason is mapped only from what the page prints on its own.** UNFI
+  prints reasons inside composite keys (`(Invoice#)-111`, `MCB(yyyymmdd)`,
+  `CMQ(mmyy)0(Remit#)`, `[DC#]CNDM(mmmyy)`), and Draft D's `mapPayerCode` is
+  an exact normalised match, else unmapped, so no plain Draft D row maps a
+  key like these. A UNFI reason is mapped from a reason field the page prints
+  on its own, or by a Draft D amendment that adds effective-dated pattern rows
+  as data with provenance. It is never mapped by parsing a key in code, and
+  the reader is never asked to split one.
 - The taxonomy's gaps go to Draft D's taxonomy edit, not into the map as a
-  nearest match: slotting and placement, spoils allowance, recall and
-  disposal, overship.
+  nearest match: billback, slotting and placement, spoils allowance, recall
+  and disposal, overship. A way to say "not a deduction" (`PP`) or "a
+  repayment of one" (`PB`, `DM`) is the gap §9 names.
 - Dispute windows are not encoded until a reviewed playbook version cites
   UNFI's own text. The sources disagree (*What the research says*, §8), and a printed
   deadline wins (Draft D).
@@ -421,7 +505,8 @@ credentials.
 2. Whether their myUNFI shows the Dispute Center yet, given phased
    onboarding.
 3. Whether an owner can add a user; which roles exist; whether a role can see
-   deductions and backup without being able to dispute.
+   deductions and backup without being able to dispute (the precondition for
+   the dispute hosts, §3).
 4. What sign-in asks of a new user: MFA or not, of what kind, how often, and
    whether "remember this device" is offered.
 5. Whether a bot challenge appears in an ordinary browser at sign-in.
@@ -447,6 +532,8 @@ credentials.
 18. On the conventional side, whether a user adds to the SVHarbor fee.
 19. Roughly how many deductions a month, and how many pages a month's list
     runs to.
+20. Whether a deduction's detail prints the supplier's invoice number as its
+    own field, not only inside the key (§9).
 
 ### 12. What the founder decides
 
@@ -482,20 +569,24 @@ ordinary documents and cases. The customer is back on upload and email.
 
 ## Sources
 
-Every source was checked on 2026-09-26. The verdicts are in
-`docs/plans/unfi-portal/research.md`.
+Every source was checked on 2026-09-26. Addresses and verdicts are in
+`docs/plans/unfi-portal/research.md`, Sources. The labels used above are
+defined here.
 
 [myunfi-dash]: https://www.myunfi.com/supplier-dashboard
 [myunfi-bundle]: https://www.myunfi.com/supplier-dashboard/assets/index-B450dmki.js
-[myunfi-root]: https://www.myunfi.com/
+[myunfi-login]: https://www.myunfi.com/api/authenticate/login
+[myunfi-robots]: https://www.myunfi.com/robots.txt
 [myunfi-enroll]: https://www.myunfi.com/enroll/signup
 [myunfi-enroll-bundle]: https://www.myunfi.com/enroll/assets/index-DWLpLp4q.js
 [myunfi-tou]: https://www.unfi.com/myunfi/terms-of-use.html
 [unfi-site-tou]: https://www.unfi.com/privacy/terms.html
 [unfi-terms]: https://www.unfi.com/supplier-terms.html
 [unfi-robots]: https://www.unfi.com/robots.txt
+[dc-robots]: https://my.directcommerce.com/robots.txt
 [unfi-coc]: https://www.unfi.com/content/dam/unfi-corporate/footer/Supplier%20Code%20of%20Conduct_English.pdf
 [suppliers-login]: https://suppliers.unfi.com/Account/Login
+[suppliers-robots]: https://suppliers.unfi.com/robots.txt
 [svh-epass]: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications/epass.html
 [svh-epass-home]: https://epass.svharbor.com/epass/home
 [svh-apps]: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications.html
@@ -526,46 +617,3 @@ Every source was checked on 2026-09-26. The verdicts are in
 [endless-edi]: https://endlesscommerce.com/edi/requirements/unfi/
 [infocon]: https://www.infoconn.com/edi/partners/Unfi.htm
 [inymbus]: https://blog.inymbus.com/unfi-deduction-disputes-common-issues
-
-- myunfi-dash: https://www.myunfi.com/supplier-dashboard
-- myunfi-bundle: https://www.myunfi.com/supplier-dashboard/assets/index-B450dmki.js
-- myunfi-root: https://www.myunfi.com/
-- myunfi-enroll: https://www.myunfi.com/enroll/signup
-- myunfi-enroll-bundle: https://www.myunfi.com/enroll/assets/index-DWLpLp4q.js
-- myunfi-tou: https://www.unfi.com/myunfi/terms-of-use.html (also
-  https://www.unfi.com/myunfi/terms-of-use)
-- unfi-site-tou: https://www.unfi.com/privacy/terms.html
-- unfi-terms: https://www.unfi.com/supplier-terms.html
-- unfi-robots: https://www.unfi.com/robots.txt
-- unfi-coc: https://www.unfi.com/content/dam/unfi-corporate/footer/Supplier%20Code%20of%20Conduct_English.pdf
-- suppliers-login: https://suppliers.unfi.com/Account/Login
-- svh-epass: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications/epass.html
-- svh-epass-home: https://epass.svharbor.com/epass/home
-- svh-apps: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications.html
-- svh-emerch: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications/emerchandising.html
-- svh-info: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-information.html
-- svh-faq: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-information/faqs.html
-- svh-terms: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-information/terms-and-conditions/termsndconditionpage.html
-- svh-edi: https://myhome.svharbor.com/content/svpublic/trading-partners/edi.html
-- zd-add-user: https://unfinc.zendesk.com/hc/en-us/articles/360016435173-VIDEO-Adding-User-to-Supplier-Group
-- zd-manager: https://unfinc.zendesk.com/hc/en-us/articles/360008792994-UNFI-Supplier-Portal-User-Guide-Manager
-- zd-deductions: https://unfinc.zendesk.com/hc/en-us/sections/206791827-Deductions
-- zd-backup: https://unfinc.zendesk.com/hc/en-us/articles/14439343198227-Natural-Deduction-Backup-Requests
-- slideplayer: https://slideplayer.com/slide/14457713/
-- sps-dc: https://www.spscommerce.com/community/articles/how-to-submit-and-appeal-a-deduction-dispute-in-unfis-dispute-center
-- sps-natural: https://www.spscommerce.com/community/articles/how-natural-suppliers-dispute-unfi-deductions
-- sps-conv: https://www.spscommerce.com/community/articles/how-conventional-suppliers-dispute-unfi-deductions
-- sps-rr: https://www.spscommerce.com/products/revenue-recovery/unfi/
-- supplypike-eco: https://help.supplypike.com/en/articles/15926163-unfi-s-deduction-ecosystem
-- glimpse-dispute: https://www.tryglimpse.com/post/how-to-dispute-unfi-deductions
-- glimpse-kehe: https://www.tryglimpse.com/post/unfi-kehe-supplier-deductions
-- crisp-press: https://ir.unfi.com/news/press-release-details/2023/United-Natural-Foods-and-Crisp-Unveil-New-Platform-Giving-Consumer-Packaged-Goods-Companies-Enhanced-Access-to-Retail-Insights/default.aspx
-- crisp-open: https://docs.gocrisp.com/docs/support/articles-Reviewing-open-UNFI-invoices
-- crisp-blog: https://www.gocrisp.com/blog/unfi-insights
-- confido-cash: https://www.confidotech.com/resources/a-complete-guide-to-unfi-cash-application-and-deductions
-- confido-blog: https://www.confidotech.com/blogs/manage-deductions-and-disputes-for-unfi
-- remitparse: https://remitparse.com/blog/unfi-deduction-codes-explained
-- crstl: https://www.crstl.ai/blog/unfi-edi-requirements
-- endless-edi: https://endlesscommerce.com/edi/requirements/unfi/
-- infocon: https://www.infoconn.com/edi/partners/Unfi.htm
-- inymbus: https://blog.inymbus.com/unfi-deduction-disputes-common-issues

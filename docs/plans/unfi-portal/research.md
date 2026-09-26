@@ -8,14 +8,17 @@ support are listed under* Dropped *at the end, so that nobody reuses them.*
 
 **Read this before relying on anything here:**
 
-- **Most UNFI-owned pages are behind bot protection.** The Supplier Terms and
-  the myUNFI Terms of Use were seen only as search-result excerpts.
+- **Most UNFI-owned pages are behind bot protection.** The Supplier Terms,
+  the myUNFI Terms of Use and UNFI's site Terms of Use were seen only as
+  search-result excerpts. Direct Commerce's terms were not found.
 - **Most detail comes from deduction vendors** (SPS Commerce, SupplyPike,
   Glimpse, Crisp, Confido, OverDeduct), who sell services around UNFI
   deductions.
-- **The only UNFI-authored policy read in full** is the 2021 Shipping &
-  Handling Guidelines (V5.4), hosted by a third party. Its fee amounts may be
-  out of date.
+- **UNFI-authored documents read in full:** the 2021 Shipping & Handling
+  Guidelines (V5.4, hosted by a third party; its fee amounts may be out of
+  date), the Supplier Code of Conduct (March 2026) and the SVHarbor terms
+  (July 2, 2020). The Supplier Terms and both Terms of Use were seen only as
+  excerpts.
 - **Nothing here has been checked against a real UNFI document or a real
   login.** That is what the founder's walk-through and the real deductions
   are for (`README.md`, steps 3 and 4).
@@ -35,19 +38,20 @@ support are listed under* Dropped *at the end, so that nobody reuses them.*
 | P7 | myUNFI enrollment asks for current Natural Supplier Portal or Harbor credentials and refuses without a validated remit or cross-reference. The Dispute Center needs a myUNFI account; onboarding is phased | confirmed | [myunfi-enroll] [myunfi-enroll-bundle] [sps-dc] [glimpse-dispute] |
 | P8 | SVHarbor access is managed by an administrator. The terms of July 2, 2020 set an annual subscription fee, deducted from payments, based on the vendor's sales and the number of vendor users. The FAQ page is **older**, not newer: it bases the fee on yearly sales alone, lists an older set of applications and gives a SUPERVALU access address | partly | [svh-info] [svh-faq] [svh-terms] |
 | P9 | The Natural Supplier Portal appears to have Owner, Manager and User roles, with an Owner able to set up users. This rests on help-centre titles and snippets only; the help centre returns a Cloudflare challenge and one result is titled "Help Center Closed". Confido says only one person can get the MCB emails | confirmed (snippets only) | [zd-add-user] [zd-manager] [slideplayer] [confido-cash] |
-| P10 | myUNFI signs in through Azure AD B2C (`unfib2c.b2clogin.com`, policy `B2C_1A_P1_V1_SI_PE_PROD`, username-first `signInName`). The Dispute Center uses SAML policy `B2C_1A_P1_V1_SI_PE_SAML_DCIApp_PROD`. Password rules are ten characters minimum, three of four classes, and not the user id. The Harbor apps (epass, svcportal, svinquire) are fronted by F5 BIG-IP APM, which posts SAML to the same B2C tenant (`B2C_1A_P1_V1_SI_PE_SAML_F5_POCAPPS_PROD`). No MFA statement was found | partly | [myunfi-root] [myunfi-bundle] [myunfi-enroll-bundle] [svh-epass-home] |
+| P10 | myUNFI signs in through Azure AD B2C (`unfib2c.b2clogin.com`, policy `B2C_1A_P1_V1_SI_PE_PROD`, username-first `signInName`). The Dispute Center uses SAML policy `B2C_1A_P1_V1_SI_PE_SAML_DCIApp_PROD`. Password rules are ten characters minimum, three of four classes, and not the user id. The Harbor apps (epass, svcportal, svinquire) are fronted by F5 BIG-IP APM, which posts SAML to the same B2C tenant (`B2C_1A_P1_V1_SI_PE_SAML_F5_POCAPPS_PROD`). No MFA statement was found. The redirect and the policy name are seen on the 302 from `www.myunfi.com/api/authenticate/login`; `www.myunfi.com/` itself answers 200 | partly | [myunfi-login] [myunfi-bundle] [myunfi-enroll-bundle] [svh-epass-home] |
 | P11 | UNFI's terms pages and `suppliers.unfi.com` return Imperva Incapsula challenges to automated requests, and the help centres return Cloudflare challenges. An unauthenticated svharbor request ends at a BIG-IP logout page. PDFs under `content/dam` are served. `robots.txt` has no Disallow | confirmed | [unfi-terms] [suppliers-login] [zd-deductions] [unfi-robots] [unfi-coc] [svh-epass-home] |
 | P12 | The Dispute Center (per SPS, updated June 23, 2026) has Quick and Advanced Search, View Payments (30 days), My Docs (30/60/90), "Use search tools to find and export invoice, adjustment, payment, and dispute details.", attachments of "PDF, TIFF, JPEG, XLSX, and CSV. The maximum file size is 20MB per file.", and a History of every action. No export format is named | confirmed | [sps-dc] |
-| P13 | ePASS gives deduction copies, a payment search and "Create PASS#", on a pay-in-full-then-deduct model. Glimpse: 12 months of electronic copies. No ePASS export is documented. SVInquire's "Download Listing" covers funds, orders, items and sales, not deductions. SPS: pass attachments are capped at 5 MB | confirmed | [svh-terms] [svh-epass] [svh-emerch] [glimpse-dispute] |
+| P13 | ePASS gives deduction copies, a payment search and "Create PASS#", on a pay-in-full-then-deduct model. Glimpse: 12 months of electronic copies. No ePASS export is documented. SVInquire's "Download Listing" covers funds, orders, items and sales, not deductions. SPS: pass attachments are capped at 5 MB | confirmed | [svh-terms] [svh-epass] [svh-emerch] [glimpse-dispute] [sps-conv] |
 | P14 | Glimpse describes weekly MCB, PLC, CMQ and reclaim email summaries. Confido gives MCB sign-up through `supplierdeductiondisputemgmt@unfi.com` and the `PB` suffix. Backup requests go to `deductionsbackup@unfi.com`, subject "BACKUP REQUEST" (Glimpse). A search snippet of UNFI's "Natural Deduction Backup Requests" article says requests use an Excel form. Remitparse says deductions "arrive in PDF form" and calls the remittance a "UNFI Direct Deposit Advice" | partly | [supplypike-eco] [glimpse-dispute] [confido-cash] [zd-backup] [remitparse] |
 | P15 | Only EDI vendors say UNFI sends an 820: one says so, one lists 820 and 824 as UNFI-sent, one lists 820 as optional. No source mentions an 812. SVHarbor's EDI page gives only `ec.helpline@unfi.com` | confirmed | [crstl] [endless-edi] [infocon] [svh-edi] |
 | P16 | Natural disputes go through the Dispute Center: adjustments older than 12 months denied, one appeal, 35–45 days. Some types go by email: AP Cash Terms, SAS, SASIF, PRGX. myUNFI names `SupplierDeductionDisputeMgmt@unfi.com`. The older process (SPS, July 2025) used `Deductions@unfi.com` and an `.xlsb` form | confirmed | [sps-dc] [supplypike-eco] [myunfi-bundle] [sps-natural] [glimpse-dispute] |
 | P17 | Conventional disputes are PASS# inquiries in ePASS. The 2020 SVHarbor terms set an 18-month limit, one re-open and an escalation ladder ("Supply Chain Services Only"). SPS (July 2025): 60 days suggested, 12 months the limit, 30–45 days to resolve | confirmed | [svh-terms] [sps-conv] |
-| P18 | The Supplier Terms (search excerpts only): UNFI pays net of deductions; what it cannot deduct within 30 days it bills, due immediately; disputes go to senior management within 30 days, then mediation, then AAA arbitration in Providence, RI; no deduction-dispute deadline | confirmed (excerpts only) | [unfi-terms] |
-| P19 | The myUNFI Terms of Use (search excerpts only): "The Service is protected by user-specific passwords or login"; user or password sharing is forbidden; users must not "take any action that might compromise the security of the Site". The site Terms of Use forbid mirroring, framing and deep links. No wording on robots, scrapers or automated access was found | confirmed (excerpts only) | [myunfi-tou] [myunfi-tou-2] [unfi-site-tou] |
+| P18 | The Supplier Terms (search excerpts only): UNFI pays net of deductions; what it cannot deduct within 30 days it bills, due immediately; disputes go to senior management within 30 days, then mediation, then AAA arbitration in Providence, RI. No deduction-dispute deadline appeared in the excerpts seen | confirmed (excerpts only) | [unfi-terms] |
+| P19 | The myUNFI Terms of Use (search excerpts only): "The Service is protected by user-specific passwords or login"; user or password sharing is forbidden; users must not "take any action that might compromise the security of the Site". The site Terms of Use forbid mirroring, framing and deep links. No wording on robots, scrapers or automated access appeared in the excerpts; the full texts have not been read | confirmed (excerpts only) | [myunfi-tou] [myunfi-tou-2] [unfi-site-tou] |
 | P20 | The SVHarbor terms (July 2, 2020) cover confidential logons, administrator-assigned access, a "Vendor" definition that includes agents, and acceptance by entering the system. No automation clause. The information page says suppliers and brokers should not set up users across profiles | confirmed | [svh-terms] [svh-info] |
-| P21 | The Supplier Code of Conduct (March 2026) limits information use to its purpose, makes the supplier liable for damages from its access to UNFI systems, and has cyber incidents reported to `cyber@unfi.com`. The Supplier Terms' confidential information includes "any reports provided by UNFI to Supplier", and disclosure to a third party needs written consent | confirmed | [unfi-coc] [unfi-terms] |
+| P21 | The Supplier Code of Conduct (March 2026) limits information use to its purpose, makes the supplier liable for damages from its access to UNFI systems, and has cyber incidents reported to `cyber@unfi.com`. The Supplier Terms' confidential information includes "any reports provided by UNFI to Supplier", and disclosure to a third party needs written consent | confirmed (excerpts only for the Supplier Terms) | [unfi-coc] [unfi-terms] |
 | P22 | SPS Revenue Recovery "ingests UNFI's email-based and MyUNFI deduction data" without saying how. iNymbus "Submits the dispute directly on the appropriate portal". Neither says UNFI permits it. No public UNFI API was found | confirmed | [sps-rr] [inymbus] |
+| P23 | `my.directcommerce.com/robots.txt`, on the Dispute Center's host, reads `User-agent: *` / `Disallow: /`. The other portal hosts publish no robots file: `www.myunfi.com/robots.txt` returns the app's HTML page, and `suppliers.unfi.com/robots.txt` answers a redirect (302). The `www.unfi.com` file (P11) covers no portal host | confirmed (fetched 2026-09-26, at review) | [dc-robots] [myunfi-robots] [suppliers-robots] |
 
 ### Deduction types, codes, backup and windows
 
@@ -56,7 +60,7 @@ support are listed under* Dropped *at the end, so that nobody reuses them.*
 | C1 | The Supplier Terms say UNFI pays invoices net of all deductions, chargebacks and fees owed under the Supplier Policies. What it cannot deduct within 30 days is billed and due immediately. The Supplier Policies are the Guidelines, the Shipping & Handling Policies and the Product Recall and Withdrawal Policy (search excerpts; Glimpse repeats the 30-day rule) | confirmed (excerpts only) | [unfi-terms] [glimpse-dispute] [endless-playbook] |
 | C2 | Natural and conventional deductions run through separate systems with different code sets. Natural: AP reps, emailed backup, the Dispute Center, East and West managed separately. Conventional: legacy SUPERVALU, SVHarbor ePASS. No source says which retailers each side serves | partly | [crisp-open] [supplypike-eco] [sps-conv] [glimpse-dispute] |
 | C3 | An MCB (manufacturer chargeback) bills a supplier for discounts UNFI gave a retailer under a deal the supplier authorised, at UNFI's wholesale catalogue price. One 2018 supplier agreement filed with the SEC: "UNFI may deduct all Supplier chargebacks at UNFI's wholesale catalogue price." Glimpse: UNFI does not accept MCB-only promotions unless agreed with the SRM | confirmed | [sec-farmer] [glimpse-dispute] [grocerynerd] |
-| C4 | Crisp documents MCB deal-type letters "provided by UNFI": East A, C, D, M, N, O, P, T, U, Z and West A, C, E, F, M, O, P, S, T. Glimpse: West A is ad promotions, C price promotions, E EDLP, in the format `MCB(yyyymmdd)` | confirmed | [crisp-codes] [glimpse-kehe] |
+| C4 | Crisp documents MCB deal-type letters "provided by UNFI": East A, C, D, M, N, O, P, T, U, Z and West A, C, E, F, M, O, P, S, T. Crisp defines West A as "Ad Deal", C as "Customer-specific Published Deal" and E as "EDLP". Glimpse, in the format `MCB(yyyymmdd)`: West A is ad promotions, C price promotions, E EDLP. The two sources differ on C; Crisp's is the definition "provided by UNFI" | confirmed | [crisp-codes] [glimpse-kehe] |
 | C5 | Retailer pass-throughs: Sprouts says items through KeHE or UNFI "will receive a deduction on behalf of Sprouts" for free fill, and vitamins, body care and general merchandise free fill is "at 100% MCB". SPS: `(Invoice#)(Company Code)` is "Retailer-incurred costs passed through to the supplier by UNFI". Crisp lists a "Whole Foods Third Party" report | confirmed | [sprouts] [sps-natural] [supplypike-eco] [crisp-open] |
 | C6 | EDLC is Whole Foods' "Everyday Low Cost Program" in the 2015 WFM–UNFI agreement: UNFI will "deduct from or credit to the supplier or manufacturer the appropriate EDLC reconciliation amount". The formula is redacted | confirmed | [sec-wfm] |
 | C7 | Discretionary programmes include OI, scans, EDLP and distributor advertising; OIs are usually on the invoice, not deducted. SupplyPike lists scan allowance, in-store execution, weekly chargebacks, quality chargebacks, reclaims, fair share deductions and DC inventory pulls as contractual types, without codes | confirmed | [confido-blog] [promomash-instore] [supplypike-types] |
@@ -71,14 +75,14 @@ support are listed under* Dropped *at the end, so that nobody reuses them.*
 | C16 | SSA waives DCE, new-item and reactivation slotting, SVHarbor access and ReposiTrak fees. It waives compliance fees only while monthly thresholds are met (5% or less appointment, load and costing letters per PO; 95% fill or better; 1% or less late notification or disposition); warnings for three consecutive months revoke the waiver | confirmed | [glimpse-dispute] |
 | C17 | Standard terms include a 2% cash discount (Confido says within 10 days; Glimpse gives net 45 by check, 50 by ACH and 25 by card, with 2% at 20, 25 and 10 days). A November 2024 class action alleges UNFI takes prompt-payment discounts outside the window; UNFI said it was "reviewing the details of the complaint" | confirmed | [scd-classaction] [confido-blog] |
 | C18 | UNFI publishes "Supplier Deduction Key 01.14.2025.xlsx" on its support site, mapping the Invoice Number column's keys for natural and conventional. Glimpse's count of 446 codes in 55 categories is Glimpse's own | confirmed | [crisp-open] [sps-natural] [glimpse-kehe] |
-| C19 | `(Invoice#)-111` is a quantity or pricing discrepancy. SupplyPike lists both Shortage (111) and Pricing (111), so `-111` alone is ambiguous; the backup tells them apart. In the Dispute Center, 111 is also the adjustment reason code, as in `1234567-111-East` | confirmed | [sps-natural] [supplypike-types] [glimpse-kehe] [sps-dc] |
+| C19 | `(Invoice#)-111` is a quantity or pricing discrepancy. SupplyPike lists both Shortage (111) and Pricing (111), so `-111` alone is ambiguous; the backup tells them apart. In the Dispute Center, an adjustment number's middle section is 0 ("deduction") or 111 ("invoice chargeback"), and a 111 there is also the adjustment reason code. SPS's examples are `9876543–111–EAST` and `1234567-0-East`, and it calls the first section "the adjustment number"; whether that is the supplier's invoice number is not stated | confirmed | [sps-natural] [supplypike-types] [glimpse-kehe] [sps-dc] |
 | C20 | Natural compliance and logistics prefixes, keyed on the PO: `LCBC`, `LCP`, `LCPV`, `LCBOL`, `AVL` (more than 30 minutes late), and per SPS also `LCF`, `LCO`, `AVNCNS`, `AVR`. `LCBC` rests on SPS alone | confirmed | [sps-natural] [glimpse-kehe] |
 | C21 | Other natural patterns, each from a single vendor source. SPS: `ERSLSBYS(mmyy)0(Remit#)` Sales Velocity Report by State, `(Invoice#)CV`, `(Invoice#)SP`, `WRSLOFE(mmyy)` slotting, `29CM`/`PCM`/`FNCM` recall disposal. Glimpse: East `UOI(mmyy)`, "UNFI's billback for promotional activity beyond what was agreed"; West `MCB(yyyymmdd)`; `[DC#]CNDM(mmmyy)` with 01 Rocklin, 02 Seattle, 05 Denver. Promomash: `SSA0226ERemit` and `SSA0226WRemit` | confirmed | [sps-natural] [glimpse-kehe] [promomash-ssa] |
 | C22 | Suffixes that are not new deductions: `PP` is a prepayment or reversal netting to zero ("not a deduction"); `PB` is the payback of a won dispute; SPS lists `PB`/`DM` as "repayment or correction of a previously disputed deduction". Confido: deductions show as a negative gross amount | confirmed | [confido-blog] [glimpse-dispute] [sps-natural] |
 | C23 | Third-party recovery prefixes: SAS to `unficorr@sasrecovery.com`; SASIF (freight) to `unfifrt@sasrecovery.com`; PRGX to `UNFIAudit@prgx.com`. On the conventional side, "SAS/PRG" is labelled Post Audit | confirmed | [supplypike-eco] [sps-dc] [glimpse-dispute] [sps-conv] |
-| C24 | SPS (July 24, 2025) lists conventional three-letter codes with descriptions: `BB6`, `BBT`, `CCS`, `CPI`/`CPN`, `DIR`, `DIV`, `FBB`, `HCG`, `MER`/`WRM`, `PLR`, `PMD`/`DEX`/`SBT`, `PME`, `PMT`, `PRM` ("Price Deadline"), `SAS`/`PRG`, `SVI`, `SWL`, `SXP`. It is the only source | confirmed | [sps-conv] |
+| C24 | SPS (July 24, 2025) lists conventional three-letter codes with descriptions: `BB6`, `BBT`, `CCS`, `CPI`/`CPN`, `DIR`, `DIV`, `FBB`, `HCG`, `MER`/`WRM`, `PLR`, `PMD`/`DEX`/`SBT`, `PME`, `PMT`, `PRM` ("Promotions, Floorstock, and Price Deadline"), `SAS`/`PRG`, `SVI`, `SWL`, `SXP`. It is the only source | confirmed | [sps-conv] |
 | C25 | Natural backup mostly arrives by email with the remittance (PDFs, zips, SharePoint links, from at least four UNFI senders). Missing backup: `DeductionsBackup@unfi.com`, subject "BACKUP REQUEST", with remit number, deduction invoice number and check number | confirmed | [crisp-open] [supplypike-eco] [glimpse-dispute] |
-| C26 | Crisp: Weekly MCB, Quality MCB, Reclamation and Whole Foods Third Party reports "are automatically emailed when generated". Confido: MCB documents, by sign-up at `supplierdeductiondisputemgmt@unfi.com`, come weekly and "include backup for a wide variety of deductions"; "only one person can get these emails" | partly | [crisp-open] [confido-blog] |
+| C26 | Crisp: Weekly MCB, Quality MCB, Reclamation and Whole Foods Third Party reports "are automatically emailed when generated". Confido: MCB documents, by sign-up at `supplierdeductiondisputemgmt@unfi.com`, come weekly and "include backup for a wide variety of deductions"; "UNFI only allows one person can get these emails" | partly | [crisp-open] [confido-blog] [confido-cash] |
 | C27 | Conventional suppliers self-serve in ePASS by Document Search or by creating a PASS#; 12 months of electronic copies (Glimpse); access through `MerchandisingServices@unfi.com` | confirmed | [sps-conv] [crisp-open] [glimpse-dispute] |
 | C28 | The Dispute Center: find by payment or adjustment number; payment details, deductions, related documents and history; attachments up to 20 MB; statuses from Draft to Appealed. SPS relies on UNFI's Dispute Center Supplier Training Manual v1.2 | confirmed | [supplypike-eco] [sps-dc] [glimpse-dispute] |
 | C29 | AP Cash Terms types (short payments, PP lines, cash discounts, unpaid invoices, detention and redelivery) go to `UNFINaturalResearch@unfi.com`; SAS, SASIF and PRGX to those firms (SupplyPike, as of July 2026) | confirmed | [sps-dc] [supplypike-eco] [glimpse-dispute] |
@@ -112,18 +116,26 @@ Dollar amounts are from sources dated 2021–2024 and may be out of date.
 | `(Invoice#)-111` | Quantity **or** pricing discrepancy; the backup tells which | None by code alone: a person picks `shortage_quantity` or `price_discrepancy` from the backup | public source, unverified against real UNFI documents | [sps-natural] [supplypike-types] [glimpse-kehe] |
 | `MCB(yyyymmdd)` (West) | Manufacturer chargeback for an authorised deal, at wholesale catalogue price | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [glimpse-kehe] [glimpse-dispute] [sec-farmer] |
 | MCB deal type A, F, P (West) | A ad promotions; F flyer; P publications | `coop_advertising` | public source, unverified against real UNFI documents | [crisp-codes] [glimpse-kehe] |
-| MCB deal type C, E (West) | C price promotions; E EDLP | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [glimpse-kehe] |
+| MCB deal type E (West) | Crisp: "EDLP", customer-specific discounts submitted to UNFI by the supplier or broker; Glimpse: EDLP | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [crisp-codes] [glimpse-kehe] |
+| MCB deal type C (West) | Crisp, "provided by UNFI": "Customer-specific Published Deal", a discount published through UNFI that customers sign up for. Glimpse: price promotions. The two differ | Open until real backup settles it; family `promotion` | public source, unverified against real UNFI documents | [crisp-codes] [glimpse-kehe] |
 | Other MCB deal-type letters (East A, C, D, M, N, O, P, T, U, Z; West M, O, S, T) | Defined by Crisp; definitions not transcribed here | Open | public source, unverified against real UNFI documents | [crisp-codes] |
 | `UOI(mmyy)` (East) | "UNFI's billback for promotional activity beyond what was agreed"; the letters' meaning is unverified | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [glimpse-kehe] |
 | `CMQ(mmyy)0(Remit#)` | Quality-Based Manufacturer Chargeback | `quality_spec_mismatch`, or `quality_expired_short_dated` when the backup says shelf life | public source, unverified against real UNFI documents | [sps-natural] |
 | `CMQUNB(Invoice#)` | Unbilled Quality Recall Chargeback | Gap (recall); nearest `quality_spec_mismatch` | public source, unverified against real UNFI documents | [sps-natural] |
 | `29CM`, `PCM`, `FNCM` | Recall disposal | Gap (recall and disposal); nearest `return_handling_fee` | public source, unverified against real UNFI documents | [sps-natural] |
 | `AVL` | Delivery more than 30 minutes late | `compliance_late_delivery` | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
-| `AVNCNS`, `AVR` | Listed by SPS beside `AVL`; descriptions not transcribed here | Open; family `compliance`. `compliance_appointment_missed` is a guess from the letters only | public source, unverified against real UNFI documents | [sps-natural] |
-| `LCBC`, `LCP`, `LCPV`, `LCBOL`, `LCF`, `LCO` | Logistics and compliance chargebacks keyed on the PO; each description is in the source, not transcribed here | Open; family `compliance` | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
+| `AVNCNS(PO#)` | SPS: "No-Show Delivery Fee", charged when a supplier misses a delivery appointment without notice | `compliance_appointment_missed`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] |
+| `AVR(PO#)` | SPS: "Last-Minute Rescheduling Fee", when a delivery is rescheduled with less than 24 hours' notice | `compliance_appointment_missed`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] |
+| `LCBC(PO#)` | SPS: "Barcode Non-Compliance Fee", when barcodes are missing or not scannable on cartons or pallets | `compliance_label_barcode`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
+| `LCO(PO#)` | SPS: "Missing or Unreadable UPCs", UPC barcodes not included or not scannable on the product | `compliance_label_barcode`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] |
+| `LCP(PO#)` | SPS: "Pallet Labeling Non-Compliance", a fee for missing or incorrect pallet placards or required PO labels | `compliance_label_barcode`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
+| `LCPV(PO#)` | SPS: "Pallet Construction Violation", a pallet failing one or more standards (overhang, damage, poor stacking) | `compliance_pallet_spec`, on SPS's description | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
+| `LCF(PO#)` | SPS: "Load Securement Failure", product not properly secured, leading to movement or damage in transit | Open; `compliance_pallet_spec` or `compliance_packaging`, from the backup | public source, unverified against real UNFI documents | [sps-natural] |
+| `LCBOL(PO#)` | SPS: "Incomplete Shipping Docs", a missing or incorrect BOL or packing slips on delivery | Open; family `compliance` | public source, unverified against real UNFI documents | [sps-natural] [glimpse-kehe] |
 | `ERSLSBYS(mmyy)0(Remit#)` | Sales Velocity Report by State | `administrative_fee` | public source, unverified against real UNFI documents | [sps-natural] |
 | `WRSLOFE(mmyy)` | Slotting | Gap (slotting); nearest `new_store_allowance` | public source, unverified against real UNFI documents | [sps-natural] |
-| `(Invoice#)CV`, `(Invoice#)SP` | Listed by SPS; descriptions not transcribed here | Open | public source, unverified against real UNFI documents | [sps-natural] |
+| `(Invoice#)CV` | SPS: "ClearVue Program Deduction", deducted when the ClearVue allowance is not reflected on the invoice | Open; family `promotion`, from the backup | public source, unverified against real UNFI documents | [sps-natural] |
+| `(Invoice#)SP` | SPS: "Spoilage Allowance Omission", issued when spoilage credits are left off the invoice. It bears on the spoils-allowance gap below | Gap (spoils allowance); nearest `return_unsaleable` | public source, unverified against real UNFI documents | [sps-natural] |
 | `[DC#]CNDM(mmmyy)` | Concealed damage; DC 01 Rocklin, 02 Seattle, 05 Denver | `quality_damaged_in_transit` | public source, unverified against real UNFI documents | [glimpse-kehe] [glimpse-dispute] |
 | `SSA0226ERemit`, `SSA0226WRemit` | Monthly SSA fee per region (2.5% of purchases, opt-in) | `administrative_fee` | public source, unverified against real UNFI documents | [promomash-ssa] [beerinsights] |
 | `(Invoice#)(Company Code)` | Retailer-incurred costs passed through by UNFI | Open until the backup names the retailer's reason; `unknown_uncoded` meanwhile | public source, unverified against real UNFI documents | [sps-natural] [supplypike-eco] |
@@ -138,7 +150,7 @@ Dollar amounts are from sources dated 2021–2024 and may be out of date.
 | Code | What the source says | Candidate canonical code | Status | Source |
 | --- | --- | --- | --- | --- |
 | `SAS/PRG` | Post Audit | `post_audit_pricing`, `post_audit_allowance` or `post_audit_freight`, from the backup | public source, unverified against real UNFI documents | [sps-conv] |
-| `PRM` | "Price Deadline" | Open; family `pricing` | public source, unverified against real UNFI documents | [sps-conv] |
+| `PRM` | "Promotions, Floorstock, and Price Deadline" | Open; family `promotion` or `pricing`, from the backup | public source, unverified against real UNFI documents | [sps-conv] |
 | `SXP` | AdMax | `coop_advertising` | public source, unverified against real UNFI documents | [sps-conv] |
 | `BB6`, `BBT`, `CCS`, `CPI`/`CPN`, `DIR`, `DIV`, `FBB`, `HCG`, `MER`/`WRM`, `PLR`, `PMD`/`DEX`/`SBT`, `PME`, `PMT`, `SVI`, `SWL` | Listed with descriptions by SPS alone; descriptions not transcribed here | Open | public source, unverified against real UNFI documents | [sps-conv] |
 | Code descriptions "Billback Cub Retail DSD", "Billback Shoppers Retail DSD" | DSD billbacks for UNFI's own retail banners | Gap (billback); nearest `promo_allowance_claimed` | public source, unverified against real UNFI documents | [sps-conv] [supplypike-eco] |
@@ -151,7 +163,7 @@ Dollar amounts are from sources dated 2021–2024 and may be out of date.
 | EDLC reconciliation | Whole Foods' Everyday Low Cost Program; "deduct from or credit to"; whether it still runs is unknown | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [sec-wfm] |
 | Retailer free fill | Sprouts: free fill at wholesale value; "at 100% MCB" for vitamins, body care, general merchandise | `new_store_allowance` | public source, unverified against real UNFI documents | [sprouts] |
 | Scan allowance; fair share | Contractual programmes; fair share "almost always non-negotiable" | `promo_allowance_claimed` | public source, unverified against real UNFI documents | [supplypike-types] [confido-blog] |
-| Spoils allowance shortfall | Off-invoice allowance; a shortfall may be deducted (§7C per Glimpse) | Gap (spoils allowance); nearest `return_unsaleable` | public source, unverified against real UNFI documents | [glimpse-dispute] |
+| Spoils allowance shortfall | Off-invoice allowance; a shortfall may be deducted (§7C per Glimpse). SPS's `(Invoice#)SP` may be its printed code | Gap (spoils allowance); nearest `return_unsaleable` | public source, unverified against real UNFI documents | [glimpse-dispute] |
 | Reclamation | 100% supplier cost (§11B per Glimpse) | `return_unsaleable` | public source, unverified against real UNFI documents | [glimpse-dispute] |
 | Reset fee | Proportional (§11C per Glimpse) | Gap; nearest `new_store_allowance` | public source, unverified against real UNFI documents | [glimpse-dispute] |
 | Concealed damage and hidden shorts, plus labour | Billed back (2021 guidelines) | `quality_damaged_in_transit` (damage) or `shortage_concealed` (shorts) | public source, unverified against real UNFI documents | [sh-2021] |
@@ -185,7 +197,9 @@ narrowed to the corrected version above.
 4. That legacy Harbor is federated through a CA SiteMinder proxy. The Harbor
    apps are fronted by F5 BIG-IP APM posting SAML to B2C. The SiteMinder-style
    proxy appears only as a link prefix, and it answered 503.
-5. That `www.myunfi.com` redirects to a login. It answered 200.
+5. That `www.myunfi.com` redirects to a login. It answered 200 [myunfi-root].
+   The redirect to B2C is from `www.myunfi.com/api/authenticate/login`
+   [myunfi-login].
 6. That "Backup request for [your remit]" is a UNFI support article's title.
    It is from a search snippet; the article is titled "Natural Deduction
    Backup Requests".
@@ -239,7 +253,14 @@ documents:
 - **The full terms.** The full text of the myUNFI Terms of Use, UNFI's site
   Terms of Use and the Supplier Terms. Whether any terms mention automated
   access by name. Whether the confidentiality clause excepts agents or service
-  providers. The Dispute Center's own terms and user model.
+  providers. The Dispute Center's own terms (Direct Commerce's), which were
+  never located, and its user model. A review reported archived copies of the
+  first three on the Wayback Machine, dated 2025-03-28, 2026-07-18 and
+  2026-07-20. They were not opened here, and the archive refused requests
+  when this was checked. The founder can read them for ADR 0058, Decision §2:
+  - https://web.archive.org/web/20250328/https://www.unfi.com/myunfi/terms-of-use.html
+  - https://web.archive.org/web/20260718/https://www.unfi.com/privacy/terms.html
+  - https://web.archive.org/web/20260720/https://www.unfi.com/supplier-terms.html
 - **The Dispute Center's export format**, and the Natural Supplier Portal's
   current features and future.
 - **MFA** on each system, whether used and of what kind.
@@ -264,6 +285,8 @@ documents:
 [myunfi-dash]: https://www.myunfi.com/supplier-dashboard
 [myunfi-bundle]: https://www.myunfi.com/supplier-dashboard/assets/index-B450dmki.js
 [myunfi-root]: https://www.myunfi.com/
+[myunfi-login]: https://www.myunfi.com/api/authenticate/login
+[myunfi-robots]: https://www.myunfi.com/robots.txt
 [myunfi-enroll]: https://www.myunfi.com/enroll/signup
 [myunfi-enroll-bundle]: https://www.myunfi.com/enroll/assets/index-DWLpLp4q.js
 [myunfi-tou]: https://www.unfi.com/myunfi/terms-of-use.html
@@ -271,8 +294,10 @@ documents:
 [unfi-site-tou]: https://www.unfi.com/privacy/terms.html
 [unfi-terms]: https://www.unfi.com/supplier-terms.html
 [unfi-robots]: https://www.unfi.com/robots.txt
+[dc-robots]: https://my.directcommerce.com/robots.txt
 [unfi-coc]: https://www.unfi.com/content/dam/unfi-corporate/footer/Supplier%20Code%20of%20Conduct_English.pdf
 [suppliers-login]: https://suppliers.unfi.com/Account/Login
+[suppliers-robots]: https://suppliers.unfi.com/robots.txt
 [dci-zendesk]: https://dciunfi.zendesk.com/hc/en-us
 [svh-epass]: https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications/epass.html
 [svh-epass-home]: https://epass.svharbor.com/epass/home
@@ -330,6 +355,8 @@ documents:
 | myunfi-dash | https://www.myunfi.com/supplier-dashboard |
 | myunfi-bundle | https://www.myunfi.com/supplier-dashboard/assets/index-B450dmki.js |
 | myunfi-root | https://www.myunfi.com/ |
+| myunfi-login | https://www.myunfi.com/api/authenticate/login |
+| myunfi-robots | https://www.myunfi.com/robots.txt |
 | myunfi-enroll | https://www.myunfi.com/enroll/signup |
 | myunfi-enroll-bundle | https://www.myunfi.com/enroll/assets/index-DWLpLp4q.js |
 | myunfi-tou | https://www.unfi.com/myunfi/terms-of-use.html |
@@ -337,8 +364,10 @@ documents:
 | unfi-site-tou | https://www.unfi.com/privacy/terms.html |
 | unfi-terms | https://www.unfi.com/supplier-terms.html |
 | unfi-robots | https://www.unfi.com/robots.txt |
+| dc-robots | https://my.directcommerce.com/robots.txt |
 | unfi-coc | https://www.unfi.com/content/dam/unfi-corporate/footer/Supplier%20Code%20of%20Conduct_English.pdf |
 | suppliers-login | https://suppliers.unfi.com/Account/Login |
+| suppliers-robots | https://suppliers.unfi.com/robots.txt |
 | dci-zendesk | https://dciunfi.zendesk.com/hc/en-us |
 | svh-epass | https://myhome.svharbor.com/content/svpublic/trading-partners/svharbor-applications/epass.html |
 | svh-epass-home | https://epass.svharbor.com/epass/home |
