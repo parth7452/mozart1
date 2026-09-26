@@ -39,6 +39,15 @@ const { Redirected, harness } = vi.hoisted(() => {
       signOutError: null as SendError | null,
       signOutThrows: false,
       resolve: (async () => ({ userId: 'user-1', orgs: [] })) as () => Promise<unknown>,
+      /**
+       * The session's access token, as `getSession()` reads it back after
+       * `getUser()` verified it. A magic-link session for `user` by default.
+       */
+      accessToken: undefined as string | undefined,
+      /** What `app.address_is_invited()` answers for the address typed. */
+      invited: false,
+      invitedAsked: [] as string[],
+      invitedError: null as Error | null,
       /** What the magic link's landing hears back from the provider. */
       exchangeError: null as SendError | null,
       verifyError: null as SendError | null,
@@ -70,6 +79,12 @@ vi.mock('../lib/supabase', () => ({
       async getUser() {
         return { data: { user: harness.user }, error: null };
       },
+      async getSession() {
+        return {
+          data: { session: harness.accessToken === undefined ? null : { access_token: harness.accessToken } },
+          error: null,
+        };
+      },
       async signOut(options?: unknown) {
         harness.signOuts.push(options);
         if (harness.signOutThrows) throw new TypeError('fetch failed');
@@ -89,6 +104,11 @@ vi.mock('../lib/store', () => ({ tenantStore: () => ({}) }));
 
 vi.mock('@recouple/store-postgres', () => ({
   resolveSession: async () => harness.resolve(),
+  addressIsInvited: async (_config: unknown, email: string) => {
+    harness.invitedAsked.push(email);
+    if (harness.invitedError !== null) throw harness.invitedError;
+    return harness.invited;
+  },
 }));
 
 const { sendSignInLink } = await import('../app/login/actions');
@@ -130,6 +150,12 @@ async function loginPage(params: Record<string, string | string[]>): Promise<str
   return renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve(params) }));
 }
 
+/** An access token whose payload says who and how; the signature is never read here. */
+function token(payload: Record<string, unknown>): string {
+  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${part({ alg: 'ES256', typ: 'JWT' })}.${part(payload)}.c2lnbmF0dXJl`;
+}
+
 /** A Postgres error as `pg` raises it: a message and a SQLSTATE. */
 function pgError(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
@@ -141,11 +167,15 @@ beforeEach(() => {
   harness.otpCalls = [];
   harness.otpError = null;
   harness.user = { id: 'auth-user-1', email: 'member@example.test' };
+  harness.accessToken = token({ sub: 'auth-user-1', amr: [{ method: 'otp', timestamp: 1790000000 }] });
   harness.signOuts = [];
   harness.signOutError = null;
   harness.signOutThrows = false;
   harness.exchangeError = null;
   harness.verifyError = null;
+  harness.invited = false;
+  harness.invitedAsked = [];
+  harness.invitedError = null;
   harness.resolve = async () => ({
     userId: 'user-1',
     orgs: [{ orgId: 'org-1', slug: 'acme', name: 'Acme', role: 'analyst' }],
@@ -250,6 +280,65 @@ describe('the login form', () => {
     expect(to).toBe('/login?denied=no_address');
     expect(denial(to).text).toBe('enter an email address');
     expect(harness.otpCalls).toEqual([]);
+    expect(harness.invitedAsked).toEqual([]);
+  });
+});
+
+describe('an invited address (ADR 0051 §6)', () => {
+  it('lets the provider create the account only when the database says the address is invited', async () => {
+    harness.invited = true;
+    expect(await destination(sendSignInLink(form(` ${ADDRESS} `)))).toBe('/login?sent=1');
+    expect(harness.invitedAsked).toEqual([ADDRESS]);
+    expect(harness.otpCalls).toEqual([
+      {
+        email: ADDRESS,
+        options: { emailRedirectTo: `${SITE}/auth/callback`, shouldCreateUser: true },
+      },
+    ]);
+  });
+
+  it('answers an invited address and a stranger alike, whatever the provider says', async () => {
+    const outcomes: string[] = [];
+    for (const invited of [true, false]) {
+      for (const otpError of [
+        null,
+        { name: 'AuthApiError', message: 'Signups not allowed for this instance', status: 422, code: 'signup_disabled' },
+        { name: 'AuthApiError', message: 'Signups not allowed for otp', status: 422, code: 'otp_disabled' },
+      ]) {
+        harness.invited = invited;
+        harness.otpError = otpError;
+        outcomes.push(await destination(sendSignInLink(form(ADDRESS))));
+      }
+    }
+    expect(new Set(outcomes)).toEqual(new Set(['/login?sent=1']));
+  });
+
+  it('logs an invited address the provider would not create an account for as a fault, without the address', async () => {
+    harness.invited = true;
+    harness.otpError = {
+      name: 'AuthApiError',
+      message: 'Signups not allowed for this instance',
+      status: 422,
+      code: 'signup_disabled',
+    };
+    expect(await destination(sendSignInLink(form(ADDRESS)))).toBe('/login?sent=1');
+    expect(logged.join('\n')).toMatch(/NOT SENT to an invited address/);
+    expect(logged.join('\n')).toMatch(/Allow new users to sign up/);
+    expect(logged.join('\n')).not.toContain(ADDRESS);
+  });
+
+  it('shows a fault asking the database with a reference, and asks the provider nothing', async () => {
+    harness.invitedError = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' });
+    const failed = denial(await destination(sendSignInLink(form(ADDRESS))));
+    expect(failed.key).toBe('not_completed');
+    expect(failed.about).toHaveLength(1);
+    expect(failed.about[0]).toMatch(ISO_REFERENCE);
+    expect(failed.text).not.toContain('ECONNREFUSED');
+    expect(harness.otpCalls).toEqual([]);
+    // The real cause is in the log under the same reference, and the address is not.
+    expect(logged.join('\n')).toContain(`[sign-in link] ${failed.about[0]} — not sent`);
+    expect(logged.join('\n')).toContain('ECONNREFUSED');
+    expect(logged.join('\n')).not.toContain(ADDRESS);
   });
 });
 
@@ -415,5 +504,81 @@ describe('the login page', () => {
     const html = await loginPage({ sent: '1' });
     expect(html).toContain('If that address belongs to a workspace, a sign-in link is on its way.');
     expect(html).not.toContain('role="alert"');
+  });
+});
+
+describe('a session signed in with a password (ADR 0051 §6)', () => {
+  it('keeps every session this app can make: a magic link, a sign-up confirmation, a token-hash link', async () => {
+    for (const methods of [['otp'], ['magiclink'], ['email/signup'], ['magiclink', 'otp']]) {
+      harness.accessToken = token({
+        sub: 'auth-user-1',
+        amr: methods.map((method, i) => ({ method, timestamp: 1790000000 - i })),
+      });
+      expect((await requireSession()).userId).toBe('user-1');
+    }
+    // An older token's bare-string entries read the same.
+    harness.accessToken = token({ sub: 'auth-user-1', amr: ['otp'] });
+    expect((await requireSession()).userId).toBe('user-1');
+    expect(harness.signOuts).toEqual([]);
+  });
+
+  it('refuses one, signs out only that session, and never asks the database who it is', async () => {
+    let resolved = 0;
+    harness.resolve = async () => {
+      resolved += 1;
+      return { userId: 'user-1', orgs: [{ orgId: 'org-1', slug: 'acme', name: 'Acme', role: 'owner' }] };
+    };
+    for (const amr of [
+      [{ method: 'password', timestamp: 1790000000 }],
+      [{ method: 'token_refresh', timestamp: 1790000100 }, { method: 'password', timestamp: 1790000000 }],
+      ['password'],
+    ]) {
+      harness.accessToken = token({ sub: 'auth-user-1', amr });
+      harness.signOuts = [];
+      const refused = denial(await destination(requireSession()));
+      expect(refused.key).toBe('email_link_only');
+      expect(refused.text).toMatch(/email link only/);
+      expect(harness.signOuts).toEqual([{ scope: 'local' }]);
+    }
+    expect(resolved).toBe(0);
+    expect(logged.join('\n')).toMatch(/signed in with a password/);
+  });
+
+  it('refuses a session made any way this app does not make one, not only by password', async () => {
+    for (const amr of [
+      [{ method: 'oauth', timestamp: 1 }],
+      [{ method: 'anonymous', timestamp: 1 }],
+      [{ method: 'recovery', timestamp: 1 }],
+      [{ method: 'otp', timestamp: 2 }, { method: 'web3', timestamp: 1 }],
+      [],
+    ]) {
+      harness.accessToken = token({ sub: 'auth-user-1', amr });
+      harness.signOuts = [];
+      expect(denial(await destination(requireSession())).key).toBe('email_link_only');
+      expect(harness.signOuts).toEqual([{ scope: 'local' }]);
+    }
+    expect(logged.join('\n')).toMatch(/none of which this app uses/);
+  });
+
+  it('treats a token it cannot read, or one for another subject, as a fault and resolves nothing', async () => {
+    let resolved = 0;
+    harness.resolve = async () => {
+      resolved += 1;
+      return { userId: 'user-1', orgs: [] };
+    };
+    for (const accessToken of [
+      undefined,
+      'not-a-token',
+      token({ sub: 'auth-user-1' }),
+      token({ sub: 'auth-user-1', amr: [{ timestamp: 1 }] }),
+      token({ sub: 'someone-else', amr: [{ method: 'otp', timestamp: 1 }] }),
+    ]) {
+      harness.accessToken = accessToken;
+      const failed = denial(await destination(requireSession()));
+      expect(failed.key).toBe('not_completed');
+      expect(failed.about[0]).toMatch(ISO_REFERENCE);
+    }
+    expect(resolved).toBe(0);
+    expect(harness.signOuts).toEqual([]);
   });
 });

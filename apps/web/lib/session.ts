@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { resolveSession, type OrgMembership, type PostgresStore } from '@recouple/store-postgres';
+import { PASSWORD_METHOD, signedInByEmailLink, tokenFacts } from './auth-methods';
 import { env } from './env';
 import { signInDenied, type SignInNoticeKey } from './notices';
 import { tenantStore } from './store';
@@ -34,6 +35,15 @@ export interface Session {
  * Only those two answers sign anybody out: a fault is not a verdict on the
  * person, and a member whose sign-in hit an unreachable database keeps their
  * session.
+ *
+ * A session not signed in by one of this app's email links — a password, above
+ * all — is refused before the database is asked who it is (ADR 0051 §6). This
+ * app offers no password, so one only exists
+ * because somebody called the provider directly: with sign-ups on, anyone can
+ * register an invited person's address with a password of their choosing, and
+ * once the invitee follows the confirmation email that password is a way in.
+ * That session alone is signed out (`local` scope, so the invitee's own session
+ * survives), and the log says an account has a password somebody knows.
  */
 export async function requireSession(): Promise<Session> {
   const supabase = await supabaseForRequest();
@@ -41,6 +51,35 @@ export async function requireSession(): Promise<Session> {
   const user = data.user;
   if (error !== null || user === null || user.email === undefined) {
     redirect('/login');
+  }
+
+  // How this session signed in, from the token `getUser()` just had verified.
+  // Read after it, from the same storage, and tied to it by subject: a token
+  // that is not the one verified, or that says nothing about how it was made,
+  // is a fault rather than a guess either way.
+  const facts = tokenFacts((await supabase.auth.getSession()).data.session?.access_token);
+  if (facts === undefined || facts.subject !== user.id) {
+    const reference = new Date().toISOString();
+    console.error(
+      `[sign-in failed] ${reference} — the session's access token could not be read, or ` +
+        `names a different subject than the provider verified. Nothing was resolved.`,
+    );
+    redirect(signInDenied('not_completed', reference));
+  }
+  if (!signedInByEmailLink(facts.methods)) {
+    const reference = new Date().toISOString();
+    console.error(
+      facts.methods.includes(PASSWORD_METHOD)
+        ? `[sign-in refused] ${reference} — auth user ${user.id} presented a session signed in ` +
+            `with a password, which this app never offers: somebody holds a password for this ` +
+            `account. Refused and signed out locally (ADR 0051 §6). Remove the account's ` +
+            `password, or the account, in Supabase → Authentication → Users.`
+        : `[sign-in refused] ${reference} — auth user ${user.id} presented a session signed in ` +
+            `by ${JSON.stringify(facts.methods)}, none of which this app uses. Refused and ` +
+            `signed out locally (ADR 0051 §6).`,
+    );
+    await signOutRefused(supabase, 'not an email-link session', 'local');
+    redirect(signInDenied('email_link_only'));
   }
 
   let resolved;
@@ -115,9 +154,12 @@ function refusalOf(cause: unknown): Refusal | undefined {
 async function signOutRefused(
   supabase: Awaited<ReturnType<typeof supabaseForRequest>>,
   why: string,
+  scope: 'global' | 'local' = 'global',
 ): Promise<void> {
   try {
-    const { error } = await supabase.auth.signOut();
+    // The default scope is global; `local` ends only the session presented.
+    const { error } =
+      scope === 'local' ? await supabase.auth.signOut({ scope }) : await supabase.auth.signOut();
     if (error !== null) {
       console.error(
         `[sign-in refused] ${why}: signing the session out failed ` +

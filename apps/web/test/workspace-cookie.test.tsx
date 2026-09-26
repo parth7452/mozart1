@@ -24,7 +24,16 @@ vi.mock('next/headers', () => ({
 vi.mock('../lib/env', () => ({ env: { databaseUrl: 'postgres://not-used.example/test' } }));
 vi.mock('../lib/supabase', () => ({
   supabaseForRequest: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'auth-1', email: 'analyst@example.test' } }, error: null }) },
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'auth-1', email: 'analyst@example.test' } }, error: null }),
+      // A magic-link session for the same subject: requireSession reads how it
+      // was signed in from the token getUser verified (ADR 0051 §6).
+      getSession: async () => {
+        const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+        const payload = { sub: 'auth-1', amr: [{ method: 'otp', timestamp: 1790000000 }] };
+        return { data: { session: { access_token: `${part({ alg: 'ES256' })}.${part(payload)}.sig` } }, error: null };
+      },
+    },
   }),
 }));
 vi.mock('../lib/store', () => ({ tenantStore: () => ({}) }));
