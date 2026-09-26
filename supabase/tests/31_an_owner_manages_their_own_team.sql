@@ -120,8 +120,8 @@ begin
   -- Invite: one users row per address, ignoring capitals
   -- =========================================================================
   select * into r from app.invite_member('  New.Person@Example.TEST ', ' New Person ', 'approver');
-  perform test.ok(r.users_row_created and not r.has_signed_in,
-    'a new address creates one users row, not yet signed in');
+  perform test.ok(r.users_row_created,
+    'a new address creates one users row');
   invited := r.member_user_id;
   reset role;
   select count(*) into n from users where lower(email) = 'new.person@example.test';
@@ -137,13 +137,19 @@ begin
   set role app_rw;
   perform test.as_member(org_a, owner_a);
   select * into r from app.invite_member('TEAMB-Analyst@Example.Test', 'Renamed?', 'analyst');
-  perform test.ok(r.member_user_id = analyst_b and not r.users_row_created and r.has_signed_in,
-    'an address matching an existing row in other capitals reuses it, and says they have signed in');
+  perform test.ok(r.member_user_id = analyst_b and not r.users_row_created,
+    'an address matching an existing row in other capitals reuses it');
   reset role;
   select count(*) into n from users where lower(email) = 'teamb-analyst@example.test';
   perform test.ok(n = 1, 'and no second row was made');
   select count(*) into n from users where id = analyst_b and full_name = 'Analyst';
   perform test.ok(n = 1, 'and another workspace''s person was not renamed');
+  select count(*) into n from memberships
+   where org_id = org_a and user_id = analyst_b and display_name = 'Renamed?';
+  perform test.ok(n = 1, 'the name the owner typed is kept on their own membership');
+  select count(*) into n from memberships
+   where org_id = org_b and user_id = analyst_b and display_name is null;
+  perform test.ok(n = 1, 'and the other workspace''s membership is untouched');
   set role app_rw;
   perform test.as_member(org_a, owner_a);
 
@@ -301,8 +307,8 @@ begin
     'with no claims: a member''s address is invited');
   perform test.ok(app.address_is_invited('  TeamA-Owner@Example.TEST '),
     'ignoring capitals and surrounding spaces');
-  perform test.ok(app.address_is_invited('teamb-analyst@example.test'),
-    'a person removed from one workspace and still in another is invited');
+  perform test.ok(not app.address_is_invited('teamb-analyst@example.test'),
+    'a person who has already signed in is not: their account exists, and another could never link');
   perform test.ok(not app.address_is_invited('new.person@example.test'),
     'a person removed from their only workspace is not');
   perform test.ok(not app.address_is_invited('lonely-31@example.test'),

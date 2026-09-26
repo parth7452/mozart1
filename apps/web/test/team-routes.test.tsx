@@ -27,7 +27,6 @@ const harness = vi.hoisted(() => ({
   invites: [] as unknown[],
   roleChanges: [] as unknown[],
   removals: [] as string[],
-  signedIn: false,
   was: 'analyst' as string,
   fail: undefined as Error | undefined,
   identities: [] as unknown[],
@@ -57,7 +56,7 @@ vi.mock('../lib/team', async (importOriginal) => {
         invite: async (input: unknown) => {
           if (harness.fail !== undefined) throw harness.fail;
           harness.invites.push(input);
-          return { userId: MEMBER_ID, usersRowCreated: true, hasSignedIn: harness.signedIn };
+          return { userId: MEMBER_ID, usersRowCreated: true };
         },
         changeRole: async (userId: string, role: string) => {
           if (harness.fail !== undefined) throw harness.fail;
@@ -123,7 +122,6 @@ beforeEach(() => {
   harness.invites = [];
   harness.roleChanges = [];
   harness.removals = [];
-  harness.signedIn = false;
   harness.was = 'analyst';
   harness.fail = undefined;
   harness.identities = [];
@@ -209,15 +207,6 @@ describe('adding a person', () => {
     expect(harness.identities).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
     expect(logged.join('\n')).not.toContain(ADDRESS);
     expect(logged.join('\n')).not.toContain('New Person');
-  });
-
-  it('says the same whether or not the address has signed in before, so adding one tells nothing', async () => {
-    const said = [];
-    for (const signedIn of [true, false]) {
-      harness.signedIn = signedIn;
-      said.push(landed(await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }))));
-    }
-    expect(said[0]).toEqual(said[1]);
   });
 
   it('refuses what is not an address, a name or a role before the store is asked', async () => {

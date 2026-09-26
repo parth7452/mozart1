@@ -70,6 +70,15 @@ counts `users` rows with that address ignoring capitals:
 - more than one → refuse (`cardinality_violation`), as `link_auth_user()` and
   the create block do. An operator decides which row the person is.
 
+Reusing a row must not show one tenant what another stored about the person,
+so the name the owner types goes on the membership they make
+(`memberships.display_name`, a nullable column added by 0035) and the Team page
+shows that, never another workspace's `users.full_name`. A blank name shows
+the address alone. `invite_member` does not return whether the person has
+signed in anywhere, and the page says the same thing after every invitation.
+What remains visible is what the brief asks the list to show about one's own
+members: whether each has signed in.
+
 A person already in this workspace is refused by name (`RCT01`, "already a
 member of this workspace as <role>"): a role change is its own act, never a
 side effect of an invitation, as in the create block.
@@ -263,6 +272,8 @@ would be a new outbound side effect and is not done.
 
 - **2 (append-only):** no table's mutability changes; `audit_log` gains rows
   only. No UPDATE/DELETE grant added.
+- **Schema:** `memberships` gains a nullable `display_name` (mutable table, no
+  grant change); no append-only table changes shape.
 - **6 (RLS; no service role in a request path):** the only definer writes are
   the three team functions, bounded by the caller's claims and ownership. The
   two definer reads (`app.address_is_invited`, `hooks.before_user_created`)
@@ -278,6 +289,7 @@ create, which fails closed but fails everyone.
 
 Then drop what 0035 added:
 `drop function hooks.before_user_created(jsonb); drop schema hooks;`
+`alter table memberships drop column display_name;`
 `drop function app.address_is_invited(text), app.invited_address(text),
 app.invite_member(text, text, membership_role),
 app.change_member_role(uuid, membership_role), app.remove_member(uuid),

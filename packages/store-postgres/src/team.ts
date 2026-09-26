@@ -46,8 +46,6 @@ export interface Invited {
   readonly userId: string;
   /** False when an existing `users` row answered to the address. */
   readonly usersRowCreated: boolean;
-  /** They have signed in before (to any workspace), so can sign in here now. */
-  readonly hasSignedIn: boolean;
 }
 
 /**
@@ -161,7 +159,12 @@ export class PostgresTeamStore {
         holds_ledger: boolean;
         holds_email: boolean;
       }>(
-        `select u.id as user_id, u.email, u.full_name, m.role, m.created_at,
+        `select u.id as user_id, u.email,
+                -- The inviting owner's name for them, never another tenant's
+                -- (migration 0035 §1b): null means not invited from the page.
+                case when m.display_name is null then u.full_name
+                     else nullif(m.display_name, '') end as full_name,
+                m.role, m.created_at,
                 u.auth_user_id is not null as signed_in,
                 exists (select 1 from accounting_connections c
                          where c.org_id = m.org_id and c.enabled and c.created_by = u.id)
@@ -205,7 +208,6 @@ export class PostgresTeamStore {
       const { rows } = await client.query<{
         member_user_id: string;
         users_row_created: boolean;
-        has_signed_in: boolean;
       }>('select * from app.invite_member($1, $2, $3::membership_role)', [
         input.email,
         input.fullName,
@@ -216,7 +218,6 @@ export class PostgresTeamStore {
       return {
         userId: row.member_user_id,
         usersRowCreated: row.users_row_created,
-        hasSignedIn: row.has_signed_in,
       };
     });
   }

@@ -93,6 +93,32 @@ create trigger membership_keeps_an_owner
   for each row execute function app.membership_keeps_an_owner();
 
 -- ---------------------------------------------------------------------------
+-- 1b. The name an owner gave, on their own membership
+-- ---------------------------------------------------------------------------
+-- `users.full_name` is shared by every workspace the person belongs to, and
+-- an invitation that reuses a row must not show one tenant the name another
+-- tenant (or an operator) stored (ADR 0051 §2). So the name an owner types is
+-- kept on the membership they make: null for a membership made any other way
+-- (the page then shows users.full_name, which the operator who made both
+-- wrote), '' when the owner typed none (the page shows the address alone).
+alter table memberships add column if not exists display_name text;
+do $$
+begin
+  if not exists (select 1 from pg_constraint
+                  where conrelid = 'memberships'::regclass
+                    and conname = 'memberships_display_name_shape') then
+    alter table memberships add constraint memberships_display_name_shape
+      check (display_name is null
+             or (length(display_name) <= 200 and display_name !~ '[[:cntrl:]]'));
+  end if;
+end
+$$;
+comment on column memberships.display_name is
+  'The name the inviting owner typed (ADR 0051 §2): null when the membership was '
+  'not made by app.invite_member, '''' when the owner typed none. Shown in place '
+  'of users.full_name, which other workspaces share.';
+
+-- ---------------------------------------------------------------------------
 -- 2. Who may change a team: an owner, acting for their own org
 -- ---------------------------------------------------------------------------
 -- Not granted to anyone: only the three definer functions below call it, and
@@ -150,7 +176,7 @@ create or replace function app.invite_member(
   member_full_name text,
   member_role membership_role
 )
-  returns table (member_user_id uuid, users_row_created boolean, has_signed_in boolean)
+  returns table (member_user_id uuid, users_row_created boolean)
   language plpgsql
   volatile
   security definer
@@ -161,7 +187,6 @@ declare
   v_email   text := btrim(coalesce(member_email, ''));
   v_name    text := nullif(btrim(coalesce(member_full_name, '')), '');
   v_user    uuid;
-  v_linked  uuid;
   v_count   int;
   v_have    membership_role;
   v_created boolean := false;
@@ -189,8 +214,7 @@ begin
     raise exception 'more than one user answers to that address, differing only in case: an operator must decide which one this person is'
       using errcode = 'cardinality_violation';
   elsif v_count = 1 then
-    select u.id, u.auth_user_id into v_user, v_linked
-      from users u where lower(u.email) = lower(v_email);
+    select u.id into v_user from users u where lower(u.email) = lower(v_email);
   else
     insert into users (email, full_name) values (v_email, v_name)
       returning id into v_user;
@@ -205,14 +229,18 @@ begin
             hint = 'A role is changed on its own, never by inviting again.';
   end if;
 
-  insert into memberships (org_id, user_id, role) values (v_org, v_user, member_role);
+  -- The typed name on this membership, never on a shared users row. Whether
+  -- the person has signed in anywhere is not returned: an owner learns it only
+  -- by what the member list shows about their own members (ADR 0051 §2).
+  insert into memberships (org_id, user_id, role, display_name)
+  values (v_org, v_user, member_role, coalesce(v_name, ''));
 
   insert into audit_log (org_id, actor_id, action, subject_table, subject_id, payload)
   values (v_org, app.current_user_id(), 'membership.invited', 'memberships', v_user::text,
           jsonb_build_object('role', member_role,
                              'users_row', case when v_created then 'created' else 'reused' end));
 
-  return query select v_user, v_created, v_linked is not null;
+  return query select v_user, v_created;
 end
 $$;
 
@@ -361,9 +389,10 @@ grant execute on function app.remove_member(uuid) to app_rw;
 -- ---------------------------------------------------------------------------
 -- The one predicate both callers below share. An address is invited when
 -- exactly one users row answers to it ignoring capitals and that row has a
--- membership somewhere. Two rows answering is not an invitation: link_auth_user
--- would refuse the sign-in (0033), so an account made for it could never be
--- used. Not granted to anyone; the definer functions below run as its owner.
+-- membership somewhere, and nobody has signed in as it yet. Two rows answering
+-- is not an invitation, and nor is a row already linked to an identity:
+-- link_auth_user would refuse the sign-in either way (0033), so an account made
+-- for it could never be used — and a linked person already has their account. Not granted to anyone; the definer functions below run as its owner.
 create or replace function app.invited_address(candidate text) returns boolean
   language sql
   stable
@@ -372,7 +401,8 @@ as $$
   select (select count(*) from users u
            where lower(u.email) = lower(btrim(coalesce(candidate, '')))) = 1
      and exists (select 1 from users u join memberships m on m.user_id = u.id
-                  where lower(u.email) = lower(btrim(coalesce(candidate, ''))));
+                  where lower(u.email) = lower(btrim(coalesce(candidate, '')))
+                    and u.auth_user_id is null);
 $$;
 
 revoke all on function app.invited_address(text) from public;

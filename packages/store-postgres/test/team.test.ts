@@ -90,7 +90,28 @@ describeDb('Settings → Team on Postgres', () => {
       fullName: 'Ignored',
       role: 'approver',
     });
-    expect(invited).toEqual({ userId: otherOwnerId, usersRowCreated: false, hasSignedIn: false });
+    expect(invited).toEqual({ userId: otherOwnerId, usersRowCreated: false });
+    // The list shows the name this owner typed, not the one the other workspace stored.
+    const listed = (await owner.members()).find((member) => member.userId === otherOwnerId);
+    expect(listed?.fullName).toBe('Ignored');
+
+    // Another workspace's stored name never shows here, even when this owner typed none.
+    const storedElsewhere = randomUUID();
+    await admin.query(`insert into users (id, email, full_name) values ($1, $2, 'Stored Elsewhere')`, [
+      storedElsewhere,
+      `stored-${suffix}@example.test`,
+    ]);
+    await admin.query(`insert into memberships (org_id, user_id, role) values ($1, $2, 'owner')`, [
+      otherOrgId,
+      storedElsewhere,
+    ]);
+    await owner.invite({ email: `stored-${suffix}@example.test`, fullName: '  ', role: 'read_only' });
+    const blank = (await owner.members()).find((member) => member.userId === storedElsewhere);
+    expect(blank?.email).toBe(`stored-${suffix}@example.test`);
+    expect(blank?.fullName).toBeUndefined();
+    expect((await other.members()).find((member) => member.userId === storedElsewhere)?.fullName).toBe(
+      'Stored Elsewhere',
+    );
 
     const fresh = await owner.invite({ email: `new-${suffix}@example.test`, fullName: 'New', role: 'analyst' });
     expect(fresh.usersRowCreated).toBe(true);
@@ -99,7 +120,8 @@ describeDb('Settings → Team on Postgres', () => {
       `select count(*) as n from audit_log where org_id = $1 and action = 'membership.invited' and actor_id = $2`,
       [orgId, ownerId],
     );
-    expect(Number(rows[0]?.n)).toBe(2);
+    // Three invitations above: the reused row, the stored-elsewhere row, a new one.
+    expect(Number(rows[0]?.n)).toBe(3);
   });
 
   it('names every refusal', async () => {
@@ -137,6 +159,8 @@ describeDb('Settings → Team on Postgres', () => {
   it('answers the sign-in form’s question with no claims, one bit per address', async () => {
     expect(await addressIsInvited(config, `TEAM-A-${suffix}@example.test`)).toBe(true);
     expect(await addressIsInvited(config, `nobody-${suffix}@example.test`)).toBe(false);
+    // Signed in already (auth_user_id set): their account exists, so it is not an invitation.
+    expect(await addressIsInvited(config, `team-o-${suffix}@example.test`)).toBe(false);
     // Removed above from their only workspace: no longer an invitation.
     expect(await addressIsInvited(config, `team-r-${suffix}@example.test`)).toBe(false);
   });
