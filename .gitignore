@@ -22,3 +22,6 @@ apps/web/.env.local
 # Worktrees Claude Code opens inside the repository it is working in. They are
 # checkouts, not sources.
 .claude/worktrees/
+
+# The progress dashboard (dashboard-builder) — regenerated every session
+.dashboard/
