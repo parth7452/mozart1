@@ -103,6 +103,8 @@ describe('every suite reaches the recorder and the eval gate', () => {
       'authored_pending',
       'customer',
       'dense',
+      // Too dense for one reply, read in page ranges (ADR 0053).
+      'dense_paged',
       'email_body',
       // Merged cells and an 812 printout (`formats.ts`).
       'formats',

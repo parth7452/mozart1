@@ -282,7 +282,8 @@ if (classifyOnly) {
     } catch (error) {
       if (error instanceof ExtractionError) {
         spent += error.call.costMicros;
-        console.error(`  FAILED    ${error.message} [${error.call.outcome}]`);
+        console.error(`  FAILED    ${error.message} [${error.call.outcome}]` +
+          `${error.call.detail !== undefined ? ` (${error.call.detail})` : ""}`);
       } else {
         console.error(`  FAILED    ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -350,6 +351,7 @@ if (extractOnly) {
           `${extraction.call.costMicros}µ$, ` +
           `${extraction.call.inputTokens}in/${extraction.call.outputTokens}out)`,
       );
+      if (extraction.call.detail !== undefined) console.log(`  detail    ${extraction.call.detail}`);
       // Spread first, so every key keeps its place and only these four move.
       const cassette: Cassette = {
         ...recorded,
@@ -363,13 +365,15 @@ if (extractOnly) {
           outputTokens: extraction.call.outputTokens ?? 0,
           costMicros: extraction.call.costMicros,
           latencyMs: extraction.call.latencyMs,
+          ...(extraction.call.detail !== undefined ? { detail: extraction.call.detail } : {}),
         },
       };
       writeFileSync(file, `${JSON.stringify(cassette, null, 2)}\n`);
     } catch (error) {
       if (error instanceof ExtractionError) {
         spent += error.call.costMicros;
-        console.error(`  FAILED    ${error.message} [${error.call.outcome}]`);
+        console.error(`  FAILED    ${error.message} [${error.call.outcome}]` +
+          `${error.call.detail !== undefined ? ` (${error.call.detail})` : ""}`);
       } else {
         console.error(`  FAILED    ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -479,6 +483,8 @@ for (const fixture of documents) {
         `(${extraction.call.latencyMs}ms, ${extraction.call.costMicros}µ$, ` +
         `${extraction.call.inputTokens}in/${extraction.call.outputTokens}out)`,
     );
+    // A paged read (ADR 0053) says here how it was asked for and joined.
+    if (extraction.call.detail !== undefined) console.log(`  detail    ${extraction.call.detail}`);
 
     const cassette: Cassette = {
       key: fixture.key,
@@ -496,6 +502,7 @@ for (const fixture of documents) {
         outputTokens: extraction.call.outputTokens ?? 0,
         costMicros: extraction.call.costMicros,
         latencyMs: extraction.call.latencyMs,
+        ...(extraction.call.detail !== undefined ? { detail: extraction.call.detail } : {}),
       },
       ...(ocrResult !== undefined
         ? {
@@ -517,7 +524,8 @@ for (const fixture of documents) {
   } catch (error) {
     if (error instanceof ExtractionError) {
       totalMicros += error.call.costMicros;
-      console.error(`  FAILED    ${error.message} [${error.call.outcome}]`);
+      console.error(`  FAILED    ${error.message} [${error.call.outcome}]` +
+          `${error.call.detail !== undefined ? ` (${error.call.detail})` : ""}`);
     } else {
       console.error(`  FAILED    ${error instanceof Error ? error.message : String(error)}`);
     }

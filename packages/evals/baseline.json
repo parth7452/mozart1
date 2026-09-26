@@ -84,5 +84,8 @@
       "classificationAccuracy": 1,
       "documents": 10
     }
+  },
+  "pendingSuites": {
+    "dense_paged": "not yet recorded: 1 fixture documents, no cassettes. `pnpm record:cassettes --suite dense_paged` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }
