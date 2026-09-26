@@ -1784,7 +1784,9 @@ export class PostgresStore
    * of a pair survives, its own `invoice_number` row was the one skipped as a
    * collision when it arrived, so reading only the case's own rows left the
    * survivor with no invoice number and a third copy matching nothing
-   * (docs/audits/duplicate-counting, F5).
+   * (docs/audits/duplicate-counting, F5). The case's own row is still preferred
+   * when it has one, however old the merged-away half's: two halves need not
+   * print the same invoice, and the survivor's own must not be displaced.
    */
   private async knownOpenDeductions(client: PoolClient): Promise<KnownDeduction[]> {
     const { rows } = await client.query<{
@@ -1801,13 +1803,16 @@ export class PostgresStore
               -- Over the case and every case merged into it (ADR 0042 §10):
               -- a survivor whose own invoice row was skipped as a collision
               -- with the copy it absorbed holds that copy's invoice number.
+              -- Its own row comes first, whatever its age: a merged-away
+              -- half may print a different invoice, and it must not take
+              -- the survivor's place.
               (select i.identifier
                  from deduction_identifiers i
                  left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
                 where i.org_id = d.org_id
                   and coalesce(m.surviving_deduction_id, i.deduction_id) = d.id
                   and i.identifier_kind = 'invoice_number'
-                order by i.first_seen_at asc, i.id asc
+                order by (i.deduction_id = d.id) desc, i.first_seen_at asc, i.id asc
                 limit 1) as invoice_number
          from deductions d
         where d.org_id = $1

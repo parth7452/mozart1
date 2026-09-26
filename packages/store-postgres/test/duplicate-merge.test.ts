@@ -731,6 +731,67 @@ describeDb('merging a confirmed duplicate', () => {
     ).toMatchObject({ kind: 'probable', deductionId: pair.newer });
   });
 
+  it("keeps a survivor's own invoice number over an older one the merged-away half printed (audit F5)", async () => {
+    // Two halves need not print one invoice: here the survivor holds an
+    // invoice row of its own that the merged-away half lacks, and the
+    // merged-away half holds one seen a day before either case. The survivor's
+    // own row answers, not the oldest row across the merge.
+    const pair = await probablePair(50_000);
+    const survivorsOwn = `${pair.invoiceNumber}-OWN`;
+    await admin.query(
+      `insert into deduction_identifiers (org_id, deduction_id, source, identifier_kind, identifier,
+                                          first_seen_at)
+       values ($1,$2,'erp_sync','invoice_number',$3, now() - interval '1 day'),
+              ($1,$4,'web_upload','invoice_number',$5, now())`,
+      [orgId, pair.older, `${pair.invoiceNumber}-OLD`, pair.newer, survivorsOwn],
+    );
+    await admin.query(
+      `insert into decisions (org_id, deduction_id, schema_id, schema_version, provider,
+                              model_version, input_state_hash, questions, result,
+                              raw_probabilities, confidence, latency_ms, prepared_by)
+       values ($1,$2,'B','1.0.0','jev','jev-latest',digest($4,'sha256'),
+               '{}'::jsonb,'{}'::jsonb,'{}'::jsonb,0.5,1,$3)`,
+      [orgId, pair.newer, userId, `worked-${pair.newer}`],
+    );
+    const verdict = await store.recordDuplicateVerdict({
+      deductionId: pair.older,
+      otherDeductionId: pair.newer,
+      verdict: 'same',
+      recordedBy: userId,
+      merge: true,
+    });
+    expect(verdict.merge).toMatchObject({
+      kind: 'merged',
+      merge: { mergedDeductionId: pair.older, survivingDeductionId: pair.newer },
+    });
+
+    const discovery = new PostgresDiscoveryStore(
+      { connectionString: connectionString as string },
+      { orgId, userId },
+      store,
+    );
+    const known = await discovery.knownDeductions(orgId);
+    expect(known.find((d) => d.deductionId === pair.newer)).toMatchObject({
+      invoiceNumber: survivorsOwn,
+    });
+
+    // A third copy printing the survivor's own invoice is a probable match
+    // for it, not a stranger.
+    const third = await store.openCase({
+      orgId,
+      claimId: `${pair.newerClaim}-c`,
+      invoiceNumber: survivorsOwn,
+      source: 'web_upload',
+      retailerName: 'Walmart (APDP)',
+      deductionAmountCents: 50_000,
+      deductionDate: '2026-07-06',
+    });
+    expect(third.deductionId).not.toBe(pair.newer);
+    expect(await eventsOf(third.deductionId, 'case.possible_duplicate')).toEqual([
+      expect.objectContaining({ of: pair.newer }),
+    ]);
+  });
+
   // The dispute letter names every invoice the deduction is known by, and a
   // merged-away case's names are its survivor's (ADR 0042 §10) — so a letter
   // assembled on the survivor lists the invoice only the merged-away half held.

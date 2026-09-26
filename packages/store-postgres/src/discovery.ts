@@ -267,7 +267,8 @@ export class PostgresDiscoveryStore {
    * Its invoice number is not lost with it: the survivor is read with every
    * invoice row of the cases merged into it, so a survivor whose own row was
    * skipped as a collision is still a probable match for the next copy
-   * (docs/audits/duplicate-counting, F5).
+   * (docs/audits/duplicate-counting, F5). A survivor that holds an invoice row
+   * of its own keeps it, however old the merged-away half's.
    *
    * Money is read as text and converted once, checked: a bigint through a JS
    * number is lossy above 2^53 and this value is compared against a candidate's
@@ -288,14 +289,15 @@ export class PostgresDiscoveryStore {
                 -- Over the case and every case merged into it (ADR 0042
                 -- §10), as knownIdentifiers reads them: a survivor whose
                 -- own invoice row was skipped as a collision holds the one
-                -- the merged-away copy recorded.
+                -- the merged-away copy recorded. Its own row comes first,
+                -- whatever its age: a merged-away half may print another.
                 (select i.identifier
                    from deduction_identifiers i
                    left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
                   where i.org_id = d.org_id
                     and coalesce(m.surviving_deduction_id, i.deduction_id) = d.id
                     and i.identifier_kind = 'invoice_number'
-                  order by i.first_seen_at asc, i.id asc
+                  order by (i.deduction_id = d.id) desc, i.first_seen_at asc, i.id asc
                   limit 1) as invoice_number,
                 to_char(d.deduction_date, 'YYYY-MM-DD') as deduction_date,
                 d.debtor_id
