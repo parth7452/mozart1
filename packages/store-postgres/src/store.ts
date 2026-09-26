@@ -40,7 +40,7 @@ import type {
 } from '@recouple/core-domain';
 import { restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
-import type { ScanVerdict } from '@recouple/ingest';
+import type { ScanStatus, ScanVerdict } from '@recouple/ingest';
 import {
   ActorIsNotTheSessionError,
   AmbiguousIdentityError,
@@ -53,6 +53,7 @@ import {
   holdAuditPayload,
   holdFromAuditPayload,
   parseClassificationFloor,
+  servingRefusal,
 } from '@recouple/pipeline';
 import type {
   CaseMerges,
@@ -77,6 +78,7 @@ import type {
   PossibleDuplicatePair,
   RemittanceSettings,
   RestoredExtraction,
+  ServingRefusal,
   StoredDocument,
   UnattachedDocument,
   UnmergeRecord,
@@ -710,7 +712,39 @@ export interface CaseDocument {
    * attached from "Read, not on a case" — whose spend stays unattributed.
    */
   readonly readForCase: boolean;
+  /**
+   * Why its bytes may not be served — `servingRefusal` over its latest scan
+   * verdict and its arrival — or null when they may. The case page shows a
+   * notice in place of the embed and the link, because `/api/document` would
+   * refuse them anyway.
+   */
+  readonly servingRefusal: ServingRefusal | null;
 }
+
+/**
+ * The status of a document's latest scan verdict, as a scalar subquery over the
+ * `documents` row aliased `alias` — the same row `latestScan` answers with, by
+ * the same order. Null when nothing scanned it.
+ */
+const LATEST_SCAN_SQL = (alias: string): string =>
+  `(select s.status from document_scans s
+     where s.document_id = ${alias}.id order by s.id desc limit 1)`;
+
+/**
+ * `PostgresStore.servableDocument`'s answer for a document this tenant can see:
+ * a refusal, or what a route needs to serve it.
+ */
+export type ServableDocument =
+  | { readonly refusal: ServingRefusal; readonly document?: undefined }
+  | {
+      readonly refusal?: undefined;
+      readonly document: {
+        readonly documentId: string;
+        readonly filename: string;
+        readonly mimeType: string;
+        readonly bytes: Uint8Array;
+      };
+    };
 
 /**
  * The documents on one case, one row each, in SQL: a document linked in two
@@ -878,6 +912,8 @@ interface CaseDocumentRow {
   role: DocumentRole;
   read: boolean;
   read_for_case: boolean;
+  scan: ScanStatus | null;
+  source: UploadSource | null;
 }
 
 interface DocumentRow {
@@ -965,6 +1001,11 @@ function classificationConfidence(text: string, documentId: string): number {
  * Phase 1b replaces this with Supabase Storage.
  */
 export interface BlobStore {
+  /**
+   * Keeps `bytes` under `ref`, or throws. A ref an implementation cannot key is
+   * a refusal (`BlobRefUnrecognisedError`), never a quiet return: the caller
+   * writes a `documents` row pointing at the ref next.
+   */
   put(ref: string, bytes: Uint8Array): Promise<void>;
   get(ref: string): Promise<Uint8Array | undefined>;
 }
@@ -1009,7 +1050,12 @@ export class PostgresBlobStore implements BlobStore {
    */
   async put(ref: string, bytes: Uint8Array): Promise<void> {
     const documentId = documentIdFromRef(ref);
-    if (documentId === undefined) return;
+    // A ref this store cannot key is bytes it would not keep. Returning quietly
+    // left `putDocument` to write a `documents` row pointing at nothing, which
+    // reads back as an empty file. The only caller passes `refForDocument`'s
+    // answer, so this is a programming error — and a second `BlobStore` must
+    // not inherit the silence either.
+    if (documentId === undefined) throw new BlobRefUnrecognisedError(ref);
     await this.withTenant(async (client) => {
       await client.query(
         `insert into document_blobs (document_id, org_id, bytes, byte_size)
@@ -1021,20 +1067,39 @@ export class PostgresBlobStore implements BlobStore {
   }
 
   async get(ref: string): Promise<Uint8Array | undefined> {
+    return this.withTenant((client) => this.getOn(client, ref));
+  }
+
+  /**
+   * `get`, on a transaction the caller already holds — so the bytes are read
+   * under that transaction's claims and in its snapshot. `servableDocument`
+   * reads them this way, in the transaction that decided they may be served.
+   */
+  async getOn(client: PoolClient, ref: string): Promise<Uint8Array | undefined> {
     const documentId = documentIdFromRef(ref);
     if (documentId === undefined) return undefined;
-    return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ bytes: Buffer }>(
-        `select bytes from document_blobs where document_id = $1`,
-        [documentId],
-      );
-      const found = rows[0]?.bytes;
-      return found === undefined ? undefined : new Uint8Array(found);
-    });
+    const { rows } = await client.query<{ bytes: Buffer }>(
+      `select bytes from document_blobs where document_id = $1`,
+      [documentId],
+    );
+    const found = rows[0]?.bytes;
+    return found === undefined ? undefined : new Uint8Array(found);
   }
 }
 
 const REF_PREFIX = 'pgblob://';
+
+/**
+ * A storage ref `PostgresBlobStore.put` cannot key. It names the ref's scheme
+ * only, never the whole ref, and nothing from the bytes.
+ */
+export class BlobRefUnrecognisedError extends Error {
+  override readonly name = 'BlobRefUnrecognisedError';
+  constructor(ref: string) {
+    const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(ref)?.[0] ?? 'no scheme';
+    super(`storage ref (${scheme}) is not a ${REF_PREFIX}<document id> ref: the bytes were not stored`);
+  }
+}
 
 /** `pgblob://<document id>` — the ref a document row carries. */
 export function refForDocument(documentId: string): string {
@@ -1049,6 +1114,11 @@ function documentIdFromRef(ref: string): string | undefined {
 
 export class InMemoryBlobStore implements BlobStore {
   private readonly blobs = new Map<string, Uint8Array>();
+  /**
+   * Keys any string, the empty one included: a `Map` has no ref it cannot
+   * key, so `BlobStore.put`'s "refuse a ref it cannot key" holds here
+   * trivially and there is nothing to throw.
+   */
   async put(ref: string, bytes: Uint8Array): Promise<void> {
     this.blobs.set(ref, bytes);
   }
@@ -1105,11 +1175,19 @@ export class PostgresStore
    * Both settings are transaction-local, so a pooled connection cannot carry one
    * tenant's claims into another tenant's query — the failure mode that makes
    * connection pooling and RLS dangerous together.
+   *
+   * `isolation` raises the transaction's level where one snapshot has to answer
+   * several statements (`servableDocument`); the default is the database's.
    */
-  private async withTenant<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+  private async withTenant<T>(
+    work: (client: PoolClient) => Promise<T>,
+    options: { readonly isolation?: 'repeatable read' } = {},
+  ): Promise<T> {
     const client = await this.pool.connect();
     try {
-      await client.query('begin');
+      await client.query(
+        options.isolation === undefined ? 'begin' : `begin isolation level ${options.isolation}`,
+      );
       await client.query(`set local role ${this.role}`);
       await client.query('select set_config($1, $2, true)', [
         'request.jwt.claims',
@@ -2810,6 +2888,119 @@ export class PostgresStore
   }
 
   /**
+   * Whether this document's bytes may be handed to a browser: `undefined` for a
+   * document this tenant cannot see, else `servingRefusal`'s answer over its
+   * latest scan verdict and its arrival (`{ refusal: undefined }` when they may
+   * be served). `documentsServing` for one id; no bytes.
+   */
+  async documentServing(
+    documentId: string,
+  ): Promise<{ readonly refusal: ServingRefusal | undefined } | undefined> {
+    return (await this.documentsServing([documentId])).get(documentId);
+  }
+
+  /**
+   * `documentServing` for several documents in one query and one transaction,
+   * no bytes: a map from each id this tenant can see to its answer. An id RLS
+   * hides, or that names nothing, is absent from the map — the caller decides
+   * what an absence means, as with `documentServing`'s `undefined`.
+   *
+   * The packet's zip asks this of every enclosure before its first byte, so a
+   * packet of 25 documents is one round trip rather than 25 transactions. It
+   * is a verdict, not a licence: the bytes themselves still go through
+   * `servableDocument`, which asks again in the transaction that reads them.
+   */
+  async documentsServing(
+    documentIds: readonly string[],
+  ): Promise<ReadonlyMap<string, { readonly refusal: ServingRefusal | undefined }>> {
+    if (documentIds.length === 0) return new Map();
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        scan: ScanStatus | null;
+        source: UploadSource | null;
+      }>(
+        `select d.id, ${LATEST_SCAN_SQL('d')} as scan, u.source
+           from documents d
+           left join uploads u on u.id = d.upload_id
+          where d.id = any($1::uuid[])`,
+        [documentIds],
+      );
+      const answers = new Map<string, { readonly refusal: ServingRefusal | undefined }>();
+      for (const row of rows) {
+        answers.set(row.id, { refusal: servingRefusal({ scan: row.scan, source: row.source }) });
+      }
+      // Postgres prints a uuid in lower case; answer under the id as asked.
+      return new Map(
+        documentIds.flatMap((id) => {
+          const answer = answers.get(id.toLowerCase());
+          return answer === undefined ? [] : [[id, answer] as const];
+        }),
+      );
+    });
+  }
+
+  /**
+   * A document's bytes, only if they may be served — the verdict and the fetch
+   * in **one** tenant transaction, at `repeatable read`, so both are read from
+   * one snapshot: there is no gap between the check and the fetch for a
+   * verdict to be recorded in and missed.
+   *
+   * - `undefined`: this tenant cannot see the document (RLS), and nothing else
+   *   was asked — the 404 comes before any verdict.
+   * - `{ refusal }`: `servingRefusal` refused it, and `document_blobs` was
+   *   never selected from: a refused document's bytes are not read only to be
+   *   thrown away.
+   * - `{ document }`: what a route needs to serve it, and nothing it does not
+   *   (no pages, no text layer).
+   *
+   * The bytes are read on the same connection when the blob store is this
+   * database's (`PostgresBlobStore.getOn`). A blob store kept anywhere else
+   * cannot join the snapshot, so it is read while the transaction is still
+   * open; its bytes are immutable once stored, so the verdict the snapshot
+   * gave is still the verdict about those bytes.
+   */
+  async servableDocument(documentId: string): Promise<ServableDocument | undefined> {
+    return this.withTenant(
+      async (client) => {
+        const { rows } = await client.query<{
+          id: string;
+          filename: string;
+          mime_type: string;
+          storage_ref: string;
+          scan: ScanStatus | null;
+          source: UploadSource | null;
+        }>(
+          `select d.id, coalesce(d.filename, '') as filename, d.mime_type, d.storage_ref,
+                  ${LATEST_SCAN_SQL('d')} as scan, u.source
+             from documents d
+             left join uploads u on u.id = d.upload_id
+            where d.id = $1`,
+          [documentId],
+        );
+        const row = rows[0];
+        if (row === undefined) return undefined;
+        const refusal = servingRefusal({ scan: row.scan, source: row.source });
+        if (refusal !== undefined) return { refusal };
+        const bytes =
+          this.blobs instanceof PostgresBlobStore
+            ? await this.blobs.getOn(client, row.storage_ref)
+            : await this.blobs.get(row.storage_ref);
+        return {
+          document: {
+            documentId: row.id,
+            filename: row.filename,
+            mimeType: row.mime_type,
+            // As `getDocument` answers a row whose blob is missing.
+            bytes: bytes ?? new Uint8Array(),
+          },
+        };
+      },
+      { isolation: 'repeatable read' },
+    );
+  }
+
+  /**
    * Runs a document's read while holding that document's claim in the database,
    * or does not run it at all.
    *
@@ -3770,9 +3961,12 @@ export class PostgresStore
                          where x.document_id = o.document_id) as read,
                 exists (select 1 from extraction_results x
                          where x.document_id = o.document_id
-                           and x.deduction_id = $1) as read_for_case
+                           and x.deduction_id = $1) as read_for_case,
+                ${LATEST_SCAN_SQL('d')} as scan,
+                u.source
            from on_case o
            join documents d on d.id = o.document_id
+           left join uploads u on u.id = d.upload_id
            left join lateral (
              select doc_type from document_classifications dc
               where dc.document_id = o.document_id order by dc.id desc limit 1
@@ -3788,6 +3982,7 @@ export class PostgresStore
         role: row.role,
         read: row.read,
         readForCase: row.read_for_case,
+        servingRefusal: servingRefusal({ scan: row.scan, source: row.source }) ?? null,
       }));
     });
   }
