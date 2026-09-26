@@ -84,6 +84,12 @@ export class InMemoryDiscoveryStore implements DiscoveryStore {
     return [...this.identifiers];
   }
 
+  /**
+   * The seeded deductions, each with the invoice number it was seeded with.
+   * This double models no merges, so a deduction's invoice number is its own;
+   * Postgres reads a survivor's over every case merged into it, because the
+   * survivor's own row may be the one skipped as a collision (audit F5).
+   */
   async knownDeductions(): Promise<readonly KnownDeduction[]> {
     return [...this.deductions];
   }

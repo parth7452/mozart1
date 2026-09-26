@@ -187,6 +187,7 @@ function document(overrides: Partial<CaseDocument> = {}): CaseDocument {
     role: 'notice',
     read: true,
     readForCase: true,
+    servingRefusal: null,
     ...overrides,
   };
 }
@@ -1651,6 +1652,74 @@ describe('which documents a page may show in place', () => {
     expect(displaysInline('text/html')).toBe(false);
     expect(displaysInline('image/svg+xml')).toBe(false);
     expect(displaysInline('application/octet-stream')).toBe(false);
+  });
+});
+
+describe('a document the scan did not clear, on the review page', () => {
+  function render(props: Partial<Parameters<typeof CaseReview>[0]> = {}): string {
+    return renderToStaticMarkup(
+      <CaseReview
+        mayAct={false}
+        viewer={viewer}
+        summary={summary()}
+        documents={[document()]}
+        fields={[field()]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+        {...props}
+      />,
+    );
+  }
+
+  it('says why in place of the embed, rather than framing a refusal', () => {
+    for (const [refusal, said] of [
+      ['infected', 'The malware scan found this document infected'],
+      ['unscanned', 'This document has no clean scan verdict'],
+    ] as const) {
+      const html = render({ documents: [document({ servingRefusal: refusal })] });
+      expect(html).not.toContain('<embed');
+      expect(html).not.toContain(`/api/document/${NOTICE_DOC}`);
+      expect(html).not.toContain('Open full document');
+      expect(html).toContain('walmart-apdp-notice.pdf is on this case and is not shown.');
+      expect(html).toContain(said);
+    }
+  });
+
+  it('still embeds a document that scanned clean', () => {
+    const html = render();
+    expect(html).toContain(`src="/api/document/${NOTICE_DOC}"`);
+  });
+
+  it('lists a refused enclosure without a link, and offers no zip while the packet holds one', () => {
+    const html = render({
+      mayAct: true,
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: {
+        ...workflow({ state: 'awaiting_approval' }),
+        packet: { ...workflow({ state: 'awaiting_approval' }).packet!, fileDocumentIds: [NOTICE_DOC] },
+      },
+      documents: [document({ servingRefusal: 'infected' })],
+    });
+    expect(html).not.toContain(`href="/api/document/${NOTICE_DOC}"`);
+    expect(html).toContain('walmart-apdp-notice.pdf — The malware scan found this document infected');
+    expect(html).not.toContain('/packet/enclosures');
+    expect(html).toContain('no enclosures zip while a document above is not served');
+    // The letter is our own text, and stays reachable.
+    expect(html).toContain('/packet/letter');
+  });
+
+  it('offers the zip and links every enclosure when all of them scanned clean', () => {
+    const html = render({
+      mayAct: true,
+      summary: summary({ state: 'awaiting_approval' }),
+      workflow: {
+        ...workflow({ state: 'awaiting_approval' }),
+        packet: { ...workflow({ state: 'awaiting_approval' }).packet!, fileDocumentIds: [NOTICE_DOC] },
+      },
+    });
+    expect(html).toContain(`href="/api/document/${NOTICE_DOC}"`);
+    expect(html).toContain('/packet/enclosures');
   });
 });
 

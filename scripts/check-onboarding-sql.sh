@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Runs every SQL block in docs/ONBOARDING.md against a scratch database, so the
-# runbook cannot drift from the migrations it writes into.
+# Runs the onboarding runbook's SQL against a scratch database, so the runbook
+# cannot drift from the migrations it writes into: the create block from
+# docs/onboarding/create-workspace.sql, and every other block from
+# docs/ONBOARDING.md. `pnpm db:test` runs it last, so CI and `pnpm verify` do.
 #
-#   DATABASE_URL=postgres://…/recouple_test ./scripts/check-onboarding-sql.sh
+#   TEST_DATABASE_URL=postgres://…/recouple_test RECOUPLE_TEST_DATABASE=1 ./scripts/check-onboarding-sql.sh
 #
-# The database must already carry the schema: run `pnpm db:test` against it
-# first. Every check runs inside a transaction that is rolled back, so nothing
-# is left behind. A block is found by its first line, `-- onboarding:<name>`;
-# blocks marked `-- onboarding:supabase-only …` read auth.users and are skipped.
+# The database must already carry the schema: `pnpm db:test` applies it first.
+# It reads TEST_DATABASE_URL, never DATABASE_URL — that is the operator
+# scripts' and the app's — and runs the test-database guard
+# (scripts/test-database.ts) before it connects, as scripts/db-test.sh does.
+# Every check runs inside a transaction that is rolled back, so nothing is left
+# behind. A block in ONBOARDING.md is found by its first line,
+# `-- onboarding:<name>`; blocks marked `-- onboarding:supabase-only …` read
+# auth.users and are skipped.
 #
 # What it proves:
 #   * the create block runs, and a second run creates nothing;
@@ -18,7 +24,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOC="$ROOT/docs/ONBOARDING.md"
-: "${DATABASE_URL:?set DATABASE_URL to a scratch database that pnpm db:test has migrated}"
+CREATE_FILE="$ROOT/docs/onboarding/create-workspace.sql"
+
+# The test-database guard, before anything connects: TEST_DATABASE_URL and
+# RECOUPLE_TEST_DATABASE=1 from the environment, else from .env and nothing
+# else there, and a Supabase host or a database carrying recouple_app,
+# supabase_admin or applied Supabase migrations is refused. It prints the URL
+# it checked. A refusal exits here.
+TEST_DATABASE_URL="$("$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/check-test-database.ts")"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -34,18 +47,29 @@ block() {
 }
 
 # Every tagged block must be one this script knows, so a new block cannot go untested.
-known=" create readback readback-people unmatched-payers change-role remove-member "
+# `create` is not among them: it is its own file, and a second copy here would
+# be one nothing tests.
+known=" readback readback-people unmatched-payers change-role remove-member "
 while IFS= read -r tag; do
   case "$tag" in supabase-only*) continue ;; esac
   [[ "$known" == *" $tag "* ]] || fail "block -- onboarding:$tag is not exercised by this script"
 done < <(awk '/^```sql[[:space:]]*$/ { getline; if ($0 ~ /^-- onboarding:/) { sub(/^-- onboarding:/, ""); print } }' "$DOC")
 
-psql_tx() { psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 --no-psqlrc "$@"; }
+psql_tx() { psql "$TEST_DATABASE_URL" -X -q -v ON_ERROR_STOP=1 --no-psqlrc "$@"; }
 
 psql_tx -tAc "select to_regclass('public.inbound_addresses') is not null" | grep -qx t \
   || fail "the database has no schema: run pnpm db:test against it first"
 
-CREATE="$(block create)"
+# The create block is a file of its own so that it can be pasted whole: pasted
+# out of the markdown, it arrived cut short twice (VERIFY-CHECKLIST §4,
+# 2026-09-26). Its first line is its tag, and its last is the line the runbook
+# tells the founder to look for before pressing Run.
+[ -f "$CREATE_FILE" ] || fail "missing docs/onboarding/create-workspace.sql"
+[ "$(head -n 1 "$CREATE_FILE")" = "-- onboarding:create" ] \
+  || fail "the first line of docs/onboarding/create-workspace.sql must be -- onboarding:create"
+[ "$(tail -n 1 "$CREATE_FILE")" = "\$onboard\$;" ] \
+  || fail "the last line of docs/onboarding/create-workspace.sql must be \$onboard\$; (the runbook's sign that a paste arrived whole)"
+CREATE="$(cat "$CREATE_FILE")"
 READBACK="$(block readback)"
 
 # Replaces the create block's `people` list with $1 (a JSON array literal).
