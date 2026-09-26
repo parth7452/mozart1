@@ -13,10 +13,11 @@
 `ClaudeExtractor.extract` reads a document in one streamed call with a
 32,000-token output budget. A dense row costs about 250 output tokens (the
 42-row `crosswind-dense-remittance` measured 10,871), so a document past about
-120 rows stops with `stop_reason: max_tokens`, and the extractor throws
-`ExtractionError` "split the document and retry". Failing is right — a cut-off
-read stored as a complete one is the failure this code exists to prevent — but
-nothing splits the document, so the read fails for ever. The pilot README lists
+120 rows stops with `stop_reason: max_tokens`, and the extractor was written
+to throw `ExtractionError` "split the document and retry" (in fact the SDK
+threw first, and recorded nothing of what was spent: §5). Failing is right — a
+cut-off read stored as a complete one is the failure this code exists to
+prevent — but nothing splits the document, so the read fails for ever. The pilot README lists
 it as a limit to tell the customer, and foodservice broadline distributors'
 remittances are exactly this shape: hundreds of invoices over several pages.
 
@@ -73,8 +74,10 @@ starts at the foot of page *b* and ends on *b+1* is the part ending at *b*'s,
 and the next part is told to skip it.
 
 The instruction block, the last block every part shares, carries
-`cache_control: ephemeral`, so the document is written to the cache once per
-wave and read from it thereafter. The part's range block comes after the marker.
+`cache_control: ephemeral`, and the part's range block comes after the marker.
+The parts of one wave are sent together, so each of them writes the prefix
+rather than reading it; the marker pays for itself only on a later wave (a
+halving) or a retry within five minutes. What it costs is measured below.
 Invariant 4 is untouched: no call is given `tools`, the page text is inside the
 same `<untrusted_document>` delimiters, and the range block is our text, not
 the document's.
@@ -139,31 +142,78 @@ summed cost of every call made, so `model_calls` records what was spent.
 sends a cache marker, so every existing record is unchanged; without the fix, a
 cached call would have under-counted its input.
 
+### 5. A cut-off is read from the stream, not from the SDK's parse
+
+Recording this suite found that §1's backstop had never been reachable. The SDK
+parses the structured output when the message stops, and a reply cut off at
+`max_tokens` is unterminated JSON, so `finalMessage()` threw `Failed to parse
+structured output … Unterminated string in JSON` before `stop_reason` could be
+read. The dense read was recorded as outcome `error`, `costMicros: 0` — about
+$0.34 spent and none of it in `model_calls` — and it could never have paged.
+
+`request()` now keeps the message snapshot the stream hands each `streamEvent`
+listener. When `finalMessage()` throws and that snapshot says the reply stopped
+at `max_tokens` or was refused, the call is answered from the snapshot with no
+parsed output: a cut-off is the `schema_mismatch` "cut off … split the document
+and retry" (or a paged read) with its tokens and cost, and a refusal is a
+`ModelRefusalError`. A reply that finished and still would not parse is thrown
+exactly as before. The request itself is unchanged, and so is every read that
+parses.
+
 ## Measured
 
 The `dense_paged` suite is one five-page, 190-row remittance built by the same
-generator as `dense` (`densePagedDocuments`, `packages/fixtures/src/dense.ts`),
-with the page header and column heads repeated on every page, and one invoice
-printed twice across the page 2 / page 3 boundary, where the two-page parts
-meet. Recorded on 2026-09-26 — see *Recorded* below.
+generator as `dense` (`densePagedDocuments`, `packages/fixtures/src/dense.ts`):
+the advice header on page 1, a continuation heading and the column heads again
+on every later page, the totals under the last row, and one invoice printed
+twice — the last row of page 2 and the first of page 3, where the two-page parts
+meet — first with a shortage, then with a price deduction.
+
+Recorded 2026-09-26, `claude-sonnet-5`, `pnpm record:cassettes --suite
+dense_paged`:
+
+| | |
+| --- | --- |
+| Classification | `remittance_advice` at 0.99 ($0.0202) |
+| First call | stopped at 32,000 output tokens, as it must |
+| Parts | pages 1–2, 3–4 and 5, none halved; 76, 84 and 30 rows kept; nothing dropped or flagged by the merge |
+| Rows | 190 of 190, in page order; the split invoice is rows 75 and 76, `SHORT` then `PRICE` |
+| Fields | 784, every quote found on the page it cites (100% grounding) |
+| Recall / precision | 99.9% / 99.9%: one miss, `payer_name` read as the payee ("Pay To: Northstar Pantry Co.", 0.9), a reading error rather than a join error |
+| Tokens | 83,617 input, 85,205 output, across four calls |
+| Cost | $1.0503 for the extraction, $1.0706 with classification |
+| Wall-clock | 344 seconds |
+
+The first attempt at recording, before §5, spent about $0.34 on the cut-off call
+and recorded nothing, which is how §5 was found. Every other suite's baseline
+row is unchanged; the eval replays cassettes and never reaches `ClaudeExtractor`.
 
 ## Consequences
 
 - A remittance past about 120 rows now reads, up to `MAX_ROWS_PER_GROUP`'s 500,
-  at the cost of one wasted call plus one call per two pages.
-- **Latency is the new limit.** The wasted call alone generates 32,000 tokens.
-  The Inngest route's `maxDuration` is 300 seconds (ADR 0021), and a paged read
-  of several pages can pass it; a step killed there is retried by Inngest and
-  pays again. The measured wall-clock is under *Recorded*; a proactive gate,
-  which removes the wasted call, is the lever.
+  at the cost of one wasted call plus one call per two pages: about $1.05 for
+  190 rows, of which roughly a third is the wasted call.
+- **Latency is now the limit, and in production it binds.** 344 seconds is past
+  the Inngest route's `maxDuration` of 300 (ADR 0021). On Vercel this read
+  would be killed during its parts, Inngest would retry the step, and each
+  retry would pay the wasted call and the parts again until the retries ran
+  out: `read-document` has `retries: 3`, so four attempts, about $4, for a
+  document that never reads.
+  Until that is answered, a document this dense should be expected to fail in
+  production — loudly, but at a cost — and the pilot README's limit is reworded
+  rather than removed. The levers, each the founder's decision: a proactive
+  gate (page count or a row estimate from the text layer) that skips the wasted
+  call, which alone would roughly halve this read (it runs before the parts,
+  which run together); a longer
+  `maxDuration` if the Vercel plan allows it; or one Inngest step per part, so a
+  retry resumes rather than restarts.
+- The cache marker, with parts sent together, bought nothing on this read and
+  cost the write premium (a few cents at most); it is kept because a halving
+  wave or a retry within five minutes reads what the first wave wrote.
 - `reconcileCase` checks a remittance line's own arithmetic, not the advice's
   total against its lines, so a row the merge lost is not caught by arithmetic
-  on a remittance. The row-start rule is what prevents it; a lines-against-total
-  check is a follow-up.
+  on a remittance. The row-start rule is what prevents it, and `detail` names
+  every row the merge dropped; a lines-against-total check is a follow-up.
 - The paged prompt is exercised by one recorded document. Real distributor
-  layouts — rows wrapped across two printed lines, subtotals per page — are not
-  in it.
-
-## Recorded
-
-To be filled in by the recording commit.
+  layouts — rows wrapped across two printed lines, subtotals per page, a scan
+  read through OCR — are not in it.

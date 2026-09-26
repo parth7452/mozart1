@@ -146,7 +146,7 @@ append-only tables.
 | --- | --- |
 | `core-domain` | Money is integer cents; the state machine table is the spec, and the DB is the referee. `parseMoneyToCents` reads digits past the cents only when they are all `0`, never rounds a fraction of a cent, and never reads one decimal place. A unit price is `parseUnitPrice`'s: stored rounded half-up to the cent, and multiplied or compared only at the digits the page printed (`shortageCentsAt`, `compareUnitPrices`), never at its stored cent (ADR 0049) |
 | `ingest` | Check magic bytes, not the declared type; the scan gate fails closed — no verdict means no read. A PDF's active content is a whole name as a reader splits it, never a substring: `/AA` begins a subset font's name (`/AAAAAB+Arial`). On email, the tenant comes from the envelope recipient's database-issued token (`OriginalRecipient` on `INBOUND_DOMAIN`), never the sender, `To` or a slug, and **no email opens a case by itself**: its notice or remittance is held for a person (`by_email`), keyed on the document's arrival, because Postmark signs nothing and its `X-Spam-*` headers can be forged (ADR 0047). An email *body* is text, not a file: it gets `acceptEmailBody`, chosen by `source`, never by a caller's flag (ADR 0016) |
-| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to. A money field (`moneyKindOf`: `unit_cost`, `*_amount*`, `*_total*`) is quote-verified only when the page prints its value whole, to the cent, where it was quoted — a label or a number cut short is not (ADR 0050) |
+| `extraction` | The reader gets no tools, ever. Models report verbatim quotes; our code does the arithmetic. A document read back out of the store goes through the same `reassemble` and the same schema validation as one read from the model (`restoreDocument`), so an absent field comes back stated as absent rather than as a missing key. It is the same object except where a field was stored without provenance or its confidence was rounded to four decimals, and both exceptions are said out loud rather than assumed away. A repeating group is capped at `MAX_ROWS_PER_GROUP`: a row past it is dropped with an issue, never filled up to. A money field (`moneyKindOf`: `unit_cost`, `*_amount*`, `*_total*`) is quote-verified only when the page prints its value whole, to the cent, where it was quoted — a label or a number cut short is not (ADR 0050). A read cut off at the output budget on a PDF of two or more pages whose type has a repeating group is re-read in two-page parts over the same document and joined on the wire before `reassemble` (`paging.ts`, ADR 0053): header fields from the part with page 1, a row kept by the part it starts in, rows renumbered in page order, every drop named on the call's `detail` |
 | `pipeline` | A `remittance_advice` opens one case per short-paid line (`openCasesFromRemittance`, ADR 0028): the short-pay is `deduction_amount` as printed else `gross − net`, never the model's arithmetic; only an **exact** identifier match merges, a probable one opens the case and names the other on the event; identifiers go to `deduction_identifiers`, never to a column of ours. An invoice printed on several lines of one advice keys each line `payment_reference:invoice#n` (`lineClaimIds`), so two deductions against one invoice are never an exact match for each other; an invoice on one line keeps ADR 0028's key, and a case opened under it is found again by amount (ADR 0048). Either opens only at or above the tenant's classification floor with a reading that fits its type; otherwise the document is held for a person and opened by `openHeldDocument`, which reads nothing (ADR 0044). `readDocument` reports a read whose rows will not rebuild into their own type (`document.stored_without_provenance`) and reads it anyway; `reconcileCase` reconciles over it and grades the gap — blocking when a money field is among the fields that were lost, a warning otherwise. Steps are pure functions over ports. `@recouple/pipeline/testing` never reaches production. `CaseWorkflowStore` (Phase 3, ADR 0020) is a *separate* port, not an extension of `PipelineStore`: the pipeline runs unattended, that one runs behind a person authorising money. Every refusal is a named `CaseWorkflowError`, never a bare `RangeError` |
 | `fixtures` | Document text, ground truth and expected extraction live together so they cannot drift |
 | `evals` | Never move a baseline to make a run pass |
@@ -204,7 +204,7 @@ with every invariant verified there, and email-in through Postmark (ADR 0047),
 live since 2026-09-25 on `in.mozart.financial`: its first message, from Gmail,
 was held by email and opened by a person (`docs/VERIFY-CHECKLIST.md` §5).
 
-Eleven recorded suites, every one of them scored
+Twelve recorded suites, every one of them scored
 separately (never blended — the mix changes, and a blended number moves when it
 does):
 
@@ -214,6 +214,7 @@ does):
 | held_out | does it generalise | 100% / 100% | 99.1% | 12/12 |
 | scanned | does it survive a scan | 99.1% / 100% | 100% | 12/12 |
 | dense | does it survive a 42-row remittance | 100% / 100% | 100% | 1/1 |
+| dense_paged | does a 190-row remittance read in page ranges join up | 99.9% / 99.9% | 100% | 1/1 |
 | email_body | does it work with no page at all | 100% / 100% | 100% | 1/1 |
 | logistics | does one dispute hold together across five documents | 89.5% / 89.5% | 100% | 5/5 |
 | authored_pending | shapes the numbers do not cover yet | 100% / 100% | 100% | 1/1 |
@@ -237,7 +238,8 @@ fails, because a rate averaged over fewer documents is not the number the
 baseline is being compared against. `customer` was recorded on 2026-09-22
 ($0.39, OCR through Reducto for the twelve photographs), `formats` on
 2026-09-24 ($0.10), and `public` and `public_scanned` on 2026-09-25 ($0.54,
-and $0.31 with OCR through Reducto), so `pendingSuites` is empty.
+and $0.31 with OCR through Reducto), and `dense_paged` on 2026-09-26 ($1.07),
+so `pendingSuites` is empty.
 
 `customer`'s misses are the useful part of it. As first recorded (2026-09-22),
 `stf-203-service-order-terms` — a staffing service order that fixes bill rates
@@ -303,7 +305,7 @@ invoice, 81.8% on the time register and 91.3% on the approval. The two quotes
 still refused are ones where OCR glued a rule onto a number (`STF-2011`,
 `0.001`), and refusing them is right: the text layer disagrees with the value.
 
-Classification is 77/77. Before `customer`, the two field
+Classification is 78/78. Before `customer`, the two field
 misses in the corpus were both the same field
 pair on one document: `commitments[0].supersedes` and `.establishes` on the
 LOG-001 appointment change, where the page prints "Appointment AP-BSC-771
@@ -318,11 +320,14 @@ content that contradicted the ground truth each scan inherits from its source.
 stamp is gone, the suite is twelve documents spanning nine document types, and
 a single flip now costs 8 points rather than 25.
 
-About $0.0272 per document across 77 of them, and 622 of 1,722 fields carry a
-bounding box a reviewer can follow. Extraction streams with a 32,000
-output-token budget because a dense document costs ~250 output tokens per row —
-roughly 120 rows before a read is cut off, at which point it fails loudly rather
-than storing a truncated document as a complete one.
+About $0.0272 per document across the 77 read in one call (the paged
+remittance alone is $1.05), and 622 of 2,506 fields carry a bounding box a
+reviewer can follow. Extraction streams with a 32,000 output-token budget
+because a dense document costs ~250 output tokens per row — roughly 120 rows
+before a read is cut off. A cut-off PDF of two or more pages whose type has a
+repeating group is then re-read in two-page parts and joined (ADR 0053, below);
+anything else fails loudly rather than storing a truncated document as a
+complete one.
 
 `apps/review-prototype` renders a reviewer's workspace over the recorded output —
 the scan with every field boxed and traceable to its quote. It is a prototype, not
@@ -1538,3 +1543,31 @@ them is misconfigured and logged as an error, and the variables are Production
 only. `recouple/alert.test`, sent from the dashboard, sends a `[TEST]` email
 (VERIFY-CHECKLIST §10). It does not catch a stall, which never fails; "Documents
 waiting to be read" stays that check.
+
+**A dense remittance is read in page ranges** (ADR 0053, no migration). A read
+past about 120 rows stops at the 32,000-token budget. `ClaudeExtractor` keeps
+its one call byte for byte, and only when that call stops at `max_tokens` on a
+PDF of two or more pages whose type has a repeating group does it re-ask the
+same document in two-page parts (`paging.ts`): the shared blocks carry a cache
+marker and one range block follows, the part with page 1 alone reports the
+header, a part that runs out is halved, a single page that runs out fails
+loudly, and 24 calls is the cap, refused before the wave that would pass it.
+`mergeChunkFields` joins the parts on the wire before `reassemble`: a row is
+kept by the part it starts in (the smallest `source_page` among its fields),
+so a row both parts read counts once and a row split across a boundary
+survives whole, and rows are renumbered in page order, the order ADR 0048's
+`#n` counts in. Everything spent is one `ModelCallRecord` whose `detail` names
+ranges, halvings, rows kept and every drop — never page text — and a part that
+fails throws with the summed cost. Recording it found the backstop had never
+been reachable: the SDK parses structured output at `message_stop`, so a
+cut-off reply threw "Failed to parse structured output" before `stop_reason`
+was read, and the read was recorded as an `error` costing nothing. The
+extractor now reads the stop reason from the stream's snapshot, so a cut-off
+is a `schema_mismatch` with its cost and a refusal a `ModelRefusalError`.
+`dense_paged` (190 rows, five pages, one invoice printed either side of the
+page 2/3 boundary) read in three parts for $1.05: 190 of 190 rows in order,
+784 quotes all on their pages, 99.9% recall (`payer_name` read as the payee).
+It took 344 seconds, past the Inngest route's 300-second `maxDuration`, so in
+production a read that dense would be killed and retried at full cost
+(`retries: 3`, about $4) until a proactive gate, a longer duration or a step
+per part is chosen — the founder's call.

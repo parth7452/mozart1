@@ -90,7 +90,7 @@ The gap between *it worked once* and *it works*:
 | **Email-in's failure paths** (ADR 0047) | The main path is live (above). Not yet exercised: forged `X-Spam-*` and `Authentication-Results` headers, an unaligned sender, an iPhone photo, mail over the size limit, a non-token recipient, a wrong secret's 401 being retried, and `pnpm sweep:inbound` against a real failure. Each is in `docs/VERIFY-CHECKLIST.md` §5.6–5.8 and comes before any customer is given an address |
 | **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
 | **Invited sign-in, and the claims guard** (ADR 0045, migration 0033; ADR 0051 §6, migration 0035) | 0033 was applied to `mozart-preview` and then production on 2026-09-24 and read back on both (md5, both functions still definer and pinned, same results and grants, a `sub`-only caller refused). The web half deployed on merge. ADR 0045's last two steps — a person invited from the dashboard, then sign-ups switched off — are superseded: on 2026-09-26 the founder switched "Allow new users to sign up" **on**, gated by three layers (ADR 0051 §6). The form asks the database (`app.address_is_invited()`) and lets the provider create an account only for an invited address, whose first email is the provider's "Confirm signup" and signs them in; every address still gets the same "sent" page, and an uninvited one gets `otp_disabled` whatever the switch says. A before-user-created hook (`hooks.before_user_created`) refuses an account for any address nobody invited on every path but the service-role admin create-user endpoint, the dashboard's "Send invitation" included, and never sees an account that already exists unconfirmed. `requireSession` refuses a session not made by an email link — a password sign-in included, which is what stops an invitee's address being pre-registered with an attacker's password — and signs out only that session. A person an owner adds on Settings → Team needs no dashboard invitation: their first link makes the account (its code expires five minutes after it was sent; a late click still confirms the address, and the next link works). **None of the three is live yet:** 0035 is not applied anywhere (`mozart-preview` first), the web change is unmerged, and the founder then enables the hook (Authentication → Hooks → Before User Created → Postgres → `hooks.before_user_created`). Until the hook is on, an anon-key holder can make an Auth user for any address; once it is, the operator finds those with ONBOARDING §2's supabase-only query and deletes them in the dashboard. What would prove it: a person added on Settings → Team signs in from the form with no dashboard step; an uninvited address gets the "sent" page and no account; a direct `/signup` for it is refused 403 by the hook; a password session is refused with `email_link_only` |
-| **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one |
+| **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one. Past about 120 rows a read is now re-asked in two-page parts (ADR 0053): the recorded 190-row advice read correctly in 344s, which is past the job's 300-second `maxDuration`, so a remittance that dense is expected to be killed and retried in production until the founder chooses a proactive gate, a longer duration or a step per part. Nobody has sent one through production |
 | **The classification floor** (ADR 0044) | A real notice or remittance classified below 0.950 is held in production — listed under "Read, not on a case" with its confidence, not read again on "Read again" — and "Open a case from it" opens its case with `confirmed_by` on `case.discovered` and no new `model_calls` row. Every real one read so far has been at 0.95 or above, so nothing in production has been held yet |
 
 Each row has a click-through in `docs/VERIFY-CHECKLIST.md`: the steps, what the
@@ -166,7 +166,7 @@ from a case page at all.
 
 ## Evals
 
-Ten recorded suites, each scored separately and never blended (the table is in
+Twelve recorded suites, each scored separately and never blended (the table is in
 `CLAUDE.md`). The newest, `public` (2026-09-25), is the first built from real
 documents: ten public records from ExtractBench, scored against ExtractBench's
 verified answers. 97.9% recall and precision, 10 of 10 classified. Recording it
@@ -176,6 +176,14 @@ names; that is fixed. Its scanned half, `public_scanned`, read through Reducto:
 checked. The values are right. The gaps are one scan citing a page it does not
 have, and quotes of whole table rows that Reducto stores as HTML cells. No suite
 is pending.
+
+`dense_paged` (2026-09-26, ADR 0053) is a 190-row, five-page remittance too
+dense for one reply. Its first call stops at the output budget and the paged
+read joins three two-page parts: 190 of 190 rows in page order, including one
+invoice printed either side of the page 2/3 boundary, every quote on its page,
+99.9% recall (the payer read as the payee). $1.05 and 344 seconds. Recording it
+found that a cut-off read had been failing as an SDK parse error that recorded
+no cost; that is fixed.
 
 A one-time check of 160 scanned office papers (RVL-CDIP) opened no case: the
 two pages read as payment advices really are check stubs, and both scored
