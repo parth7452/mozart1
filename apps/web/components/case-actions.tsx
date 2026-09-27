@@ -64,6 +64,11 @@ export interface CaseActionsProps {
    * one: both routes would answer 409.
    */
   readonly unservable: ReadonlyMap<string, ServingRefusal>;
+  /**
+   * Moment 1 (ADR 0060 §2): posting is live for this case, so the approve
+   * button also authorises the found posting, and says so.
+   */
+  readonly postsFound?: boolean;
 }
 
 /**
@@ -88,6 +93,7 @@ export function CaseActions({
   viewerUserId,
   filenames,
   unservable,
+  postsFound = false,
 }: CaseActionsProps) {
   const decision = workflow?.decision;
   const packet = workflow?.packet;
@@ -238,8 +244,11 @@ export function CaseActions({
                   a browser that stopped at a different one would hand the
                   handler a note the person thought they had finished. */}
               <textarea id="approval-note" name="note" rows={2} maxLength={NOTE_MAX_LENGTH} />
+              {postsFound ? <input type="hidden" name="postWriteback" value="1" /> : null}
               <button className="primary" type="submit">
-                Approve for submission
+                {postsFound
+                  ? 'Approve for submission and post the deduction to QuickBooks'
+                  : 'Approve for submission'}
               </button>
             </form>
           ) : (

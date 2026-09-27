@@ -118,6 +118,66 @@ export interface SettlementResult {
   readonly payment_id?: string;
 }
 
+/** A settlement approval refused by the database's separation of duties. */
+export class SettlementApprovalRefusedError extends PostingStoreError {
+  override readonly name = 'SettlementApprovalRefusedError';
+  constructor(
+    readonly decisionId: string,
+    readonly reason: 'preparer' | 'role' | 'duplicate',
+  ) {
+    super(`settlement approval refused for decision ${decisionId}: ${reason}`);
+  }
+}
+
+export interface PostingConnectionView {
+  readonly connectionId: string;
+  readonly realmId: string;
+  readonly postingEnabled: boolean;
+  readonly map: (LedgerAccountMap & { readonly mapId: string }) | undefined;
+}
+
+export interface CaseWriteback {
+  readonly writebackId: string;
+  readonly decisionId: string;
+  readonly connectionId: string | undefined;
+  readonly method: WritebackMethod;
+  readonly status: 'pending' | 'succeeded' | 'failed';
+  readonly qboTxnId: string | undefined;
+  readonly amountCents: Cents | undefined;
+}
+
+export interface CasePosting {
+  readonly connection:
+    | { readonly connectionId: string; readonly postingEnabled: boolean; readonly hasMap: boolean }
+    | undefined;
+  readonly ledgerInvoiceId: string | undefined;
+  readonly writebacks: readonly CaseWriteback[];
+  readonly settlement:
+    | {
+        readonly decisionId: string;
+        readonly preparedBy: string;
+        readonly outcome: SettlementOutcome;
+        readonly recoveredCents: Cents;
+        readonly invoiceId: string;
+        readonly approved: boolean;
+      }
+    | undefined;
+}
+
+function settlementApprovalRefusal(error: unknown, decisionId: string, approverId: string): unknown {
+  const state = sqlState(error);
+  const text = error instanceof Error ? error.message : '';
+  if (state === '23505') return new SettlementApprovalRefusedError(decisionId, 'duplicate');
+  if (state === '23001' && /cannot approve their own decision/.test(text)) {
+    return new SettlementApprovalRefusedError(decisionId, 'preparer');
+  }
+  if (state === '23001' && /is not an approver/.test(text)) {
+    return new SettlementApprovalRefusedError(decisionId, 'role');
+  }
+  void approverId;
+  return error;
+}
+
 /** Everything the posting job needs about one row, ids and cents only. */
 export interface WritebackToPost {
   readonly writebackId: string;
@@ -638,6 +698,197 @@ export class PostgresPostingStore {
         approvedOn: approvedAt.toISOString().slice(0, 10),
         map: toMap(mapRow),
         journalEntryId: entry.rows[0]?.qbo_txn_id ?? undefined,
+      };
+    });
+  }
+
+  /**
+   * Moment 2's approval (ADR 0060 §2): a `writeback` approval for a
+   * settlement decision, and a `writeoff` approval with it when the entry
+   * writes anything off. One transaction. Separation of duties is the
+   * database's, unchanged: the preparer is refused as on every approval.
+   */
+  async approveSettlement(decisionId: string): Promise<{
+    readonly deductionId: string;
+    readonly writeoffCents: Cents;
+  }> {
+    return this.withTenant(async (client) => {
+      const facts = await readDecisionFacts(client, decisionId);
+      if (facts.schemaId !== SETTLEMENT_SCHEMA_ID) {
+        throw new PostingDecisionError('only a settlement decision is approved here');
+      }
+      const writeoffCents = expenseDebit(facts);
+      const actions: Array<'writeback' | 'writeoff'> =
+        writeoffCents > 0 ? ['writeback', 'writeoff'] : ['writeback'];
+      for (const action of actions) {
+        let approvalId: string | undefined;
+        try {
+          const { rows } = await client.query<{ id: string }>(
+            `insert into approvals (org_id, decision_id, approver_id, action_type)
+             values ($1, $2, $3, $4) returning id`,
+            [this.tenant.orgId, decisionId, this.tenant.userId, action],
+          );
+          approvalId = rows[0]?.id;
+        } catch (error) {
+          throw settlementApprovalRefusal(error, decisionId, this.tenant.userId);
+        }
+        if (approvalId === undefined) throw new Error('insert into approvals returned no row');
+        await appendEvent(client, this.tenant, facts.deductionId, 'approval.granted', {
+          approval_id: approvalId,
+          decision_id: decisionId,
+          action_type: action,
+          approver_id: this.tenant.userId,
+        });
+      }
+      return { deductionId: facts.deductionId, writeoffCents };
+    });
+  }
+
+  /**
+   * A person's "Check QuickBooks and retry": a `failed` row goes back to
+   * `pending` with an event saying who asked, and the job then reads back by
+   * reference before it sends anything. The row, and so its request id, is
+   * the same one — never a new row.
+   */
+  async requeueWriteback(writebackId: string): Promise<{
+    readonly deductionId: string;
+    readonly connectionId: string;
+  }> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        deduction_id: string;
+        connection_id: string | null;
+        status: string;
+      }>(`select deduction_id, connection_id, status from writebacks where id = $1 for update`, [
+        writebackId,
+      ]);
+      const row = rows[0];
+      if (row === undefined || row.connection_id === null) throw new WritebackNotFoundError(writebackId);
+      if (row.status !== 'failed') {
+        throw new PostingDecisionError(`writeback ${writebackId} is ${row.status}, not failed`);
+      }
+      await appendEvent(client, this.tenant, row.deduction_id, 'writeback.retry_requested', {
+        writeback_id: writebackId,
+        requested_by: this.tenant.userId,
+      });
+      await client.query(`update writebacks set status = 'pending' where id = $1`, [writebackId]);
+      return { deductionId: row.deduction_id, connectionId: row.connection_id };
+    });
+  }
+
+  /** The tenant's QuickBooks connections as Settings → QuickBooks shows them. */
+  async postingConnections(): Promise<readonly PostingConnectionView[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        id: string;
+        provider_account_id: string;
+        posting_enabled: boolean;
+        map_id: string | null;
+        ar_account_id: string | null;
+        deductions_receivable_account_id: string | null;
+        writeoff_by_family: Record<string, string> | null;
+        unclassified_writeoff: string | null;
+      }>(
+        `select c.id, c.provider_account_id, c.posting_enabled,
+                m.id as map_id, m.ar_account_id, m.deductions_receivable_account_id,
+                m.writeoff_by_family, m.unclassified_writeoff
+           from accounting_connections c
+           left join lateral (
+             select * from ledger_account_maps l
+              where l.connection_id = c.id order by l.seq desc limit 1
+           ) m on true
+          where c.enabled and c.provider = 'qbo'
+          order by c.created_at, c.id`,
+      );
+      return rows.map((row) => ({
+        connectionId: row.id,
+        realmId: row.provider_account_id,
+        postingEnabled: row.posting_enabled,
+        map:
+          row.map_id === null
+            ? undefined
+            : {
+                ...toMap(row as unknown as MapRow),
+                mapId: row.map_id,
+              },
+      }));
+    });
+  }
+
+  /**
+   * What the case page needs to offer posting: the tenant's one enabled
+   * connection (none when there are several — which one is not ours to
+   * guess), the case's writebacks, and its latest settlement decision.
+   */
+  async postingForCase(deductionId: string): Promise<CasePosting> {
+    return this.withTenant(async (client) => {
+      const connections = await client.query<{ id: string; posting_enabled: boolean; has_map: boolean }>(
+        `select c.id, c.posting_enabled,
+                exists (select 1 from ledger_account_maps l where l.connection_id = c.id) as has_map
+           from accounting_connections c
+          where c.enabled and c.provider = 'qbo'`,
+      );
+      const only = connections.rows.length === 1 ? connections.rows[0] : undefined;
+      const writebacks = await client.query<{
+        id: string;
+        decision_id: string;
+        connection_id: string | null;
+        method: WritebackMethod;
+        status: 'pending' | 'succeeded' | 'failed';
+        qbo_txn_id: string | null;
+        amount_cents: string | null;
+      }>(
+        `select id, decision_id, connection_id, method, status, qbo_txn_id, amount_cents::text
+           from writebacks where deduction_id = $1 order by created_at, id`,
+        [deductionId],
+      );
+      const invoice = await client.query<{ identifier: string }>(
+        `select identifier from deduction_identifiers
+          where deduction_id = $1 and identifier_kind = 'ledger_invoice_id'
+          order by identifier limit 1`,
+        [deductionId],
+      );
+      const settlement = await client.query<{
+        id: string;
+        prepared_by: string;
+        result: SettlementResult;
+        approved: boolean;
+      }>(
+        `select d.id, d.prepared_by, d.result,
+                exists (select 1 from approvals a
+                         where a.decision_id = d.id and a.action_type = 'writeback') as approved
+           from decisions d
+          where d.deduction_id = $1 and d.schema_id = $2
+          order by d.created_at desc, d.id desc limit 1`,
+        [deductionId, SETTLEMENT_SCHEMA_ID],
+      );
+      const latest = settlement.rows[0];
+      return {
+        connection:
+          only === undefined
+            ? undefined
+            : { connectionId: only.id, postingEnabled: only.posting_enabled, hasMap: only.has_map },
+        ledgerInvoiceId: invoice.rows[0]?.identifier,
+        writebacks: writebacks.rows.map((row) => ({
+          writebackId: row.id,
+          decisionId: row.decision_id,
+          connectionId: row.connection_id ?? undefined,
+          method: row.method,
+          status: row.status,
+          qboTxnId: row.qbo_txn_id ?? undefined,
+          amountCents: row.amount_cents === null ? undefined : exact(row.amount_cents, 'amount_cents'),
+        })),
+        settlement:
+          latest === undefined
+            ? undefined
+            : {
+                decisionId: latest.id,
+                preparedBy: latest.prepared_by,
+                outcome: latest.result.outcome,
+                recoveredCents: cents(latest.result.recovered_cents),
+                invoiceId: latest.result.invoice_id,
+                approved: latest.approved,
+              },
       };
     });
   }

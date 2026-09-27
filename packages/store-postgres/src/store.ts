@@ -4787,6 +4787,7 @@ export class PostgresStore
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    readonly alsoWriteback?: boolean;
   }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
     return this.withTenant((client) => workflow.approve(client, this.tenant, input));
   }

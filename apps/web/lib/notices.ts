@@ -939,6 +939,86 @@ export const NOTICES = {
     tone: 'bad',
     text: 'that spreadsheet has more sheets, rows, columns or text than this app reads',
   },
+  posting_off: {
+    tone: 'bad',
+    text: 'posting to QuickBooks is not turned on for this deployment; nothing was changed or sent',
+  },
+  posting_role: {
+    tone: 'bad',
+    text: 'only an owner changes how this workspace posts to QuickBooks',
+  },
+  posting_unknown_connection: {
+    tone: 'bad',
+    text: 'that QuickBooks connection is not a current connection of this workspace',
+  },
+  posting_map_invalid: {
+    tone: 'bad',
+    text: 'every account in the map needs its QuickBooks id — nothing was saved',
+  },
+  posting_map_types: {
+    tone: 'bad',
+    text: 'QuickBooks reports an account in the map as the wrong type — receivables need Accounts Receivable, the deductions receivable Other Current Asset, a write-off Expense or Other Expense — so nothing was saved',
+  },
+  posting_map_unreadable: {
+    tone: 'bad',
+    text: 'QuickBooks could not be asked about those accounts just now, so nothing was saved; try again',
+  },
+  posting_map_saved: {
+    tone: 'good',
+    text: 'the account map is saved; postings approved from now on use it',
+  },
+  posting_needs_map: {
+    tone: 'bad',
+    text: 'posting cannot be turned on until an account map is saved',
+  },
+  posting_enabled: {
+    tone: 'good',
+    text: 'posting to QuickBooks is on for this company; nothing is sent until someone approves it',
+  },
+  posting_disabled: {
+    tone: 'good',
+    text: 'posting to QuickBooks is off for this company; nothing more will be sent',
+  },
+  approved_and_posting: {
+    tone: 'good',
+    text: 'approved for submission, and the found posting is queued for QuickBooks',
+  },
+  posting_not_queued: {
+    tone: 'bad',
+    text: 'the approval is recorded, but its posting could not be queued — use Check QuickBooks and retry below',
+  },
+  settle_invalid: {
+    tone: 'bad',
+    text: 'that settlement does not balance or names no invoice, so nothing was prepared',
+  },
+  settle_prepared: {
+    tone: 'good',
+    text: 'the settlement is prepared; a second person approves it before anything is posted',
+  },
+  settle_is_preparer: {
+    tone: 'bad',
+    text: 'you prepared this settlement, so you cannot approve it — a second person does that',
+  },
+  settle_role: {
+    tone: 'bad',
+    text: 'an owner or an approver approves a settlement',
+  },
+  settle_duplicate: {
+    tone: 'bad',
+    text: 'this settlement was already approved; the first approval stands',
+  },
+  settle_approved: {
+    tone: 'good',
+    text: 'the settlement is approved and its posting is queued for QuickBooks',
+  },
+  writeback_retried: {
+    tone: 'good',
+    text: 'QuickBooks will be checked for this posting first, and it is sent again only if nothing there carries it',
+  },
+  writeback_not_retryable: {
+    tone: 'bad',
+    text: 'that posting succeeded or is not waiting for a retry, so nothing was sent',
+  },
   // `satisfies`, not a type annotation: the keys stay literal, so `NoticeKey`
   // is the set of them and a route that names a notice this table does not have
   // fails to compile rather than redirecting to a page that silently shows

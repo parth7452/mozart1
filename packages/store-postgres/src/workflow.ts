@@ -822,6 +822,7 @@ export async function approve(
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    readonly alsoWriteback?: boolean;
   },
 ): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
   requireCaller(input.approverId, tenant.userId, 'approve');
@@ -917,6 +918,27 @@ export async function approve(
       return error;
     },
   );
+
+  // Moment 1 (ADR 0060 §2): where posting is on, the same press authorises the
+  // found posting too — a second `approvals` row, `writeback`, for the same
+  // decision and in the same transaction, so the two stand or fall together.
+  // The gate and separation of duties judge it exactly as they judged the first.
+  if (input.alsoWriteback === true) {
+    const { rows } = await client.query<{ id: string }>(
+      `insert into approvals (org_id, decision_id, approver_id, action_type, note)
+       values ($1, $2, $3, 'writeback', $4)
+       returning id`,
+      [tenant.orgId, input.decisionId, input.approverId, input.note ?? null],
+    );
+    const writebackApprovalId = rows[0]?.id;
+    if (writebackApprovalId === undefined) throw new Error('insert into approvals returned no row');
+    await appendEvent(client, tenant, packet.deductionId, 'approval.granted', {
+      approval_id: writebackApprovalId,
+      decision_id: input.decisionId,
+      action_type: 'writeback',
+      approver_id: input.approverId,
+    });
+  }
 
   // No state change: approving is what lets the case leave `awaiting_approval`,
   // and recording the submission is what moves it. This is the

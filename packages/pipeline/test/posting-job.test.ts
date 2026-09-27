@@ -68,6 +68,7 @@ function harness(row: PostingWriteback | undefined, client: Partial<PostingLedge
       return { Id: '301' };
     },
     getById: async (_entity, id) => echo(id, posts[0]?.body),
+    findByReference: async () => [],
     ...client,
   };
   const deps = {
@@ -176,6 +177,7 @@ describe('post-writeback', () => {
         return { Id: '302' };
       },
       getById: async () => echo('302', ready.posts[0]?.body),
+      findByReference: async () => [],
     });
     await expect(postWritebackJob(ready.deps, { writebackId })).resolves.toMatchObject({
       status: 'succeeded',
@@ -190,5 +192,65 @@ describe('post-writeback', () => {
       status: 'already_succeeded',
     });
     expect(h.posts).toHaveLength(0);
+  });
+
+  describe('a person\'s retry reads back by reference first', () => {
+    async function sentBody(): Promise<JsonObject> {
+      const first = harness(foundRow());
+      await postWritebackJob(first.deps, { writebackId });
+      return first.posts[0]!.body;
+    }
+
+    it('finds the entry already posted and sends nothing', async () => {
+      const body = await sentBody();
+      const references: string[] = [];
+      const h = harness(foundRow(), {
+        findByReference: async (_entity, reference) => {
+          references.push(reference);
+          return [echo('301', body)];
+        },
+      });
+      await expect(postWritebackJob(h.deps, { writebackId, retry: true })).resolves.toMatchObject({
+        status: 'succeeded',
+        qboTxnId: '301',
+      });
+      expect(references).toEqual([`RC${writebackId.replace(/-/g, '').slice(0, 19)}`]);
+      expect(h.posts).toHaveLength(0);
+      expect(h.attempts).toEqual([
+        { writebackId, status: 'succeeded', qboTxnId: '301', reason: 'found_on_retry' },
+      ]);
+    });
+
+    it('sends again with the same request id when nothing carries the reference', async () => {
+      const h = harness(foundRow());
+      await expect(postWritebackJob(h.deps, { writebackId, retry: true })).resolves.toMatchObject({
+        status: 'succeeded',
+      });
+      expect(h.posts.map((p) => p.requestId)).toEqual([writebackId]);
+    });
+
+    it('refuses two entities carrying one reference', async () => {
+      const body = await sentBody();
+      const h = harness(foundRow(), {
+        findByReference: async () => [echo('301', body), echo('305', body)],
+      });
+      await expect(postWritebackJob(h.deps, { writebackId, retry: true })).rejects.toBeInstanceOf(
+        WritebackFailedError,
+      );
+      expect(h.posts).toHaveLength(0);
+      expect(h.attempts[0]).toMatchObject({ status: 'failed', reason: 'ambiguous_reference' });
+    });
+
+    it('a first send never looks', async () => {
+      let looked = false;
+      const h = harness(foundRow(), {
+        findByReference: async () => {
+          looked = true;
+          return [];
+        },
+      });
+      await postWritebackJob(h.deps, { writebackId });
+      expect(looked).toBe(false);
+    });
   });
 });

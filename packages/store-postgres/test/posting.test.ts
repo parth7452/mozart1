@@ -12,6 +12,7 @@ import {
   WritebackNotApprovedError,
   WriteoffAmountMismatchError,
   type AccountTypeReader,
+  PostingDecisionError,
 } from '../src/posting';
 import { closeAllPools, PostgresStore } from '../src/store';
 
@@ -251,5 +252,56 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
     );
     expect((await as(ownerId).mapAtApproval(connectionId, approvedAt))?.arAccountId).toBe('84');
     expect((await as(ownerId).mapAtApproval(connectionId, new Date()))?.arAccountId).toBe('85');
+  });
+
+  it('approves a settlement as a second person only, and puts a failed posting back for a retry', async () => {
+    const { decisionId } = await as(analystId).prepareSettlementDecision({
+      deductionId: caseId,
+      preparedBy: analystId,
+      outcome: 'lost',
+      recoveredCents: cents(0),
+      family: 'shortage',
+      invoiceId: '71',
+    });
+    await expect(as(analystId).approveSettlement(decisionId)).rejects.toMatchObject({
+      name: 'SettlementApprovalRefusedError',
+      reason: 'preparer',
+    });
+    await expect(as(approverId).approveSettlement(decisionId)).resolves.toEqual({
+      deductionId: caseId,
+      writeoffCents: amount,
+    });
+    const { rows: approvals } = await admin.query(
+      `select action_type from approvals where decision_id = $1 order by action_type`,
+      [decisionId],
+    );
+    expect(approvals.map((r) => r.action_type)).toEqual(['writeback', 'writeoff']);
+    await expect(as(ownerId).approveSettlement(decisionId)).rejects.toMatchObject({ reason: 'duplicate' });
+
+    const seen = await as(analystId).postingForCase(caseId);
+    expect(seen.connection).toMatchObject({ connectionId, hasMap: true });
+    expect(seen.ledgerInvoiceId).toBe('71');
+    expect(seen.settlement).toMatchObject({ decisionId, outcome: 'lost', preparedBy: analystId, approved: true });
+
+    const { writebackId } = await as(approverId).insertWriteback({
+      decisionId,
+      method: 'journal_entry',
+      connectionId,
+    });
+    await expect(as(analystId).requeueWriteback(writebackId)).rejects.toBeInstanceOf(PostingDecisionError);
+    await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'unknown_outcome' });
+    await expect(as(analystId).requeueWriteback(writebackId)).resolves.toEqual({
+      deductionId: caseId,
+      connectionId,
+    });
+    const { rows } = await admin.query(`select status, request_id from writebacks where id = $1`, [writebackId]);
+    expect(rows[0]).toEqual({ status: 'pending', request_id: writebackId });
+    const { rows: asked } = await admin.query(
+      `select payload->>'requested_by' as who from deduction_events
+        where deduction_id = $1 and event_type = 'writeback.retry_requested'`,
+      [caseId],
+    );
+    expect(asked).toEqual([{ who: analystId }]);
+    expect((await as(ownerId).postingConnections()).map((c) => c.connectionId)).toEqual([connectionId]);
   });
 });

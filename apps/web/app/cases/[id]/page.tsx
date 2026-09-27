@@ -12,6 +12,8 @@ import { viewerOf } from '../../../lib/viewer';
 import { reviewPipelineDeps } from '../../../lib/review-deps';
 import { isSpreadsheetMime } from '@recouple/ingest';
 import { sheetExtractFor } from '../../../lib/sheet-extract-load';
+import { qboPostingFromEnv } from '../../../lib/qbo-posting';
+import { postingStoreFor } from '../../../lib/posting';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,6 +94,9 @@ export default async function CasePage({
         // remittances linked to this case when it printed none of its own.
         store.payerTermsForCase(id),
       ]);
+    // Read only where the deployment posts at all (`QBO_POSTING`, ADR 0060 §5):
+    // elsewhere the card, the retry and the posting approve label do not exist.
+    const posting = qboPostingFromEnv() === undefined ? undefined : await postingStoreFor(session).postingForCase(id);
 
     // Computed, never stored (ADR 0059). The first set starts 2000-01-01, so
     // a decision's own date always resolves one.
@@ -132,6 +137,7 @@ export default async function CasePage({
         attachable={attachable}
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
+        posting={posting}
       />
     );
   } finally {

@@ -215,4 +215,47 @@ describe('QboClient writes', () => {
     expect(new URL(call!.url).pathname).toMatch(/\/payment\/902$/);
     expect(call!.headers.get('Request-Id')).not.toBe(ROW);
   });
+
+  it('finds a posting by our reference, and refuses anything else', async () => {
+    const recorder = recordingFetch(() =>
+      jsonResponse({ QueryResponse: { JournalEntry: [(fixture('posting/journalentry-created.json') as JsonObject)['JournalEntry']] } }),
+    );
+    const client = new QboClient(configFor(recorder.fetchImpl));
+    const reference = 'RC1111111122224333844';
+    const rows = await client.findByReference('JournalEntry', reference);
+    expect(rows).toHaveLength(1);
+    const [call] = recorder.calls;
+    expect(new URL(call!.url).searchParams.get('query')).toBe(
+      `select * from JournalEntry where DocNumber = '${reference}'`,
+    );
+    expect(call!.headers.get('Request-Id')).not.toBe(ROW);
+    await expect(client.findByReference('Payment', "x' or 1=1")).rejects.toThrow(/reference/);
+    expect(recorder.calls).toHaveLength(1);
+  });
+
+  it('an empty query answer is no posting', async () => {
+    const recorder = recordingFetch(() => jsonResponse({ QueryResponse: {} }));
+    const client = new QboClient(configFor(recorder.fetchImpl));
+    await expect(client.findByReference('Payment', 'RC1111111122224333844')).resolves.toEqual([]);
+    expect(new URL(recorder.calls[0]!.url).searchParams.get('query')).toMatch(/PaymentRefNum = 'RC/);
+  });
+
+  it('reads account types live by id', async () => {
+    const recorder = recordingFetch(() =>
+      jsonResponse({
+        QueryResponse: {
+          Account: [
+            { Id: '84', AccountType: 'Accounts Receivable' },
+            { Id: '90', AccountType: 'Other Current Asset' },
+          ],
+        },
+      }),
+    );
+    const client = new QboClient(configFor(recorder.fetchImpl));
+    const types = await client.accountTypes(['84', '90', '84']);
+    expect(Object.fromEntries(types)).toEqual({ '84': 'Accounts Receivable', '90': 'Other Current Asset' });
+    expect(new URL(recorder.calls[0]!.url).searchParams.get('query')).toMatch(
+      /^select \* from Account where Id in \('84', '90'\)/,
+    );
+  });
 });

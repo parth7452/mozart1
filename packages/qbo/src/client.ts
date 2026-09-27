@@ -162,7 +162,7 @@ export class QboClient {
    * row's position in the list a caller finally sees.
    */
   private async queryAll(
-    entity: QboEntity,
+    entity: QboEntity | 'Account',
     where: string,
     offset = 0,
   ): Promise<readonly JsonObject[]> {
@@ -229,6 +229,45 @@ export class QboClient {
       JSON.stringify(body),
     );
     return readObject(payload[entity], entity);
+  }
+
+  /**
+   * Finds what we posted by the reference we stamped on it (`DocNumber` on a
+   * JournalEntry, `PaymentRefNum` on a Payment), so a person's retry can read
+   * back before it sends again (ADR 0060 §3). Refuses anything that is not
+   * one of our own references, since it is spliced into a query. Answers the
+   * rows found: none, one, or — never ours to resolve — more.
+   */
+  async findByReference(entity: QboWriteEntity, reference: string): Promise<readonly JsonObject[]> {
+    if (!/^RC[0-9a-f]{19}$/.test(reference)) {
+      throw new QboMalformedResponse('a posting reference is RC plus 19 hex digits', 'reference');
+    }
+    const field = entity === 'JournalEntry' ? 'DocNumber' : 'PaymentRefNum';
+    const body = await this.query(`select * from ${entity} where ${field} = '${reference}'`);
+    const queryResponse = readObject(body['QueryResponse'], 'QueryResponse');
+    return readArray(queryResponse[entity], `QueryResponse.${entity}`).map((row, index) =>
+      readObject(row, `QueryResponse.${entity}[${index}]`),
+    );
+  }
+
+  /**
+   * Each named account's `AccountType`, read live, for checking an account
+   * map before it is saved (ADR 0060 §4). An id QuickBooks does not have is
+   * absent from the answer. We never create an account.
+   */
+  async accountTypes(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const unique = [...new Set(ids.map((id) => assertQboId(id)))];
+    const types = new Map<string, string>();
+    for (let at = 0; at < unique.length; at += QBO_IDS_PER_QUERY) {
+      const chunk = unique.slice(at, at + QBO_IDS_PER_QUERY);
+      const list = chunk.map((id) => `'${id}'`).join(', ');
+      for (const row of await this.queryAll('Account', `Id in (${list})`)) {
+        const id = row['Id'];
+        const type = row['AccountType'];
+        if (typeof id === 'string' && typeof type === 'string') types.set(id, type);
+      }
+    }
+    return types;
   }
 
   /** Reads one entity back by its QuickBooks id, with a fresh request id. */

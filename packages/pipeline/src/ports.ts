@@ -1144,6 +1144,8 @@ export interface CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    /** ADR 0060 moment 1: also write the `writeback` approval, same transaction. */
+    readonly alsoWriteback?: boolean;
   }): Promise<{ readonly approvalId: string; readonly deductionId: string }>;
 
   /**

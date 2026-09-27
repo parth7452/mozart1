@@ -9,7 +9,9 @@ import {
   WrongCaseStateError,
   WrongRoleError,
 } from '@recouple/pipeline';
-import { ApprovedPacketMissingError } from '@recouple/store-postgres';
+import { ApprovedPacketMissingError, PostingStoreError } from '@recouple/store-postgres';
+import { qboPostingFromEnv } from '../../../../lib/qbo-posting';
+import { postingStoreFor, queueDecisionPostings } from '../../../../lib/posting';
 import { requireSession } from '../../../../lib/session';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
 import { NOTE_MAX_LENGTH } from '../../../../lib/notices';
@@ -77,6 +79,28 @@ export async function POST(
     );
   }
 
+  // Moment 1 (ADR 0060 §2): the approve card's one button also authorises
+  // the found posting, but only where the card offered it — the deployment
+  // posts, the connection's switch is on with a map, and the case names its
+  // ledger invoice. A press that asks for a posting nothing here would make is
+  // refused whole, not approved without the half the label promised.
+  let posting: { readonly connectionId: string } | undefined;
+  if (form.get('postWriteback') === '1') {
+    if (qboPostingFromEnv() === undefined) {
+      return NextResponse.redirect(backToCase(request.url, id, 'posting_off'), { status: 303 });
+    }
+    const ready = await postingStoreFor(session).postingForCase(id);
+    if (
+      ready.connection === undefined ||
+      !ready.connection.postingEnabled ||
+      !ready.connection.hasMap ||
+      ready.ledgerInvoiceId === undefined
+    ) {
+      return NextResponse.redirect(backToCase(request.url, id, 'posting_off'), { status: 303 });
+    }
+    posting = { connectionId: ready.connection.connectionId };
+  }
+
   const store = workflowStoreFor(session);
   try {
     const { deductionId } = await store.approve({
@@ -84,6 +108,7 @@ export async function POST(
       packetId,
       approverId: session.userId,
       ...(said === '' ? {} : { note: said }),
+      ...(posting !== undefined ? { alsoWriteback: true } : {}),
     });
     // The store approves the *packet's* case, which is not necessarily the case
     // in this URL: the ids come off a form, and a stale or forged one can name
@@ -100,6 +125,23 @@ export async function POST(
     if (!sameCase(deductionId, id)) {
       return NextResponse.redirect(
         backToCase(request.url, deductionId, 'approve_other_case'),
+        { status: 303 },
+      );
+    }
+    if (posting !== undefined) {
+      let queued = false;
+      try {
+        queued = await queueDecisionPostings(session, postingStoreFor(session), {
+          decisionId,
+          connectionId: posting.connectionId,
+          withPayment: true,
+        });
+      } catch (cause) {
+        if (!(cause instanceof PostingStoreError)) throw cause;
+        console.error(`[recouple] approve: posting not queued (${cause.name}), decision ${decisionId}`);
+      }
+      return NextResponse.redirect(
+        backToCase(request.url, id, queued ? 'approved_and_posting' : 'posting_not_queued'),
         { status: 303 },
       );
     }

@@ -24,6 +24,8 @@ import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
+import { CasePostingCard } from './case-posting';
+import type { CasePosting } from '@recouple/store-postgres';
 import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
 import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
@@ -313,6 +315,8 @@ export interface CaseReviewProps {
   readonly notice?: string | undefined;
   /** The validated fragments the key's text names, in order. */
   readonly noticeAbout?: readonly string[] | undefined;
+  /** The case's QuickBooks postings, only on a deployment that posts (ADR 0060). */
+  readonly posting?: CasePosting | undefined;
 }
 
 /**
@@ -348,6 +352,7 @@ export function CaseReview({
   attachable,
   notice,
   noticeAbout,
+  posting,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -716,6 +721,11 @@ export function CaseReview({
               viewerUserId={viewerUserId}
               filenames={filenames}
               unservable={unservable}
+              postsFound={
+                posting?.connection?.postingEnabled === true &&
+                posting.connection.hasMap &&
+                posting.ledgerInvoiceId !== undefined
+              }
             />
             <DraftJournal
               amountCents={summary.deductionAmountCents}
@@ -725,6 +735,15 @@ export function CaseReview({
               family={workflow?.decision ? familyOf(workflow.decision.reason) : undefined}
               printedReasonCode={summary.reasonCodeAsPrinted ?? undefined}
             />
+            {posting === undefined ? null : (
+              <CasePostingCard
+                deductionId={summary.deductionId}
+                posting={posting}
+                mayAct={mayAct}
+                mayApprove={mayApprove}
+                viewerUserId={viewerUserId}
+              />
+            )}
 
             {/* Fighting and declining are the two answers to the same
                 question, so they are offered together and only while the

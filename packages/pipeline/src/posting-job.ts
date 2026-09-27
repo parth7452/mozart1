@@ -17,6 +17,7 @@ import {
   buildFoundEntry,
   buildSettlementEntry,
   buildZeroPayment,
+  postingReference,
   verifyReadBack,
   type JsonObject,
   type LedgerAccountMap,
@@ -67,6 +68,8 @@ export interface PostingJobStore {
 export interface PostingLedgerClient {
   post(entity: QboWriteEntity, body: JsonObject, requestId: string): Promise<JsonObject>;
   getById(entity: QboWriteEntity, id: string): Promise<JsonObject>;
+  /** What carries our reference in QuickBooks: read before a person's retry sends. */
+  findByReference(entity: QboWriteEntity, reference: string): Promise<readonly JsonObject[]>;
   /** The invoice's `CustomerRef`, read live: text off a page never picks it. */
   invoiceCustomer(invoiceId: string): Promise<string>;
 }
@@ -109,7 +112,12 @@ export class WritebackFailedError extends Error {
   override readonly name = 'WritebackFailedError';
   constructor(
     readonly writebackId: string,
-    readonly reason: 'send_failed' | 'unknown_outcome' | 'readback_failed' | 'readback_mismatch',
+    readonly reason:
+      | 'send_failed'
+      | 'unknown_outcome'
+      | 'readback_failed'
+      | 'readback_mismatch'
+      | 'ambiguous_reference',
   ) {
     super(`writeback ${writebackId} failed: ${reason}`);
   }
@@ -121,7 +129,12 @@ export type PostingJobResult =
 
 export async function postWritebackJob(
   deps: PostingJobDeps,
-  input: { readonly writebackId: string },
+  /**
+   * `retry` is a person's "Check QuickBooks and retry": the row is read back
+   * by its reference first, and sent again — with the same request id — only
+   * when QuickBooks holds nothing carrying it.
+   */
+  input: { readonly writebackId: string; readonly retry?: boolean },
 ): Promise<PostingJobResult> {
   const { writebackId } = input;
   const refuse = (reason: PostingRefusal): never => {
@@ -147,6 +160,48 @@ export async function postWritebackJob(
   const posting = buildPosting(row, row.invoiceId, customerId);
   if (posting.entity === 'JournalEntry' && !sameLines(posting.lines, row.lines)) {
     refuse('lines_changed');
+  }
+
+  if (input.retry === true) {
+    let existing: readonly JsonObject[];
+    try {
+      existing = await client.findByReference(posting.entity, postingReference(writebackId));
+    } catch (error) {
+      const { httpStatus, faultCode } = failureOf(error);
+      await deps.store.recordWritebackAttempt({
+        writebackId,
+        status: 'failed',
+        reason: 'readback_failed',
+        ...(httpStatus !== undefined ? { httpStatus } : {}),
+        ...(faultCode !== undefined ? { faultCode } : {}),
+      });
+      throw new WritebackFailedError(writebackId, 'readback_failed');
+    }
+    if (existing.length > 1) {
+      await deps.store.recordWritebackAttempt({ writebackId, status: 'failed', reason: 'ambiguous_reference' });
+      throw new WritebackFailedError(writebackId, 'ambiguous_reference');
+    }
+    const [already] = existing;
+    if (already !== undefined) {
+      const foundId = typeof already['Id'] === 'string' ? already['Id'] : undefined;
+      const verdict = verifyReadBack(posting, already);
+      if (foundId === undefined || verdict !== 'match') {
+        await deps.store.recordWritebackAttempt({
+          writebackId,
+          status: 'failed',
+          reason: 'readback_mismatch',
+          ...(verdict !== 'match' ? { mismatch: verdict.mismatch } : {}),
+        });
+        throw new WritebackFailedError(writebackId, 'readback_mismatch');
+      }
+      await deps.store.recordWritebackAttempt({
+        writebackId,
+        status: 'succeeded',
+        qboTxnId: foundId,
+        reason: 'found_on_retry',
+      });
+      return { status: 'succeeded', writebackId, qboTxnId: foundId };
+    }
   }
 
   let created: JsonObject;

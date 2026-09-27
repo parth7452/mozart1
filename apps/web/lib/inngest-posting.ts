@@ -26,6 +26,14 @@ export interface WritebackRequestedData {
   readonly orgId: string;
   /** The approver whose claims the job acts with. */
   readonly userId: string;
+  /**
+   * The runtime's idempotency key: the writeback id on the first send, a
+   * fresh id on a person's retry — keyed on the row alone, a retry inside the
+   * window would be swallowed by the first send's key.
+   */
+  readonly sendKey: string;
+  /** A person's "Check QuickBooks and retry": read back by reference first. */
+  readonly retry: boolean;
 }
 
 export const POST_WRITEBACK_CONFIG = {
@@ -33,7 +41,7 @@ export const POST_WRITEBACK_CONFIG = {
   name: 'Post one approved write-back to QuickBooks',
   triggers: [{ event: WRITEBACK_REQUESTED }],
   retries: 0 as const,
-  idempotency: 'event.data.writebackId',
+  idempotency: 'event.data.sendKey',
   concurrency: [{ key: 'event.data.connectionId', limit: 1 }] as [ConcurrencyOption],
 };
 
@@ -59,6 +67,8 @@ export function parseWritebackRequested(data: unknown): WritebackRequestedData {
     connectionId: id('connectionId'),
     orgId: id('orgId'),
     userId: id('userId'),
+    sendKey: raw['sendKey'] === undefined ? id('writebackId') : id('sendKey'),
+    retry: raw['retry'] === true,
   };
 }
 
@@ -102,7 +112,7 @@ export async function runPostWriteback(
         },
         clientFor: (connection) => poster?.clientFor(identity, connection),
       },
-      { writebackId: payload.writebackId },
+      { writebackId: payload.writebackId, retry: payload.retry },
     );
     console.log(`[recouple] post-writeback: ${result.status}, ${where}, qbo ${result.qboTxnId ?? 'none'}`);
     return result;
