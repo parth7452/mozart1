@@ -706,6 +706,8 @@ export interface StoredField {
    * "unchecked" and "checked and wrong" are not the same claim.
    */
   readonly quoteVerified: boolean | null;
+  /** The `extraction_results` row, so a spreadsheet field can be joined to its cell. */
+  readonly extractionResultId?: string;
 }
 
 /** The roles `deduction_documents.role` admits (migration 0007). */
@@ -939,6 +941,7 @@ function toCaseSummary(row: CaseSummaryRow): CaseSummary {
 }
 
 interface StoredFieldRow {
+  id: string;
   document_id: string;
   filename: string;
   mime_type: string;
@@ -4201,7 +4204,7 @@ export class PostgresStore
              join on_case o on o.document_id = e.document_id
             order by e.document_id, e.field_path, e.id desc
          )
-         select l.document_id, coalesce(d.filename, '') as filename, d.mime_type,
+         select l.id::text as id, l.document_id, coalesce(d.filename, '') as filename, d.mime_type,
                 c.doc_type, l.field_path, l.value_json, l.confidence,
                 l.source_page, l.source_quote, l.source_bbox, l.quote_verified
            from latest l
@@ -4229,6 +4232,7 @@ export class PostgresStore
             ? null
             : (row.source_bbox.map((n) => Number(n)) as [number, number, number, number]),
         quoteVerified: row.quote_verified,
+        extractionResultId: row.id,
       }));
     });
   }

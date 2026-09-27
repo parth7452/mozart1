@@ -1,8 +1,10 @@
+import { isSpreadsheetMime } from '@recouple/ingest';
+import { sheetExtractFor } from '../../../../../lib/sheet-extract-load';
 import { CaseNotVisibleError, type ServingRefusal } from '@recouple/pipeline';
 import { requireSession } from '../../../../../lib/session';
 import { isUuid } from '../../../../../lib/request';
 import { caseNotFound, workflowStoreFor } from '../../../../../lib/workflow';
-import { zipEnclosures } from '../../../../../lib/enclosures-zip';
+import { caseRowCsv, zipEnclosures } from '../../../../../lib/enclosures-zip';
 import { refusedDocument } from '../../../../../lib/serve-document';
 
 /**
@@ -67,7 +69,17 @@ export async function GET(
           if (served?.refusal !== undefined) {
             throw new EnclosureRefusedError(documentId, served.refusal);
           }
-          return served?.document;
+          const document = served?.document;
+          if (document === undefined || !isSpreadsheetMime(document.mimeType)) return document;
+          // A spreadsheet goes with its case row as text (ADR 0056).
+          const view = await sheetExtractFor(
+            store,
+            session.org.orgId,
+            documentId,
+            await store.fieldsForCase(id),
+            (await store.caseSummary(id))?.deductionAmountCents ?? 0,
+          );
+          return view === undefined ? document : { ...document, extract: caseRowCsv(view.header, view.row) };
         } catch (cause) {
           // Ids and a class name only: never a filename or anything read off a
           // page. The download fails rather than arriving short.

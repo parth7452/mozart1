@@ -353,9 +353,8 @@ describeDb('email-in on Postgres', () => {
     expect(receipt).toMatchObject({ kind: 'recorded', alreadyRecorded: false });
     if (receipt.kind !== 'recorded') return;
     const parts = await owner.inboundMessageParts(receipt.inboundMessageId);
-    // legacy_or_encrypted_office, recorded as type_not_allowed until the
-    // outcome check is widened (plan 04, 4.7).
-    expect(parts.map((p) => [p.kind, p.outcome])).toEqual([['attachment', 'type_not_allowed']]);
+    // Recorded by its own name since migration 0036 widened the outcome check.
+    expect(parts.map((p) => [p.kind, p.outcome])).toEqual([['attachment', 'legacy_or_encrypted_office']]);
   });
 
   it('says who an address acts as, and when that member may no longer write', async () => {

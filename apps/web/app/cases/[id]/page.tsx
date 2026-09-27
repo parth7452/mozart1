@@ -10,6 +10,8 @@ import { mayApprove, workflowStoreFor } from '../../../lib/workflow';
 import { CaseReview } from '../../../components/case-review';
 import { viewerOf } from '../../../lib/viewer';
 import { reviewPipelineDeps } from '../../../lib/review-deps';
+import { isSpreadsheetMime } from '@recouple/ingest';
+import { sheetExtractFor } from '../../../lib/sheet-extract-load';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,8 +103,17 @@ export default async function CasePage({
         })
       : undefined;
 
+    // A spreadsheet notice is drawn from its cells rather than embedded
+    // (ADR 0056); its bytes come through the same scan gate as a download.
+    const primary = documents.find((d) => d.role === 'notice');
+    const sheetExtract =
+      primary !== undefined && primary.servingRefusal === null && isSpreadsheetMime(primary.mimeType)
+        ? await sheetExtractFor(store, session.org.orgId, primary.documentId, fields, summary.deductionAmountCents)
+        : undefined;
+
     return (
       <CaseReview
+        {...(sheetExtract !== undefined ? { sheetExtract } : {})}
         viewer={viewerOf(session)}
         summary={summary}
         payerTerms={payerTerms}

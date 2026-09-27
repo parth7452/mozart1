@@ -17,6 +17,8 @@ import {
 import { DECLINE_LABELS, MISSING_EVIDENCE_LABELS } from '../lib/decline-labels';
 import { EvidenceChecklistPanel } from './evidence-checklist';
 import { displaysInline, viewsThroughRendition } from '../lib/document-types';
+import { isSpreadsheetMime } from '@recouple/ingest';
+import { SheetExtract, type SheetExtractView } from './sheet-extract';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
@@ -250,6 +252,8 @@ export function spendSentence(input: {
 
 export interface CaseReviewProps {
   readonly viewer: Viewer;
+  /** The case's row of its spreadsheet notice, drawn from its cells (ADR 0056). */
+  readonly sheetExtract?: SheetExtractView;
   readonly summary: CaseSummary;
   /**
    * The documents on the case, from `caseDocuments`: which one it was opened
@@ -326,6 +330,7 @@ export interface CaseReviewProps {
  */
 export function CaseReview({
   viewer,
+  sheetExtract,
   summary,
   payerTerms,
   evidenceChecklist,
@@ -496,6 +501,18 @@ export function CaseReview({
                   {primary.filename === '' ? 'The original document' : primary.filename} is on this
                   case and is not shown. {SERVING_REFUSED[primary.servingRefusal]}
                 </p>
+              ) : isSpreadsheetMime(primary.mimeType) ? (
+                // A spreadsheet is never embedded: its case row is drawn from
+                // the cells, and the original downloads (ADR 0056).
+                sheetExtract !== undefined ? (
+                  <SheetExtract view={sheetExtract} />
+                ) : (
+                  <p className="empty">
+                    The case's row could not be located in this spreadsheet:{' '}
+                    <a href={`/api/document/${primary.documentId}/sheet`}>open the sheet</a> or{' '}
+                    <a href={`/api/document/${primary.documentId}`}>download the original</a>.
+                  </p>
+                )
               ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
                   <a

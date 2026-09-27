@@ -1,4 +1,5 @@
 import { Zip, ZipPassThrough } from 'fflate';
+import { csvSafe } from '@recouple/ingest';
 
 /**
  * A packet's enclosures as one zip, streamed.
@@ -18,6 +19,18 @@ import { Zip, ZipPassThrough } from 'fflate';
 export interface Enclosure {
   readonly filename: string;
   readonly bytes: Uint8Array;
+  /**
+   * A text extract enclosed beside the original — a spreadsheet's case row
+   * as CSV, every cell through `csvSafe` (ADR 0056).
+   */
+  readonly extract?: string;
+}
+
+/** A spreadsheet case row as CSV: header then row, each cell `csvSafe`d and quoted. */
+export function caseRowCsv(header: readonly string[], row: readonly string[]): string {
+  const line = (cells: readonly string[]) =>
+    cells.map((c) => `"${csvSafe(c).replace(/"/g, '""')}"`).join(',');
+  return `${line(header)}\r\n${line(row)}\r\n`;
 }
 
 /** The longest name, before its number, an entry is given. */
@@ -96,6 +109,11 @@ export function zipEnclosures(
         const entry = new ZipPassThrough(enclosureName(index, enclosure.filename));
         zip.add(entry);
         entry.push(enclosure.bytes, true);
+        if (enclosure.extract !== undefined) {
+          const text = new ZipPassThrough(`${enclosureName(index, enclosure.filename)}.case-row.csv`);
+          zip.add(text);
+          text.push(new TextEncoder().encode(enclosure.extract), true);
+        }
       } catch (error) {
         controller.error(error);
         await finish();
