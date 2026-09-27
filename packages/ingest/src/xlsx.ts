@@ -55,10 +55,10 @@ export function unzipBounded(bytes: Uint8Array, limits: SheetLimits): Map<string
   } catch (e) {
     if (failure) throw failure;
     if (e instanceof RejectedUploadError) throw e;
-    throw new RejectedUploadError('malformed_spreadsheet', 'the package is not a readable zip');
+    throw new RejectedUploadError('type_not_allowed', 'not a readable zip');
   }
   if (failure) throw failure;
-  if (names.length === 0) throw new RejectedUploadError('malformed_spreadsheet', 'the package is empty');
+  if (names.length === 0) throw new RejectedUploadError('type_not_allowed', 'an empty zip');
   if (entries.size !== new Set(names).size) {
     throw new RejectedUploadError('malformed_spreadsheet', 'a package entry is incomplete or repeated');
   }
@@ -113,7 +113,9 @@ export function inspectXlsx(bytes: Uint8Array, limits: SheetLimits = DEFAULT_SHE
   }
 
   const types = xml.get('[Content_Types].xml');
-  const contentTypes = (types ?? [])
+  // No content-types part: a plain zip, not an Office package of any kind.
+  if (!types) throw new RejectedUploadError('type_not_allowed', 'a zip that is not an Office package');
+  const contentTypes = types
     .filter((t): t is Extract<XmlToken, { kind: 'open' }> => t.kind === 'open')
     .map((t) => t.attrs.ContentType ?? '');
   const names = [...entries.keys()];

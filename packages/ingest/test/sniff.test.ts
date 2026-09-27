@@ -37,6 +37,17 @@ describe('type detection', () => {
     expect(accepted.warnings.join(' ')).toMatch(/claimed application\/pdf/);
   });
 
+  it('refuses an OLE compound file as a legacy or encrypted Office file', () => {
+    const ole = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+    expect(() => detectMimeType(ole)).toThrow(RejectedUploadError);
+    try {
+      acceptUpload(ole, 'remit.xls');
+      expect.unreachable();
+    } catch (e) {
+      expect((e as RejectedUploadError).code).toBe('legacy_or_encrypted_office');
+    }
+  });
+
   it('rejects types that are not on the list', () => {
     const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0]);
     expect(() => acceptUpload(zip, 'evidence.zip')).toThrow(/not one of/);

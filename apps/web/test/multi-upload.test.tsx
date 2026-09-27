@@ -237,6 +237,9 @@ describe('the upload form', () => {
       '.tiff': 'image/tiff',
       '.heic': 'image/heic',
       '.heif': 'image/heic',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.csv': 'text/csv',
+      '.tsv': 'text/tab-separated-values',
     };
     const offered = UPLOAD_ACCEPT.split(',');
     expect(new Set(offered.map((extension) => byExtension[extension]))).toEqual(

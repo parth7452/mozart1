@@ -120,7 +120,8 @@ describe('inspectXlsx', () => {
     expect(codeOf(() => inspectXlsx(buildXlsx({ sharedStrings: ['abcdef'] }), limits))).toBe('spreadsheet_too_large');
   });
 
-  it('refuses bytes that are not a zip', () => {
-    expect(codeOf(() => inspectXlsx(new Uint8Array([0x50, 0x4b, 3, 4, 0, 0, 0])))).toBe('malformed_spreadsheet');
+  it('refuses a truncated zip, and a plain zip, as a type it does not take', () => {
+    expect(codeOf(() => inspectXlsx(new Uint8Array([0x50, 0x4b, 3, 4, 0, 0, 0])))).toBe('type_not_allowed');
+    expect(codeOf(() => inspectXlsx(zipSync({ 'a.txt': strToU8('hello') })))).toBe('type_not_allowed');
   });
 });
