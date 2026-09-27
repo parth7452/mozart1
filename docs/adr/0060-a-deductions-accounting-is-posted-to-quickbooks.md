@@ -5,6 +5,8 @@
   `QBO_POSTING=1` went onto Vercel Production on 2026-09-27 at the founder's
   word, waiving §5's sandbox run (see there). The account map, each
   connection's switch and each case's approval still gate every post.
+- Amended by: ADR 0063 (2026-09-27): §4's "We never create an account" now
+  admits two, created on one owner's press.
 - Date: 2026-09-27
 - Amends: ADR 0020 (a case may carry a second human decision, the
   settlement), ADR 0036 (the ledger reader learns the shape our own postings
