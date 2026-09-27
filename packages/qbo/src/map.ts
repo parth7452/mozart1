@@ -162,6 +162,12 @@ interface PaymentLine {
   /** At most one of each: a line linking two of either is refused below. */
   readonly invoiceId: string | undefined;
   readonly creditMemoId: string | undefined;
+  /**
+   * A JournalEntry the line applies — our own write-back's zero Payment
+   * (ADR 0060). It pairs as a credit, like a credit memo, but is never
+   * recorded as a credit memo's application.
+   */
+  readonly journalEntryId: string | undefined;
 }
 
 /** A Payment split into the cash it carried and the credits it applied. */
@@ -210,17 +216,27 @@ function readPaymentApplications(row: JsonObject, path: string): PaymentApplicat
   const lines = readPaymentLines(row, path);
 
   const credits = new Map<string, LedgerApplication[]>();
-  const applyCredit = (creditMemoId: string, application: LedgerApplication): void => {
+  const applyCredit = (creditMemoId: string | undefined, application: LedgerApplication): void => {
+    if (creditMemoId === undefined) return;
     const applications = credits.get(creditMemoId) ?? [];
     applications.push(application);
     credits.set(creditMemoId, applications);
   };
 
   const invoiceLines: { readonly line: PaymentLine; readonly invoiceId: string }[] = [];
-  const creditLines: { readonly line: PaymentLine; readonly creditMemoId: string }[] = [];
+  const creditLines: { readonly line: PaymentLine; readonly creditMemoId: string | undefined }[] =
+    [];
 
   for (const line of lines) {
-    const { invoiceId, creditMemoId } = line;
+    const { invoiceId, creditMemoId, journalEntryId } = line;
+    if (invoiceId !== undefined && journalEntryId !== undefined) {
+      // An invoice settled by a journal entry's credit on one line: not cash.
+      continue;
+    }
+    if (journalEntryId !== undefined) {
+      creditLines.push({ line, creditMemoId: undefined });
+      continue;
+    }
     if (invoiceId !== undefined && creditMemoId !== undefined) {
       // Both on one line: unambiguous on its face.
       applyCredit(creditMemoId, { invoiceExternalId: invoiceId, amountCents: line.amountCents });
@@ -311,6 +327,7 @@ function readPaymentLines(row: JsonObject, path: string): readonly PaymentLine[]
 
     const invoiceIds: string[] = [];
     const creditMemoIds: string[] = [];
+    const journalEntryIds: string[] = [];
 
     readArray(line['LinkedTxn'], `${linePath}.LinkedTxn`).forEach((rawLink, linkIndex) => {
       const linkPath = `${linePath}.LinkedTxn[${linkIndex}]`;
@@ -318,7 +335,8 @@ function readPaymentLines(row: JsonObject, path: string): readonly PaymentLine[]
       const txnType = readString(link, 'TxnType', linkPath);
       if (txnType === 'Invoice') invoiceIds.push(readString(link, 'TxnId', linkPath));
       if (txnType === 'CreditMemo') creditMemoIds.push(readString(link, 'TxnId', linkPath));
-      // Deposits, journal entries and the rest are neither, and are ignored.
+      if (txnType === 'JournalEntry') journalEntryIds.push(readString(link, 'TxnId', linkPath));
+      // Deposits and the rest are neither, and are ignored.
     });
 
     // A line carries one `Amount`. Two invoices on one line would leave no way
@@ -328,12 +346,14 @@ function readPaymentLines(row: JsonObject, path: string): readonly PaymentLine[]
     // of them the whole amount doubles the credit.
     refuseTwo('invoices', invoiceIds, linePath);
     refuseTwo('credit memos', creditMemoIds, linePath);
+    refuseTwo('credits', [...creditMemoIds, ...journalEntryIds], linePath);
 
     return {
       path: linePath,
       amountCents,
       invoiceId: invoiceIds[0],
       creditMemoId: creditMemoIds[0],
+      journalEntryId: journalEntryIds[0],
     };
   });
 }

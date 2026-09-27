@@ -51,6 +51,9 @@ export const QBO_IDS_PER_QUERY = 100;
 /** The entities this adapter reads. There is deliberately nothing else here. */
 export type QboEntity = 'Invoice' | 'Payment' | 'CreditMemo';
 
+/** The entities a write-back creates (ADR 0060 §1). */
+export type QboWriteEntity = 'JournalEntry' | 'Payment';
+
 export interface QboConnectionConfig {
   /** The customer's QuickBooks company id. */
   readonly realmId: string;
@@ -204,29 +207,71 @@ export class QboClient {
 
   /** One `GET /v3/company/{realmId}/query` round trip. */
   private async query(statement: string): Promise<JsonObject> {
+    // A fresh request id per read. Intuit treats `Request-Id` as an
+    // idempotency key, so a reused id can be answered from another call's
+    // cached response — which on a read means silently stale ledger rows.
+    return this.call('GET', 'query', { query: statement }, randomUUID(), undefined);
+  }
+
+  /**
+   * Creates one entity (ADR 0060 §3). `requestId` is the caller's — the
+   * `writebacks` row id — and is sent as both the `requestid` query parameter
+   * and the `Request-Id` header, so a resend of the same row is the same
+   * request to Intuit whichever one it honours. Returns the created entity.
+   */
+  async post(entity: QboWriteEntity, body: JsonObject, requestId: string): Promise<JsonObject> {
+    const id = assertRequestId(requestId);
+    const payload = await this.call(
+      'POST',
+      entity.toLowerCase(),
+      { requestid: id },
+      id,
+      JSON.stringify(body),
+    );
+    return readObject(payload[entity], entity);
+  }
+
+  /** Reads one entity back by its QuickBooks id, with a fresh request id. */
+  async getById(entity: QboWriteEntity, id: string): Promise<JsonObject> {
+    const qboId = assertQboId(id);
+    const payload = await this.call(
+      'GET',
+      `${entity.toLowerCase()}/${qboId}`,
+      {},
+      randomUUID(),
+      undefined,
+    );
+    return readObject(payload[entity], entity);
+  }
+
+  private async call(
+    method: 'GET' | 'POST',
+    path: string,
+    params: Readonly<Record<string, string>>,
+    requestId: string,
+    body: string | undefined,
+  ): Promise<JsonObject> {
     const token = await this.accessToken();
 
-    const url = new URL(`${this.baseUrl}/v3/company/${encodeURIComponent(this.config.realmId)}/query`);
-    url.searchParams.set('query', statement);
+    const url = new URL(
+      `${this.baseUrl}/v3/company/${encodeURIComponent(this.config.realmId)}/${path}`,
+    );
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     if (this.config.minorVersion !== undefined) {
       url.searchParams.set('minorversion', this.config.minorVersion);
     }
 
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${token}`,
+      accept: 'application/json',
+      'Request-Id': requestId,
+    };
+    if (body !== undefined) headers['content-type'] = 'application/json';
+
     const { response, text } = await request(
       this.fetchImpl,
       url.toString(),
-      {
-        method: 'GET',
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: 'application/json',
-          // A fresh one per request. Intuit treats `Request-Id` as an
-          // idempotency key, so a reused id can be answered from another call's
-          // cached response — which on a read means silently stale ledger rows,
-          // and on Phase 4's write-back would mean a duplicated transaction.
-          'Request-Id': randomUUID(),
-        },
-      },
+      { method, headers, ...(body !== undefined ? { body } : {}) },
       this.timeoutMs,
     );
 
@@ -365,6 +410,18 @@ export function assertWindowDate(value: string, which: 'from' | 'to'): string {
 }
 
 /** Intuit's `Fault` object, if the body carried one. */
+/** A caller's idempotency key: a UUID (the `writebacks` row id), nothing else. */
+export function assertRequestId(value: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new QboRequestFailed(
+      `a QuickBooks request id must be a UUID, got ${describe(value)}`,
+      0,
+      undefined,
+    );
+  }
+  return value.toLowerCase();
+}
+
 function faultFrom(text: string): unknown {
   try {
     const payload: unknown = JSON.parse(text);

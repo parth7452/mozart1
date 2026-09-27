@@ -1,0 +1,32 @@
+{
+  "JournalEntry": {
+    "Id": "901",
+    "SyncToken": "0",
+    "DocNumber": "RC11111111222233334",
+    "TxnDate": "2026-09-27",
+    "PrivateNote": "Case 7c1e2c1e-0000-4000-8000-000000000001 | shortage | RC11111111222233334",
+    "Line": [
+      {
+        "Id": "0",
+        "Amount": 1270.0,
+        "DetailType": "JournalEntryLineDetail",
+        "JournalEntryLineDetail": {
+          "PostingType": "Debit",
+          "AccountRef": { "value": "4001", "name": "Deductions Receivable" },
+          "Entity": { "Type": "Customer", "EntityRef": { "value": "58", "name": "Northline Foodservice" } }
+        }
+      },
+      {
+        "Id": "1",
+        "Amount": 1270.0,
+        "DetailType": "JournalEntryLineDetail",
+        "JournalEntryLineDetail": {
+          "PostingType": "Credit",
+          "AccountRef": { "value": "1100", "name": "Accounts Receivable (A/R)" },
+          "Entity": { "Type": "Customer", "EntityRef": { "value": "58", "name": "Northline Foodservice" } }
+        }
+      }
+    ]
+  },
+  "time": "2026-09-27T10:00:00.000-07:00"
+}
