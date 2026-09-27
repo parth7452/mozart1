@@ -239,6 +239,21 @@ importers:
         specifier: workspace:*
         version: link:../fixtures
 
+  packages/portal:
+    dependencies:
+      '@recouple/core-domain':
+        specifier: workspace:*
+        version: link:../core-domain
+      '@recouple/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      '@recouple/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
   packages/qbo:
     dependencies:
       '@recouple/adapters':
