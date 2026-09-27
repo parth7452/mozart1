@@ -122,6 +122,20 @@ describeDb('sheet mappings and result cells, on Postgres', () => {
     expect(await other.sheetMappingFor(orgId, ['Invoice', 'Amount'], '2026-09-27')).toBeUndefined();
   });
 
+  it('answers no mapping when two debtors confirmed the same header', async () => {
+    const secondDebtor = randomUUID();
+    await admin.query(
+      `insert into debtors (id, org_id, retailer_key, display_name) values ($1, $2, 'usfoods', 'US Foods')`,
+      [secondDebtor, orgId],
+    );
+    const fp = ['Ref', 'Deducted'];
+    await store.recordSheetMapping({ ...base, orgId, debtorId, headerFingerprint: fp, effectiveFrom: '2026-09-01', confirmedBy: analystId });
+    await store.recordSheetMapping({ ...base, orgId, debtorId, headerFingerprint: fp, effectiveFrom: '2026-09-02', confirmedBy: analystId });
+    expect((await store.sheetMappingFor(orgId, fp, '2026-09-27'))?.debtorId).toBe(debtorId);
+    await store.recordSheetMapping({ ...base, orgId, debtorId: secondDebtor, headerFingerprint: fp, effectiveFrom: '2026-09-03', confirmedBy: analystId });
+    expect(await store.sheetMappingFor(orgId, fp, '2026-09-27')).toBeUndefined();
+  });
+
   it('refuses a mapping confirmed in someone else\'s name', async () => {
     await expect(
       store.recordSheetMapping({

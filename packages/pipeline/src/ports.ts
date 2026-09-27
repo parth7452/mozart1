@@ -541,7 +541,9 @@ export interface PipelineStore {
   /**
    * The tenant's sheet mapping for a header row (ADR 0056): the latest version
    * whose `effectiveFrom` is on or before `onDate` and whose fingerprint equals
-   * `fingerprint` exactly, element by element, or `undefined`.
+   * `fingerprint` exactly, element by element, or `undefined` — also when
+   * more than one debtor has a mapping for that header, since which one is meant
+   * is a person's question.
    */
   sheetMappingFor(
     orgId: string,

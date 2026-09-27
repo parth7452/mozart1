@@ -444,7 +444,7 @@ export class InMemoryStore
     fingerprint: readonly string[],
     onDate: string,
   ): Promise<SheetMapping | undefined> {
-    return this.sheetMappings
+    const matches = this.sheetMappings
       .filter(
         (m) =>
           m.orgId === orgId &&
@@ -452,7 +452,9 @@ export class InMemoryStore
           m.headerFingerprint.length === fingerprint.length &&
           m.headerFingerprint.every((text, i) => text === fingerprint[i]),
       )
-      .sort((a, b) => b.version - a.version)[0];
+      .sort((a, b) => b.version - a.version);
+    // Versions are numbered per debtor: a header two debtors confirmed is ambiguous.
+    return new Set(matches.map((m) => m.debtorId)).size === 1 ? matches[0] : undefined;
   }
 
   async recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping> {

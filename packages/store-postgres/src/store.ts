@@ -2195,13 +2195,17 @@ export class PostgresStore
   ): Promise<SheetMapping | undefined> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<SheetMappingRow>(
-        `${SHEET_MAPPING_SELECT}
-          where org_id = $1 and header_fingerprint = $2::text[] and effective_from <= $3::date
-          order by version desc, created_at desc
-          limit 1`,
+        `select * from (
+           select distinct on (debtor_id) ${SHEET_MAPPING_COLUMNS} from sheet_mappings
+            where org_id = $1 and header_fingerprint = $2::text[] and effective_from <= $3::date
+            order by debtor_id, version desc, created_at desc
+         ) latest
+         limit 2`,
         [orgId, [...fingerprint], onDate],
       );
-      return rows[0] === undefined ? undefined : sheetMappingFromRow(rows[0]);
+      // Versions are numbered per debtor, so a header two debtors confirmed is
+      // ambiguous: no mapping rather than whichever numbered higher.
+      return rows.length === 1 ? sheetMappingFromRow(rows[0]!) : undefined;
     });
   }
 
@@ -4984,7 +4988,6 @@ function isoDate(value: Date | string | null | undefined): string | undefined {
 const SHEET_MAPPING_COLUMNS = `id, org_id, debtor_id, version, effective_from::text as effective_from,
   header_row, sheet_name, header_fingerprint, shape, columns, non_line_rule, sign, currency,
   date_order, source_document_id, confirmed_by`;
-const SHEET_MAPPING_SELECT = `select ${SHEET_MAPPING_COLUMNS} from sheet_mappings`;
 
 interface SheetMappingRow {
   id: string;
