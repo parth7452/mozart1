@@ -23,7 +23,8 @@ import type {
   OcrProvider,
   ReassemblyIssue,
 } from '@recouple/extraction';
-import type { ScanVerdict } from '@recouple/ingest';
+import type { CellType, ScanVerdict } from '@recouple/ingest';
+import type { SheetMapping } from '@recouple/core-domain';
 import type { DocumentHold, HoldReason, HoldRecord } from './hold';
 
 /**
@@ -126,6 +127,7 @@ export interface StoredDocument {
 export const DISCOVERED_VIA = [
   'notice', // a deduction_notice: somebody filed a claim and told us about it
   'remittance_line', // a remittance line paid an invoice short, and that is all
+  'report_row', // a row of a spreadsheet, read through a confirmed sheet mapping (ADR 0056)
 ] as const;
 
 export type DiscoveredVia = (typeof DISCOVERED_VIA)[number];
@@ -535,6 +537,34 @@ export interface PipelineStore {
    */
   caseForDocument?(documentId: string): Promise<string | undefined>;
   documentsForCase(deductionId: string): Promise<readonly StoredDocument[]>;
+
+  /**
+   * The tenant's sheet mapping for a header row (ADR 0056): the latest version
+   * whose `effectiveFrom` is on or before `onDate` and whose fingerprint equals
+   * `fingerprint` exactly, element by element, or `undefined`.
+   */
+  sheetMappingFor(
+    orgId: string,
+    fingerprint: readonly string[],
+    onDate: string,
+  ): Promise<SheetMapping | undefined>;
+  /** Records a confirmed mapping as the next version for (org, debtor, fingerprint). */
+  recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping>;
+  /** The cell each spreadsheet field was read from. Append-only. */
+  recordResultCells(orgId: string, rows: readonly ResultCell[]): Promise<void>;
+  resultCellsFor(extractionResultIds: readonly string[]): Promise<ResultCell[]>;
+}
+
+/** Where a field read from a spreadsheet came from: `extraction_result_cells`. */
+export interface ResultCell {
+  extractionResultId: string;
+  sheetName: string;
+  rowNumber: number;
+  columnNumber: number;
+  cellRef: string;
+  cellType: CellType;
+  numberFormat: string | null;
+  wasFormula: boolean;
 }
 
 /**

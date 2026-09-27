@@ -75,6 +75,8 @@ import {
   WrongCaseStateError,
   WrongRoleError,
 } from '../ports';
+import type { ResultCell } from '../ports';
+import type { SheetMapping } from '@recouple/core-domain';
 import type {
   ApprovalRecord,
   EvidenceAttachStore,
@@ -431,6 +433,60 @@ export class InMemoryStore
 
   async classificationFloor(): Promise<number> {
     return this.classificationFloorValue;
+  }
+
+  /** `sheet_mappings` and `extraction_result_cells`, append-only, in the open. */
+  sheetMappings: SheetMapping[] = [];
+  resultCells: (ResultCell & { orgId: string })[] = [];
+
+  async sheetMappingFor(
+    orgId: string,
+    fingerprint: readonly string[],
+    onDate: string,
+  ): Promise<SheetMapping | undefined> {
+    return this.sheetMappings
+      .filter(
+        (m) =>
+          m.orgId === orgId &&
+          m.effectiveFrom <= onDate &&
+          m.headerFingerprint.length === fingerprint.length &&
+          m.headerFingerprint.every((text, i) => text === fingerprint[i]),
+      )
+      .sort((a, b) => b.version - a.version)[0];
+  }
+
+  async recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping> {
+    const same = this.sheetMappings.filter(
+      (m) =>
+        m.orgId === input.orgId &&
+        m.debtorId === input.debtorId &&
+        m.headerFingerprint.length === input.headerFingerprint.length &&
+        m.headerFingerprint.every((text, i) => text === input.headerFingerprint[i]),
+    );
+    const mapping: SheetMapping = {
+      ...input,
+      headerFingerprint: [...input.headerFingerprint],
+      id: randomUUID(),
+      version: Math.max(0, ...same.map((m) => m.version)) + 1,
+    };
+    this.sheetMappings.push(mapping);
+    return mapping;
+  }
+
+  async recordResultCells(orgId: string, rows: readonly ResultCell[]): Promise<void> {
+    for (const row of rows) {
+      if (this.resultCells.some((c) => c.extractionResultId === row.extractionResultId)) {
+        throw new Error(`a cell is already recorded for extraction result ${row.extractionResultId}`);
+      }
+    }
+    this.resultCells.push(...rows.map((row) => ({ ...row, orgId })));
+  }
+
+  async resultCellsFor(extractionResultIds: readonly string[]): Promise<ResultCell[]> {
+    const wanted = new Set(extractionResultIds);
+    return this.resultCells
+      .filter((c) => wanted.has(c.extractionResultId))
+      .map(({ orgId: _orgId, ...cell }) => cell);
   }
 
   /** `audit_log`, as far as a hold and its release write to it. In the open, like the other tables. */

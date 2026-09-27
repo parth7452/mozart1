@@ -19,6 +19,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
+import { SheetMappingSchema, type SheetMapping } from '@recouple/core-domain';
+import type { CellType } from '@recouple/ingest';
+import type { ResultCell } from '@recouple/pipeline';
 import {
   cents,
   CASE_STATES,
@@ -2185,6 +2188,114 @@ export class PostgresStore
    * cases. The `org_id` predicate is the tenant's own; RLS says the same thing,
    * and another tenant's row is not one this could find either way.
    */
+  async sheetMappingFor(
+    orgId: string,
+    fingerprint: readonly string[],
+    onDate: string,
+  ): Promise<SheetMapping | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<SheetMappingRow>(
+        `${SHEET_MAPPING_SELECT}
+          where org_id = $1 and header_fingerprint = $2::text[] and effective_from <= $3::date
+          order by version desc, created_at desc
+          limit 1`,
+        [orgId, [...fingerprint], onDate],
+      );
+      return rows[0] === undefined ? undefined : sheetMappingFromRow(rows[0]);
+    });
+  }
+
+  async recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<SheetMappingRow>(
+        `insert into sheet_mappings (org_id, debtor_id, version, effective_from, header_row,
+           sheet_name, header_fingerprint, shape, columns, non_line_rule, sign, currency,
+           date_order, source_document_id, confirmed_by)
+         select $1, $2, coalesce(max(version), 0) + 1, $3::date, $4, $5, $6::text[], $7,
+                $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14
+           from sheet_mappings
+          where org_id = $1 and debtor_id = $2 and header_fingerprint = $6::text[]
+         returning ${SHEET_MAPPING_COLUMNS}`,
+        [
+          input.orgId,
+          input.debtorId,
+          input.effectiveFrom,
+          input.headerRow,
+          input.sheetName,
+          [...input.headerFingerprint],
+          input.shape,
+          JSON.stringify(input.columns),
+          JSON.stringify(input.nonLineRule),
+          input.sign,
+          input.currency,
+          input.dateOrder,
+          input.sourceDocumentId,
+          input.confirmedBy,
+        ],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new Error('sheet mapping insert returned no row');
+      return sheetMappingFromRow(row);
+    });
+  }
+
+  async recordResultCells(orgId: string, cells: readonly ResultCell[]): Promise<void> {
+    if (cells.length === 0) return;
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into extraction_result_cells (extraction_result_id, org_id, sheet_name,
+           row_number, column_number, cell_ref, cell_type, number_format, was_formula)
+         select c.id::bigint, $1, c.sheet, c.rn, c.cn, c.ref, c.ty, c.fmt, c.f
+           from unnest($2::text[], $3::text[], $4::int[], $5::int[], $6::text[], $7::text[],
+                       $8::text[], $9::bool[]) as c(id, sheet, rn, cn, ref, ty, fmt, f)`,
+        [
+          orgId,
+          cells.map((c) => c.extractionResultId),
+          cells.map((c) => c.sheetName),
+          cells.map((c) => c.rowNumber),
+          cells.map((c) => c.columnNumber),
+          cells.map((c) => c.cellRef),
+          cells.map((c) => c.cellType),
+          cells.map((c) => c.numberFormat),
+          cells.map((c) => c.wasFormula),
+        ],
+      );
+    });
+  }
+
+  async resultCellsFor(extractionResultIds: readonly string[]): Promise<ResultCell[]> {
+    if (extractionResultIds.length === 0) return [];
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        extraction_result_id: string;
+        sheet_name: string;
+        row_number: number;
+        column_number: number;
+        cell_ref: string;
+        cell_type: CellType;
+        number_format: string | null;
+        was_formula: boolean;
+      }>(
+        `select extraction_result_id::text, sheet_name, row_number, column_number, cell_ref,
+                cell_type, number_format, was_formula
+           from extraction_result_cells
+          where extraction_result_id = any($1::bigint[])
+          order by extraction_result_id`,
+        [[...extractionResultIds]],
+      );
+      return rows.map((r) => ({
+        extractionResultId: r.extraction_result_id,
+        sheetName: r.sheet_name,
+        rowNumber: r.row_number,
+        columnNumber: r.column_number,
+        cellRef: r.cell_ref,
+        cellType: r.cell_type,
+        numberFormat: r.number_format,
+        wasFormula: r.was_formula,
+      }));
+    });
+  }
+
   async classificationFloor(): Promise<number> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ floor: string }>(
@@ -4868,4 +4979,50 @@ function isoDate(value: Date | string | null | undefined): string | undefined {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+const SHEET_MAPPING_COLUMNS = `id, org_id, debtor_id, version, effective_from::text as effective_from,
+  header_row, sheet_name, header_fingerprint, shape, columns, non_line_rule, sign, currency,
+  date_order, source_document_id, confirmed_by`;
+const SHEET_MAPPING_SELECT = `select ${SHEET_MAPPING_COLUMNS} from sheet_mappings`;
+
+interface SheetMappingRow {
+  id: string;
+  org_id: string;
+  debtor_id: string;
+  version: number;
+  effective_from: string;
+  header_row: number;
+  sheet_name: string;
+  header_fingerprint: string[];
+  shape: string;
+  columns: unknown;
+  non_line_rule: unknown;
+  sign: string;
+  currency: string;
+  date_order: string;
+  source_document_id: string | null;
+  confirmed_by: string;
+}
+
+/** Parsed, not cast: a row that does not fit the schema is refused loudly. */
+function sheetMappingFromRow(row: SheetMappingRow): SheetMapping {
+  return SheetMappingSchema.parse({
+    id: row.id,
+    orgId: row.org_id,
+    debtorId: row.debtor_id,
+    version: row.version,
+    effectiveFrom: row.effective_from,
+    headerRow: row.header_row,
+    sheetName: row.sheet_name,
+    headerFingerprint: row.header_fingerprint,
+    shape: row.shape,
+    columns: row.columns,
+    nonLineRule: row.non_line_rule,
+    sign: row.sign,
+    currency: row.currency,
+    dateOrder: row.date_order,
+    sourceDocumentId: row.source_document_id,
+    confirmedBy: row.confirmed_by,
+  });
 }
