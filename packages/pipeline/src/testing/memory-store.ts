@@ -1037,7 +1037,11 @@ export class InMemoryStore
       const document = this.documents.get(link.documentId);
       if (document === undefined) continue;
       ids.push(document.documentId);
-      lines.push({ role: link.role as PacketDocument['role'], filename: document.filename });
+      lines.push({
+        role: link.role as PacketDocument['role'],
+        filename: document.filename,
+        sha256: document.sha256,
+      });
     }
     return { ids, lines };
   }
@@ -1113,6 +1117,7 @@ export class InMemoryStore
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;
@@ -1166,6 +1171,7 @@ export class InMemoryStore
         reason: decision.reason,
         rationale: decision.rationale,
         documents: lines,
+        ...(input.findings !== undefined ? { findings: input.findings } : {}),
       });
     } catch (error) {
       if (error instanceof PacketError) {

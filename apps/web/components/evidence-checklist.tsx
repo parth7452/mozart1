@@ -1,25 +1,13 @@
 import {
   EVIDENCE_NOT_YET_TYPED,
+  EVIDENCE_TYPE_WORDS,
   reasonInWords,
   type EvidenceChecklist,
-  type EvidenceType,
 } from '@recouple/core-domain';
 import type { CaseDocument } from '@recouple/store-postgres';
 
-/** Each evidence type in words (ADR 0059). */
-export const EVIDENCE_LABELS: Readonly<Record<EvidenceType, string>> = {
-  signed_pod: 'Signed proof of delivery',
-  carrier_signed_bol: 'Carrier-signed bill of lading',
-  po: 'Purchase order',
-  invoice: 'Invoice',
-  asn: 'Advance ship notice',
-  packing_list: 'Packing list',
-  promo_deal_sheet: 'Promotion deal sheet',
-  buyer_approval_email: 'Buyer approval',
-  price_agreement: 'Price agreement',
-  routing_guide: 'Routing guide',
-  remittance_advice: 'Remittance advice',
-};
+/** Each evidence type in words (ADR 0059); one copy, in core-domain, so the letter says the same. */
+export const EVIDENCE_LABELS = EVIDENCE_TYPE_WORDS;
 
 /** The evidence the chosen reason needs, and what the case holds. Pure. */
 export function EvidenceChecklistPanel(props: {

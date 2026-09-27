@@ -1065,11 +1065,17 @@ export interface CaseWorkflowStore {
    *
    * @throws {WrongCaseStateError} the case has no decision to assemble against
    * @throws {WrongRoleError} `assembledBy` may not write in the tenant
+   *
+   * `findings` are caller-supplied and advisory: reconcile findings the caller
+   * wants printed in the letter, already filtered to `supports_dispute` and
+   * `LETTER_SAFE_FINDING_CODES`. The packet route is the only caller. They are
+   * frozen into the narrative, so different findings are a different packet.
    */
   assemblePacket(input: {
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;

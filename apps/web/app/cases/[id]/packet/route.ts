@@ -6,9 +6,12 @@ import {
   NothingToSendError,
   PacketAfterApprovalError,
   PacketNotBuildableError,
+  reconcileCase,
   WrongCaseStateError,
   WrongRoleError,
 } from '@recouple/pipeline';
+import { LETTER_SAFE_FINDING_CODES } from '@recouple/extraction';
+import { reviewPipelineDeps } from '../../../../lib/review-deps';
 import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
 import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
@@ -61,10 +64,20 @@ export async function POST(
 
   const store = workflowStoreFor(session);
   try {
+    // The findings the letter may print: those that support the dispute and
+    // whose message carries no sentence off the page (LETTER_SAFE_FINDING_CODES).
+    const findings = (await reconcileCase(id, reviewPipelineDeps(store)))?.findings ?? [];
     const packet = await store.assemblePacket({
       deductionId: id,
       decisionId,
       assembledBy: session.userId,
+      findings: findings
+        .filter(
+          (finding) =>
+            finding.severity === 'supports_dispute' &&
+            LETTER_SAFE_FINDING_CODES.includes(finding.code),
+        )
+        .map(({ code, message }) => ({ code, message })),
     });
     const files = packet.fileDocumentIds.length;
     const hash = packet.contentHash.slice(0, 12);

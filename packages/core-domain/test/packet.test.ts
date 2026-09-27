@@ -489,3 +489,100 @@ describe('the packet content hash', () => {
     );
   });
 });
+
+describe('the letter with findings, payer terms, a checklist and enclosure hashes', () => {
+  const hexA = 'a'.repeat(64);
+  const hexB = '0123456789abcdef'.repeat(4);
+  const full: PacketNarrativeInput = {
+    ...walmart,
+    payerReasonCode: 'PREMIUM-NOAUTH',
+    deductionReference: 'CB-203',
+    findings: [
+      { code: 'delivered_in_full', message: 'Delivered 40 of 40 cases.' },
+      { code: 'overcharge', message: 'Deducted $600.00 more than the shortage.' },
+    ],
+    evidenceChecklist: [
+      { label: 'Signed proof of delivery', satisfied: true },
+      { label: 'Purchase order', satisfied: false },
+    ],
+    documents: [
+      { role: 'notice', filename: 'apdp-notice.pdf', sha256: hexA },
+      { role: 'evidence', filename: 'pod-signed.pdf', sha256: hexB },
+    ],
+  };
+
+  it('keeps today\'s bytes when none of the new fields is given', () => {
+    const withEmpties = { ...walmart, findings: [], evidenceChecklist: [] };
+    expect(buildPacketNarrative(withEmpties)).toBe(buildPacketNarrative(walmart));
+    expect(buildPacketNarrative(walmart)).toContain(
+      'Reason for dispute: Shipment deducted as never received, though delivery is documented',
+    );
+  });
+
+  it('prints every section in order', () => {
+    const text = buildPacketNarrative(full);
+    expect(text).toContain(
+      [
+        'Reason for dispute: Shipment deducted as never received, though delivery is documented',
+        "Payer's reason code: PREMIUM-NOAUTH",
+        'Deduction reference: CB-203',
+        '',
+        'Findings:',
+        '  1. Delivered 40 of 40 cases.',
+        '  2. Deducted $600.00 more than the shortage.',
+        '',
+        'Explanation:',
+        'POD signed for the full quantity on 2026-08-02.',
+        '',
+        'Evidence checklist:',
+        '  [x] Signed proof of delivery',
+        '  [ ] Purchase order',
+        '',
+        'Enclosures:',
+        `  1. Deduction notice: apdp-notice.pdf (SHA-256 ${hexA})`,
+        `  2. Supporting document: pod-signed.pdf (SHA-256 ${hexB})`,
+      ].join('\n'),
+    );
+    expect(buildPacketNarrative(full)).toBe(text);
+  });
+
+  it('prints the payer lines only when set', () => {
+    const text = buildPacketNarrative({ ...walmart, deductionReference: 'CB-9' });
+    expect(text).toContain('Deduction reference: CB-9');
+    expect(text).not.toContain("Payer's reason code");
+  });
+
+  it('refuses a hash that is not 64 lower-case hex characters', () => {
+    for (const sha256 of [hexA.toUpperCase(), 'abc', `${hexA}0`]) {
+      expect(() =>
+        buildPacketNarrative({ ...walmart, documents: [{ role: 'notice', filename: 'n.pdf', sha256 }] }),
+      ).toThrow(PacketError);
+    }
+  });
+
+  it('refuses a control character in any new value', () => {
+    for (const bad of ['a\nb', 'a\rb', 'a\u0007b', 'a\u007fb']) {
+      expect(() => buildPacketNarrative({ ...walmart, payerReasonCode: bad })).toThrow(PacketError);
+      expect(() => buildPacketNarrative({ ...walmart, deductionReference: bad })).toThrow(PacketError);
+      expect(() =>
+        buildPacketNarrative({ ...walmart, findings: [{ code: 'x', message: bad }] }),
+      ).toThrow(PacketError);
+      expect(() =>
+        buildPacketNarrative({ ...walmart, evidenceChecklist: [{ label: bad, satisfied: true }] }),
+      ).toThrow(PacketError);
+    }
+  });
+
+  it('trims findings to the cap and says how many it left out', () => {
+    const findings = Array.from({ length: 500 }, (_, i) => ({
+      code: 'overcharge',
+      message: `Finding number ${i + 1} ${'x'.repeat(80)}`,
+    }));
+    const text = buildPacketNarrative({ ...full, findings });
+    expect(text.length).toBeLessThanOrEqual(MAX_NARRATIVE_LENGTH);
+    expect(text).toMatch(/ {2}\(\d+ further findings omitted; see the case page\.\)\n/);
+    expect(text).toContain('  1. Finding number 1 ');
+    expect(text).toContain('Evidence checklist:');
+    expect(text).toContain(`(SHA-256 ${hexB})`);
+  });
+});

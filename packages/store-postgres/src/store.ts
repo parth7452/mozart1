@@ -22,6 +22,8 @@ import { Pool, type PoolClient } from 'pg';
 import {
   cents,
   CASE_STATES,
+  EVIDENCE_TYPE_WORDS,
+  evidenceChecklist,
   CLOSED_STATES,
   DUE_SOON_DAYS,
   identifierMatchKey,
@@ -45,7 +47,7 @@ import type {
   KnownIdentifier,
   EvidenceType,
 } from '@recouple/core-domain';
-import { restoreDocument, textByPage } from '@recouple/extraction';
+import { evidenceOfDocuments, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanStatus, ScanVerdict } from '@recouple/ingest';
 import {
@@ -105,6 +107,7 @@ import {
   LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
+  type HumanDecisionRecord,
 } from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
@@ -4617,13 +4620,43 @@ export class PostgresStore
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;
     readonly narrative: string;
     readonly fileDocumentIds: readonly string[];
   }> {
-    return this.withTenant((client) => workflow.assemblePacket(client, this.tenant, input));
+    // The payer's terms and the evidence the case holds, read the way the case
+    // page reads them, then frozen into the letter at assembly. Read before the
+    // assembly's own transaction: both are derived views, and what the letter
+    // says is fixed by the packet's hash either way.
+    const [terms, documents] = await Promise.all([
+      this.payerTermsForCase(input.deductionId),
+      this.caseDocuments(input.deductionId),
+    ]);
+    const letterTerms = (decision: HumanDecisionRecord): workflow.LetterTerms => {
+      const checklist = evidenceChecklist({
+        reason: decision.reason,
+        onDate: decision.decidedAt.toISOString().slice(0, 10),
+        present: evidenceOfDocuments(documents),
+      });
+      return {
+        ...(terms.kind === 'derived' && terms.terms.reasonCode !== undefined
+          ? { payerReasonCode: terms.terms.reasonCode }
+          : {}),
+        ...(terms.kind === 'derived' && terms.terms.deductionReference !== undefined
+          ? { deductionReference: terms.terms.deductionReference }
+          : {}),
+        evidenceChecklist: checklist.rows.map((row) => ({
+          label: `${EVIDENCE_TYPE_WORDS[row.evidenceType]}${row.required ? '' : ' (optional)'}`,
+          satisfied: row.status === 'have',
+        })),
+      };
+    };
+    return this.withTenant((client) =>
+      workflow.assemblePacket(client, this.tenant, { ...input, letterTerms }),
+    );
   }
 
   async approve(input: {

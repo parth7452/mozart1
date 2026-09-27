@@ -178,3 +178,19 @@ export function evidenceChecklist(input: {
     missingRequired: rows.filter((r) => r.required && r.status !== 'have').length,
   };
 }
+
+/** Each evidence type in words (ADR 0059). */
+export const EVIDENCE_TYPE_WORDS: Readonly<Record<EvidenceType, string>> = {
+  signed_pod: 'Signed proof of delivery',
+  carrier_signed_bol: 'Carrier-signed bill of lading',
+  po: 'Purchase order',
+  invoice: 'Invoice',
+  asn: 'Advance ship notice',
+  packing_list: 'Packing list',
+  promo_deal_sheet: 'Promotion deal sheet',
+  buyer_approval_email: 'Buyer approval',
+  price_agreement: 'Price agreement',
+  routing_guide: 'Routing guide',
+  remittance_advice: 'Remittance advice',
+};
+

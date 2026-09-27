@@ -9,6 +9,7 @@ import { aboutFrom } from '../../../lib/notices';
 import { mayApprove, workflowStoreFor } from '../../../lib/workflow';
 import { CaseReview } from '../../../components/case-review';
 import { viewerOf } from '../../../lib/viewer';
+import { reviewPipelineDeps } from '../../../lib/review-deps';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,27 +69,7 @@ export default async function CasePage({
         store.caseDocuments(id),
         store.fieldsForCase(id),
         store.costForCase(id),
-        reconcileCase(id, {
-          store,
-          scanner: {
-            name: 'none',
-            async scan() {
-              throw new Error('a review page does not scan');
-            },
-          },
-          classifier: {
-            async classify() {
-              throw new Error('a review page does not classify');
-            },
-          },
-          extractor: {
-            name: 'none',
-            async extract() {
-              throw new Error('a review page does not extract');
-            },
-          },
-          now: () => new Date(),
-        }),
+        reconcileCase(id, reviewPipelineDeps(store)),
         store.getWorkflow(id),
         // Whether this case is one half of a pair identity resolution refused to
         // merge (ADR 0032). Asked for every reader, not only for a member who may
