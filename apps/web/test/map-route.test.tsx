@@ -39,7 +39,7 @@ vi.mock('../lib/pipeline', async (importOriginal) => {
   return { ...actual, mayWrite: (role: string) => role !== 'read_only' };
 });
 
-const { POST } = await import('../app/documents/[id]/map/route');
+const { POST } = await import('../app/documents/[id]/map/save/route');
 
 const noModel = {
   name: 'none',
@@ -93,7 +93,7 @@ function mappingForm(overrides: Record<string, string> = {}): FormData {
 
 function press(id: string, form: FormData, headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }) {
   return POST(
-    new NextRequest(`https://app.example.test/documents/${id}/map`, { method: 'POST', headers, body: form }),
+    new NextRequest(`https://app.example.test/documents/${id}/map/save`, { method: 'POST', headers, body: form }),
     { params: Promise.resolve({ id }) },
   );
 }

@@ -95,7 +95,7 @@ export default async function MapColumnsPage({ params }: { params: Promise<{ id:
           </tbody>
         </table>
         {mayMap ? (
-          <form action={`/documents/${id}/map`} method="post" className="sheet-map">
+          <form action={`/documents/${id}/map/save`} method="post" className="sheet-map">
             <input type="hidden" name="sheet" value={String(header.sheet.ordinal)} />
             <input type="hidden" name="header_row" value={String(header.row)} />
             <label>
