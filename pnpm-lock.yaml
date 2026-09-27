@@ -195,7 +195,11 @@ importers:
         specifier: workspace:*
         version: link:../fixtures
 
-  packages/fixtures: {}
+  packages/fixtures:
+    dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
 
   packages/ingest:
     dependencies:

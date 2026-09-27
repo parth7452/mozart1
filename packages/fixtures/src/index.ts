@@ -11,3 +11,4 @@ export * from './logistics';
 export * from './customer';
 export * from './corpus';
 export * from './public';
+export * from './spreadsheets';

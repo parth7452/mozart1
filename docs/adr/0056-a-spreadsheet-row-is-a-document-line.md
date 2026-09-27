@@ -1,7 +1,8 @@
 # 0056 — A spreadsheet row is a document line, and a cell is its quote
 
-- Status: Accepted 2026-09-26; build in progress on branch
-  claude/trusting-brown-ordc3m (planned as claude/build-now-04-spreadsheets).
+- Status: Accepted 2026-09-26; built 2026-09-27 on branch
+  claude/trusting-brown-ordc3m (planned as claude/build-now-04-spreadsheets),
+  migration 0036 not yet applied to any remote database.
 - Date: 2026-09-26
 - Adds, if accepted: two accepted file types at the door (XLSX and CSV), a
   reader that is code and not a model, versioned column mappings as playbook
