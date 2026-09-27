@@ -259,6 +259,11 @@ export function holdLine(hold: DocumentHold): string {
         `Held: ${readAs}, and it arrived by email. No email opens a case on its own — ` +
         'a person decides each time.' +
         (misfit === undefined ? '' : ` Also, ${misfit}.`)
+      : hold.reason === 'by_portal'
+        ? // ADR 0057 §10: a page a portal runner fetched opens no case by itself.
+          `Held: ${readAs}, and it was fetched from a portal. No portal capture opens a case on ` +
+          'its own — a person decides each time.' +
+          (misfit === undefined ? '' : ` Also, ${misfit}.`)
       : hold.reason === 'type_did_not_fit'
         ? `Held: ${readAs}, but ${misfit ?? 'the reading does not fit that type'}.`
         : `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace ` +

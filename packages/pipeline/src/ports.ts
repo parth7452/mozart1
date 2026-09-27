@@ -49,14 +49,16 @@ export const UPLOAD_SOURCES = [
 export type UploadSource = (typeof UPLOAD_SOURCES)[number];
 
 /**
- * The three of those this pipeline can actually produce today.
+ * The four of those this pipeline can actually produce today: the three doors,
+ * and a portal capture (ADR 0057), which `@recouple/portal`'s `ingestCaptures`
+ * hands in — a page snapshot as `text/html` through `acceptPortalSnapshot`, a
+ * download through the ordinary door by its magic bytes.
  *
- * The other three are Phases 1.5, 2 and 2.5. They exist in the database's check
- * constraint because coverage has to be able to name them; nothing in this
- * package can write one, and a type that claimed otherwise would be a promise
- * to a caller that no code here keeps.
+ * `erp_sync` has its own path (`recordLedgerCase`), and `edi_812` is Phase 2.5.
+ * They exist in the database's check constraint because coverage has to be
+ * able to name them; nothing here ingests one through this type.
  */
-export type IngestSource = Extract<UploadSource, 'web_upload' | 'email_in' | 'email_body'>;
+export type IngestSource = Extract<UploadSource, 'web_upload' | 'email_in' | 'email_body' | 'portal_fetch'>;
 
 /**
  * Where a document came from, written at the moment it arrives.

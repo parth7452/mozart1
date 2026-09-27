@@ -56,13 +56,15 @@ export function opensCaseOnItsOwn(docType: DocType): docType is CaseOpeningDocTy
  *    forged, so a person decides every time. Keyed on the document's recorded
  *    arrival, never on a caller's flag. The confidence, the floor and any
  *    fields that did not fit are still recorded beside it.
+ *  - `by_portal` — a notice or remittance a portal runner captured (ADR 0057
+ *    §10). Held like `by_email`, keyed on the recorded `portal_fetch` arrival.
  *  - `no_mapping` — a spreadsheet whose header row no confirmed sheet mapping
  *    names (ADR 0056). Nothing was read; the hold carries the header (at most
  *    50 cells) and the sheet it was found on, so a person can map it. Its
  *    `docType` is `remittance_advice` as a placeholder: which of the two it
  *    is, is the mapping's shape, and nobody has said yet.
  */
-export const HOLD_REASONS = ['below_floor', 'type_did_not_fit', 'by_email', 'no_mapping'] as const;
+export const HOLD_REASONS = ['below_floor', 'type_did_not_fit', 'by_email', 'no_mapping', 'by_portal'] as const;
 export type HoldReason = (typeof HOLD_REASONS)[number];
 
 export function isHoldReason(value: unknown): value is HoldReason {

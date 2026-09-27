@@ -11,7 +11,8 @@ import { serialiseSnapshot } from './snapshot';
 
 export interface CredentialSource { username(): string; password(): string; totp?(): string } // test-only values; no KMS here
 
-export type Capture = { kind: 'page_snapshot' | 'download'; stepName: string; filename: string; bytes: Uint8Array; mimeType: string };
+import type { Capture } from '../capture';
+export type { Capture };
 export type RefusedRequest = { method: string; url: string; reason: Exclude<GuardDecision, { allow: true }>['reason']; atStep: string | null };
 type Refusals = { refused: RefusedRequest[] };
 export type RunOutcome =

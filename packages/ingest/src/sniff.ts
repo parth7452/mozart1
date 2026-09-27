@@ -62,7 +62,15 @@ export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
  */
 export const EMAIL_BODY_MIME = 'text/plain' as const;
 
-export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME;
+/**
+ * A portal page, captured and serialised through the runner's allowlist (ADR
+ * 0057 §9). Like an email body it is outside `ALLOWED_MIME_TYPES`: only
+ * `acceptPortalSnapshot` produces it, and only a `portal_fetch` arrival calls
+ * that, so an uploaded HTML file is still refused by `acceptUpload`.
+ */
+export const PORTAL_SNAPSHOT_MIME = 'text/html' as const;
+
+export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME | typeof PORTAL_SNAPSHOT_MIME;
 
 export { RejectedUploadError, type RejectionCode } from './sniff-errors';
 
@@ -496,7 +504,11 @@ export function acceptUpload(
 function detectDelimited(bytes: Uint8Array, filename: string): AllowedMimeType | undefined {
   const tab = /\.tsv$/i.test(filename);
   try {
-    const rows = parseCsv(decodeCsvBytes(bytes, DEFAULT_SHEET_LIMITS), tab ? '\t' : ',');
+    const text = decodeCsvBytes(bytes, DEFAULT_SHEET_LIMITS);
+    // An HTML page is not a table, whatever it parses as: HTML reaches the
+    // store only as a portal snapshot, through acceptPortalSnapshot (ADR 0057).
+    if (/^\s*<(!doctype\s+html|html|head|body)\b/i.test(text)) return undefined;
+    const rows = parseCsv(text, tab ? '\t' : ',');
     // A table has at least two cells; one run of text with no delimiter and
     // no line end is not one, whatever it decodes as.
     if (rows.reduce((n, r) => n + r.length, 0) < 2) return undefined;
@@ -573,5 +585,49 @@ export function acceptEmailBody(
     },
     bytes,
     text: normalised,
+  };
+}
+
+/**
+ * Accepts a portal page snapshot as a document (ADR 0057 §9). The serialiser
+ * already kept only text and table, list and heading structure; this is the
+ * door checking that rather than trusting it. It must be UTF-8, under the
+ * email-body limit, and carry no `<script` or `<form` in any case — the
+ * serialiser removes both, so either one here means something else wrote it.
+ * The hash is over the bytes as captured, so a re-capture of the same page
+ * deduplicates the way a re-sent attachment does.
+ */
+export function acceptPortalSnapshot(
+  bytes: Uint8Array,
+  options: { readonly maxBytes?: number } = {},
+): AcceptedUpload {
+  const maxBytes = options.maxBytes ?? MAX_EMAIL_BODY_BYTES;
+  if (bytes.length === 0) {
+    throw new RejectedUploadError('empty_file', 'the portal snapshot is empty');
+  }
+  if (bytes.length > maxBytes) {
+    throw new RejectedUploadError(
+      'too_large',
+      `the portal snapshot is ${bytes.length} bytes, over the ${maxBytes} byte limit`,
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new RejectedUploadError('content_does_not_match_type', 'the portal snapshot is not UTF-8 text');
+  }
+  if (/<\s*(script|form)\b/i.test(text)) {
+    throw new RejectedUploadError(
+      'content_does_not_match_type',
+      'the portal snapshot carries a script or a form, which the serialiser removes',
+    );
+  }
+  return {
+    sha256: sha256(bytes),
+    mimeType: PORTAL_SNAPSHOT_MIME,
+    byteSize: bytes.length,
+    warnings: [],
+    requiresSplit: false,
   };
 }

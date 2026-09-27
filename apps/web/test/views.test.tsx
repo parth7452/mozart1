@@ -923,6 +923,12 @@ describe('documents that were read and that no case holds', () => {
       expect(holdLine(h)).toContain('no confirmed column mapping');
     });
 
+    it('says a portal capture is held because it came from a portal', () => {
+      const h = hold({ reason: 'by_portal', confidence: 0.99 });
+      expect(holdLine(h)).toContain('it was fetched from a portal. No portal capture opens a case on its own');
+      expect(mayOpenFrom(h)).toBe(true);
+    });
+
     it('offers no open for a remittance with no lines, and says why', () => {
       const noLines = hold({ reason: 'type_did_not_fit', confidence: 0.99, fields: ['lines'] });
       expect(mayOpenFrom(noLines)).toBe(false);

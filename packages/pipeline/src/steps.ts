@@ -42,6 +42,8 @@ import {
 } from '@recouple/extraction';
 import {
   acceptEmailBody,
+  acceptPortalSnapshot,
+  PORTAL_SNAPSHOT_MIME,
   acceptUpload,
   assertScannedClean,
   isSpreadsheetMime,
@@ -200,7 +202,9 @@ export async function ingestDocument(
   const accepted =
     input.source === 'email_body'
       ? acceptEmailBody(new TextDecoder().decode(input.bytes)).accepted
-      : acceptUpload(input.bytes, input.filename, {
+      : input.source === 'portal_fetch' && input.declaredMimeType === PORTAL_SNAPSHOT_MIME
+        ? acceptPortalSnapshot(input.bytes)
+        : acceptUpload(input.bytes, input.filename, {
           ...(input.declaredMimeType !== undefined
             ? { declaredMimeType: input.declaredMimeType }
             : {}),
@@ -924,6 +928,15 @@ export async function readDocument(
   const arrival =
     caseRecord === undefined ? await deps.store.uploadSourceFor(document.documentId) : undefined;
   const byEmail = arrival === 'email_in' || arrival === 'email_body';
+  // A portal capture is held the same way and for the same reason (ADR 0057
+  // §10): a page a runner fetched is not a person's judgment that it is a
+  // deduction worth opening, so a person makes that call every time.
+  const byPortal = arrival === 'portal_fetch';
+  const heldByArrival: 'by_email' | 'by_portal' | undefined = byEmail
+    ? 'by_email'
+    : byPortal
+      ? 'by_portal'
+      : undefined;
 
   // The tenant's classification floor, when this read might open a case (ADR
   // 0044), or might hold one by email and record the floor beside the hold.
@@ -932,12 +945,12 @@ export async function readDocument(
   // attached to a named case, or one that may not open a case at all, never
   // opens one on the classifier's say-so, so it has no use for the floor.
   const floor =
-    caseRecord === undefined && (mayOpenCase || byEmail)
+    caseRecord === undefined && (mayOpenCase || heldByArrival !== undefined)
       ? await deps.store.classificationFloor()
       : undefined;
 
   if (isSpreadsheetMime(document.mimeType)) {
-    return readSpreadsheet(document, deps, { attachedCase, mayOpenCase, byEmail, floor });
+    return readSpreadsheet(document, deps, { attachedCase, mayOpenCase, heldByArrival, floor });
   }
 
   // Read the document once. Classification and extraction both need the page
@@ -988,8 +1001,8 @@ export async function readDocument(
   // case, no identifier, no declined line.
   if (floor !== undefined && opensCaseOnItsOwn(classification.docType)) {
     const fit = typeFits(classification.docType, extraction);
-    const hold: HoldDecision | undefined = byEmail
-      ? { reason: 'by_email', ...(fit.fits ? {} : { fields: fit.fields }) }
+    const hold: HoldDecision | undefined = heldByArrival !== undefined
+      ? { reason: heldByArrival, ...(fit.fits ? {} : { fields: fit.fields }) }
       : holdFor({
           docType: classification.docType,
           confidence: classification.confidence,
@@ -2806,7 +2819,7 @@ async function readSpreadsheet(
   context: {
     readonly attachedCase: CaseRecord | undefined;
     readonly mayOpenCase: boolean;
-    readonly byEmail: boolean;
+    readonly heldByArrival: 'by_email' | 'by_portal' | undefined;
     readonly floor: number | undefined;
   },
 ): Promise<DocumentRead> {
@@ -2824,7 +2837,7 @@ async function readSpreadsheet(
       docType: 'remittance_advice',
       confidence: 1,
       floor: context.floor ?? (await deps.store.classificationFloor()),
-      reason: context.byEmail ? 'by_email' : 'no_mapping',
+      reason: context.heldByArrival ?? 'no_mapping',
       header: found.header,
       sheet: found.sheet,
     };
@@ -2843,14 +2856,14 @@ async function readSpreadsheet(
     return { case: attachedCase };
   }
 
-  if (context.byEmail) {
+  if (context.heldByArrival !== undefined) {
     const held: DocumentHold = {
       documentId: document.documentId,
       orgId: document.orgId,
       docType: read.reading.docType,
       confidence: 1,
       floor: context.floor ?? (await deps.store.classificationFloor()),
-      reason: 'by_email',
+      reason: context.heldByArrival,
     };
     await deps.store.recordHold(held);
     return { held, haltedBecause: HELD_FOR_REVIEW };
