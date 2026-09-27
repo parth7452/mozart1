@@ -12,6 +12,8 @@ import {
 import { allFixtureDocuments, expectedExtraction } from '@recouple/fixtures';
 import { InlineRunner, InngestRunner, pipelineDepsFor, runnerFromEnv } from '../lib/pipeline';
 import { INBOUND_SECRET_MIN_LENGTH, inboundEmailFromEnv } from '../lib/inbound';
+import { qboPostingFromEnv } from '../lib/qbo-posting';
+import { runPostWriteback } from '../lib/inngest-posting';
 
 /**
  * What the app does when it is not fully configured.
@@ -257,5 +259,43 @@ describe('whether an environment receives email (ADR 0047 §14)', () => {
       const binding = inboundEmailFromEnv(environment);
       expect(JSON.stringify(binding.kind === 'misconfigured' ? binding.reason : '')).not.toContain(SECRET);
     }
+  });
+});
+
+describe('whether an environment posts to QuickBooks (ADR 0060 §5)', () => {
+  const qbo = {
+    QBO_CLIENT_ID: 'id',
+    QBO_CLIENT_SECRET: 'secret',
+    QBO_ENVIRONMENT: 'sandbox',
+    QBO_TOKEN_KMS_KEY_ID: 'key',
+  };
+
+  it('builds no poster without QBO_POSTING, whatever else is configured', () => {
+    expect(qboPostingFromEnv({ ...qbo })).toBeUndefined();
+    expect(qboPostingFromEnv({ ...qbo, QBO_POSTING: '' })).toBeUndefined();
+    expect(qboPostingFromEnv({ ...qbo, QBO_POSTING: 'true' })).toBeUndefined();
+    expect(qboPostingFromEnv({ ...qbo, QBO_POSTING: '0' })).toBeUndefined();
+  });
+
+  it('builds one only for QBO_POSTING=1', () => {
+    expect(qboPostingFromEnv({ ...qbo, QBO_POSTING: '1' })).toBeDefined();
+  });
+
+  it('refuses the job before it builds a store or a request when there is no poster', async () => {
+    let built = false;
+    const id = '11111111-2222-4333-8444-555555555555';
+    await expect(
+      runPostWriteback(
+        { writebackId: id, connectionId: id, orgId: id, userId: id },
+        {
+          poster: undefined,
+          storeFor: () => {
+            built = true;
+            throw new Error('no store should be built');
+          },
+        },
+      ),
+    ).rejects.toThrow(/not_configured/);
+    expect(built).toBe(false);
   });
 });

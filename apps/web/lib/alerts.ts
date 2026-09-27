@@ -2,6 +2,7 @@ import { NonRetriableError, internalEvents, type Inngest } from 'inngest';
 import { INNGEST_APP_ID, READ_DOCUMENT_CONFIG } from './inngest';
 import { READ_INBOUND_EMAIL_CONFIG } from './inbound';
 import { LEDGER_SYNC_CONFIG, LEDGER_SYNC_FAN_OUT_CONFIG } from './inngest-ledger';
+import { POST_WRITEBACK_CONFIG } from './inngest-posting';
 
 /**
  * An email to the operator when a background job fails after its retries
@@ -65,6 +66,15 @@ export const ALERTED_FUNCTIONS: ReadonlyMap<string, { readonly name: string; rea
         next:
           'Today’s ledger syncs were not started for any workspace. Invoke "Fan out the daily ' +
           'ledger syncs" from the Inngest dashboard once the run below says why.',
+      },
+    ],
+    [
+      fullId(POST_WRITEBACK_CONFIG.id),
+      {
+        name: POST_WRITEBACK_CONFIG.name,
+        next:
+          'A posting to QuickBooks was refused, failed or did not read back as sent. Nothing was ' +
+          'retried or reversed. Open the case, check QuickBooks, and retry from the case page.',
       },
     ],
   ]);

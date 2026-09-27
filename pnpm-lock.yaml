@@ -231,6 +231,9 @@ importers:
       '@recouple/ingest':
         specifier: workspace:*
         version: link:../ingest
+      '@recouple/qbo':
+        specifier: workspace:*
+        version: link:../qbo
     devDependencies:
       '@recouple/fixtures':
         specifier: workspace:*

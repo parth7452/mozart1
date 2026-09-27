@@ -111,10 +111,7 @@ export function buildSettlementEntry(
     readonly includeFound: boolean;
   },
 ): JournalEntryPosting {
-  const stages: JournalStage[] = input.includeFound
-    ? ['found', 'recovered', 'written_off']
-    : ['recovered', 'written_off'];
-  return buildEntry(input, stages);
+  return buildEntry(input, settlementStages(input.includeFound));
 }
 
 /**
@@ -169,23 +166,7 @@ function buildEntry(
   const reference = postingReference(input.writebackId);
   const memo = postingMemo(input.caseId, input.family, reference);
 
-  const lines: PostingLine[] = [];
-  for (const entry of input.entries) {
-    if (!stages.includes(entry.stage)) continue;
-    for (const line of entry.lines) {
-      const accountId = accountFor(line.role, entry.tag, input.map);
-      if (line.debit > 0) lines.push({ accountId, side: 'Debit', amountCents: line.debit });
-      if (line.credit > 0) lines.push({ accountId, side: 'Credit', amountCents: line.credit });
-    }
-  }
-  if (lines.length === 0) {
-    throw new PostingInputError(`no draft lines for ${stages.join(', ')}`);
-  }
-  const debits = sumCents(lines.filter((l) => l.side === 'Debit').map((l) => l.amountCents));
-  const credits = sumCents(lines.filter((l) => l.side === 'Credit').map((l) => l.amountCents));
-  if (debits !== credits) {
-    throw new PostingInputError(`the entry does not balance: ${debits} debit, ${credits} credit`);
-  }
+  const lines = entryLines(input.entries, input.map, stages);
 
   return {
     entity: 'JournalEntry',
@@ -210,6 +191,41 @@ function buildEntry(
       })),
     },
   };
+}
+
+/**
+ * The lines an entry posts for these stages, as account ids, sides and cents:
+ * what a `writebacks` row stores in `lines` when it is approved, and what the
+ * job's rebuilt body must equal before it is sent. Balanced, or refused.
+ */
+export function entryLines(
+  entries: readonly DraftEntry[],
+  map: LedgerAccountMap,
+  stages: readonly JournalStage[],
+): readonly PostingLine[] {
+  const lines: PostingLine[] = [];
+  for (const entry of entries) {
+    if (!stages.includes(entry.stage)) continue;
+    for (const line of entry.lines) {
+      const accountId = accountFor(line.role, entry.tag, map);
+      if (line.debit > 0) lines.push({ accountId, side: 'Debit', amountCents: line.debit });
+      if (line.credit > 0) lines.push({ accountId, side: 'Credit', amountCents: line.credit });
+    }
+  }
+  if (lines.length === 0) {
+    throw new PostingInputError(`no draft lines for ${stages.join(', ')}`);
+  }
+  const debits = sumCents(lines.filter((l) => l.side === 'Debit').map((l) => l.amountCents));
+  const credits = sumCents(lines.filter((l) => l.side === 'Credit').map((l) => l.amountCents));
+  if (debits !== credits) {
+    throw new PostingInputError(`the entry does not balance: ${debits} debit, ${credits} credit`);
+  }
+  return lines;
+}
+
+/** The stages a settlement entry carries (ADR 0060 §1). */
+export function settlementStages(includeFound: boolean): readonly JournalStage[] {
+  return includeFound ? ['found', 'recovered', 'written_off'] : ['recovered', 'written_off'];
 }
 
 function accountFor(

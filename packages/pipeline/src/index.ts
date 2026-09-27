@@ -12,3 +12,4 @@ export * from './inbound';
 export * from './inbound-sweep';
 export * from './serving';
 export * from './sheet-reading';
+export * from './posting-job';

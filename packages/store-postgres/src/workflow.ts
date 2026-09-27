@@ -1495,10 +1495,12 @@ export async function getWorkflow(
   const { rows: decisionRows } = await client.query<DecisionRow>(
     `select id, deduction_id, result, prepared_by, created_at
        from decisions
-      where deduction_id = $1 and provider = $2
+      where deduction_id = $1 and provider = $2 and schema_id = $3
       order by created_at desc, id desc
       limit 1`,
-    [deductionId, HUMAN_PROVIDER],
+    // Schema B only: a settlement decision (schema S, ADR 0060 §2) never
+    // shadows the dispute decision the workflow is about.
+    [deductionId, HUMAN_PROVIDER, HUMAN_SCHEMA_ID],
   );
   const decisionRow = decisionRows[0];
   const deadlineSet = await readDeadlineSet(client, deductionId);
