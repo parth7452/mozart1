@@ -701,6 +701,16 @@ export const NOTICES = {
     text: 'opening a case from that document failed, and the reason is in this deployment’s logs. Nothing was read again.',
   },
 
+  // --- mapping a spreadsheet's columns (ADR 0056) ---------------------------
+  map_invalid: {
+    tone: 'bad',
+    text: 'that mapping could not be saved: choose a shape, a debtor, the header row and a column for the deduction amount — nothing was recorded',
+  },
+  map_not_spreadsheet: {
+    tone: 'bad',
+    text: 'that document is not a spreadsheet, so it has no columns to map — nothing was recorded',
+  },
+
   // --- QuickBooks (ADR 0039) ------------------------------------------------
   qbo_role: { tone: 'bad', text: 'only an owner can connect or disconnect QuickBooks' },
   qbo_not_configured: {

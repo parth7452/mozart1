@@ -911,6 +911,18 @@ describe('documents that were read and that no case holds', () => {
       expect(html).toContain('/attach"');
     });
 
+    it('links an unmapped spreadsheet to its mapping page, and offers no open until it is mapped', () => {
+      const h = hold({ reason: 'no_mapping', confidence: 1, header: ['Reference', 'Amount'], sheet: 'Sheet1' });
+      const html = renderToStaticMarkup(
+        <UnattachedDocuments documents={[heldRow(h)]} targets={offered([summary()])} />,
+      );
+      expect(mayOpenFrom(h)).toBe(false);
+      expect(html).toContain('href="/documents/eeeeeeee-1111-2222-3333-444444444444/map"');
+      expect(html).toContain('Map these columns');
+      expect(html).not.toContain('/open-case"');
+      expect(holdLine(h)).toContain('no confirmed column mapping');
+    });
+
     it('offers no open for a remittance with no lines, and says why', () => {
       const noLines = hold({ reason: 'type_did_not_fit', confidence: 0.99, fields: ['lines'] });
       expect(mayOpenFrom(noLines)).toBe(false);

@@ -94,6 +94,8 @@ const EVERY_KEY: readonly string[] = [
   'open_held_done',
   'open_held_duplicate',
   'open_held_failed',
+  'map_invalid',
+  'map_not_spreadsheet',
   'open_held_none',
   'open_held_not_held',
   'open_held_not_read',

@@ -219,6 +219,11 @@ const LINE_FIELDS: Record<SheetMapping['shape'], readonly string[]> = {
   ],
 };
 
+/** Every field a mapping of this shape may name a column for: the top fields, then the line fields. */
+export function sheetFields(shape: SheetMapping['shape']): readonly string[] {
+  return [...TOP_FIELDS[shape], ...LINE_FIELDS[shape]];
+}
+
 /**
  * Reads every line row under the mapping's header in the sheet that carries
  * it. A row whose money (or claim, or date) will not read is `unreadable` —
