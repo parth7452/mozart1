@@ -1640,9 +1640,16 @@ that dense still fails loudly, now with its one call's cost recorded, until a
 proactive gate, a longer duration or a step per part is chosen — the founder's
 call.
 
-**Built on PR #127 overnight, 2026-09-27: not merged, not deployed.** Nothing
-below is live, no migration below is applied anywhere, and ADRs 0051, 0057, 0058,
-0060 and 0061 were accepted by the founder on 2026-09-27.
+**Built on PR #127 overnight, 2026-09-27, merged the same day.** ADRs 0051,
+0057, 0058, 0060 and 0061 were accepted by the founder on 2026-09-27.
+Migrations 0036 and 0037 were applied on the founder's go, to `mozart-preview`
+(17:27 and 17:29 UTC) and then production (17:30 and 17:31), and read back on
+both: the stored statements' md5s equal the files'; `sheet_mappings`,
+`extraction_result_cells` and `ledger_account_maps` have RLS, `no_update_delete`
+and `no_truncate`, with `app_rw` holding SELECT and INSERT and `app_ro` SELECT;
+the request roles hold nothing on them; no `app` function is unpinned; and no
+connection has `posting_enabled`. The security advisor shows only its old
+leaked-password notice. Nothing posts to QuickBooks and no portal runs.
 
 **A ledger case shows the payer's terms** (no ADR, no migration).
 `payerTermsFor` (`core-domain`) derives a case's reason code and deduction
