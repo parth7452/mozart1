@@ -59,7 +59,7 @@ export default async function CasePage({
     if (summary === undefined) notFound();
 
     const mayAct = mayWrite(session.org.role);
-    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable] =
+    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable, payerTerms] =
       await Promise.all([
         // The case's documents by their links, and their fields by the same
         // links: a remittance's read and a held notice's belong to no case, and a
@@ -104,12 +104,16 @@ export default async function CasePage({
         // Asked only where the card that offers them is drawn — a member who
         // may write, on a case still open (a merged-away one is closed).
         mayAct && !isClosed(summary.state) ? store.unattachedDocuments() : undefined,
+        // The payer's reason code and reference, derived from the notices and
+        // remittances linked to this case when it printed none of its own.
+        store.payerTermsForCase(id),
       ]);
 
     return (
       <CaseReview
         viewer={viewerOf(session)}
         summary={summary}
+        payerTerms={payerTerms}
         documents={documents}
         fields={fields}
         reconciliation={reconciliation}

@@ -99,6 +99,9 @@ vi.mock('../lib/session', () => ({
         harness.duplicateCalls.push(options);
         return harness.duplicates;
       },
+      async payerTermsForCases(ids: readonly string[]) {
+        return new Map(ids.map((id) => [id, { kind: 'none' as const }]));
+      },
       async unattachedDocuments(limit?: number) {
         harness.unattachedCalls.push(limit);
         return harness.unattached;

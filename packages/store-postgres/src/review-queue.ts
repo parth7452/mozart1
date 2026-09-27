@@ -50,6 +50,14 @@ export interface ReviewQueueRow extends QueueCase {
   readonly retailerNameAsPrinted?: string;
   readonly discoveredVia: DiscoveredVia;
   readonly invoiceNumber?: string;
+  /** The case's own `reason_code_as_printed`, when its document printed one. */
+  readonly reasonCodeAsPrinted?: string;
+  /**
+   * What the queue shows as the payer's reason code: the case's own, else the
+   * one `payerTermsForCases` derived from its linked documents. Filled by the
+   * page after the read, never by this SQL, so there is one matcher.
+   */
+  readonly reasonCode?: string;
   /** `YYYY-MM-DD`, the UTC day the case opened. */
   readonly createdAt: string;
   /** Who prepared the latest decision, so an approve row can say whose move it is. */
@@ -122,6 +130,7 @@ interface QueueDbRow {
   retailer_name_as_printed: string | null;
   discovered_via: DiscoveredVia;
   invoice_number: string | null;
+  reason_code_as_printed: string | null;
   has_approval: boolean;
   prepared_by: string | null;
   total: string;
@@ -156,7 +165,7 @@ export async function readReviewQueue(
             to_char(q.dispute_deadline, 'YYYY-MM-DD') as dispute_deadline,
             to_char(q.created_on, 'YYYY-MM-DD') as created_on,
             b.display_name as debtor_name,
-            q.retailer_name_as_printed, q.discovered_via,
+            q.retailer_name_as_printed, q.discovered_via, q.reason_code_as_printed,
             (select i.identifier from deduction_identifiers i
               where i.deduction_id = q.id and i.identifier_kind = 'invoice_number'
               order by i.first_seen_at asc, i.id asc limit 1) as invoice_number,
@@ -191,6 +200,9 @@ export async function readReviewQueue(
         : {}),
       discoveredVia: row.discovered_via,
       ...(row.invoice_number !== null ? { invoiceNumber: row.invoice_number } : {}),
+      ...(row.reason_code_as_printed !== null
+        ? { reasonCodeAsPrinted: row.reason_code_as_printed }
+        : {}),
       hasApproval: row.has_approval,
       ...(row.prepared_by !== null ? { preparedBy: row.prepared_by } : {}),
     })),

@@ -25,13 +25,19 @@ import {
   CLOSED_STATES,
   DUE_SOON_DAYS,
   identifierMatchKey,
+  parseMoneyToCents,
+  payerTermsFor,
   resolveDebtorId,
+  subCents,
   resolveIdentity,
   tryParsePrintedDate,
 } from '@recouple/core-domain';
 import type {
   ArrivalIdentity,
   CanonicalReasonCode,
+  Cents,
+  PayerTermsAnswer,
+  PayerTermsLine,
   CaseState,
   DebtorCandidate,
   IdentifierKind,
@@ -787,6 +793,20 @@ const CASE_DOCUMENTS_CTE = `on_case as (
  * It is a constant expression over a column, never user input: the values it
  * compares against are bound parameters.
  */
+/**
+ * A stored money field's value as cents, or undefined when it is absent or
+ * unreadable — for picking a payer's line, where an unreadable amount simply
+ * does not match (reconciliation reports it as a finding elsewhere).
+ */
+function moneyOrUndefined(value: unknown): Cents | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    return parseMoneyToCents(value);
+  } catch {
+    return undefined;
+  }
+}
+
 const FOLDED_IDENTIFIER = "lower(regexp_replace(btrim(i.identifier), '\\s+', ' ', 'g'))";
 
 interface CaseSummaryRow {
@@ -4075,6 +4095,135 @@ export class PostgresStore
             : (row.source_bbox.map((n) => Number(n)) as [number, number, number, number]),
         quoteVerified: row.quote_verified,
       }));
+    });
+  }
+
+  /**
+   * The payer's reason code and deduction reference for a case, derived from
+   * the notices and remittances linked to it — its own `deduction_documents`
+   * links and those of any case merged into it — and never written anywhere.
+   * A case whose `reason_code_as_printed` is set answers `own`. The rule is
+   * `payerTermsFor`'s alone; this only gathers its inputs.
+   */
+  async payerTermsForCase(deductionId: string): Promise<PayerTermsAnswer> {
+    const answers = await this.payerTermsForCases([deductionId]);
+    return answers.get(deductionId) ?? { kind: 'none' };
+  }
+
+  /** `payerTermsForCase` for many cases in one tenant transaction. */
+  async payerTermsForCases(ids: readonly string[]): Promise<Map<string, PayerTermsAnswer>> {
+    const out = new Map<string, PayerTermsAnswer>();
+    if (ids.length === 0) return out;
+    return this.withTenant(async (client) => {
+      const cases = await client.query<{ id: string; reason_code_as_printed: string | null; amount: string }>(
+        `select id, reason_code_as_printed, deduction_amount_cents::text as amount
+           from deductions where id = any($1::uuid[])`,
+        [ids],
+      );
+      const pending = new Map<string, Cents>();
+      for (const row of cases.rows) {
+        if (row.reason_code_as_printed !== null) out.set(row.id, { kind: 'own' });
+        else pending.set(row.id, cents(Number(row.amount)));
+      }
+      for (const id of ids) if (!out.has(id) && !pending.has(id)) out.set(id, { kind: 'none' });
+      if (pending.size === 0) return out;
+      const caseSet = `case_set as (
+           select id as case_id, id as member_id from deductions where id = any($1::uuid[])
+           union
+           select m.surviving_deduction_id, m.merged_deduction_id
+             from deduction_merges_current m where m.surviving_deduction_id = any($1::uuid[])
+         )`;
+      const pendingIds = [...pending.keys()];
+      const invoices = await client.query<{ case_id: string; identifier: string }>(
+        `with ${caseSet}
+         select distinct cs.case_id, i.identifier
+           from deduction_identifiers i
+           left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+           join case_set cs on cs.case_id = coalesce(m.surviving_deduction_id, i.deduction_id)
+          where i.identifier_kind = 'invoice_number'`,
+        [pendingIds],
+      );
+      const fields = await client.query<{
+        case_id: string;
+        document_id: string;
+        doc_type: 'deduction_notice' | 'remittance_advice';
+        field_path: string;
+        value_json: unknown;
+        quote_verified: boolean | null;
+      }>(
+        `with ${caseSet}, on_case as (
+           select distinct cs.case_id, dd.document_id
+             from deduction_documents dd join case_set cs on cs.member_id = dd.deduction_id
+         ), typed as (
+           select o.case_id, o.document_id, c.doc_type
+             from on_case o
+             join lateral (
+               select doc_type from document_classifications dc
+                where dc.document_id = o.document_id order by dc.id desc limit 1
+             ) c on true
+            where c.doc_type in ('deduction_notice', 'remittance_advice')
+         ), latest as (
+           select distinct on (e.document_id, e.field_path)
+                  e.document_id, e.field_path, e.value_json, e.quote_verified
+             from extraction_results e
+            where e.document_id in (select document_id from typed)
+              and e.field_path ~ '^lines\\[\\d+\\]\\.(reason_code|deduction_reference|deduction_amount|gross_amount|net_amount|invoice_number)$'
+            order by e.document_id, e.field_path, e.id desc
+         )
+         select t.case_id, t.document_id, t.doc_type, l.field_path, l.value_json, l.quote_verified
+           from typed t join latest l on l.document_id = t.document_id`,
+        [pendingIds],
+      );
+      for (const [caseId, amountCents] of pending) {
+        const invoiceKeys = invoices.rows
+          .filter((r) => r.case_id === caseId)
+          .map((r) => identifierMatchKey(r.identifier));
+        const grouped = new Map<string, { docType: PayerTermsLine['docType']; documentId: string; index: number; f: Map<string, { value: unknown; verified: boolean | null }> }>();
+        for (const r of fields.rows) {
+          if (r.case_id !== caseId) continue;
+          const match = /^lines\[(\d+)\]\.(\w+)$/.exec(r.field_path);
+          if (match === null) continue;
+          const index = Number(match[1]);
+          const key = `${r.document_id}#${index}`;
+          let g = grouped.get(key);
+          if (g === undefined) {
+            g = { docType: r.doc_type, documentId: r.document_id, index, f: new Map() };
+            grouped.set(key, g);
+          }
+          g.f.set(match[2]!, { value: r.value_json, verified: r.quote_verified });
+        }
+        const lines: PayerTermsLine[] = [...grouped.values()].map((g) => {
+          const text = (name: string): string | undefined => {
+            const v = g.f.get(name)?.value;
+            return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+          };
+          const money = (name: string): Cents | undefined => moneyOrUndefined(g.f.get(name)?.value);
+          let amount = money('deduction_amount');
+          if (amount === undefined && g.docType === 'remittance_advice') {
+            const gross = money('gross_amount');
+            const net = money('net_amount');
+            if (gross !== undefined && net !== undefined) amount = subCents(gross, net);
+          }
+          const reasonCode = text('reason_code');
+          const deductionReference = text('deduction_reference');
+          const invoiceNumber = text('invoice_number');
+          return {
+            documentId: g.documentId,
+            docType: g.docType,
+            index: g.index,
+            ...(reasonCode === undefined ? {} : { reasonCode }),
+            ...(deductionReference === undefined ? {} : { deductionReference }),
+            ...(amount === undefined ? {} : { amountCents: amount }),
+            ...(invoiceNumber === undefined ? {} : { invoiceNumber }),
+            quoteVerified:
+              (reasonCode !== undefined
+                ? g.f.get('reason_code')?.verified
+                : g.f.get('deduction_reference')?.verified) ?? null,
+          };
+        });
+        out.set(caseId, payerTermsFor({ amountCents, invoiceKeys, lines }));
+      }
+      return out;
     });
   }
 

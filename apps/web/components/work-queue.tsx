@@ -195,6 +195,12 @@ export function WorkQueue({
                           {row.case.invoiceNumber === undefined ? null : (
                             <span className="unmatched">invoice {row.case.invoiceNumber}</span>
                           )}
+                          {/* The payer's code as printed, never mapped: untrusted text. */}
+                          {row.case.reasonCode === undefined ? null : (
+                            <span className="ledger-tag queue-reason" title="Payer's reason code">
+                              {row.case.reasonCode}
+                            </span>
+                          )}
                         </span>
                         <span className="queue-amount">
                           {money(row.case.deductionAmountCents)}

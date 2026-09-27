@@ -21,7 +21,7 @@ import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
-import { familyOf } from '@recouple/core-domain';
+import { familyOf, type PayerTerms, type PayerTermsAnswer } from '@recouple/core-domain';
 import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
 import { DisputeDeadline } from './dispute-deadline';
@@ -70,6 +70,44 @@ export function markFor(
     return { label: money ? 'amount not on page' : 'quote not found', tone: 'unverified' };
   }
   return { label: 'not checked', tone: 'unchecked' };
+}
+
+/**
+ * The payer's reason code and deduction reference, read off a notice or
+ * remittance a person linked to this case — untrusted text, shown as printed
+ * and never mapped — with the document it came from and its quote's verdict.
+ */
+function DerivedPayerTerms({
+  terms,
+  filenames,
+}: {
+  terms: PayerTerms;
+  filenames: ReadonlyMap<string, string>;
+}) {
+  const mark = markFor(terms.quoteVerified, terms.fieldPath);
+  const link = (
+    <a href={`/api/document/${terms.documentId}`}>{filenames.get(terms.documentId) ?? 'document'}</a>
+  );
+  return (
+    <div className="payer-terms">
+      {terms.reasonCode === undefined ? null : (
+        <p className="mono">
+          Reason code: {terms.reasonCode} (from {link}){' '}
+          <span className={`mark ${mark.tone}`}>{mark.label}</span>
+        </p>
+      )}
+      {terms.deductionReference === undefined ? null : (
+        <p className="mono">
+          Deduction ref: {terms.deductionReference}
+          {terms.reasonCode === undefined ? (
+            <>
+              {' '}(from {link}) <span className={`mark ${mark.tone}`}>{mark.label}</span>
+            </>
+          ) : null}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -219,6 +257,12 @@ export interface CaseReviewProps {
    * case's notice and has no fields (ADR 0029).
    */
   readonly documents: readonly CaseDocument[];
+  /**
+   * The payer's terms derived from the notices and remittances linked to this
+   * case (`payerTermsForCase`). Absent or `own`, the row renders as it always
+   * did, from the case's own column.
+   */
+  readonly payerTerms?: PayerTermsAnswer;
   readonly fields: readonly StoredField[];
   readonly reconciliation: Reconciliation | undefined;
   readonly costMicros: number;
@@ -280,6 +324,7 @@ export interface CaseReviewProps {
 export function CaseReview({
   viewer,
   summary,
+  payerTerms,
   documents,
   fields,
   reconciliation,
@@ -408,6 +453,32 @@ export function CaseReview({
                     : `code ${summary.reasonCodeAsPrinted}`}
                 </p>
               )}
+              {payerTerms?.kind === 'derived' ? (
+                <DerivedPayerTerms terms={payerTerms.terms} filenames={filenames} />
+              ) : null}
+              {payerTerms?.kind === 'conflicting' ? (
+                <div className="payer-terms-conflict">
+                  <p>Payer documents disagree</p>
+                  <ul>
+                    {payerTerms.candidates.map((candidate) => (
+                      <li key={`${candidate.documentId}:${candidate.fieldPath}`} className="mono">
+                        {candidate.reasonCode === undefined ? null : `code ${candidate.reasonCode}`}
+                        {candidate.reasonCode !== undefined &&
+                        candidate.deductionReference !== undefined
+                          ? ' · '
+                          : null}
+                        {candidate.deductionReference === undefined
+                          ? null
+                          : `ref ${candidate.deductionReference}`}
+                        {' — '}
+                        <a href={`/api/document/${candidate.documentId}`}>
+                          {filenames.get(candidate.documentId) ?? 'document'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {primary === undefined ? (
                 <p className="empty">
                   {documents.length === 0

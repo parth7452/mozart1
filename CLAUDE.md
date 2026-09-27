@@ -1564,6 +1564,21 @@ extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
 page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
 read a duplex scan through the pipeline and back out of Postgres.
 
+**A ledger case shows the payer's terms once a person links them** (no ADR,
+no migration). A case the ledger sync opens has no `reason_code_as_printed`.
+`payerTermsForCases` derives one at read time from the notices and remittances
+on the case's own `deduction_documents` links and those of any case merged into
+it (`deduction_merges_current`), and writes nothing. `payerTermsFor`
+(`core-domain`) is the one rule: a line counts when its amount equals the
+case's to the cent and it prints a reason code or (notices only) a deduction
+reference; a remittance line must also be on one of the case's invoices, which
+only picks a line inside a document already linked and is never identity. One
+answer is `derived`, disagreeing lines `conflicting`, none `none`, and a case
+with its own column `own`. The case page shows the code, the reference and the
+document it came from, or "Payer documents disagree"; the work queue tags the
+row with the code, in the same order. The packet waits on the dispute letter
+(build-now 05), which wires it in at assembly.
+
 **A failed job reaches a person** (ADR 0052, no migration). Inngest has no
 built-in alert for a failed run on any plan, so `alert-on-failure`
 (`apps/web/lib/alerts.ts`) listens for `inngest/function.failed`, filtered to
