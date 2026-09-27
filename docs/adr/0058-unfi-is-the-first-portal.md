@@ -1,9 +1,8 @@
 # 0058 — UNFI is the first portal, and its terms are read before anything runs
 
-- Status: accepted (the founder, 2026-09-27). **The terms-of-service check is
-  still pending.** No
-  automated read of any UNFI system runs until the founder has read UNFI's
-  terms and recorded the answer in §2 of the Decision. Nothing is built.
+- Status: accepted (the founder, 2026-09-27). The terms answer in §2 is
+  recorded: the founder holds an agreement with UNFI that covers this. The
+  read still waits on the dedicated user (§3) and the walk-through (§11).
 - Date: 2026-09-26
 - Depends on: ADR 0057 (portal read) being accepted; Draft D (playbooks and
   code maps) for the code map; ADR 0056 (spreadsheets) being built, if the
@@ -344,12 +343,15 @@ The founder answers:
 
 The record:
 
-- Terms read by: *pending*
-- On: *pending*
-- Documents and versions: *pending*
-- Answer: *pending* (one of: allowed; allowed with conditions; needs UNFI's
-  written consent; not allowed)
-- Conditions, if any: *pending*
+- Terms read by: the founder
+- On: 2026-09-27
+- Documents and versions: the founder's agreement with UNFI. Its title and
+  date are not in the repository.
+- Answer: allowed. The founder, 2026-09-27: "we have an agreement with UNFI so
+  we're good to go."
+- Conditions, if any: none stated. Questions 2–5 above are answered by that
+  agreement as the founder reads it. Any sign-in clickwrap the walk-through
+  finds (question 5) is still a stop for a person (ADR 0057).
 
 If the answer is "needs consent" or "not allowed", no automated read runs.
 The founder downloads by hand and uploads, and the rest of the plan (the code
