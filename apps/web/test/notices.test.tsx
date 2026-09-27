@@ -248,6 +248,12 @@ const EVERY_KEY: readonly string[] = [
   'upload_rejected_empty_file',
   'upload_rejected_encrypted_pdf',
   'upload_rejected_malformed_pdf',
+  'upload_rejected_macro_enabled_spreadsheet',
+  'upload_rejected_active_content_spreadsheet',
+  'upload_rejected_legacy_or_encrypted_office',
+  'upload_rejected_xml_dtd_refused',
+  'upload_rejected_malformed_spreadsheet',
+  'upload_rejected_spreadsheet_too_large',
   'upload_rejected_too_large',
   'upload_rejected_type_not_allowed',
   'upload_remittance_cases',
@@ -362,6 +368,12 @@ describe('the notice table', () => {
       'active_content_pdf',
       'decompression_bomb',
       'malformed_pdf',
+      'macro_enabled_spreadsheet',
+      'active_content_spreadsheet',
+      'legacy_or_encrypted_office',
+      'xml_dtd_refused',
+      'malformed_spreadsheet',
+      'spreadsheet_too_large',
     ]) {
       expect(uploadRejectionNotice(code), code).toBe(`upload_rejected_${code}`);
       expect(resolveNotice(uploadRejectionNotice(code)), code).toBeDefined();

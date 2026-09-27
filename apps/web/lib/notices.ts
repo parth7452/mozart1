@@ -905,6 +905,30 @@ export const NOTICES = {
     tone: 'bad',
     text: 'that PDF is malformed, so nothing could be read from it',
   },
+  upload_rejected_macro_enabled_spreadsheet: {
+    tone: 'bad',
+    text: 'that spreadsheet carries macros, which this app does not open',
+  },
+  upload_rejected_active_content_spreadsheet: {
+    tone: 'bad',
+    text: 'that spreadsheet carries external links or embedded content, which this app does not open',
+  },
+  upload_rejected_legacy_or_encrypted_office: {
+    tone: 'bad',
+    text: 'that is an old-format or encrypted Office file; save it as .xlsx or .csv and upload it again',
+  },
+  upload_rejected_xml_dtd_refused: {
+    tone: 'bad',
+    text: 'that spreadsheet declares a document type, which this app does not open',
+  },
+  upload_rejected_malformed_spreadsheet: {
+    tone: 'bad',
+    text: 'that spreadsheet is malformed, so nothing could be read from it',
+  },
+  upload_rejected_spreadsheet_too_large: {
+    tone: 'bad',
+    text: 'that spreadsheet has more sheets, rows, columns or text than this app reads',
+  },
   // `satisfies`, not a type annotation: the keys stay literal, so `NoticeKey`
   // is the set of them and a route that names a notice this table does not have
   // fails to compile rather than redirecting to a page that silently shows
