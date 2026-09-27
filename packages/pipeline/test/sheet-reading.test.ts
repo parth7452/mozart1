@@ -191,6 +191,17 @@ describe('reading a spreadsheet by its mapping (ADR 0056)', () => {
     expect(store.cases.size).toBe(0);
   });
 
+  it('holds an emailed spreadsheet nobody mapped by email, keeping its header', async () => {
+    const { store, deps } = harness();
+    const result = await processUpload(
+      (({ uploadedBy: _unused, ...rest }) => rest)(csv(list(['CB-1']), 'mail.csv', 'email_in')),
+      deps,
+    );
+    expect(result.held?.reason).toBe('by_email');
+    expect(result.held?.header).toEqual(LIST_HEADER);
+    expect(store.cases.size).toBe(0);
+  });
+
   it('makes a row whose money will not read unreadable, never zero', async () => {
     const { store, deps } = harness();
     await store.recordSheetMapping(mapping('deduction_list'));

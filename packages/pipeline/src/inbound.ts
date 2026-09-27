@@ -246,23 +246,6 @@ export async function readInboundEmailJob(
   return { inboundMessageId: input.inboundMessageId, reads, bodyRead };
 }
 
-/**
- * The spreadsheet door's six refusal codes are not yet in
- * `inbound_message_parts`' outcome check (migration 0034); recording one would
- * fail the insert and every Postmark retry with it. Until 4.7's migration
- * widens the check, they are recorded as `type_not_allowed`, which is what the
- * same attachment was before the door knew spreadsheets. Delete this mapping
- * once that migration is applied.
- */
-const NOT_YET_RECORDABLE: ReadonlySet<RejectedUploadError['code']> = new Set([
-  'macro_enabled_spreadsheet',
-  'active_content_spreadsheet',
-  'legacy_or_encrypted_office',
-  'xml_dtd_refused',
-  'malformed_spreadsheet',
-  'spreadsheet_too_large',
-]);
-
 export function partOutcomeOf(code: RejectedUploadError['code']): InboundPartOutcome {
-  return NOT_YET_RECORDABLE.has(code) ? 'type_not_allowed' : code;
+  return code;
 }

@@ -2824,7 +2824,7 @@ async function readSpreadsheet(
       docType: 'remittance_advice',
       confidence: 1,
       floor: context.floor ?? (await deps.store.classificationFloor()),
-      reason: 'no_mapping',
+      reason: context.byEmail ? 'by_email' : 'no_mapping',
       header: found.header,
       sheet: found.sheet,
     };

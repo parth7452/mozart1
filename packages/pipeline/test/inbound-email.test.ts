@@ -220,10 +220,7 @@ describe('the request half: store and scan, read nothing', () => {
       ).toString('base64'),
     };
     await receiveInboundEmail(email({ MessageID: 'pm-macro', Attachments: [macro] }), ADDRESS, deps);
-    // Recorded as `type_not_allowed` until migration 0036 — which widens the
-    // outcome check to name `macro_enabled_spreadsheet` — is applied; see
-    // `partOutcomeOf`. The door's own refusal is the named code.
-    expect(inbound.messages[1]?.parts.map((p) => p.outcome)).toEqual(['type_not_allowed', 'body_too_short']);
+    expect(inbound.messages[1]?.parts.map((p) => p.outcome)).toEqual(['macro_enabled_spreadsheet', 'body_too_short']);
     expect(() => acceptUpload(Buffer.from(macro.Content, 'base64'), macro.Name)).toThrow(
       expect.objectContaining({ code: 'macro_enabled_spreadsheet' }),
     );
