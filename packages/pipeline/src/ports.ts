@@ -278,7 +278,7 @@ export interface PipelineStore {
     schemaVersion: string;
     fields: readonly ExtractedField[];
     document: unknown;
-  }): Promise<void>;
+  }): Promise<readonly string[]>; // one `extraction_results` id per field, in order
   /**
    * The document as it was stored, rebuilt and validated by `restoreDocument`
    * rather than assembled ad hoc by each store. Every implementation answers
@@ -703,6 +703,8 @@ export interface UnattachedDocument {
  * database before anything is opened.
  */
 export interface HeldDocumentStore extends PipelineStore, DocumentReadLock {
+  /** The stored document, for a held spreadsheet read again by its mapping (ADR 0056). */
+  getDocument(documentId: string): Promise<StoredDocument | undefined>;
   documentIsVisible(documentId: string): Promise<boolean>;
   caseForDocument(documentId: string): Promise<string | undefined>;
   memberMayWrite(actor: { readonly orgId: string; readonly userId: string }): Promise<boolean>;

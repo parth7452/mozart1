@@ -54,7 +54,7 @@ function fixtureFor(filename: string): FixtureDocument {
  * one has the map in the open, so this is the whole implementation.
  */
 class JobTestStore extends InMemoryStore {
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
 }

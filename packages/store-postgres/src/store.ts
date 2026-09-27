@@ -1692,15 +1692,17 @@ export class PostgresStore
     schemaVersion: string;
     fields: readonly ExtractedField[];
     document: unknown;
-  }): Promise<void> {
-    await this.withTenant(async (client) => {
+  }): Promise<readonly string[]> {
+    return this.withTenant(async (client) => {
+      const ids: string[] = [];
       for (const field of input.fields) {
-        await client.query(
+        const { rows } = await client.query<{ id: string }>(
           `insert into extraction_results
              (org_id, document_id, deduction_id, field_path, value_json, confidence,
               source_page, source_quote, source_bbox, quote_verified,
               extractor, model_version, schema_version)
-           values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::numeric(6,5)[], $10, $11, $12, $13)`,
+           values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::numeric(6,5)[], $10, $11, $12, $13)
+           returning id`,
           [
             this.tenant.orgId,
             input.documentId,
@@ -1717,7 +1719,9 @@ export class PostgresStore
             input.schemaVersion,
           ],
         );
+        ids.push(String((rows[0] as { id: string }).id));
       }
+      return ids;
     });
   }
 

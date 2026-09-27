@@ -37,7 +37,11 @@ import {
   type DocumentHold,
   type HoldConfirmation,
 } from './hold';
+import { isSpreadsheetMime } from '@recouple/ingest';
 import {
+  mappedSheet,
+  openFromSheet,
+  recordSheetReading,
   openCaseFromNotice,
   openCasesFromRemittance,
   type CaseOpeningReading,
@@ -177,6 +181,51 @@ export async function openHeldDocument(
     // RLS already says so on Postgres; a store without it is asked here, and a
     // hold of another tenant's is a document this caller cannot see.
     if (hold.orgId !== input.orgId) throw new DocumentNotFoundError(input.documentId);
+
+    // A spreadsheet is read again by its mapping, with code: a `no_mapping`
+    // hold has no reading until a person confirmed one, and a list's rows open
+    // one case each, never the list as one notice (ADR 0056). No model call.
+    const stored = await store.getDocument(input.documentId);
+    if (stored !== undefined && isSpreadsheetMime(stored.mimeType)) {
+      const found = await mappedSheet(stored, { store });
+      if (found.read === undefined) {
+        throw new HeldReadingUnusableError(input.documentId, hold.docType, ['mapping']);
+      }
+      if ((await store.latestExtraction(input.documentId)) === undefined) {
+        await recordSheetReading(stored, found.wb, found.read, { store });
+      }
+      const sheet = await openFromSheet(
+        { documentId: input.documentId, orgId: hold.orgId },
+        found.read,
+        { store },
+        {
+          confirmation: {
+            confirmedBy: input.confirmedBy,
+            held: {
+              confidence: hold.confidence,
+              floor: hold.floor,
+              reason: hold.reason,
+              ...(hold.fields !== undefined ? { fields: hold.fields } : {}),
+            },
+          },
+        },
+      );
+      await store.releaseHold({
+        orgId: hold.orgId,
+        documentId: input.documentId,
+        releasedBy: input.confirmedBy,
+        reason: hold.reason,
+        deductionIds: [...new Set([...sheet.opened.map((c) => c.deductionId), ...sheet.mergedInto])],
+      });
+      return {
+        documentId: input.documentId,
+        docType: found.read.reading.docType,
+        hold,
+        opened: sheet.opened,
+        mergedInto: sheet.mergedInto,
+        ...(sheet.remittance !== undefined ? { remittance: sheet.remittance } : {}),
+      } satisfies OpenedFromHold;
+    }
 
     const recorded = await store.latestExtraction(input.documentId);
     if (recorded === undefined) throw new DocumentNotReadError(input.documentId);

@@ -76,7 +76,7 @@ class RouteTestStore extends InMemoryStore {
     this.closed += 1;
   }
   /** And the one a job owes itself: the document it was handed the id of. */
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
 }

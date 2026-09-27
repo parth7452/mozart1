@@ -149,7 +149,7 @@ class FixtureReader {
 
 /** The in-memory store, plus a document by id, which a job owes itself. */
 class JobTestStore extends InMemoryStore {
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
 }

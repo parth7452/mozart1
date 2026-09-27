@@ -56,8 +56,13 @@ export function opensCaseOnItsOwn(docType: DocType): docType is CaseOpeningDocTy
  *    forged, so a person decides every time. Keyed on the document's recorded
  *    arrival, never on a caller's flag. The confidence, the floor and any
  *    fields that did not fit are still recorded beside it.
+ *  - `no_mapping` — a spreadsheet whose header row no confirmed sheet mapping
+ *    names (ADR 0056). Nothing was read; the hold carries the header (at most
+ *    50 cells) and the sheet it was found on, so a person can map it. Its
+ *    `docType` is `remittance_advice` as a placeholder: which of the two it
+ *    is, is the mapping's shape, and nobody has said yet.
  */
-export const HOLD_REASONS = ['below_floor', 'type_did_not_fit', 'by_email'] as const;
+export const HOLD_REASONS = ['below_floor', 'type_did_not_fit', 'by_email', 'no_mapping'] as const;
 export type HoldReason = (typeof HOLD_REASONS)[number];
 
 export function isHoldReason(value: unknown): value is HoldReason {
@@ -173,6 +178,9 @@ export interface DocumentHold {
   readonly reason: HoldReason;
   /** As `HoldDecision.fields`: present exactly when the reading did not fit. */
   readonly fields?: readonly string[];
+  /** `no_mapping` only: the spreadsheet's header cells (≤50) and the sheet they are on. */
+  readonly header?: readonly string[];
+  readonly sheet?: string;
   /** When the hold was written, ISO-8601. Absent where a store cannot say. */
   readonly heldAt?: string;
   /** The member whose read it was. Absent where a store has no actor. */
@@ -182,7 +190,7 @@ export interface DocumentHold {
 /** What a hold looks like to the thing that decided it, before a store writes it. */
 export type HoldRecord = Pick<
   DocumentHold,
-  'documentId' | 'orgId' | 'docType' | 'confidence' | 'floor' | 'reason' | 'fields'
+  'documentId' | 'orgId' | 'docType' | 'confidence' | 'floor' | 'reason' | 'fields' | 'header' | 'sheet'
 >;
 
 /**
@@ -223,6 +231,8 @@ export function holdAuditPayload(hold: HoldRecord): Record<string, unknown> {
     floor: hold.floor,
     reason: hold.reason,
     ...(hold.fields !== undefined ? { fields: [...hold.fields] } : {}),
+    ...(hold.header !== undefined ? { header: hold.header.slice(0, 50) } : {}),
+    ...(hold.sheet !== undefined ? { sheet: hold.sheet } : {}),
   };
 }
 
@@ -264,7 +274,18 @@ export function holdFromAuditPayload(
     }
     fields = raw.fields as string[];
   }
+  let header: readonly string[] | undefined;
+  if (raw.header !== undefined) {
+    if (!Array.isArray(raw.header) || !raw.header.every((h) => typeof h === 'string')) {
+      return refuse('header is not a list of strings');
+    }
+    header = raw.header as string[];
+  }
+  if (raw.sheet !== undefined && typeof raw.sheet !== 'string') return refuse('sheet is not a string');
+  const sheet = raw.sheet as string | undefined;
   return {
+    ...(header !== undefined ? { header } : {}),
+    ...(sheet !== undefined ? { sheet } : {}),
     documentId: row.documentId,
     orgId: row.orgId,
     docType: docType as CaseOpeningDocType,

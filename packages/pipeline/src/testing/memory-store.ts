@@ -308,8 +308,9 @@ export class InMemoryStore
     this.classifications.push({ documentId, docType, confidence });
   }
 
-  async recordExtraction(input: StoredExtraction): Promise<void> {
+  async recordExtraction(input: StoredExtraction): Promise<readonly string[]> {
     this.extractions.push(input);
+    return input.fields.map(() => randomUUID());
   }
 
   /**
@@ -826,6 +827,10 @@ export class InMemoryStore
   async caseForDocument(documentId: string): Promise<string | undefined> {
     const links = this.links.filter((l) => l.documentId === documentId);
     return (links.find((l) => l.role === 'notice') ?? links[0])?.deductionId;
+  }
+
+  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+    return this.documents.get(documentId);
   }
 
   /** The narrow question, answered off the same map `getDocument` reads. */

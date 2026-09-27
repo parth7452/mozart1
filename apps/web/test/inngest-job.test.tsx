@@ -66,7 +66,7 @@ const USER_ID = '22222222-2222-2222-2222-222222222222';
 /** The in-memory store, plus the two methods a job's store owes the job. */
 class JobStoreForTest extends InMemoryStore implements JobStoreHandle {
   closed = 0;
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
   async close(): Promise<void> {

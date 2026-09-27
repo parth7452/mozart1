@@ -87,7 +87,7 @@ class FloorStore extends InMemoryStore {
     this.floorCalls += 1;
     return super.classificationFloor();
   }
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
 }
