@@ -15,13 +15,14 @@ import {
   type StoredField,
 } from '@recouple/store-postgres';
 import { DECLINE_LABELS, MISSING_EVIDENCE_LABELS } from '../lib/decline-labels';
+import { EvidenceChecklistPanel } from './evidence-checklist';
 import { displaysInline, viewsThroughRendition } from '../lib/document-types';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
-import { familyOf, type PayerTerms, type PayerTermsAnswer } from '@recouple/core-domain';
+import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
 import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
 import { DisputeDeadline } from './dispute-deadline';
@@ -263,6 +264,8 @@ export interface CaseReviewProps {
    * did, from the case's own column.
    */
   readonly payerTerms?: PayerTermsAnswer;
+  /** The evidence the chosen reason needs (ADR 0059); undefined before a decision. */
+  readonly evidenceChecklist?: EvidenceChecklist | undefined;
   readonly fields: readonly StoredField[];
   readonly reconciliation: Reconciliation | undefined;
   readonly costMicros: number;
@@ -325,6 +328,7 @@ export function CaseReview({
   viewer,
   summary,
   payerTerms,
+  evidenceChecklist,
   documents,
   fields,
   reconciliation,
@@ -550,6 +554,8 @@ export function CaseReview({
                 </p>
               )}
             </div>
+
+            <EvidenceChecklistPanel checklist={evidenceChecklist} documents={documents} />
 
             {findings.length > 0 || line !== undefined ? (
               <div className="card" style={{ marginTop: 18 }}>

@@ -43,6 +43,7 @@ import type {
   IdentifierKind,
   KnownDeduction,
   KnownIdentifier,
+  EvidenceType,
 } from '@recouple/core-domain';
 import { restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
@@ -563,6 +564,18 @@ export const MISSING_EVIDENCE_TYPES = [
 ] as const;
 
 export type MissingEvidence = (typeof MISSING_EVIDENCE_TYPES)[number];
+
+/** The evidence type each decline reason names, where one exists (ADR 0059). */
+export const EVIDENCE_FOR_MISSING: Readonly<Record<MissingEvidence, EvidenceType | null>> = {
+  proof_of_delivery: 'signed_pod',
+  bill_of_lading: 'carrier_signed_bol',
+  invoice: 'invoice',
+  purchase_order: 'po',
+  receiving_report: null,
+  timesheet: null,
+  rate_agreement: 'price_agreement',
+  correspondence: 'buyer_approval_email',
+};
 
 export function isMissingEvidence(value: unknown): value is MissingEvidence {
   return typeof value === 'string' && (MISSING_EVIDENCE_TYPES as readonly string[]).includes(value);

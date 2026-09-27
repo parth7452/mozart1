@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { isClosed } from '@recouple/core-domain';
+import { evidenceChecklist, isClosed } from '@recouple/core-domain';
+import { evidenceOfDocuments } from '@recouple/extraction';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession } from '../../../lib/session';
 import { mayWrite } from '../../../lib/pipeline';
@@ -109,11 +110,22 @@ export default async function CasePage({
         store.payerTermsForCase(id),
       ]);
 
+    // Computed, never stored (ADR 0059). The first set starts 2000-01-01, so
+    // a decision's own date always resolves one.
+    const evidence = workflow?.decision
+      ? evidenceChecklist({
+          reason: workflow.decision.reason,
+          onDate: workflow.decision.decidedAt.toISOString().slice(0, 10),
+          present: evidenceOfDocuments(documents),
+        })
+      : undefined;
+
     return (
       <CaseReview
         viewer={viewerOf(session)}
         summary={summary}
         payerTerms={payerTerms}
+        evidenceChecklist={evidence}
         documents={documents}
         fields={fields}
         reconciliation={reconciliation}

@@ -7,6 +7,8 @@ export * from './money';
 export * from './packet';
 export * from './retailers';
 export * from './reason-codes';
+export * from './evidence';
+export * from './evidence-requirements';
 export * from './reason-words';
 export * from './short-pay';
 export * from './settlement';

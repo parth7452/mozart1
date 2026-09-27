@@ -15,3 +15,4 @@ export * from './reducto';
 export * from './reconcile';
 export * from './claude';
 export * from './cassette';
+export * from './evidence-map';
