@@ -63,6 +63,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-client
           pnpm db:test
 
+      # The portal runner's guard tests drive a real Chromium against a local
+      # fixture portal; they must run here, not skip.
+      - name: install Chromium for the portal runner tests
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: unit, property and integration tests
         run: pnpm test
 

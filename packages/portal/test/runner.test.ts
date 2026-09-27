@@ -1,11 +1,18 @@
 import { existsSync } from 'node:fs';
+import { chromium } from 'playwright';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseRecipe, type RecipeStep } from '../src/recipe';
 import { runRecipe, type CredentialSource } from '../src/runner/runner';
 import { startFixturePortal, type FixturePortal } from './fixture-portal/server';
 import { recipeJson } from './recipe-fixture';
 
-const CHROMIUM = '/opt/pw-browsers/chromium';
+// The container keeps a Chromium at /opt/pw-browsers; CI installs Playwright's
+// own (`playwright install chromium`). In CI a missing browser fails the run
+// rather than skipping it, because a skipped guard test is not a passing one.
+const CHROMIUM = existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : chromium.executablePath();
+if (process.env.CI && !existsSync(CHROMIUM)) {
+  throw new Error(`no Chromium at ${CHROMIUM}: run \`pnpm exec playwright install --with-deps chromium\``);
+}
 const creds: CredentialSource = { username: () => 'jane.doe@acme.test', password: () => 'pw-not-real' };
 
 describe.skipIf(!existsSync(CHROMIUM))('runRecipe against the fixture portal', { timeout: 60_000 }, () => {

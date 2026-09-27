@@ -12,6 +12,7 @@
     "@recouple/core-domain": "workspace:*",
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "playwright": "^1.63.0",
     "zod": "^4.6.5"
   },
   "scripts": {
