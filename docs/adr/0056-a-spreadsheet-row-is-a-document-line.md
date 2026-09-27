@@ -1,7 +1,7 @@
 # 0056 — A spreadsheet row is a document line, and a cell is its quote
 
-- Status: accepted (2026-09-26), with the recommended option in each of §9's
-  decisions. Nothing here is built yet: no code, no migration.
+- Status: Accepted 2026-09-26; build in progress on branch
+  claude/trusting-brown-ordc3m (planned as claude/build-now-04-spreadsheets).
 - Date: 2026-09-26
 - Adds, if accepted: two accepted file types at the door (XLSX and CSV), a
   reader that is code and not a model, versioned column mappings as playbook
@@ -355,3 +355,26 @@ Take XLSX and CSV back out of the accepted types: the door refuses them again,
 as it does today. The tables stay, append-only, holding the mappings and the
 provenance of every case read through them; those cases remain ordinary cases
 whose fields still verify against the stored file.
+
+## Build notes (2026-09-27)
+
+Decisions fixed for the build (docs/plans/build-now/04-spreadsheets.md):
+
+- Library: `fflate` for inflate, counting actual output bytes; an in-repo XML
+  tokenizer (any `<!` refused, only the five named entities and numeric
+  references decoded) and an RFC 4180 CSV parser. No exceljs or SheetJS.
+- No model proposes a mapping; a person picks the columns. Mappings are per
+  tenant and debtor, a `SheetMapping` zod schema in
+  `packages/core-domain/src/sheet-mapping.ts`.
+- A number cell printed `1234.5` is accepted. A formula's cached value is read
+  and marked `wasFormula`; no formula is evaluated.
+- `.xls`, `.xlsm`, `.xlsb`, `.ods` and cp1252 text are refused. 5,000 rows at
+  most, read 250 rows per step.
+- `verifyCellQuote(wb, addr, quote, field, storedCents?)` checks a value
+  against the stored cell; the caller parses the stored bytes.
+- Migration 0036 (SQL suite 32). Six new `RejectionCode`s —
+  `macro_enabled_spreadsheet`, `active_content_spreadsheet`,
+  `legacy_or_encrypted_office`, `xml_dtd_refused`, `malformed_spreadsheet`,
+  `spreadsheet_too_large` — so 0036 widens `inbound_message_parts.outcome`'s
+  check (0034 is not edited), and adds `extraction_results_org_id_id_key`,
+  `unique (org_id, id)`, for the tenancy foreign keys the new tables need.
