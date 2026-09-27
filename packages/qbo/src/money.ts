@@ -64,3 +64,19 @@ export function qboAmountToCents(value: unknown, fieldPath: string): Cents {
     throw error;
   }
 }
+
+/**
+ * Integer cents into the decimal text QuickBooks is sent (ADR 0060): string
+ * digits only, never a float. `123450` is `"1234.50"`, `-5` is `"-0.05"`.
+ * Refuses anything that is not a safe integer.
+ */
+export function centsToQboAmount(amount: Cents): string {
+  if (!Number.isSafeInteger(amount)) {
+    throw new RangeError(`not integer cents: ${String(amount)}`);
+  }
+  const negative = amount < 0;
+  const digits = String(Math.abs(amount)).padStart(3, '0');
+  const whole = digits.slice(0, -2);
+  const fraction = digits.slice(-2);
+  return `${negative ? '-' : ''}${whole}.${fraction}`;
+}

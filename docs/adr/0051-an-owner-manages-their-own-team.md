@@ -1,7 +1,7 @@
 # 0051 — An owner manages their own team
 
-- Status: proposed (2026-09-26), for the founder; §6 records the founder's
-  decision the same day to switch "Allow new users to sign up" on
+- Status: accepted (the founder, 2026-09-27); §6 records the founder's
+  decision of 2026-09-26 to switch "Allow new users to sign up" on
 - Date: 2026-09-26
 - Amends: ADR 0015 (who creates a `users` row), ADR 0039 §8 (owner-only
   membership writes now have a door and a floor), ADR 0045 §1 (the form lets

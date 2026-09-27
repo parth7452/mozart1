@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc -p ../../tsconfig.json" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ../../tsconfig.json"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
 }

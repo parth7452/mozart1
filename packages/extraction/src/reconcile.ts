@@ -47,6 +47,23 @@ export interface Finding {
   readonly fieldPath?: string;
 }
 
+/**
+ * The `supports_dispute` findings whose message may be printed in a dispute
+ * letter: built from our own words, our arithmetic and extracted field values
+ * (a SKU, a count, cents, a printed timestamp), never a sentence copied off the
+ * page. Audited constructor by constructor; `appointment_superseded` and
+ * `charge_waived_in_writing` quote the customer's message verbatim and are left
+ * out, as is any code added later until someone audits it in.
+ */
+export const LETTER_SAFE_FINDING_CODES: readonly string[] = [
+  'arrived_before_appointment',
+  'delivery_confirms_shortage',
+  'delivery_shows_full_receipt',
+  'item_not_on_invoice',
+  'line_arithmetic_differs',
+  'unit_cost_differs_from_po',
+];
+
 export type LineVerdict = 'matches' | 'differs' | 'not_checkable';
 
 export interface LineReconciliation {

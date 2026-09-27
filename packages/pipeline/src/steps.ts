@@ -42,11 +42,24 @@ import {
 } from '@recouple/extraction';
 import {
   acceptEmailBody,
+  acceptPortalSnapshot,
+  PORTAL_SNAPSHOT_MIME,
   acceptUpload,
   assertScannedClean,
+  isSpreadsheetMime,
+  parseWorkbook,
   RejectedUploadError,
+  renderSheetText,
+  type ParsedWorkbook,
   type ScanVerdict,
 } from '@recouple/ingest';
+import {
+  headerCandidates,
+  readSheetRows,
+  reportRowNotice,
+  verifyCellQuote,
+  type SheetRowsRead,
+} from './sheet-reading';
 import { describeRendition, renderForReading, renditionFilename } from '@recouple/ingest/rendition';
 import type {
   CaseRecord,
@@ -189,7 +202,9 @@ export async function ingestDocument(
   const accepted =
     input.source === 'email_body'
       ? acceptEmailBody(new TextDecoder().decode(input.bytes)).accepted
-      : acceptUpload(input.bytes, input.filename, {
+      : input.source === 'portal_fetch' && input.declaredMimeType === PORTAL_SNAPSHOT_MIME
+        ? acceptPortalSnapshot(input.bytes)
+        : acceptUpload(input.bytes, input.filename, {
           ...(input.declaredMimeType !== undefined
             ? { declaredMimeType: input.declaredMimeType }
             : {}),
@@ -234,6 +249,14 @@ export async function ingestDocument(
     ...(input.uploadedBy !== undefined ? { createdBy: input.uploadedBy } : {}),
   });
 
+  // A spreadsheet's text layer is its cells, rendered by code (ADR 0056): one
+  // page per sheet, no OCR. The door has already refused anything unreadable.
+  const pageText =
+    input.pageText ??
+    (isSpreadsheetMime(accepted.mimeType)
+      ? parseWorkbook(input.bytes, accepted.mimeType).sheets.map(renderSheetText)
+      : undefined);
+
   const document = await deps.store.putDocument({
     orgId: input.orgId,
     sha256: accepted.sha256,
@@ -242,7 +265,7 @@ export async function ingestDocument(
     byteSize: accepted.byteSize,
     bytes: input.bytes,
     uploadId: upload.uploadId,
-    ...(input.pageText !== undefined ? { pageText: input.pageText } : {}),
+    ...(pageText !== undefined ? { pageText } : {}),
     requiresSplit: accepted.requiresSplit,
   });
 
@@ -585,6 +608,8 @@ export interface DocumentRead {
    * for one an earlier read recorded.
    */
   readonly held?: DocumentHold;
+  /** What a spreadsheet's rows came to, when the document was one read by mapping (ADR 0056). */
+  readonly sheet?: SheetOpened;
 }
 
 export interface ProcessedDocument extends DocumentRead {
@@ -903,6 +928,15 @@ export async function readDocument(
   const arrival =
     caseRecord === undefined ? await deps.store.uploadSourceFor(document.documentId) : undefined;
   const byEmail = arrival === 'email_in' || arrival === 'email_body';
+  // A portal capture is held the same way and for the same reason (ADR 0057
+  // §10): a page a runner fetched is not a person's judgment that it is a
+  // deduction worth opening, so a person makes that call every time.
+  const byPortal = arrival === 'portal_fetch';
+  const heldByArrival: 'by_email' | 'by_portal' | undefined = byEmail
+    ? 'by_email'
+    : byPortal
+      ? 'by_portal'
+      : undefined;
 
   // The tenant's classification floor, when this read might open a case (ADR
   // 0044), or might hold one by email and record the floor beside the hold.
@@ -911,9 +945,13 @@ export async function readDocument(
   // attached to a named case, or one that may not open a case at all, never
   // opens one on the classifier's say-so, so it has no use for the floor.
   const floor =
-    caseRecord === undefined && (mayOpenCase || byEmail)
+    caseRecord === undefined && (mayOpenCase || heldByArrival !== undefined)
       ? await deps.store.classificationFloor()
       : undefined;
+
+  if (isSpreadsheetMime(document.mimeType)) {
+    return readSpreadsheet(document, deps, { attachedCase, mayOpenCase, heldByArrival, floor });
+  }
 
   // Read the document once. Classification and extraction both need the page
   // text, and on a scan that text costs money and carries the boxes a reviewer
@@ -963,8 +1001,8 @@ export async function readDocument(
   // case, no identifier, no declined line.
   if (floor !== undefined && opensCaseOnItsOwn(classification.docType)) {
     const fit = typeFits(classification.docType, extraction);
-    const hold: HoldDecision | undefined = byEmail
-      ? { reason: 'by_email', ...(fit.fits ? {} : { fields: fit.fields }) }
+    const hold: HoldDecision | undefined = heldByArrival !== undefined
+      ? { reason: heldByArrival, ...(fit.fits ? {} : { fields: fit.fields }) }
       : holdFor({
           docType: classification.docType,
           confidence: classification.confidence,
@@ -1215,6 +1253,8 @@ export interface CaseOpeningOptions {
    * decided to open it anyway.
    */
   readonly confirmation?: HoldConfirmation;
+  /** How the case was found: a notice, or a row of a spreadsheet (ADR 0056). */
+  readonly discoveredVia?: 'notice' | 'report_row';
 }
 
 /**
@@ -1272,8 +1312,10 @@ export async function openCaseFromNotice(
   const invoiceNumber = printedIdentifier(extraction.document, 'invoice_number');
   const source = await deps.store.uploadSourceFor(document.documentId);
 
+  const discoveredVia = options.discoveredVia ?? 'notice';
   const opened = await deps.store.openCase({
     orgId: document.orgId,
+    ...(discoveredVia !== 'notice' ? { discoveredVia } : {}),
     ...(typeof claimId === 'string' ? { claimId } : {}),
     ...(typeof invoiceNumber === 'string' && invoiceNumber.trim() !== ''
       ? { invoiceNumber }
@@ -1314,7 +1356,7 @@ export async function openCaseFromNotice(
       // `discovered_via` is named on every `case.discovered` event, including
       // the notice path's, so the projection is rebuildable from the events
       // alone rather than from the events plus a column's default.
-      discovered_via: 'notice',
+      discovered_via: discoveredVia,
       invoice_number: invoiceNumber ?? null,
       // How many names were recorded, and why none were when none were. Said on
       // the event rather than swallowed: a case with no identifier rows is a
@@ -2338,7 +2380,13 @@ export async function reconcileCase(
     | { readonly notice: DeductionNotice }
     | { readonly line: { readonly advice: RemittanceAdvice; readonly index: number } | undefined };
 
-  const stored = byType.get('deduction_notice');
+  let stored = byType.get('deduction_notice');
+  // A case found as a spreadsheet row reconciles against its own row, never
+  // the whole list (ADR 0056).
+  if (stored !== undefined) {
+    const row = await reconcileReportRow(deductionId, stored, deps);
+    if (row !== undefined) stored = row;
+  }
   if (stored !== undefined) {
     const notice = DeductionNoticeSchema.safeParse(stored.document);
     if (notice.success) {
@@ -2605,4 +2653,275 @@ function unusableDocument(
       `the stored ${docType} no longer satisfies its schema, so it was not used in ` +
       `reconciliation${why === '' ? '' : ` (${why})`}`,
   };
+}
+
+/** What reading a spreadsheet's rows opened (ADR 0056). Counts and case ids only. */
+export interface SheetOpened {
+  readonly opened: readonly CaseRecord[];
+  readonly mergedInto: readonly string[];
+  /** Rows whose claim is already a case: they open nothing. */
+  readonly seenAgain: number;
+  readonly unreadable: number;
+  readonly skipped: number;
+  readonly remittance?: RemittanceRead;
+}
+
+/** A spreadsheet's mapping, found by the header rows it carries, or `undefined`. */
+export async function mappedSheet(
+  document: Pick<StoredDocument, 'orgId' | 'bytes' | 'mimeType'>,
+  deps: CaseOpeningDeps,
+): Promise<
+  | { readonly wb: ParsedWorkbook; readonly read: SheetRowsRead }
+  | { readonly wb: ParsedWorkbook; readonly read?: undefined; readonly header: string[]; readonly sheet: string }
+> {
+  if (!isSpreadsheetMime(document.mimeType)) {
+    throw new RangeError(`${document.mimeType} is not a spreadsheet`);
+  }
+  const wb = parseWorkbook(document.bytes, document.mimeType);
+  const today = new Date().toISOString().slice(0, 10);
+  const candidates = headerCandidates(wb);
+  for (const candidate of candidates) {
+    const mapping = await deps.store.sheetMappingFor(document.orgId, candidate.fingerprint, today);
+    if (mapping !== undefined) {
+      return { wb, read: readSheetRows(wb, mapping, candidate.sheet.ordinal) };
+    }
+  }
+  const first = candidates[0];
+  return {
+    wb,
+    header: (first?.fingerprint ?? []).slice(0, 50),
+    sheet: first?.sheet.name ?? wb.sheets[0]?.name ?? '',
+  };
+}
+
+/**
+ * Records a reading made by mapping: a classification at confidence 1 (no
+ * model was asked, so no `model_calls` row), the fields — each verified
+ * against its own cell with `verifyCellQuote` rather than `checkQuote` — and
+ * the cell each field came from.
+ */
+export async function recordSheetReading(
+  document: Pick<StoredDocument, 'documentId' | 'orgId'>,
+  wb: ParsedWorkbook,
+  read: SheetRowsRead,
+  deps: CaseOpeningDeps,
+): Promise<void> {
+  const flips = sheetFlips(read);
+  const fields = read.reading.fields.map((field) => {
+    const cell = read.cells.get(field.fieldPath);
+    if (cell === undefined) {
+      throw new Error(`no cell recorded for ${field.fieldPath}`);
+    }
+    let stored: Cents | undefined;
+    if (typeof field.value === 'string' && isMoneyFieldPath(field.fieldPath) && !field.fieldPath.endsWith('unit_cost')) {
+      const cents = parseMoneyToCents(field.value);
+      stored = (flips && field.fieldPath.endsWith('deduction_amount') && cents !== 0 ? -cents : cents) as Cents;
+    }
+    const verified = verifyCellQuote(
+      wb,
+      { sheetOrdinal: read.sheet.ordinal, row: cell.row, column: cell.column },
+      field.sourceQuote,
+      field.fieldPath,
+      stored,
+    );
+    return { ...field, quoteVerified: verified };
+  });
+  await deps.store.recordClassification(document.documentId, read.reading.docType, 1);
+  const ids = await deps.store.recordExtraction({
+    documentId: document.documentId,
+    docType: read.reading.docType,
+    extractor: read.reading.extractor,
+    schemaVersion: read.reading.schemaVersion,
+    fields,
+    document: read.reading.document,
+  });
+  if (ids.length !== fields.length) {
+    throw new Error(`recorded ${ids.length} extraction rows for ${fields.length} fields`);
+  }
+  await deps.store.recordResultCells(
+    document.orgId,
+    fields.map((field, index) => {
+      const cell = read.cells.get(field.fieldPath) as NonNullable<ReturnType<typeof read.cells.get>>;
+      return {
+        extractionResultId: ids[index] as string,
+        sheetName: read.sheet.name,
+        rowNumber: cell.row,
+        columnNumber: cell.column,
+        cellRef: cell.ref,
+        cellType: cell.type,
+        numberFormat: cell.numberFormat,
+        wasFormula: cell.wasFormula,
+      };
+    }),
+  );
+}
+
+function sheetFlips(read: SheetRowsRead): boolean {
+  return read.mapping.sign === 'deductions_negative';
+}
+
+/**
+ * Opens what a spreadsheet's rows say: a remittance's lines through
+ * `openCasesFromRemittance`, a deduction list's rows one case each through
+ * `openCaseFromNotice` as `report_row`. A row whose claim is already a case
+ * (an exact identifier match) opens nothing and is counted `seenAgain`.
+ */
+export async function openFromSheet(
+  document: CaseOpeningDocument,
+  read: SheetRowsRead,
+  deps: CaseOpeningDeps,
+  options: CaseOpeningOptions = {},
+): Promise<SheetOpened> {
+  const counts = { unreadable: read.unreadable.length, skipped: read.skipped.length };
+  if (read.reading.docType === 'remittance_advice') {
+    const remittance = await openCasesFromRemittance(document, read.reading, deps, options);
+    return {
+      opened: remittance.opened,
+      mergedInto: [...new Set(remittance.mergedInto)],
+      seenAgain: remittance.mergedInto.length,
+      remittance,
+      ...counts,
+    };
+  }
+  const opened: CaseRecord[] = [];
+  let seenAgain = 0;
+  for (const row of read.rows) {
+    const found = await deps.store.identityCandidates({
+      orgId: document.orgId,
+      identifiers: [{ kind: 'claim_id', identifier: row.claimId }],
+    });
+    const key = identifierMatchKey(row.claimId);
+    if (found.knownIdentifiers.some((k) => k.kind === 'claim_id' && identifierMatchKey(k.identifier) === key)) {
+      seenAgain += 1;
+      continue;
+    }
+    opened.push(
+      await openCaseFromNotice(
+        document,
+        { docType: 'deduction_notice', document: row.notice, schemaVersion: read.reading.schemaVersion },
+        deps,
+        { ...options, discoveredVia: 'report_row' },
+      ),
+    );
+  }
+  return { opened, mergedInto: [], seenAgain, ...counts };
+}
+
+/**
+ * `readDocument` for a spreadsheet (ADR 0056): no classifier, no extractor,
+ * no `model_calls` row. A header nobody has mapped holds the document
+ * `no_mapping` for a person; an emailed one is held `by_email` as any emailed
+ * notice is; otherwise the rows open their cases.
+ */
+async function readSpreadsheet(
+  document: StoredDocument,
+  deps: PipelineDeps,
+  context: {
+    readonly attachedCase: CaseRecord | undefined;
+    readonly mayOpenCase: boolean;
+    readonly heldByArrival: 'by_email' | 'by_portal' | undefined;
+    readonly floor: number | undefined;
+  },
+): Promise<DocumentRead> {
+  const found = await mappedSheet(document, deps);
+  const { attachedCase } = context;
+
+  if (found.read === undefined) {
+    if (attachedCase !== undefined) {
+      await fileSheetAsEvidence(document, attachedCase, 'unmapped', deps);
+      return { case: attachedCase, haltedBecause: 'a spreadsheet with no mapping, filed as evidence' };
+    }
+    const held: DocumentHold = {
+      documentId: document.documentId,
+      orgId: document.orgId,
+      docType: 'remittance_advice',
+      confidence: 1,
+      floor: context.floor ?? (await deps.store.classificationFloor()),
+      reason: context.heldByArrival ?? 'no_mapping',
+      header: found.header,
+      sheet: found.sheet,
+    };
+    await deps.store.recordHold(held);
+    console.info(
+      `[recouple] read: spreadsheet ${document.documentId} has no confirmed column mapping; held for a person`,
+    );
+    return { held, haltedBecause: HELD_FOR_REVIEW };
+  }
+
+  const { wb, read } = found;
+  await recordSheetReading(document, wb, read, deps);
+
+  if (attachedCase !== undefined) {
+    await fileSheetAsEvidence(document, attachedCase, read.reading.docType, deps);
+    return { case: attachedCase };
+  }
+
+  if (context.heldByArrival !== undefined) {
+    const held: DocumentHold = {
+      documentId: document.documentId,
+      orgId: document.orgId,
+      docType: read.reading.docType,
+      confidence: 1,
+      floor: context.floor ?? (await deps.store.classificationFloor()),
+      reason: context.heldByArrival,
+    };
+    await deps.store.recordHold(held);
+    return { held, haltedBecause: HELD_FOR_REVIEW };
+  }
+
+  if (!context.mayOpenCase) {
+    return {
+      haltedBecause: `a ${read.reading.docType} from an unauthenticated sender: filed for a human to attach`,
+    };
+  }
+
+  const sheet = await openFromSheet(document, read, deps);
+  // Ids and counts only (invariant 4).
+  console.info(
+    `[recouple] read: spreadsheet ${document.documentId} opened ${sheet.opened.length}, ` +
+      `seenAgain ${sheet.seenAgain}, unreadable ${sheet.unreadable}, skipped ${sheet.skipped}`,
+  );
+  return {
+    sheet,
+    ...(sheet.remittance !== undefined ? { remittance: sheet.remittance } : {}),
+    ...(read.reading.docType === 'deduction_notice' && sheet.opened.length === 1
+      ? { case: sheet.opened[0] as CaseRecord }
+      : {}),
+  };
+}
+
+async function fileSheetAsEvidence(
+  document: StoredDocument,
+  attachedCase: CaseRecord,
+  docType: string,
+  deps: PipelineDeps,
+): Promise<void> {
+  await deps.store.linkDocument(attachedCase.deductionId, document.documentId, 'evidence');
+  await deps.store.appendEvent({
+    orgId: document.orgId,
+    deductionId: attachedCase.deductionId,
+    eventType: 'evidence.uploaded',
+    payload: { document_id: document.documentId, doc_type: docType, filename: document.filename },
+  });
+}
+
+/**
+ * For a `report_row` case, the stored deduction list narrowed to the case's
+ * own row as a one-line notice, found by its claim key; `undefined` for any
+ * other case. A row the list no longer holds is an empty reading, which the
+ * caller reports as unusable rather than reconciling the whole list.
+ */
+async function reconcileReportRow(
+  deductionId: string,
+  stored: RestoredExtraction,
+  deps: PipelineDeps,
+): Promise<RestoredExtraction | undefined> {
+  // A deduction list is stored with no claim id of its own — each row has
+  // one — so a notice that prints one is a notice, and the case is not asked.
+  const own = fieldValue(stored.document, ['claim_id', 'value']);
+  if (typeof own === 'string' && own.trim() !== '') return undefined;
+  const record = await deps.store.getCase(deductionId);
+  if (record === undefined || record.discoveredVia !== 'report_row') return undefined;
+  const notice = record.claimId === undefined ? undefined : reportRowNotice(stored.document, record.claimId);
+  return { ...stored, document: notice ?? {} };
 }

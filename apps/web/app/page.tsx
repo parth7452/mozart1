@@ -7,6 +7,7 @@ import { ledgerFilterFrom } from '../lib/case-presentation';
 import { inboundEmailFromEnv, inboundStoreFor } from '../lib/inbound';
 import { viewerOf } from '../lib/viewer';
 import { UNATTACHED_SHOWN } from '../lib/format';
+import { withPayerReasonCodes } from '../lib/payer-terms';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +70,7 @@ export default async function CaseListPage({
         // Every member, `read_only` included: the queue is a reading of cases
         // they can already see, and it offers no action of its own.
         queue={{
-          read: await store.reviewQueue({ today }),
+          read: await withPayerReasonCodes(store, await store.reviewQueue({ today })),
           viewer: { userId: session.userId, mayApprove: mayApprove(session.org.role) },
         }}
         today={today}

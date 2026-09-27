@@ -15,12 +15,19 @@ import {
   type StoredField,
 } from '@recouple/store-postgres';
 import { DECLINE_LABELS, MISSING_EVIDENCE_LABELS } from '../lib/decline-labels';
+import { EvidenceChecklistPanel } from './evidence-checklist';
 import { displaysInline, viewsThroughRendition } from '../lib/document-types';
+import { isSpreadsheetMime } from '@recouple/ingest';
+import { SheetExtract, type SheetExtractView } from './sheet-extract';
 import { deadline, fieldLabel, fieldValue, money, retailer } from '../lib/format';
 import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
+import { CasePostingCard } from './case-posting';
+import type { CasePosting } from '@recouple/store-postgres';
+import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
+import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
 import { DisputeDeadline } from './dispute-deadline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
@@ -68,6 +75,44 @@ export function markFor(
     return { label: money ? 'amount not on page' : 'quote not found', tone: 'unverified' };
   }
   return { label: 'not checked', tone: 'unchecked' };
+}
+
+/**
+ * The payer's reason code and deduction reference, read off a notice or
+ * remittance a person linked to this case — untrusted text, shown as printed
+ * and never mapped — with the document it came from and its quote's verdict.
+ */
+function DerivedPayerTerms({
+  terms,
+  filenames,
+}: {
+  terms: PayerTerms;
+  filenames: ReadonlyMap<string, string>;
+}) {
+  const mark = markFor(terms.quoteVerified, terms.fieldPath);
+  const link = (
+    <a href={`/api/document/${terms.documentId}`}>{filenames.get(terms.documentId) ?? 'document'}</a>
+  );
+  return (
+    <div className="payer-terms">
+      {terms.reasonCode === undefined ? null : (
+        <p className="mono">
+          Reason code: {terms.reasonCode} (from {link}){' '}
+          <span className={`mark ${mark.tone}`}>{mark.label}</span>
+        </p>
+      )}
+      {terms.deductionReference === undefined ? null : (
+        <p className="mono">
+          Deduction ref: {terms.deductionReference}
+          {terms.reasonCode === undefined ? (
+            <>
+              {' '}(from {link}) <span className={`mark ${mark.tone}`}>{mark.label}</span>
+            </>
+          ) : null}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -209,6 +254,8 @@ export function spendSentence(input: {
 
 export interface CaseReviewProps {
   readonly viewer: Viewer;
+  /** The case's row of its spreadsheet notice, drawn from its cells (ADR 0056). */
+  readonly sheetExtract?: SheetExtractView;
   readonly summary: CaseSummary;
   /**
    * The documents on the case, from `caseDocuments`: which one it was opened
@@ -217,6 +264,14 @@ export interface CaseReviewProps {
    * case's notice and has no fields (ADR 0029).
    */
   readonly documents: readonly CaseDocument[];
+  /**
+   * The payer's terms derived from the notices and remittances linked to this
+   * case (`payerTermsForCase`). Absent or `own`, the row renders as it always
+   * did, from the case's own column.
+   */
+  readonly payerTerms?: PayerTermsAnswer;
+  /** The evidence the chosen reason needs (ADR 0059); undefined before a decision. */
+  readonly evidenceChecklist?: EvidenceChecklist | undefined;
   readonly fields: readonly StoredField[];
   readonly reconciliation: Reconciliation | undefined;
   readonly costMicros: number;
@@ -260,6 +315,8 @@ export interface CaseReviewProps {
   readonly notice?: string | undefined;
   /** The validated fragments the key's text names, in order. */
   readonly noticeAbout?: readonly string[] | undefined;
+  /** The case's QuickBooks postings, only on a deployment that posts (ADR 0060). */
+  readonly posting?: CasePosting | undefined;
 }
 
 /**
@@ -277,7 +334,10 @@ export interface CaseReviewProps {
  */
 export function CaseReview({
   viewer,
+  sheetExtract,
   summary,
+  payerTerms,
+  evidenceChecklist,
   documents,
   fields,
   reconciliation,
@@ -292,6 +352,7 @@ export function CaseReview({
   attachable,
   notice,
   noticeAbout,
+  posting,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -406,6 +467,32 @@ export function CaseReview({
                     : `code ${summary.reasonCodeAsPrinted}`}
                 </p>
               )}
+              {payerTerms?.kind === 'derived' ? (
+                <DerivedPayerTerms terms={payerTerms.terms} filenames={filenames} />
+              ) : null}
+              {payerTerms?.kind === 'conflicting' ? (
+                <div className="payer-terms-conflict">
+                  <p>Payer documents disagree</p>
+                  <ul>
+                    {payerTerms.candidates.map((candidate) => (
+                      <li key={`${candidate.documentId}:${candidate.fieldPath}`} className="mono">
+                        {candidate.reasonCode === undefined ? null : `code ${candidate.reasonCode}`}
+                        {candidate.reasonCode !== undefined &&
+                        candidate.deductionReference !== undefined
+                          ? ' · '
+                          : null}
+                        {candidate.deductionReference === undefined
+                          ? null
+                          : `ref ${candidate.deductionReference}`}
+                        {' — '}
+                        <a href={`/api/document/${candidate.documentId}`}>
+                          {filenames.get(candidate.documentId) ?? 'document'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {primary === undefined ? (
                 <p className="empty">
                   {documents.length === 0
@@ -419,6 +506,18 @@ export function CaseReview({
                   {primary.filename === '' ? 'The original document' : primary.filename} is on this
                   case and is not shown. {SERVING_REFUSED[primary.servingRefusal]}
                 </p>
+              ) : isSpreadsheetMime(primary.mimeType) ? (
+                // A spreadsheet is never embedded: its case row is drawn from
+                // the cells, and the original downloads (ADR 0056).
+                sheetExtract !== undefined ? (
+                  <SheetExtract view={sheetExtract} />
+                ) : (
+                  <p className="empty">
+                    The case's row could not be located in this spreadsheet:{' '}
+                    <a href={`/api/document/${primary.documentId}/sheet`}>open the sheet</a> or{' '}
+                    <a href={`/api/document/${primary.documentId}`}>download the original</a>.
+                  </p>
+                )
               ) : displaysInline(primary.mimeType) ? (
                 <div className="doc">
                   <a
@@ -477,6 +576,8 @@ export function CaseReview({
                 </p>
               )}
             </div>
+
+            <EvidenceChecklistPanel checklist={evidenceChecklist} documents={documents} />
 
             {findings.length > 0 || line !== undefined ? (
               <div className="card" style={{ marginTop: 18 }}>
@@ -620,7 +721,29 @@ export function CaseReview({
               viewerUserId={viewerUserId}
               filenames={filenames}
               unservable={unservable}
+              postsFound={
+                posting?.connection?.postingEnabled === true &&
+                posting.connection.hasMap &&
+                posting.ledgerInvoiceId !== undefined
+              }
             />
+            <DraftJournal
+              amountCents={summary.deductionAmountCents}
+              outcome={workflow?.outcome?.outcome}
+              recoveredCents={workflow?.outcome?.recoveredCents}
+              declined={declined}
+              family={workflow?.decision ? familyOf(workflow.decision.reason) : undefined}
+              printedReasonCode={summary.reasonCodeAsPrinted ?? undefined}
+            />
+            {posting === undefined ? null : (
+              <CasePostingCard
+                deductionId={summary.deductionId}
+                posting={posting}
+                mayAct={mayAct}
+                mayApprove={mayApprove}
+                viewerUserId={viewerUserId}
+              />
+            )}
 
             {/* Fighting and declining are the two answers to the same
                 question, so they are offered together and only while the

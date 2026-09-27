@@ -36,7 +36,13 @@ export type InboundPartOutcome =
   | 'encrypted_pdf'
   | 'active_content_pdf'
   | 'decompression_bomb'
-  | 'malformed_pdf';
+  | 'malformed_pdf'
+  | 'macro_enabled_spreadsheet'
+  | 'active_content_spreadsheet'
+  | 'legacy_or_encrypted_office'
+  | 'xml_dtd_refused'
+  | 'malformed_spreadsheet'
+  | 'spreadsheet_too_large';
 
 export const INBOUND_PART_OUTCOMES_WITH_DOCUMENT: ReadonlySet<InboundPartOutcome> = new Set([
   'stored',

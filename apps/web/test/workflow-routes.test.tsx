@@ -46,6 +46,8 @@ const DOC_B = '66666666-6666-6666-6666-666666666666';
 const AMOUNT_CENTS = 312_000;
 
 const harness = vi.hoisted(() => ({
+  /** What `reconcileCase` answers for the packet route. */
+  findings: [] as { code: string; severity: string; message: string }[],
   store: undefined as FakeWorkflowStore | undefined,
   role: 'analyst' as string,
   userId: '22222222-2222-2222-2222-222222222222',
@@ -66,6 +68,11 @@ vi.mock('../lib/session', () => ({
   // `workflowStoreFor` is the real one: it hands back the session's store,
   // which is the whole point of the file. Only what it wraps is a stand-in.
   storeFor: () => harness.store as unknown as PostgresStore,
+}));
+
+vi.mock('@recouple/pipeline', async (original) => ({
+  ...(await original<typeof import('@recouple/pipeline')>()),
+  reconcileCase: async () => ({ findings: harness.findings }),
 }));
 
 vi.mock('../lib/pipeline', () => ({
@@ -178,6 +185,7 @@ function handlerCalls(from: number): { method: string; input: unknown }[] {
 }
 
 beforeEach(() => {
+  harness.findings = [];
   harness.role = 'analyst';
   harness.userId = ANALYST;
   harness.sessions = 0;
@@ -318,7 +326,34 @@ describe('assembling the packet', () => {
       expect.stringMatching(/^[0-9a-f]{12}$/) as unknown as string,
     ]);
     expect(handlerCalls(before)).toEqual([
-      { method: 'assemblePacket', input: { deductionId: CASE_ID, decisionId, assembledBy: ANALYST } },
+      {
+        method: 'assemblePacket',
+        input: { deductionId: CASE_ID, decisionId, assembledBy: ANALYST, findings: [] },
+      },
+    ]);
+  });
+
+  it('passes the letter only the safe findings that support the dispute', async () => {
+    const decisionId = await decided();
+    harness.findings = [
+      { code: 'unit_cost_differs_from_po', severity: 'supports_dispute', message: 'SKU-1: $1.00 against $0.90' },
+      { code: 'charge_waived_in_writing', severity: 'supports_dispute', message: 'quoted “sentence”' },
+      { code: 'unit_cost_differs_from_po', severity: 'warning', message: 'a warning' },
+      { code: 'shipment_po_mismatch', severity: 'warning', message: 'not dispute support' },
+    ];
+    const before = store().calls.length;
+    const response = await assemble(post('packet', { decisionId }), params(CASE_ID));
+    expect(response.status).toBe(303);
+    expect(handlerCalls(before)).toEqual([
+      {
+        method: 'assemblePacket',
+        input: {
+          deductionId: CASE_ID,
+          decisionId,
+          assembledBy: ANALYST,
+          findings: [{ code: 'unit_cost_differs_from_po', message: 'SKU-1: $1.00 against $0.90' }],
+        },
+      },
     ]);
   });
 

@@ -1,0 +1,15 @@
+{
+  "Payment": {
+    "Id": "902",
+    "SyncToken": "0",
+    "TxnDate": "2026-09-27",
+    "PaymentRefNum": "RC55555555666677778",
+    "CustomerRef": { "value": "58", "name": "Northline Foodservice" },
+    "TotalAmt": 0,
+    "Line": [
+      { "Amount": 1270.0, "LinkedTxn": [{ "TxnId": "145", "TxnType": "Invoice" }] },
+      { "Amount": 1270.0, "LinkedTxn": [{ "TxnId": "901", "TxnType": "JournalEntry" }] }
+    ]
+  },
+  "time": "2026-09-27T10:00:05.000-07:00"
+}

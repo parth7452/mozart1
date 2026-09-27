@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { isClosed } from '@recouple/core-domain';
+import { evidenceChecklist, isClosed } from '@recouple/core-domain';
+import { evidenceOfDocuments } from '@recouple/extraction';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession } from '../../../lib/session';
 import { mayWrite } from '../../../lib/pipeline';
@@ -8,6 +9,11 @@ import { aboutFrom } from '../../../lib/notices';
 import { mayApprove, workflowStoreFor } from '../../../lib/workflow';
 import { CaseReview } from '../../../components/case-review';
 import { viewerOf } from '../../../lib/viewer';
+import { reviewPipelineDeps } from '../../../lib/review-deps';
+import { isSpreadsheetMime } from '@recouple/ingest';
+import { sheetExtractFor } from '../../../lib/sheet-extract-load';
+import { qboPostingFromEnv } from '../../../lib/qbo-posting';
+import { postingStoreFor } from '../../../lib/posting';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +65,7 @@ export default async function CasePage({
     if (summary === undefined) notFound();
 
     const mayAct = mayWrite(session.org.role);
-    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable] =
+    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable, payerTerms] =
       await Promise.all([
         // The case's documents by their links, and their fields by the same
         // links: a remittance's read and a held notice's belong to no case, and a
@@ -67,27 +73,7 @@ export default async function CasePage({
         store.caseDocuments(id),
         store.fieldsForCase(id),
         store.costForCase(id),
-        reconcileCase(id, {
-          store,
-          scanner: {
-            name: 'none',
-            async scan() {
-              throw new Error('a review page does not scan');
-            },
-          },
-          classifier: {
-            async classify() {
-              throw new Error('a review page does not classify');
-            },
-          },
-          extractor: {
-            name: 'none',
-            async extract() {
-              throw new Error('a review page does not extract');
-            },
-          },
-          now: () => new Date(),
-        }),
+        reconcileCase(id, reviewPipelineDeps(store)),
         store.getWorkflow(id),
         // Whether this case is one half of a pair identity resolution refused to
         // merge (ADR 0032). Asked for every reader, not only for a member who may
@@ -104,12 +90,39 @@ export default async function CasePage({
         // Asked only where the card that offers them is drawn — a member who
         // may write, on a case still open (a merged-away one is closed).
         mayAct && !isClosed(summary.state) ? store.unattachedDocuments() : undefined,
+        // The payer's reason code and reference, derived from the notices and
+        // remittances linked to this case when it printed none of its own.
+        store.payerTermsForCase(id),
       ]);
+    // Read only where the deployment posts at all (`QBO_POSTING`, ADR 0060 §5):
+    // elsewhere the card, the retry and the posting approve label do not exist.
+    const posting = qboPostingFromEnv() === undefined ? undefined : await postingStoreFor(session).postingForCase(id);
+
+    // Computed, never stored (ADR 0059). The first set starts 2000-01-01, so
+    // a decision's own date always resolves one.
+    const evidence = workflow?.decision
+      ? evidenceChecklist({
+          reason: workflow.decision.reason,
+          onDate: workflow.decision.decidedAt.toISOString().slice(0, 10),
+          present: evidenceOfDocuments(documents),
+        })
+      : undefined;
+
+    // A spreadsheet notice is drawn from its cells rather than embedded
+    // (ADR 0056); its bytes come through the same scan gate as a download.
+    const primary = documents.find((d) => d.role === 'notice');
+    const sheetExtract =
+      primary !== undefined && primary.servingRefusal === null && isSpreadsheetMime(primary.mimeType)
+        ? await sheetExtractFor(store, session.org.orgId, primary.documentId, fields, summary.deductionAmountCents)
+        : undefined;
 
     return (
       <CaseReview
+        {...(sheetExtract !== undefined ? { sheetExtract } : {})}
         viewer={viewerOf(session)}
         summary={summary}
+        payerTerms={payerTerms}
+        evidenceChecklist={evidence}
         documents={documents}
         fields={fields}
         reconciliation={reconciliation}
@@ -124,6 +137,7 @@ export default async function CasePage({
         attachable={attachable}
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
+        posting={posting}
       />
     );
   } finally {

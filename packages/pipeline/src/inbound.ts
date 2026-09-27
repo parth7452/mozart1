@@ -143,7 +143,7 @@ export async function receiveInboundEmail(
         // The front door's refusal of this one part is permanent and recorded;
         // the email carries on. Anything else is a fault, and propagates.
         if (error instanceof RejectedUploadError) {
-          parts.push({ ordinal: plan.ordinal, kind: plan.kind, filename: plan.filename, outcome: error.code });
+          parts.push({ ordinal: plan.ordinal, kind: plan.kind, filename: plan.filename, outcome: partOutcomeOf(error.code) });
           continue;
         }
         throw error;
@@ -244,4 +244,8 @@ export async function readInboundEmailJob(
   }
 
   return { inboundMessageId: input.inboundMessageId, reads, bodyRead };
+}
+
+export function partOutcomeOf(code: RejectedUploadError['code']): InboundPartOutcome {
+  return code;
 }

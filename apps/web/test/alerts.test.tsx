@@ -21,6 +21,7 @@ import {
 import { INNGEST_APP_ID, READ_DOCUMENT_CONFIG } from '../lib/inngest';
 import { READ_INBOUND_EMAIL_CONFIG } from '../lib/inbound';
 import { LEDGER_SYNC_CONFIG, LEDGER_SYNC_FAN_OUT_CONFIG } from '../lib/inngest-ledger';
+import { POST_WRITEBACK_CONFIG } from '../lib/inngest-posting';
 
 /**
  * The failed-run alert (ADR 0052).
@@ -85,13 +86,14 @@ function harness(binding: AlertBinding = { kind: 'configured', settings: SETTING
 afterEach(() => vi.restoreAllMocks());
 
 describe('which failures are emailed', () => {
-  it('watches exactly the four jobs, by the id Inngest reports', () => {
+  it('watches exactly the five jobs, by the id Inngest reports', () => {
     expect([...ALERTED_FUNCTIONS.keys()].sort()).toEqual(
       [
         READ_DOCUMENT_CONFIG.id,
         READ_INBOUND_EMAIL_CONFIG.id,
         LEDGER_SYNC_CONFIG.id,
         LEDGER_SYNC_FAN_OUT_CONFIG.id,
+        POST_WRITEBACK_CONFIG.id,
       ]
         .map((id) => `recouple-${id}`)
         .sort(),
@@ -99,7 +101,7 @@ describe('which failures are emailed', () => {
     expect(READ).toBe('recouple-read-document');
   });
 
-  it('filters the trigger to those four, with ids safe inside a CEL string', () => {
+  it('filters the trigger to those five, with ids safe inside a CEL string', () => {
     for (const id of ALERTED_FUNCTIONS.keys()) {
       expect(id).toMatch(/^[a-z0-9-]+$/);
       expect(ALERT_FILTER).toContain(`event.data.function_id == '${id}'`);

@@ -175,6 +175,7 @@ describe('the in-memory workflow', () => {
           documents: documents.map((d, index) => ({
             role: index === 0 ? 'notice' : 'evidence',
             filename: d.filename,
+            sha256: d.sha256,
           })),
         }),
         fileDocumentIds: [...packet.fileDocumentIds],
@@ -257,12 +258,12 @@ describe('the in-memory workflow', () => {
     expect(store.decisions).toHaveLength(0);
   });
 
-  // The hash covers the document *set*; the narrative covers the *order*. Two
-  // documents with the same role and the same filename produce the same
-  // enclosed list whichever way round they are, and their ids sort the same, so
-  // the contents are the same contents and the packet that exists is handed
-  // back rather than a second one being written.
-  it('hands back the first packet when two identical documents swap places', async () => {
+  // The hash covers the document *set*; the narrative covers the *order*. Since
+  // the letter names each enclosure by its SHA-256 (05-dispute-letter), two
+  // documents with the same role and filename are no longer interchangeable in
+  // it: swapped, the enclosed list reads differently, so it is a new packet —
+  // and the first one is left exactly as it was written.
+  it('tells two same-named documents apart by their hashes when they swap places', async () => {
     const store = freshStore();
     const deductionId = await newCase(store);
     const { decisionId } = await store.recordHumanDecision({
@@ -298,12 +299,15 @@ describe('the in-memory workflow', () => {
       store.links[penultimate] as (typeof store.links)[number],
     ];
 
+    expect(first.narrative).toContain(`pod-signed.pdf (SHA-256 ${'a'.repeat(64)})`);
+    expect(first.narrative).toContain(`pod-signed.pdf (SHA-256 ${'b'.repeat(64)})`);
     const again = await store.assemblePacket({ deductionId, decisionId, assembledBy: ANALYST });
-    expect(again.contentHash).toBe(first.contentHash);
-    expect(again.packetId).toBe(first.packetId);
-    // The packet handed back is the one that was written, ordered as it was.
-    expect(again.fileDocumentIds).toEqual(first.fileDocumentIds);
-    expect(store.packets).toHaveLength(1);
+    expect(again.contentHash).not.toBe(first.contentHash);
+    expect(again.packetId).not.toBe(first.packetId);
+    expect(again.narrative.indexOf('b'.repeat(64))).toBeLessThan(again.narrative.indexOf('a'.repeat(64)));
+    // The first packet is untouched: packets are append-only.
+    expect(store.packets).toHaveLength(2);
+    expect(store.packets.find((p) => p.packetId === first.packetId)?.narrative).toBe(first.narrative);
   });
 
   // `decisions` is append-only and the packet is assembled later, so a

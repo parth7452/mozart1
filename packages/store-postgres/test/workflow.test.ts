@@ -17,8 +17,15 @@ import {
   WrongCaseStateError,
   WrongRoleError,
   type CaseWorkflowStore,
+  PacketAfterApprovalError,
 } from '@recouple/pipeline';
-import { MAX_RATIONALE_LENGTH, buildPacketNarrative } from '@recouple/core-domain';
+import {
+  EVIDENCE_TYPE_WORDS,
+  MAX_RATIONALE_LENGTH,
+  buildPacketNarrative,
+  evidenceChecklist,
+  packetContentHash,
+} from '@recouple/core-domain';
 import { InMemoryStore } from '@recouple/pipeline/testing';
 import { closeAllPools, PostgresStore } from '../src/store';
 import { ApprovalAuthorError, approve } from '../src/workflow';
@@ -1060,12 +1067,27 @@ describeDb('the workflow on postgres', () => {
          from deductions d join organizations o on o.id = d.org_id where d.id = $1`,
       [deductionId],
     );
-    const { rows: files } = await admin.query<{ id: string; filename: string; role: string }>(
-      `select d.id, d.filename, dd.role from deduction_documents dd
+    const { rows: files } = await admin.query<{
+      id: string;
+      filename: string;
+      role: string;
+      sha256: string;
+    }>(
+      `select d.id, d.filename, dd.role, encode(d.sha256, 'hex') as sha256 from deduction_documents dd
          join documents d on d.id = dd.document_id where dd.deduction_id = $1`,
       [deductionId],
     );
     const filenameOf = new Map(files.map((f) => [f.id, f]));
+    const { rows: decided } = await admin.query<{ on: string }>(
+      `select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') as on from decisions where id = $1`,
+      [decisionId],
+    );
+    // No document on this case is classified, so the checklist holds nothing.
+    const checklist = evidenceChecklist({
+      reason: 'shortage_never_received',
+      onDate: decided[0]?.on as string,
+      present: [],
+    });
     expect(rows[0]?.narrative).toBe(
       buildPacketNarrative({
         supplier: facts[0]?.supplier as string,
@@ -1080,15 +1102,129 @@ describeDb('the workflow on postgres', () => {
         documents: (rows[0]?.files ?? []).map((id) => ({
           role: filenameOf.get(id)?.role as 'notice' | 'evidence',
           filename: filenameOf.get(id)?.filename as string,
+          sha256: filenameOf.get(id)?.sha256 as string,
+        })),
+        evidenceChecklist: checklist.rows.map((row) => ({
+          label: `${EVIDENCE_TYPE_WORDS[row.evidenceType]}${row.required ? '' : ' (optional)'}`,
+          satisfied: row.status === 'have',
         })),
       }),
     );
+    for (const file of files) {
+      expect(rows[0]?.narrative).toContain(`(SHA-256 ${file.sha256})`);
+    }
 
     // Append-only: nothing in this path holds an UPDATE on it, and the trigger
     // refuses the table's owner as well.
     await expect(
       admin.query(`update packets set narrative = 'rewritten' where id = $1`, [packetId]),
     ).rejects.toThrow(/append-only table packets/);
+  });
+
+  it('prints the findings it is given, and different findings are a new packet', async () => {
+    const deductionId = await tenant.newCase();
+    const h = harnessFor(tenant);
+    const decisionId = await decide(h, deductionId);
+    const findings = [
+      { code: 'unit_cost_differs_from_po', message: 'SKU-1: the deduction uses $1.00 but the PO agreed $0.90' },
+    ];
+    const first = await h
+      .store(h.analyst)
+      .assemblePacket({ deductionId, decisionId, assembledBy: h.analyst, findings });
+    expect(first.narrative).toContain(`Findings:\n  1. ${findings[0]?.message}\n`);
+    const same = await h
+      .store(h.analyst)
+      .assemblePacket({ deductionId, decisionId, assembledBy: h.analyst, findings: [...findings] });
+    expect(same.packetId).toBe(first.packetId);
+
+    const other = await h.store(h.analyst).assemblePacket({
+      deductionId,
+      decisionId,
+      assembledBy: h.analyst,
+      findings: [{ code: 'item_not_on_invoice', message: 'SKU-9 was deducted but does not appear on the invoice' }],
+    });
+    expect(other.packetId).not.toBe(first.packetId);
+    expect(other.contentHash).not.toBe(first.contentHash);
+    const { rows } = await admin.query<{ narrative: string }>(
+      `select narrative from packets where id = $1`,
+      [first.packetId],
+    );
+    expect(rows[0]?.narrative).toBe(first.narrative);
+  });
+
+  it('re-assembles a case packeted before the letter changed as a new packet, never re-approved', async () => {
+    const deductionId = await tenant.newCase();
+    const h = harnessFor(tenant);
+    const decisionId = await decide(h, deductionId);
+    const { rows: facts } = await admin.query<{ supplier: string; claim: string }>(
+      `select o.name as supplier, d.claim_id as claim
+         from deductions d join organizations o on o.id = d.org_id where d.id = $1`,
+      [deductionId],
+    );
+    const { rows: files } = await admin.query<{ id: string; filename: string; role: string }>(
+      `select d.id, d.filename, dd.role from deduction_documents dd
+         join documents d on d.id = dd.document_id
+        where dd.deduction_id = $1 order by (dd.role <> 'notice'), dd.id`,
+      [deductionId],
+    );
+    // The row an earlier deploy wrote: the narrative input as it was shaped
+    // then, with no hashes, findings or checklist.
+    const oldNarrative = buildPacketNarrative({
+      supplier: facts[0]?.supplier as string,
+      payer: 'Walmart Stores, Inc.',
+      claimId: facts[0]?.claim as string,
+      invoiceNumbers: [],
+      deductionAmountCents: 312_000,
+      deductionDate: '2026-08-14',
+      disputeDeadline: '2026-10-13',
+      reason: 'shortage_never_received',
+      rationale: RATIONALE,
+      documents: files.map((f) => ({ role: f.role as 'notice' | 'evidence', filename: f.filename })),
+    });
+    const ids = files.map((f) => f.id);
+    const oldHash = packetContentHash({ decisionId, narrative: oldNarrative, fileDocumentIds: ids });
+    const { rows: inserted } = await admin.query<{ id: string }>(
+      `insert into packets (org_id, deduction_id, decision_id, content_hash, narrative,
+                            file_document_ids, assembled_by)
+       values ($1, $2, $3, decode($4, 'hex'), $5, $6::uuid[], $7) returning id`,
+      [tenant.orgId, deductionId, decisionId, oldHash, oldNarrative, ids, tenant.analyst],
+    );
+    const oldPacketId = inserted[0]?.id as string;
+    await admin.query(`update deductions set state = 'awaiting_approval' where id = $1`, [deductionId]);
+
+    const fresh = await h
+      .store(h.analyst)
+      .assemblePacket({ deductionId, decisionId, assembledBy: h.analyst });
+    expect(fresh.packetId).not.toBe(oldPacketId);
+    expect(fresh.contentHash).not.toBe(oldHash);
+    const { rows: old } = await admin.query<{ narrative: string; hash: string }>(
+      `select narrative, encode(content_hash, 'hex') as hash from packets where id = $1`,
+      [oldPacketId],
+    );
+    expect(old[0]).toEqual({ narrative: oldNarrative, hash: oldHash });
+
+    // The old packet cannot be approved any more, and an approval of the new
+    // one names the new hash: nothing carries over from the old bytes.
+    await expect(
+      h.store(h.approver).approve({ decisionId, packetId: oldPacketId, approverId: h.approver }),
+    ).rejects.toBeInstanceOf(PacketSupersededError);
+    const { approvalId } = await h
+      .store(h.approver)
+      .approve({ decisionId, packetId: fresh.packetId, approverId: h.approver });
+    const { rows: approvals } = await admin.query<{ hash: string }>(
+      `select encode(packet_hash, 'hex') as hash from approvals where decision_id = $1`,
+      [decisionId],
+    );
+    expect(approvals).toEqual([{ hash: fresh.contentHash }]);
+    expect(approvalId).toBeTruthy();
+    await expect(
+      h.store(h.analyst).assemblePacket({
+        deductionId,
+        decisionId,
+        assembledBy: h.analyst,
+        findings: [{ code: 'item_not_on_invoice', message: 'SKU-9 was deducted but is not invoiced' }],
+      }),
+    ).rejects.toBeInstanceOf(PacketAfterApprovalError);
   });
 
   it('records the approval, the submission and the outcome as the schema expects', async () => {

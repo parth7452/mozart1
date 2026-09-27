@@ -13,6 +13,28 @@ anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
 Email-in went live on 2026-09-25: a notice emailed from Gmail to an issued
 address was held because it came by email, and a person opened its case.
 
+## 2026-09-27: built overnight on PR #127
+
+Not merged, not deployed, no migration applied anywhere. Tests and typecheck
+pass locally.
+
+- Payer terms on ledger cases, the evidence checklist (ADR 0059), the draft
+  journal and the fuller dispute letter: read-only case-page and packet
+  changes, no migration.
+- Spreadsheets (ADR 0056, migration 0036): CSV/TSV/XLSX upload, a
+  person-confirmed column mapping per debtor, each field traced to its cell.
+- QuickBooks write-back (ADR 0060, migration 0037): built, gated behind
+  `QBO_POSTING=1`, a per-connection owner switch and an account map; off by
+  default. Never posted to any company.
+- Portal reading (ADRs 0057, 0058): recipe, request guard and read-only
+  runner, exercised only against a local fixture portal.
+
+**Needs the founder:** review and merge PR #127; accept or reject ADRs 0057,
+0058, 0060 and 0061 (all proposed); review ADR 0059's evidence lists; decide
+whether and when to apply 0036 and 0037 (`mozart-preview` first); for posting,
+an account map, a sandbox trial and setting `QBO_POSTING`; for portals, which
+portal first (0058 proposes UNFI) and where its credentials live.
+
 ## Live in production
 
 Verified on the deployed app, not only in tests:

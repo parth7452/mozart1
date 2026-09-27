@@ -79,6 +79,12 @@ const PART_OUTCOME: Record<InboundPartOutcome, string> = {
   active_content_pdf: 'a PDF with active content',
   decompression_bomb: 'expands to far more than it claims to be',
   malformed_pdf: 'a malformed PDF',
+  macro_enabled_spreadsheet: 'a spreadsheet with macros',
+  active_content_spreadsheet: 'a spreadsheet with external links or embedded content',
+  legacy_or_encrypted_office: 'an old-format or encrypted Office file',
+  xml_dtd_refused: 'a spreadsheet with a document type declaration',
+  malformed_spreadsheet: 'a malformed spreadsheet',
+  spreadsheet_too_large: 'a spreadsheet past the size this app reads',
 };
 
 export function partOutcomeWords(outcome: InboundPartOutcome): string {

@@ -429,12 +429,25 @@ async function setState(
 }
 
 /** The documents a packet encloses: the notice first, then the evidence. */
+/** What the letter says beyond the case row: the payer's terms and the checklist. */
+export interface LetterTerms {
+  readonly payerReasonCode?: string;
+  readonly deductionReference?: string;
+  readonly evidenceChecklist?: readonly { readonly label: string; readonly satisfied: boolean }[];
+}
+
 async function packetDocuments(
   client: PoolClient,
   deductionId: string,
 ): Promise<{ ids: string[]; lines: PacketDocument[] }> {
-  const { rows } = await client.query<{ document_id: string; role: string; filename: string }>(
-    `select dd.document_id, dd.role, coalesce(d.filename, '') as filename
+  const { rows } = await client.query<{
+    document_id: string;
+    role: string;
+    filename: string;
+    sha256: string;
+  }>(
+    `select dd.document_id, dd.role, coalesce(d.filename, '') as filename,
+            encode(d.sha256, 'hex') as sha256
        from deduction_documents dd
        join documents d on d.id = dd.document_id
       where dd.deduction_id = $1 and dd.role in ('notice', 'evidence')
@@ -446,6 +459,7 @@ async function packetDocuments(
     lines: rows.map((row) => ({
       role: row.role as PacketDocument['role'],
       filename: row.filename,
+      sha256: row.sha256,
     })),
   };
 }
@@ -658,6 +672,13 @@ export async function assemblePacket(
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    /** Caller-supplied, advisory: already filtered to letter-safe findings. */
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
+    /**
+     * The payer's terms and the evidence checklist for the decision's reason,
+     * derived by the store at read time and frozen into the narrative here.
+     */
+    readonly letterTerms?: (decision: HumanDecisionRecord) => LetterTerms;
   },
 ): Promise<{
   readonly packetId: string;
@@ -702,6 +723,8 @@ export async function assemblePacket(
       reason: decision.reason,
       rationale: decision.rationale,
       documents: lines,
+      ...(input.findings !== undefined ? { findings: input.findings } : {}),
+      ...(input.letterTerms !== undefined ? input.letterTerms(decision) : {}),
     }),
   );
   const contentHash = packetContentHash({
@@ -799,6 +822,7 @@ export async function approve(
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    readonly alsoWriteback?: boolean;
   },
 ): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
   requireCaller(input.approverId, tenant.userId, 'approve');
@@ -894,6 +918,27 @@ export async function approve(
       return error;
     },
   );
+
+  // Moment 1 (ADR 0060 §2): where posting is on, the same press authorises the
+  // found posting too — a second `approvals` row, `writeback`, for the same
+  // decision and in the same transaction, so the two stand or fall together.
+  // The gate and separation of duties judge it exactly as they judged the first.
+  if (input.alsoWriteback === true) {
+    const { rows } = await client.query<{ id: string }>(
+      `insert into approvals (org_id, decision_id, approver_id, action_type, note)
+       values ($1, $2, $3, 'writeback', $4)
+       returning id`,
+      [tenant.orgId, input.decisionId, input.approverId, input.note ?? null],
+    );
+    const writebackApprovalId = rows[0]?.id;
+    if (writebackApprovalId === undefined) throw new Error('insert into approvals returned no row');
+    await appendEvent(client, tenant, packet.deductionId, 'approval.granted', {
+      approval_id: writebackApprovalId,
+      decision_id: input.decisionId,
+      action_type: 'writeback',
+      approver_id: input.approverId,
+    });
+  }
 
   // No state change: approving is what lets the case leave `awaiting_approval`,
   // and recording the submission is what moves it. This is the
@@ -1472,10 +1517,12 @@ export async function getWorkflow(
   const { rows: decisionRows } = await client.query<DecisionRow>(
     `select id, deduction_id, result, prepared_by, created_at
        from decisions
-      where deduction_id = $1 and provider = $2
+      where deduction_id = $1 and provider = $2 and schema_id = $3
       order by created_at desc, id desc
       limit 1`,
-    [deductionId, HUMAN_PROVIDER],
+    // Schema B only: a settlement decision (schema S, ADR 0060 §2) never
+    // shadows the dispute decision the workflow is about.
+    [deductionId, HUMAN_PROVIDER, HUMAN_SCHEMA_ID],
   );
   const decisionRow = decisionRows[0];
   const deadlineSet = await readDeadlineSet(client, deductionId);

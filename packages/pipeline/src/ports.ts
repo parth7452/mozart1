@@ -23,7 +23,8 @@ import type {
   OcrProvider,
   ReassemblyIssue,
 } from '@recouple/extraction';
-import type { ScanVerdict } from '@recouple/ingest';
+import type { CellType, ScanVerdict } from '@recouple/ingest';
+import type { SheetMapping } from '@recouple/core-domain';
 import type { DocumentHold, HoldReason, HoldRecord } from './hold';
 
 /**
@@ -48,14 +49,16 @@ export const UPLOAD_SOURCES = [
 export type UploadSource = (typeof UPLOAD_SOURCES)[number];
 
 /**
- * The three of those this pipeline can actually produce today.
+ * The four of those this pipeline can actually produce today: the three doors,
+ * and a portal capture (ADR 0057), which `@recouple/portal`'s `ingestCaptures`
+ * hands in — a page snapshot as `text/html` through `acceptPortalSnapshot`, a
+ * download through the ordinary door by its magic bytes.
  *
- * The other three are Phases 1.5, 2 and 2.5. They exist in the database's check
- * constraint because coverage has to be able to name them; nothing in this
- * package can write one, and a type that claimed otherwise would be a promise
- * to a caller that no code here keeps.
+ * `erp_sync` has its own path (`recordLedgerCase`), and `edi_812` is Phase 2.5.
+ * They exist in the database's check constraint because coverage has to be
+ * able to name them; nothing here ingests one through this type.
  */
-export type IngestSource = Extract<UploadSource, 'web_upload' | 'email_in' | 'email_body'>;
+export type IngestSource = Extract<UploadSource, 'web_upload' | 'email_in' | 'email_body' | 'portal_fetch'>;
 
 /**
  * Where a document came from, written at the moment it arrives.
@@ -126,6 +129,7 @@ export interface StoredDocument {
 export const DISCOVERED_VIA = [
   'notice', // a deduction_notice: somebody filed a claim and told us about it
   'remittance_line', // a remittance line paid an invoice short, and that is all
+  'report_row', // a row of a spreadsheet, read through a confirmed sheet mapping (ADR 0056)
 ] as const;
 
 export type DiscoveredVia = (typeof DISCOVERED_VIA)[number];
@@ -276,7 +280,7 @@ export interface PipelineStore {
     schemaVersion: string;
     fields: readonly ExtractedField[];
     document: unknown;
-  }): Promise<void>;
+  }): Promise<readonly string[]>; // one `extraction_results` id per field, in order
   /**
    * The document as it was stored, rebuilt and validated by `restoreDocument`
    * rather than assembled ad hoc by each store. Every implementation answers
@@ -535,6 +539,36 @@ export interface PipelineStore {
    */
   caseForDocument?(documentId: string): Promise<string | undefined>;
   documentsForCase(deductionId: string): Promise<readonly StoredDocument[]>;
+
+  /**
+   * The tenant's sheet mapping for a header row (ADR 0056): the latest version
+   * whose `effectiveFrom` is on or before `onDate` and whose fingerprint equals
+   * `fingerprint` exactly, element by element, or `undefined` — also when
+   * more than one debtor has a mapping for that header, since which one is meant
+   * is a person's question.
+   */
+  sheetMappingFor(
+    orgId: string,
+    fingerprint: readonly string[],
+    onDate: string,
+  ): Promise<SheetMapping | undefined>;
+  /** Records a confirmed mapping as the next version for (org, debtor, fingerprint). */
+  recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping>;
+  /** The cell each spreadsheet field was read from. Append-only. */
+  recordResultCells(orgId: string, rows: readonly ResultCell[]): Promise<void>;
+  resultCellsFor(extractionResultIds: readonly string[]): Promise<ResultCell[]>;
+}
+
+/** Where a field read from a spreadsheet came from: `extraction_result_cells`. */
+export interface ResultCell {
+  extractionResultId: string;
+  sheetName: string;
+  rowNumber: number;
+  columnNumber: number;
+  cellRef: string;
+  cellType: CellType;
+  numberFormat: string | null;
+  wasFormula: boolean;
 }
 
 /**
@@ -671,6 +705,8 @@ export interface UnattachedDocument {
  * database before anything is opened.
  */
 export interface HeldDocumentStore extends PipelineStore, DocumentReadLock {
+  /** The stored document, for a held spreadsheet read again by its mapping (ADR 0056). */
+  getDocument(documentId: string): Promise<StoredDocument | undefined>;
   documentIsVisible(documentId: string): Promise<boolean>;
   caseForDocument(documentId: string): Promise<string | undefined>;
   memberMayWrite(actor: { readonly orgId: string; readonly userId: string }): Promise<boolean>;
@@ -1065,11 +1101,17 @@ export interface CaseWorkflowStore {
    *
    * @throws {WrongCaseStateError} the case has no decision to assemble against
    * @throws {WrongRoleError} `assembledBy` may not write in the tenant
+   *
+   * `findings` are caller-supplied and advisory: reconcile findings the caller
+   * wants printed in the letter, already filtered to `supports_dispute` and
+   * `LETTER_SAFE_FINDING_CODES`. The packet route is the only caller. They are
+   * frozen into the narrative, so different findings are a different packet.
    */
   assemblePacket(input: {
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;
@@ -1104,6 +1146,8 @@ export interface CaseWorkflowStore {
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    /** ADR 0060 moment 1: also write the `writeback` approval, same transaction. */
+    readonly alsoWriteback?: boolean;
   }): Promise<{ readonly approvalId: string; readonly deductionId: string }>;
 
   /**

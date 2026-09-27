@@ -95,6 +95,13 @@ export function UnattachedDocuments({
               {document.createdAt.slice(0, 10)}
             </span>
             <div className="unattached-actions">
+              {document.hold?.reason === 'no_mapping' ? (
+                // A spreadsheet nobody mapped (ADR 0056): a person says which
+                // column is which, and its rows are read by code.
+                <a className="map-columns" href={`/documents/${document.documentId}/map`}>
+                  Map these columns
+                </a>
+              ) : null}
               {document.hold !== undefined && mayOpenFrom(document.hold) ? (
                 // A POST, for the attach form's reason. It reads nothing:
                 // the case is opened from the reading already recorded.
@@ -214,7 +221,8 @@ export function AttachReadDocuments({
  * opens with that field empty (ADR 0044).
  */
 export function mayOpenFrom(hold: DocumentHold): boolean {
-  return !hasNoLines(hold);
+  // An unmapped spreadsheet has no reading to open from until it is mapped.
+  return hold.reason !== 'no_mapping' && !hasNoLines(hold);
 }
 
 /** A held remittance whose reading has no lines: the hold names `lines` among what did not fit. */
@@ -238,12 +246,24 @@ export function holdLine(hold: DocumentHold): string {
         ? 'the reading does not fit that type'
         : `the reading does not fit that type (missing: ${hold.fields.map(fieldLabel).join(', ')})`;
 
+  if (hold.reason === 'no_mapping') {
+    return (
+      'Held: a spreadsheet whose header row no confirmed column mapping matches' +
+      (hold.sheet === undefined || hold.sheet === '' ? '' : ` (sheet “${hold.sheet}”)`) +
+      '. Map its columns once and its rows are read by code, this time and every time after.'
+    );
+  }
   const why =
     hold.reason === 'by_email'
       ? // ADR 0047 §7: no email opens a case by itself, however sure the reading.
         `Held: ${readAs}, and it arrived by email. No email opens a case on its own — ` +
         'a person decides each time.' +
         (misfit === undefined ? '' : ` Also, ${misfit}.`)
+      : hold.reason === 'by_portal'
+        ? // ADR 0057 §10: a page a portal runner fetched opens no case by itself.
+          `Held: ${readAs}, and it was fetched from a portal. No portal capture opens a case on ` +
+          'its own — a person decides each time.' +
+          (misfit === undefined ? '' : ` Also, ${misfit}.`)
       : hold.reason === 'type_did_not_fit'
         ? `Held: ${readAs}, but ${misfit ?? 'the reading does not fit that type'}.`
         : `Held: ${readAs} at ${confidencePercent(hold.confidence)} confidence; this workspace ` +

@@ -13,6 +13,9 @@ import { judgeOpenAction } from './pdf-open-action';
 import { scanPdfNames } from './pdf-names';
 import { RejectedUploadError } from './sniff-errors';
 import { HEIC_MIME, inspectHeif, isHeif, normaliseHeifType } from './heif';
+import { CSV_MIME, DEFAULT_SHEET_LIMITS, TSV_MIME, XLSX_MIME } from './sheet-limits';
+import { inspectXlsx } from './xlsx';
+import { CsvRefusedError, decodeCsvBytes, parseCsv } from './csv';
 import { MAX_TIFF_PAGE_PIXELS, MAX_TIFF_TOTAL_PIXELS, inspectTiff, isClassicTiff } from './tiff';
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -36,6 +39,13 @@ export const ALLOWED_MIME_TYPES = [
   // A phone's photograph of a page. Read and viewed as a JPEG derived at read
   // time and never stored; `image/heif` is stored as this (ADR 0054 §5).
   HEIC_MIME,
+  // A remittance or deduction list as a spreadsheet, read by code through a
+  // person-confirmed column mapping, never by a model (ADR 0056). CSV and TSV
+  // have no signature: they are what is left when nothing else matched and
+  // the bytes decode as strict UTF-8 and parse as RFC 4180.
+  XLSX_MIME,
+  CSV_MIME,
+  TSV_MIME,
 ] as const;
 
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
@@ -52,7 +62,15 @@ export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
  */
 export const EMAIL_BODY_MIME = 'text/plain' as const;
 
-export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME;
+/**
+ * A portal page, captured and serialised through the runner's allowlist (ADR
+ * 0057 §9). Like an email body it is outside `ALLOWED_MIME_TYPES`: only
+ * `acceptPortalSnapshot` produces it, and only a `portal_fetch` arrival calls
+ * that, so an uploaded HTML file is still refused by `acceptUpload`.
+ */
+export const PORTAL_SNAPSHOT_MIME = 'text/html' as const;
+
+export type DocumentMimeType = AllowedMimeType | typeof EMAIL_BODY_MIME | typeof PORTAL_SNAPSHOT_MIME;
 
 export { RejectedUploadError, type RejectionCode } from './sniff-errors';
 
@@ -72,10 +90,22 @@ const SIGNATURES: Record<AllowedMimeType, (bytes: Uint8Array) => boolean> = {
     startsWith(b, [0x52, 0x49, 0x46, 0x46]) && startsWith(b, [0x57, 0x45, 0x42, 0x50], 8),
   'image/tiff': isClassicTiff, // II*\0 or MM\0*
   'image/heic': isHeif, // an ftyp box naming a HEVC or generic HEIF brand, and no AVIF-only one
+  [XLSX_MIME]: (b) => startsWith(b, [0x50, 0x4b, 0x03, 0x04]), // PK\3\4, a zip: a candidate until inspectXlsx says so
+  [CSV_MIME]: () => false,
+  [TSV_MIME]: () => false,
 };
+
+/** An OLE compound file: a legacy .xls/.doc, or an encrypted OOXML package. */
+const OLE_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0] as const;
 
 /** What the bytes actually are, regardless of what the upload claimed. */
 export function detectMimeType(bytes: Uint8Array): AllowedMimeType | undefined {
+  if (startsWith(bytes, OLE_SIGNATURE)) {
+    throw new RejectedUploadError(
+      'legacy_or_encrypted_office',
+      'an old-format or encrypted Office file: save it as .xlsx or .csv',
+    );
+  }
   for (const type of ALLOWED_MIME_TYPES) {
     if (SIGNATURES[type](bytes)) return type;
   }
@@ -369,7 +399,7 @@ export function acceptUpload(
     );
   }
 
-  const detected = detectMimeType(bytes);
+  const detected = detectMimeType(bytes) ?? detectDelimited(bytes, filename);
   if (detected === undefined) {
     throw new RejectedUploadError(
       'type_not_allowed',
@@ -422,6 +452,21 @@ export function acceptUpload(
     }
   }
 
+  if (detected === XLSX_MIME) {
+    try {
+      inspectXlsx(bytes, DEFAULT_SHEET_LIMITS);
+    } catch (e) {
+      // A zip that is not an OOXML package at all is a type we do not take.
+      if (e instanceof RejectedUploadError && e.code === 'type_not_allowed') {
+        throw new RejectedUploadError(
+          'type_not_allowed',
+          `${filename} is not one of ${ALLOWED_MIME_TYPES.join(', ')}`,
+        );
+      }
+      throw e;
+    }
+  }
+
   if (detected === 'image/tiff') {
     // Structure only, never pixels: the door is synchronous and runs before a
     // byte is stored. The page chain bounds what the read-time decoder will be
@@ -449,6 +494,30 @@ export function acceptUpload(
     warnings,
     requiresSplit,
   };
+}
+
+/**
+ * CSV or TSV, or undefined. The declared filename picks the delimiter and
+ * nothing else: a name ending `.tsv` is read tab-separated, anything else
+ * comma-separated, and either way the bytes must decode and parse.
+ */
+function detectDelimited(bytes: Uint8Array, filename: string): AllowedMimeType | undefined {
+  const tab = /\.tsv$/i.test(filename);
+  try {
+    const text = decodeCsvBytes(bytes, DEFAULT_SHEET_LIMITS);
+    // An HTML page is not a table, whatever it parses as: HTML reaches the
+    // store only as a portal snapshot, through acceptPortalSnapshot (ADR 0057).
+    // Markup anywhere counts, not only at the start: a sniffing reader finds it.
+    if (/<\s*(script|iframe|object|embed|svg|html|head|body|meta|link|style|form|!doctype|\?xml)\b/i.test(text)) return undefined;
+    const rows = parseCsv(text, tab ? '\t' : ',');
+    // A table has at least two cells; one run of text with no delimiter and
+    // no line end is not one, whatever it decodes as.
+    if (rows.reduce((n, r) => n + r.length, 0) < 2) return undefined;
+  } catch (e) {
+    if (e instanceof CsvRefusedError) return undefined;
+    throw e;
+  }
+  return tab ? TSV_MIME : CSV_MIME;
 }
 
 /** A notice pasted into an email is a few hundred characters at least. */
@@ -517,5 +586,49 @@ export function acceptEmailBody(
     },
     bytes,
     text: normalised,
+  };
+}
+
+/**
+ * Accepts a portal page snapshot as a document (ADR 0057 §9). The serialiser
+ * already kept only text and table, list and heading structure; this is the
+ * door checking that rather than trusting it. It must be UTF-8, under the
+ * email-body limit, and carry no `<script` or `<form` in any case — the
+ * serialiser removes both, so either one here means something else wrote it.
+ * The hash is over the bytes as captured, so a re-capture of the same page
+ * deduplicates the way a re-sent attachment does.
+ */
+export function acceptPortalSnapshot(
+  bytes: Uint8Array,
+  options: { readonly maxBytes?: number } = {},
+): AcceptedUpload {
+  const maxBytes = options.maxBytes ?? MAX_EMAIL_BODY_BYTES;
+  if (bytes.length === 0) {
+    throw new RejectedUploadError('empty_file', 'the portal snapshot is empty');
+  }
+  if (bytes.length > maxBytes) {
+    throw new RejectedUploadError(
+      'too_large',
+      `the portal snapshot is ${bytes.length} bytes, over the ${maxBytes} byte limit`,
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new RejectedUploadError('content_does_not_match_type', 'the portal snapshot is not UTF-8 text');
+  }
+  if (/<\s*(script|form)\b/i.test(text)) {
+    throw new RejectedUploadError(
+      'content_does_not_match_type',
+      'the portal snapshot carries a script or a form, which the serialiser removes',
+    );
+  }
+  return {
+    sha256: sha256(bytes),
+    mimeType: PORTAL_SNAPSHOT_MIME,
+    byteSize: bytes.length,
+    warnings: [],
+    requiresSplit: false,
   };
 }

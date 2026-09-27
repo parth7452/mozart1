@@ -466,3 +466,50 @@ export function printsNoAmount(text: string): boolean {
 
 const NO_AMOUNT_DASH = '[-\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]';
 const NO_AMOUNT = new RegExp(`^\\s*(?:\\$|USD)?\\s*${NO_AMOUNT_DASH}{1,3}\\s*$`, 'i');
+
+/**
+ * The money text a spreadsheet's number cell stands for (ADR 0056).
+ *
+ * A number cell stores `1234.5` where the page would print `$1,234.50`, and
+ * sometimes `1.2345E3` or float noise such as `1234.4999999999998`. This reads
+ * the stored digits as a string — never through a float — expands an exponent,
+ * pads one decimal place to two, and trims zeros past the cents. A digit past
+ * the cents that is not `0` is refused, whether it is a fraction of a cent
+ * (`0.125`) or noise from whatever wrote the file: either way the cell does not
+ * say an amount to the cent, and a person reads it. The result is for
+ * `parseMoneyToCents`, which stays the only thing that makes cents.
+ */
+export function numberCellToMoneyText(text: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text.trim());
+  if (match === null) {
+    throw new RangeError(`not a number cell: ${JSON.stringify(text)}`);
+  }
+  const sign = match[1] ?? '';
+  let digits = `${match[2] ?? ''}${match[3] ?? ''}`;
+  const exponent = Number(match[4] ?? '0');
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 30) {
+    throw new RangeError(`exponent out of range in number cell ${JSON.stringify(text)}`);
+  }
+  // Position of the decimal point within `digits`.
+  let point = (match[2] ?? '').length + exponent;
+  if (point < 0) {
+    digits = '0'.repeat(-point) + digits;
+    point = 0;
+  }
+  if (point > digits.length) digits = digits + '0'.repeat(point - digits.length);
+  let whole = digits.slice(0, point).replace(/^0+(?=\d)/, '');
+  if (whole === '') whole = '0';
+  let fraction = digits.slice(point);
+  if (fraction.length > 2) {
+    if (!/^0+$/.test(fraction.slice(2))) {
+      throw new RangeError(
+        `number cell ${JSON.stringify(text)} is not an amount to the cent: ` +
+          'a digit past the cents that is not 0 is not rounded',
+      );
+    }
+    fraction = fraction.slice(0, 2);
+  }
+  fraction = fraction.padEnd(2, '0');
+  const negative = sign === '-' && /[1-9]/.test(whole + fraction);
+  return `${negative ? '-' : ''}${whole}.${fraction}`;
+}

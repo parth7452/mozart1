@@ -19,26 +19,39 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
+import { SheetMappingSchema, type SheetMapping } from '@recouple/core-domain';
+import type { CellType } from '@recouple/ingest';
+import type { ResultCell } from '@recouple/pipeline';
 import {
   cents,
   CASE_STATES,
+  EVIDENCE_TYPE_WORDS,
+  evidenceChecklist,
   CLOSED_STATES,
   DUE_SOON_DAYS,
   identifierMatchKey,
+  parseMoneyToCents,
+  payerTermsFor,
+  letterPayerTerms,
   resolveDebtorId,
+  subCents,
   resolveIdentity,
   tryParsePrintedDate,
 } from '@recouple/core-domain';
 import type {
   ArrivalIdentity,
   CanonicalReasonCode,
+  Cents,
+  PayerTermsAnswer,
+  PayerTermsLine,
   CaseState,
   DebtorCandidate,
   IdentifierKind,
   KnownDeduction,
   KnownIdentifier,
+  EvidenceType,
 } from '@recouple/core-domain';
-import { restoreDocument, textByPage } from '@recouple/extraction';
+import { evidenceOfDocuments, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
 import type { ScanStatus, ScanVerdict } from '@recouple/ingest';
 import {
@@ -98,6 +111,7 @@ import {
   LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
+  type HumanDecisionRecord,
 } from '@recouple/pipeline';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
@@ -558,6 +572,18 @@ export const MISSING_EVIDENCE_TYPES = [
 
 export type MissingEvidence = (typeof MISSING_EVIDENCE_TYPES)[number];
 
+/** The evidence type each decline reason names, where one exists (ADR 0059). */
+export const EVIDENCE_FOR_MISSING: Readonly<Record<MissingEvidence, EvidenceType | null>> = {
+  proof_of_delivery: 'signed_pod',
+  bill_of_lading: 'carrier_signed_bol',
+  invoice: 'invoice',
+  purchase_order: 'po',
+  receiving_report: null,
+  timesheet: null,
+  rate_agreement: 'price_agreement',
+  correspondence: 'buyer_approval_email',
+};
+
 export function isMissingEvidence(value: unknown): value is MissingEvidence {
   return typeof value === 'string' && (MISSING_EVIDENCE_TYPES as readonly string[]).includes(value);
 }
@@ -681,6 +707,8 @@ export interface StoredField {
    * "unchecked" and "checked and wrong" are not the same claim.
    */
   readonly quoteVerified: boolean | null;
+  /** The `extraction_results` row, so a spreadsheet field can be joined to its cell. */
+  readonly extractionResultId?: string;
 }
 
 /** The roles `deduction_documents.role` admits (migration 0007). */
@@ -787,6 +815,20 @@ const CASE_DOCUMENTS_CTE = `on_case as (
  * It is a constant expression over a column, never user input: the values it
  * compares against are bound parameters.
  */
+/**
+ * A stored money field's value as cents, or undefined when it is absent or
+ * unreadable — for picking a payer's line, where an unreadable amount simply
+ * does not match (reconciliation reports it as a finding elsewhere).
+ */
+function moneyOrUndefined(value: unknown): Cents | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    return parseMoneyToCents(value);
+  } catch {
+    return undefined;
+  }
+}
+
 const FOLDED_IDENTIFIER = "lower(regexp_replace(btrim(i.identifier), '\\s+', ' ', 'g'))";
 
 interface CaseSummaryRow {
@@ -900,6 +942,7 @@ function toCaseSummary(row: CaseSummaryRow): CaseSummary {
 }
 
 interface StoredFieldRow {
+  id: string;
   document_id: string;
   filename: string;
   mime_type: string;
@@ -1653,15 +1696,17 @@ export class PostgresStore
     schemaVersion: string;
     fields: readonly ExtractedField[];
     document: unknown;
-  }): Promise<void> {
-    await this.withTenant(async (client) => {
+  }): Promise<readonly string[]> {
+    return this.withTenant(async (client) => {
+      const ids: string[] = [];
       for (const field of input.fields) {
-        await client.query(
+        const { rows } = await client.query<{ id: string }>(
           `insert into extraction_results
              (org_id, document_id, deduction_id, field_path, value_json, confidence,
               source_page, source_quote, source_bbox, quote_verified,
               extractor, model_version, schema_version)
-           values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::numeric(6,5)[], $10, $11, $12, $13)`,
+           values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::numeric(6,5)[], $10, $11, $12, $13)
+           returning id`,
           [
             this.tenant.orgId,
             input.documentId,
@@ -1678,7 +1723,9 @@ export class PostgresStore
             input.schemaVersion,
           ],
         );
+        ids.push(String((rows[0] as { id: string }).id));
       }
+      return ids;
     });
   }
 
@@ -2149,6 +2196,118 @@ export class PostgresStore
    * cases. The `org_id` predicate is the tenant's own; RLS says the same thing,
    * and another tenant's row is not one this could find either way.
    */
+  async sheetMappingFor(
+    orgId: string,
+    fingerprint: readonly string[],
+    onDate: string,
+  ): Promise<SheetMapping | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<SheetMappingRow>(
+        `select * from (
+           select distinct on (debtor_id) ${SHEET_MAPPING_COLUMNS} from sheet_mappings
+            where org_id = $1 and header_fingerprint = $2::text[] and effective_from <= $3::date
+            order by debtor_id, version desc, created_at desc
+         ) latest
+         limit 2`,
+        [orgId, [...fingerprint], onDate],
+      );
+      // Versions are numbered per debtor, so a header two debtors confirmed is
+      // ambiguous: no mapping rather than whichever numbered higher.
+      return rows.length === 1 ? sheetMappingFromRow(rows[0]!) : undefined;
+    });
+  }
+
+  async recordSheetMapping(input: Omit<SheetMapping, 'id' | 'version'>): Promise<SheetMapping> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<SheetMappingRow>(
+        `insert into sheet_mappings (org_id, debtor_id, version, effective_from, header_row,
+           sheet_name, header_fingerprint, shape, columns, non_line_rule, sign, currency,
+           date_order, source_document_id, confirmed_by)
+         select $1, $2, coalesce(max(version), 0) + 1, $3::date, $4, $5, $6::text[], $7,
+                $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14
+           from sheet_mappings
+          where org_id = $1 and debtor_id = $2 and header_fingerprint = $6::text[]
+         returning ${SHEET_MAPPING_COLUMNS}`,
+        [
+          input.orgId,
+          input.debtorId,
+          input.effectiveFrom,
+          input.headerRow,
+          input.sheetName,
+          [...input.headerFingerprint],
+          input.shape,
+          JSON.stringify(input.columns),
+          JSON.stringify(input.nonLineRule),
+          input.sign,
+          input.currency,
+          input.dateOrder,
+          input.sourceDocumentId,
+          input.confirmedBy,
+        ],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new Error('sheet mapping insert returned no row');
+      return sheetMappingFromRow(row);
+    });
+  }
+
+  async recordResultCells(orgId: string, cells: readonly ResultCell[]): Promise<void> {
+    if (cells.length === 0) return;
+    await this.withTenant(async (client) => {
+      await client.query(
+        `insert into extraction_result_cells (extraction_result_id, org_id, sheet_name,
+           row_number, column_number, cell_ref, cell_type, number_format, was_formula)
+         select c.id::bigint, $1, c.sheet, c.rn, c.cn, c.ref, c.ty, c.fmt, c.f
+           from unnest($2::text[], $3::text[], $4::int[], $5::int[], $6::text[], $7::text[],
+                       $8::text[], $9::bool[]) as c(id, sheet, rn, cn, ref, ty, fmt, f)`,
+        [
+          orgId,
+          cells.map((c) => c.extractionResultId),
+          cells.map((c) => c.sheetName),
+          cells.map((c) => c.rowNumber),
+          cells.map((c) => c.columnNumber),
+          cells.map((c) => c.cellRef),
+          cells.map((c) => c.cellType),
+          cells.map((c) => c.numberFormat),
+          cells.map((c) => c.wasFormula),
+        ],
+      );
+    });
+  }
+
+  async resultCellsFor(extractionResultIds: readonly string[]): Promise<ResultCell[]> {
+    if (extractionResultIds.length === 0) return [];
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        extraction_result_id: string;
+        sheet_name: string;
+        row_number: number;
+        column_number: number;
+        cell_ref: string;
+        cell_type: CellType;
+        number_format: string | null;
+        was_formula: boolean;
+      }>(
+        `select extraction_result_id::text, sheet_name, row_number, column_number, cell_ref,
+                cell_type, number_format, was_formula
+           from extraction_result_cells
+          where extraction_result_id = any($1::bigint[])
+          order by extraction_result_id`,
+        [[...extractionResultIds]],
+      );
+      return rows.map((r) => ({
+        extractionResultId: r.extraction_result_id,
+        sheetName: r.sheet_name,
+        rowNumber: r.row_number,
+        columnNumber: r.column_number,
+        cellRef: r.cell_ref,
+        cellType: r.cell_type,
+        numberFormat: r.number_format,
+        wasFormula: r.was_formula,
+      }));
+    });
+  }
+
   async classificationFloor(): Promise<number> {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ floor: string }>(
@@ -4046,7 +4205,7 @@ export class PostgresStore
              join on_case o on o.document_id = e.document_id
             order by e.document_id, e.field_path, e.id desc
          )
-         select l.document_id, coalesce(d.filename, '') as filename, d.mime_type,
+         select l.id::text as id, l.document_id, coalesce(d.filename, '') as filename, d.mime_type,
                 c.doc_type, l.field_path, l.value_json, l.confidence,
                 l.source_page, l.source_quote, l.source_bbox, l.quote_verified
            from latest l
@@ -4074,7 +4233,139 @@ export class PostgresStore
             ? null
             : (row.source_bbox.map((n) => Number(n)) as [number, number, number, number]),
         quoteVerified: row.quote_verified,
+        extractionResultId: row.id,
       }));
+    });
+  }
+
+  /**
+   * The payer's reason code and deduction reference for a case, derived from
+   * the notices and remittances linked to it — its own `deduction_documents`
+   * links and those of any case merged into it — and never written anywhere.
+   * A case whose `reason_code_as_printed` is set answers `own`. The rule is
+   * `payerTermsFor`'s alone; this only gathers its inputs.
+   */
+  async payerTermsForCase(deductionId: string): Promise<PayerTermsAnswer> {
+    const answers = await this.payerTermsForCases([deductionId]);
+    return answers.get(deductionId) ?? { kind: 'none' };
+  }
+
+  /** `payerTermsForCase` for many cases in one tenant transaction. */
+  async payerTermsForCases(ids: readonly string[]): Promise<Map<string, PayerTermsAnswer>> {
+    const out = new Map<string, PayerTermsAnswer>();
+    if (ids.length === 0) return out;
+    return this.withTenant(async (client) => {
+      const cases = await client.query<{ id: string; reason_code_as_printed: string | null; amount: string }>(
+        `select id, reason_code_as_printed, deduction_amount_cents::text as amount
+           from deductions where id = any($1::uuid[])`,
+        [ids],
+      );
+      const pending = new Map<string, Cents>();
+      for (const row of cases.rows) {
+        if (row.reason_code_as_printed !== null) out.set(row.id, { kind: 'own' });
+        else pending.set(row.id, cents(Number(row.amount)));
+      }
+      for (const id of ids) if (!out.has(id) && !pending.has(id)) out.set(id, { kind: 'none' });
+      if (pending.size === 0) return out;
+      const caseSet = `case_set as (
+           select id as case_id, id as member_id from deductions where id = any($1::uuid[])
+           union
+           select m.surviving_deduction_id, m.merged_deduction_id
+             from deduction_merges_current m where m.surviving_deduction_id = any($1::uuid[])
+         )`;
+      const pendingIds = [...pending.keys()];
+      const invoices = await client.query<{ case_id: string; identifier: string }>(
+        `with ${caseSet}
+         select distinct cs.case_id, i.identifier
+           from deduction_identifiers i
+           left join deduction_merges_current m on m.merged_deduction_id = i.deduction_id
+           join case_set cs on cs.case_id = coalesce(m.surviving_deduction_id, i.deduction_id)
+          where i.identifier_kind = 'invoice_number'`,
+        [pendingIds],
+      );
+      const fields = await client.query<{
+        case_id: string;
+        document_id: string;
+        doc_type: 'deduction_notice' | 'remittance_advice';
+        field_path: string;
+        value_json: unknown;
+        quote_verified: boolean | null;
+      }>(
+        `with ${caseSet}, on_case as (
+           select distinct cs.case_id, dd.document_id
+             from deduction_documents dd join case_set cs on cs.member_id = dd.deduction_id
+         ), typed as (
+           select o.case_id, o.document_id, c.doc_type
+             from on_case o
+             join lateral (
+               select doc_type from document_classifications dc
+                where dc.document_id = o.document_id order by dc.id desc limit 1
+             ) c on true
+            where c.doc_type in ('deduction_notice', 'remittance_advice')
+         ), latest as (
+           select distinct on (e.document_id, e.field_path)
+                  e.document_id, e.field_path, e.value_json, e.quote_verified
+             from extraction_results e
+            where e.document_id in (select document_id from typed)
+              and e.field_path ~ '^lines\\[\\d+\\]\\.(reason_code|deduction_reference|deduction_amount|gross_amount|net_amount|invoice_number)$'
+            order by e.document_id, e.field_path, e.id desc
+         )
+         select t.case_id, t.document_id, t.doc_type, l.field_path, l.value_json, l.quote_verified
+           from typed t join latest l on l.document_id = t.document_id`,
+        [pendingIds],
+      );
+      for (const [caseId, amountCents] of pending) {
+        const invoiceKeys = invoices.rows
+          .filter((r) => r.case_id === caseId)
+          .map((r) => identifierMatchKey(r.identifier));
+        const grouped = new Map<string, { docType: PayerTermsLine['docType']; documentId: string; index: number; f: Map<string, { value: unknown; verified: boolean | null }> }>();
+        for (const r of fields.rows) {
+          if (r.case_id !== caseId) continue;
+          const match = /^lines\[(\d+)\]\.(\w+)$/.exec(r.field_path);
+          if (match === null) continue;
+          const index = Number(match[1]);
+          const key = `${r.document_id}#${index}`;
+          let g = grouped.get(key);
+          if (g === undefined) {
+            g = { docType: r.doc_type, documentId: r.document_id, index, f: new Map() };
+            grouped.set(key, g);
+          }
+          g.f.set(match[2]!, { value: r.value_json, verified: r.quote_verified });
+        }
+        const lines: PayerTermsLine[] = [...grouped.values()].map((g) => {
+          const text = (name: string): string | undefined => {
+            const v = g.f.get(name)?.value;
+            return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+          };
+          const money = (name: string): Cents | undefined => moneyOrUndefined(g.f.get(name)?.value);
+          let amount = money('deduction_amount');
+          if (amount === undefined && g.docType === 'remittance_advice') {
+            const gross = money('gross_amount');
+            const net = money('net_amount');
+            if (gross !== undefined && net !== undefined) amount = subCents(gross, net);
+          }
+          const reasonCode = text('reason_code');
+          const deductionReference = text('deduction_reference');
+          const invoiceNumber = text('invoice_number');
+          return {
+            documentId: g.documentId,
+            docType: g.docType,
+            index: g.index,
+            ...(reasonCode === undefined ? {} : { reasonCode }),
+            ...(deductionReference === undefined ? {} : { deductionReference }),
+            ...(amount === undefined ? {} : { amountCents: amount }),
+            ...(invoiceNumber === undefined ? {} : { invoiceNumber }),
+            quoteVerified:
+              (reasonCode !== undefined
+                ? g.f.get('reason_code')?.verified
+                : g.f.get('deduction_reference')?.verified) ?? null,
+            reasonCodeVerified: g.f.get('reason_code')?.verified ?? null,
+            deductionReferenceVerified: g.f.get('deduction_reference')?.verified ?? null,
+          };
+        });
+        out.set(caseId, payerTermsFor({ amountCents, invoiceKeys, lines }));
+      }
+      return out;
     });
   }
 
@@ -4455,13 +4746,38 @@ export class PostgresStore
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;
     readonly narrative: string;
     readonly fileDocumentIds: readonly string[];
   }> {
-    return this.withTenant((client) => workflow.assemblePacket(client, this.tenant, input));
+    // The payer's terms and the evidence the case holds, read the way the case
+    // page reads them, then frozen into the letter at assembly. Read before the
+    // assembly's own transaction: both are derived views, and what the letter
+    // says is fixed by the packet's hash either way.
+    const [terms, documents] = await Promise.all([
+      this.payerTermsForCase(input.deductionId),
+      this.caseDocuments(input.deductionId),
+    ]);
+    const letterTerms = (decision: HumanDecisionRecord): workflow.LetterTerms => {
+      const checklist = evidenceChecklist({
+        reason: decision.reason,
+        onDate: decision.decidedAt.toISOString().slice(0, 10),
+        present: evidenceOfDocuments(documents),
+      });
+      return {
+        ...letterPayerTerms(terms),
+        evidenceChecklist: checklist.rows.map((row) => ({
+          label: `${EVIDENCE_TYPE_WORDS[row.evidenceType]}${row.required ? '' : ' (optional)'}`,
+          satisfied: row.status === 'have',
+        })),
+      };
+    };
+    return this.withTenant((client) =>
+      workflow.assemblePacket(client, this.tenant, { ...input, letterTerms }),
+    );
   }
 
   async approve(input: {
@@ -4469,6 +4785,7 @@ export class PostgresStore
     readonly packetId: string;
     readonly approverId: string;
     readonly note?: string;
+    readonly alsoWriteback?: boolean;
   }): Promise<{ readonly approvalId: string; readonly deductionId: string }> {
     return this.withTenant((client) => workflow.approve(client, this.tenant, input));
   }
@@ -4673,4 +4990,49 @@ function isoDate(value: Date | string | null | undefined): string | undefined {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+const SHEET_MAPPING_COLUMNS = `id, org_id, debtor_id, version, effective_from::text as effective_from,
+  header_row, sheet_name, header_fingerprint, shape, columns, non_line_rule, sign, currency,
+  date_order, source_document_id, confirmed_by`;
+
+interface SheetMappingRow {
+  id: string;
+  org_id: string;
+  debtor_id: string;
+  version: number;
+  effective_from: string;
+  header_row: number;
+  sheet_name: string;
+  header_fingerprint: string[];
+  shape: string;
+  columns: unknown;
+  non_line_rule: unknown;
+  sign: string;
+  currency: string;
+  date_order: string;
+  source_document_id: string | null;
+  confirmed_by: string;
+}
+
+/** Parsed, not cast: a row that does not fit the schema is refused loudly. */
+function sheetMappingFromRow(row: SheetMappingRow): SheetMapping {
+  return SheetMappingSchema.parse({
+    id: row.id,
+    orgId: row.org_id,
+    debtorId: row.debtor_id,
+    version: row.version,
+    effectiveFrom: row.effective_from,
+    headerRow: row.header_row,
+    sheetName: row.sheet_name,
+    headerFingerprint: row.header_fingerprint,
+    shape: row.shape,
+    columns: row.columns,
+    nonLineRule: row.non_line_rule,
+    sign: row.sign,
+    currency: row.currency,
+    dateOrder: row.date_order,
+    sourceDocumentId: row.source_document_id,
+    confirmedBy: row.confirmed_by,
+  });
 }

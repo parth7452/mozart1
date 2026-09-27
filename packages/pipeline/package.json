@@ -11,7 +11,8 @@
   "dependencies": {
     "@recouple/core-domain": "workspace:*",
     "@recouple/extraction": "workspace:*",
-    "@recouple/ingest": "workspace:*"
+    "@recouple/ingest": "workspace:*",
+    "@recouple/qbo": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p ../../tsconfig.json"

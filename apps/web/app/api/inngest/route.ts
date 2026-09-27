@@ -8,6 +8,7 @@ import {
   type JobStoreHandle,
 } from '../../../lib/inngest';
 import { ledgerSyncFunctions } from '../../../lib/inngest-ledger';
+import { postingFunctions } from '../../../lib/inngest-posting';
 import { alertOnFailureFunction } from '../../../lib/alerts';
 import { inboundStoreFor, readInboundEmailFunction } from '../../../lib/inbound';
 import { pipelineDepsFor, storeForActor } from '../../../lib/pipeline';
@@ -131,6 +132,9 @@ function handlers(): Served | undefined {
         },
         depsFor: (identity) => ledgerSyncDepsFor(identity),
       }),
+      // A write-back to QuickBooks (ADR 0060 §3). Registered always; it
+      // refuses before it builds anything unless QBO_POSTING=1.
+      ...postingFunctions(client),
       // An email to the operator when one of the four above fails after its
       // retries (ADR 0052). Registered whether or not mail is configured, so
       // its run says why no email came. It opens no database connection.

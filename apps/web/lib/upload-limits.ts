@@ -35,4 +35,4 @@ export const UPLOAD_MAX_BYTES = UPLOAD_MAX_MB * 1024 * 1024;
  * checks magic bytes whatever this says; this only stops the picker offering a
  * file the door will refuse. TIFF since ADR 0054, HEIC and HEIF since its §5.
  */
-export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.heic,.heif';
+export const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.heic,.heif,.xlsx,.csv,.tsv';

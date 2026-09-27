@@ -89,7 +89,9 @@ function assemble(year: number, month: number, day: number, original: string): s
  * retailer's rule rather than a date (ADR 0019 §7). The caller leaves the column
  * null and the verbatim text stays in `extraction_results` with its quote.
  */
-export function parsePrintedDate(text: string): string {
+export type DateOrder = 'mdy' | 'dmy' | 'ymd';
+
+export function parsePrintedDate(text: string, order: DateOrder = 'mdy'): string {
   const original = text;
   const working = text.trim().replace(/\s+/g, ' ');
   if (working === '') throw new DateParseError('cannot parse a date from an empty string');
@@ -101,9 +103,18 @@ export function parsePrintedDate(text: string): string {
   }
 
   // US numeric, month first, four-digit year: 08/14/2026, 8/14/2026, 08-14-2026.
+  // Which of the first two is the month is the caller's `order` (a tenant's
+  // sheet mapping says so); month first unless told otherwise.
   const numeric = /^(\d{1,2})([/-])(\d{1,2})\2(\d{4})$/.exec(working);
-  if (numeric !== null) {
-    return assemble(Number(numeric[4]), Number(numeric[1]), Number(numeric[3]), original);
+  if (numeric !== null && order !== 'ymd') {
+    const [month, day] = order === 'dmy' ? [numeric[3], numeric[1]] : [numeric[1], numeric[3]];
+    return assemble(Number(numeric[4]), Number(month), Number(day), original);
+  }
+
+  // Year first with a separator: 2026/08/14, 2026.8.14 — only when asked.
+  const yearFirst = /^(\d{4})([/.-])(\d{1,2})\2(\d{1,2})$/.exec(working);
+  if (yearFirst !== null && order === 'ymd') {
+    return assemble(Number(yearFirst[1]), Number(yearFirst[3]), Number(yearFirst[4]), original);
   }
 
   // Month name first: August 14, 2026 · Aug. 14, 2026 · Aug 14 2026.
@@ -148,4 +159,32 @@ export function tryParsePrintedDate(text: string): PrintedDate {
     if (error instanceof DateParseError) return { problem: error.message };
     throw error;
   }
+}
+
+/**
+ * The ISO date an Excel date serial stands for (ADR 0056). The integer part is
+ * the day; a time of day is dropped. The 1900 system counts a 29 February 1900
+ * that never existed (Lotus's bug, kept by Excel): serial 60 is that day and is
+ * refused, and every serial past it is one day late. The 1904 system counts
+ * from 1 January 1904 as day 0.
+ */
+export function excelSerialToIso(serial: string, date1904: boolean): string {
+  const match = /^(\d+)(?:\.\d*)?$/.exec(serial.trim());
+  if (match === null) throw new RangeError(`not a date serial: ${JSON.stringify(serial)}`);
+  let days = Number(match[1]);
+  if (!Number.isSafeInteger(days) || days > 2958465) {
+    throw new RangeError(`date serial out of range: ${JSON.stringify(serial)}`);
+  }
+  let epoch: number;
+  if (date1904) {
+    epoch = Date.UTC(1904, 0, 1);
+  } else {
+    if (days === 0) throw new RangeError('date serial 0 is not a day');
+    if (days === 60) {
+      throw new RangeError('date serial 60 is 29 February 1900, which never existed');
+    }
+    if (days > 60) days -= 1;
+    epoch = Date.UTC(1899, 11, 31);
+  }
+  return new Date(epoch + days * 86_400_000).toISOString().slice(0, 10);
 }

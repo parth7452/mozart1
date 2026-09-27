@@ -3,7 +3,7 @@
 A deterministic, human-gated document workflow for recovering invalid deductions:
 money a payer withholds from an invoice with a coded reason attached. Not an
 autonomous agent: ingest → classify → plan evidence → decide → assemble packet →
-**a human approves and submits** → record outcome → invoice the contingency fee.
+**a human approves, and submits or has a recipe file the approved packet** → record outcome → invoice the contingency fee.
 Agentic loops are reserved for exactly two bounded steps (evidence planning,
 unknown-payer cold start).
 
@@ -135,7 +135,8 @@ It has no override. The Stop hook runs `env -u DATABASE_URL pnpm test`.
 Phase 0 foundations → 1 ingest+classify → **3 packet+approval+manual
 submission+outcomes, human-decided (ADR 0020)** → **1.5 ERP read + triage** → 2
 evidence+decision (EV-gated) + portal **read** → **2.5 EDI 812/820** → 4 QBO
-write-back + contingency billing → 5 learning loop → 6 careful autonomy.
+write-back + contingency billing → recipe filing on a portal (ADR 0061), after
+that portal's read → 5 learning loop → 6 careful autonomy.
 
 Phase 3 moved ahead of 1.5 and 2 per ADR 0020, with the dispute decision made
 by a human rather than by Jev, so a customer can run one case end to end and a
@@ -151,8 +152,9 @@ already knew about it and sent it to us, and the whole coverage thesis is the
 ~70% they never surface. **Read** moves early; **write** (auto-submission,
 write-back) stays exactly where it was, behind the approval gate.
 
-**Do not build yet**: browser-agent auto-submission (Phase 6), portal *write* of
-any kind, NetSuite/Xero (after QBO, same `AccountingSource` port). Their
+**Do not build yet**: browser-agent submission (a model choosing clicks), and
+any portal write other than filing an approved packet by recipe (ADR 0061),
+NetSuite/Xero (after QBO, same `AccountingSource` port). Their
 interfaces (`SubmissionChannel`, `EvidenceSource`) already exist so adding them
 is additive.
 
@@ -184,7 +186,8 @@ append-only tables.
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified |
+| `portal` (ADR 0057) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
 ## Models
@@ -1564,6 +1567,21 @@ extraction's `model_calls.detail` (`invoice_number p2→p1`, schema paths and
 page numbers only). `scanned-upload.test.ts` and `pipeline-on-postgres.test.ts`
 read a duplex scan through the pipeline and back out of Postgres.
 
+**A ledger case shows the payer's terms once a person links them** (no ADR,
+no migration). A case the ledger sync opens has no `reason_code_as_printed`.
+`payerTermsForCases` derives one at read time from the notices and remittances
+on the case's own `deduction_documents` links and those of any case merged into
+it (`deduction_merges_current`), and writes nothing. `payerTermsFor`
+(`core-domain`) is the one rule: a line counts when its amount equals the
+case's to the cent and it prints a reason code or (notices only) a deduction
+reference; a remittance line must also be on one of the case's invoices, which
+only picks a line inside a document already linked and is never identity. One
+answer is `derived`, disagreeing lines `conflicting`, none `none`, and a case
+with its own column `own`. The case page shows the code, the reference and the
+document it came from, or "Payer documents disagree"; the work queue tags the
+row with the code, in the same order. The packet waits on the dispute letter
+(build-now 05), which wires it in at assembly.
+
 **A failed job reaches a person** (ADR 0052, no migration). Inngest has no
 built-in alert for a failed run on any plan, so `alert-on-failure`
 (`apps/web/lib/alerts.ts`) listens for `inngest/function.failed`, filtered to
@@ -1621,3 +1639,78 @@ constructed with `paging: true`, which `pnpm record:cassettes` is and
 that dense still fails loudly, now with its one call's cost recorded, until a
 proactive gate, a longer duration or a step per part is chosen — the founder's
 call.
+
+**Built on PR #127 overnight, 2026-09-27, merged the same day.** ADRs 0051,
+0057, 0058, 0060 and 0061 were accepted by the founder on 2026-09-27.
+Migrations 0036 and 0037 were applied on the founder's go, to `mozart-preview`
+(17:27 and 17:29 UTC) and then production (17:30 and 17:31), and read back on
+both: the stored statements' md5s equal the files'; `sheet_mappings`,
+`extraction_result_cells` and `ledger_account_maps` have RLS, `no_update_delete`
+and `no_truncate`, with `app_rw` holding SELECT and INSERT and `app_ro` SELECT;
+the request roles hold nothing on them; no `app` function is unpinned; and no
+connection has `posting_enabled`. The security advisor shows only its old
+leaked-password notice. Nothing posts to QuickBooks and no portal runs.
+
+**A ledger case shows the payer's terms** (no ADR, no migration).
+`payerTermsFor` (`core-domain`) derives a case's reason code and deduction
+reference at read time from the notices and remittances linked to it and to the
+cases merged into it; nothing is written to `deductions`. The case page names
+the source document, or says the payer's documents disagree; the queue tags
+each row in the same order.
+
+**What evidence a reason needs is data** (ADR 0059, no migration). Required or
+Helpful evidence types per canonical reason, versioned and effective-dated in
+`core-domain` (the first set effective 2000-01-01); a decided case lists each
+and whether a document of that type is linked. Correspondence only ever counts
+as possible buyer approval. Nothing is persisted and no model reads it. The
+lists are placeholders for the founder to review.
+
+**A draft journal, not posted** (no ADR, no migration). `draftEntries` computes
+balanced entries for found, recovered and written off in integer cents and
+refuses what it cannot draft; the case page shows them labelled "Draft — not
+posted", with won/lost previews on an open case.
+
+**The dispute letter says why** (no ADR, no migration).
+`buildPacketNarrative` gains optional sections — the payer's reason code and
+reference, numbered findings, the evidence checklist and each enclosure's
+SHA-256 — frozen into the narrative at assembly. Absent, the letter is byte
+for byte what it was. Only `supports_dispute` findings in
+`LETTER_SAFE_FINDING_CODES` go in (none that quotes a sentence off the page),
+capped at 20,000 characters with an omission line, and a reason code or
+reference is printed only when its own quote verified.
+
+**A spreadsheet row is a document line** (ADR 0056, migration 0036). CSV, TSV
+and XLSX come in through `acceptUpload`; the XML tokenizer refuses any DTD,
+a delimited file carrying markup is refused rather than stored as CSV, and a
+macro-enabled part is recorded by name and not read. Rows are read through a
+person-confirmed, versioned `sheet_mappings` row per tenant and debtor, and each
+field keeps the cell it came from (`extraction_result_cells`) in place of a
+page and a box; both append-only, RLS, `app_rw` SELECT and INSERT, the mapping
+naming its caller as confirmer. A sheet no mapping matches (or whose header two
+debtors mapped) is held `no_mapping`; "Read, not on a case" links it to a page
+that shows its header and first ten rows as escaped text, records the mapping
+under the session's member and opens it like "Open a case from it". Cases are
+`discovered_via = 'report_row'`. Suite 32 reads it back.
+
+**QuickBooks write-back is built, gated and off** (ADR 0060,
+migration 0037 not applied). An account map (each account's type checked as
+QuickBooks reports it), a per-connection `posting_enabled` switch an owner
+flips with an audit row, and write-once `writebacks` whose request id is the
+row's own id, with lines and cents from `draftEntries` and the map. The
+`post-writeback` job refuses before building anything unless `QBO_POSTING=1`,
+then asks `memberMayWrite`, the switch, the connection being enabled and the
+row's status; it sends once, reads back and verifies, and a 5xx or timeout is
+an unknown outcome only a person retries. A payment is sent only after its
+entry verified. Nothing has posted to any QuickBooks company, sandbox included.
+
+**A portal is read, never written** (ADR 0057 and 0058, no
+migration). `@recouple/portal`: a recipe schema, a request guard
+(`decideRequest`) every request passes, and a read-only Playwright runner that
+ends the run on a refused navigation or form submission, checks every redirect
+hop and every click against the allowlist and the never-click floor, refuses
+WebSockets, never calls `setInputFiles`, and stops for a person at a challenge,
+terms dialog or missing element. It has run only against a local fixture portal
+that records every request it receives, so each refusal test proves the
+forbidden request never arrived. Captures enter as `portal_fetch` (a snapshot
+through `acceptPortalSnapshot`, text/html with no script or form), and a notice
+or remittance so arrived is held `by_portal`. No real portal, no credentials.

@@ -279,6 +279,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     readonly deductionId: string;
     readonly decisionId: string;
     readonly assembledBy: string;
+    readonly findings?: readonly { readonly code: string; readonly message: string }[];
   }): Promise<{
     readonly packetId: string;
     readonly contentHash: string;
@@ -317,7 +318,7 @@ export class FakeWorkflowStore implements CaseWorkflowStore {
     }
     if (row.documentIds.length === 0) throw new NothingToSendError(input.deductionId);
 
-    const narrative = narrativeFor(decision);
+    const narrative = narrativeFor(decision, input.findings ?? []);
     const contentHash = hashOf(decision.decisionId, narrative, row.documentIds);
     if (standing !== undefined && standing.packetHash !== contentHash) {
       throw new PacketAfterApprovalError(decision.decisionId, standing.packetHash);
@@ -624,11 +625,16 @@ function hashOf(
     .digest('hex');
 }
 
-function narrativeFor(decision: HumanDecisionRecord): string {
+function narrativeFor(
+  decision: HumanDecisionRecord,
+  findings: readonly { readonly code: string; readonly message: string }[],
+): string {
   return [
     '# Dispute cover sheet',
     '',
     `Reason: ${decision.reason}`,
     `Rationale: ${decision.rationale}`,
+    // Findings change the bytes, as they do in the real stores.
+    ...findings.map((finding, index) => `Finding ${index + 1}: ${finding.message}`),
   ].join('\n');
 }

@@ -1,3 +1,5 @@
+import type { PostingConnectionView } from '@recouple/store-postgres';
+import { PostingSettings } from './posting-settings';
 import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
 import type { LedgerConnectionOverview } from '@recouple/store-postgres';
 import { resolveNotice } from '../lib/notices';
@@ -24,6 +26,7 @@ export function LedgerConnectionPage({
   deployment,
   notice,
   today,
+  posting,
 }: {
   viewer: Viewer;
   connections: readonly LedgerConnectionOverview[];
@@ -33,6 +36,8 @@ export function LedgerConnectionPage({
   /** A notice key from the last step of the flow, never a sentence (`lib/notices.ts`). */
   notice?: string | undefined;
   today: Date;
+  /** Posting's settings, present only for an owner on a deployment that posts (ADR 0060). */
+  posting?: readonly PostingConnectionView[] | undefined;
 }) {
   const said = resolveNotice(notice);
   const current = connections.find((connection) => connection.enabled);
@@ -93,6 +98,8 @@ export function LedgerConnectionPage({
             />
           )}
         </section>
+
+        {posting === undefined ? null : <PostingSettings connections={posting} />}
 
         {previous.length === 0 ? null : (
           <section className="card connection" aria-label="Earlier connections">

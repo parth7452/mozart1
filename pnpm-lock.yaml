@@ -149,7 +149,11 @@ importers:
         specifier: workspace:*
         version: link:../core-domain
 
-  packages/core-domain: {}
+  packages/core-domain:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/crypto:
     dependencies:
@@ -191,10 +195,17 @@ importers:
         specifier: workspace:*
         version: link:../fixtures
 
-  packages/fixtures: {}
+  packages/fixtures:
+    dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
 
   packages/ingest:
     dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       heic-decode:
         specifier: ^2.1.0
         version: 2.1.0
@@ -220,10 +231,31 @@ importers:
       '@recouple/ingest':
         specifier: workspace:*
         version: link:../ingest
+      '@recouple/qbo':
+        specifier: workspace:*
+        version: link:../qbo
     devDependencies:
       '@recouple/fixtures':
         specifier: workspace:*
         version: link:../fixtures
+
+  packages/portal:
+    dependencies:
+      '@recouple/core-domain':
+        specifier: workspace:*
+        version: link:../core-domain
+      '@recouple/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      '@recouple/pipeline':
+        specifier: workspace:*
+        version: link:../pipeline
+      playwright:
+        specifier: ^1.63.0
+        version: 1.63.0
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/qbo:
     dependencies:

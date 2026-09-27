@@ -102,6 +102,10 @@ export interface PacketDocument {
   /** `deduction_documents.role` — what this document is in the case. */
   readonly role: 'notice' | 'evidence' | 'remittance' | 'context';
   readonly filename: string;
+  /** `documents.sha256`, lower-case hex. Printed beside the filename when present. */
+  readonly sha256?: string;
+  /** The document's latest classified type, when the store knows it. Not printed. */
+  readonly docType?: string;
 }
 
 /** How the letter names each role to a payer. */
@@ -148,6 +152,32 @@ export interface PacketNarrativeInput {
   readonly rationale: string;
   /** At least one: the notice. `packets.file_document_ids` says so too. */
   readonly documents: readonly PacketDocument[];
+  /**
+   * Reconcile findings that support the dispute, in the order given. Each
+   * message is printed verbatim, so only messages built from our own words and
+   * verified values belong here (`LETTER_SAFE_FINDING_CODES`).
+   */
+  readonly findings?: readonly { readonly code: string; readonly message: string }[];
+  /** The payer's own reason code, as its document printed it. */
+  readonly payerReasonCode?: string;
+  /** The payer's own number for this deduction (chargeback, debit memo). */
+  readonly deductionReference?: string;
+  /** The evidence the chosen reason needs, and whether the case holds it. */
+  readonly evidenceChecklist?: readonly { readonly label: string; readonly satisfied: boolean }[];
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** Refuses a value that is not one line of plain text; returns it trimmed. */
+function assertPlainText(label: string, value: string): string {
+  const trimmed = value.trim();
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const code = trimmed.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      throw new PacketError(`${label} holds a control character; a letter line is plain text`);
+    }
+  }
+  return trimmed;
 }
 
 function line(label: string, value: string | undefined): string {
@@ -193,7 +223,26 @@ export function buildPacketNarrative(input: PacketNarrativeInput): string {
     if (document.filename.trim() === '') {
       throw new PacketError('every enclosed document has to be named');
     }
+    if (document.sha256 !== undefined && !SHA256_HEX.test(document.sha256)) {
+      throw new PacketError('an enclosure\'s SHA-256 is 64 lower-case hex characters');
+    }
   }
+  const payerReasonCode =
+    input.payerReasonCode === undefined
+      ? undefined
+      : assertPlainText("the payer's reason code", input.payerReasonCode);
+  const deductionReference =
+    input.deductionReference === undefined
+      ? undefined
+      : assertPlainText('the deduction reference', input.deductionReference);
+  const findings = (input.findings ?? []).map((finding) => {
+    assertPlainText('a finding code', finding.code);
+    return assertPlainText('a finding', finding.message);
+  });
+  const checklist = (input.evidenceChecklist ?? []).map(
+    (row) =>
+      `  [${row.satisfied ? 'x' : ' '}] ${assertPlainText('an evidence checklist label', row.label)}`,
+  );
   // `cents()` refuses a float and anything past the safe-integer range, so a
   // narrative can never print an amount that is not an exact number of cents.
   const amount = formatCents(cents(input.deductionAmountCents));
@@ -208,10 +257,11 @@ export function buildPacketNarrative(input: PacketNarrativeInput): string {
 
   const enclosed = input.documents.map(
     (document, index) =>
-      `  ${index + 1}. ${ENCLOSURE_ROLE_WORDS[document.role]}: ${document.filename}`,
+      `  ${index + 1}. ${ENCLOSURE_ROLE_WORDS[document.role]}: ${document.filename}` +
+      (document.sha256 !== undefined ? ` (SHA-256 ${document.sha256})` : ''),
   );
 
-  const narrative = [
+  const compose = (findingLines: readonly string[]): string => [
     'DISPUTE OF DEDUCTION',
     '',
     `From: ${supplier}`,
@@ -228,16 +278,39 @@ export function buildPacketNarrative(input: PacketNarrativeInput): string {
     `${supplier} disputes this deduction in full and asks that ${amount} be repaid.`,
     '',
     `Reason for dispute: ${reasonInWords(input.reason)}`,
+    ...(payerReasonCode !== undefined && payerReasonCode !== ''
+      ? [line("Payer's reason code", payerReasonCode)]
+      : []),
+    ...(deductionReference !== undefined && deductionReference !== ''
+      ? [line('Deduction reference', deductionReference)]
+      : []),
     '',
+    ...(findingLines.length > 0 ? ['Findings:', ...findingLines, ''] : []),
     'Explanation:',
     rationale,
     '',
+    ...(checklist.length > 0 ? ['Evidence checklist:', ...checklist, ''] : []),
     'Enclosures:',
     ...enclosed,
     '',
     'Please quote the claim or deduction reference above in any reply about this dispute.',
     '',
   ].join('\n');
+
+  // Findings are the one section trimmed to fit: as many as the cap allows, in
+  // order, and a line saying how many were left out. The checklist and the
+  // enclosures are never trimmed; a letter still over the cap is refused below.
+  const numbered = findings.map((message, index) => `  ${index + 1}. ${message}`);
+  let narrative = compose(numbered);
+  if (narrative.length > MAX_NARRATIVE_LENGTH && numbered.length > 0) {
+    const omitted = (kept: number): string =>
+      `  (${numbered.length - kept} further findings omitted; see the case page.)`;
+    let kept = numbered.length - 1;
+    for (; kept > 0; kept -= 1) {
+      if (compose([...numbered.slice(0, kept), omitted(kept)]).length <= MAX_NARRATIVE_LENGTH) break;
+    }
+    narrative = compose([...numbered.slice(0, kept), omitted(kept)]);
+  }
 
   if (narrative.length > MAX_NARRATIVE_LENGTH) {
     throw new PacketError(

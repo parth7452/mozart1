@@ -37,6 +37,17 @@ describe('type detection', () => {
     expect(accepted.warnings.join(' ')).toMatch(/claimed application\/pdf/);
   });
 
+  it('refuses an OLE compound file as a legacy or encrypted Office file', () => {
+    const ole = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+    expect(() => detectMimeType(ole)).toThrow(RejectedUploadError);
+    try {
+      acceptUpload(ole, 'remit.xls');
+      expect.unreachable();
+    } catch (e) {
+      expect((e as RejectedUploadError).code).toBe('legacy_or_encrypted_office');
+    }
+  });
+
   it('rejects types that are not on the list', () => {
     const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0]);
     expect(() => acceptUpload(zip, 'evidence.zip')).toThrow(/not one of/);
@@ -689,5 +700,15 @@ describe('a destination-only /OpenAction', () => {
       expect(verdict(bytes)).toMatchObject({ blocks: ['/OpenAction'], allowed: [], scan: 'raw' });
       expect(refused(bytes)).toBe('active_content_pdf');
     });
+  });
+});
+
+describe('markup is not a table', () => {
+  it('refuses a delimited file carrying markup anywhere', () => {
+    const enc = new TextEncoder();
+    for (const t of ['<script>alert(1)</script>,x\n', 'a,b\n<svg onload=x>,c\n', '<?xml version="1.0"?>,a\n']) {
+      expect(() => acceptUpload(enc.encode(t), 'x.csv')).toThrow();
+    }
+    expect(acceptUpload(enc.encode('a,b\n1,2\n'), 'x.csv').mimeType).toBe('text/csv');
   });
 });

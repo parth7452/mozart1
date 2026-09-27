@@ -21,7 +21,8 @@ import {
   expectedExtraction,
   type FixtureDocument,
 } from '@recouple/fixtures';
-import { parsePostmarkInbound, type ScanVerdict } from '@recouple/ingest';
+import { acceptUpload, parsePostmarkInbound, XLSX_MIME, type ScanVerdict } from '@recouple/ingest';
+import { buildXlsx } from '../../ingest/test/xlsx-builders';
 import {
   InboundActingMemberRefusedError,
   InboundScanUnavailableError,
@@ -109,7 +110,7 @@ class FixtureReader implements Classifier, Extractor {
 
 /** The in-memory store, plus a document by id, which a job owes itself. */
 class JobTestStore extends InMemoryStore {
-  async getDocument(documentId: string): Promise<StoredDocument | undefined> {
+  override async getDocument(documentId: string): Promise<StoredDocument | undefined> {
     return this.documents.get(documentId);
   }
 }
@@ -198,6 +199,31 @@ describe('the request half: store and scan, read nothing', () => {
     await receiveInboundEmail(email({ Attachments: [attach(NOTICE), zip] }), ADDRESS, deps);
     // "Notice attached." is a cover note too short to be anything, and says so.
     expect(inbound.messages[0]?.parts.map((p) => p.outcome)).toEqual(['stored', 'type_not_allowed', 'body_too_short']);
+  });
+
+  it('stores and scans an XLSX attachment, and refuses a macro-enabled one by name (ADR 0056)', async () => {
+    const { inbound, store, deps } = harness();
+    const xlsx = { Name: 'deductions.xlsx', Content: Buffer.from(buildXlsx()).toString('base64'),
+                   ContentType: XLSX_MIME };
+    await receiveInboundEmail(email({ Attachments: [xlsx] }), ADDRESS, deps);
+    const parts = inbound.messages[0]?.parts ?? [];
+    expect(parts.map((p) => p.outcome)).toEqual(['stored', 'body_too_short']);
+    const stored = [...store.documents.values()].find((d) => d.mimeType === XLSX_MIME);
+    expect(stored).toBeDefined();
+    expect(await store.latestScan(stored!.documentId)).toMatchObject({ status: 'clean' });
+
+    const macro = {
+      Name: 'macro.xlsx',
+      ContentType: XLSX_MIME,
+      Content: Buffer.from(
+        buildXlsx({ extra: { 'xl/vbaProject.bin': new Uint8Array([1, 2]) } }),
+      ).toString('base64'),
+    };
+    await receiveInboundEmail(email({ MessageID: 'pm-macro', Attachments: [macro] }), ADDRESS, deps);
+    expect(inbound.messages[1]?.parts.map((p) => p.outcome)).toEqual(['macro_enabled_spreadsheet', 'body_too_short']);
+    expect(() => acceptUpload(Buffer.from(macro.Content, 'base64'), macro.Name)).toThrow(
+      expect.objectContaining({ code: 'macro_enabled_spreadsheet' }),
+    );
   });
 
   it('records a body too short to be anything, rather than saying nothing', async () => {

@@ -145,6 +145,9 @@ const store = {
   async unattachedDocuments() {
     return [];
   },
+  async payerTermsForCase() {
+    return { kind: 'none' as const };
+  },
   async documentsForCase() {
     return [document];
   },
