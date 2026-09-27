@@ -1,6 +1,7 @@
 export * from './dates';
 export * from './ledger';
 export * from './identity';
+export * from './journal';
 export * from './ledger-extract';
 export * from './money';
 export * from './packet';

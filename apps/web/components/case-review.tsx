@@ -21,6 +21,8 @@ import { SERVING_REFUSED } from '../lib/serve-document';
 import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
+import { familyOf } from '@recouple/core-domain';
+import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
 import { DisputeDeadline } from './dispute-deadline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
@@ -620,6 +622,14 @@ export function CaseReview({
               viewerUserId={viewerUserId}
               filenames={filenames}
               unservable={unservable}
+            />
+            <DraftJournal
+              amountCents={summary.deductionAmountCents}
+              outcome={workflow?.outcome?.outcome}
+              recoveredCents={workflow?.outcome?.recoveredCents}
+              declined={declined}
+              family={workflow?.decision ? familyOf(workflow.decision.reason) : undefined}
+              printedReasonCode={summary.reasonCodeAsPrinted ?? undefined}
             />
 
             {/* Fighting and declining are the two answers to the same
