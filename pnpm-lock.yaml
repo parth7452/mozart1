@@ -195,6 +195,9 @@ importers:
 
   packages/ingest:
     dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       heic-decode:
         specifier: ^2.1.0
         version: 2.1.0
