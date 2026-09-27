@@ -23,6 +23,12 @@ try:
 except Exception:
     block("dashboard-guard: unreadable hook payload.")
 
+# Registered in .claude/settings.json with --only-dashboard-agent, the hook sees
+# every agent's calls; it guards the dashboard-builder's and lets the rest pass.
+# The payload names the agent in `agent_type` (absent for the main session).
+if "--only-dashboard-agent" in sys.argv[1:] and data.get("agent_type") != "dashboard-builder":
+    sys.exit(0)
+
 tool = data.get("tool_name", "")
 inp = data.get("tool_input") or {}
 project = os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or os.getcwd()
