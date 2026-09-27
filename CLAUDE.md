@@ -71,6 +71,31 @@ what enforces each one.
   PreToolUse hook blocks edits to `supabase/migrations/**` and
   `packages/*/src/invariants/**` until the branch carries one.
 
+## Progress dashboard
+
+For any task with more than 5 steps, or one that should take longer than 30
+minutes:
+
+1. Before starting, have the `dashboard-builder` subagent
+   (`.claude/agents/dashboard-builder.md`) set up `.dashboard/index.html` with
+   the full list of steps. Tell the user the path once.
+2. After every step, send it the update: step status, new deliverables,
+   blockers and questions. Run it in the background and don't wait on it.
+3. When you need a decision from the user, add it to the dashboard's questions
+   with the default you'll use, keep going with that default, and mention it in
+   your next message.
+4. When it replies `STYLE_NEEDED`, ask the user their dashboard style once and
+   pass the answer back to it to save.
+
+A default never covers anything hard to undo or outward-facing (pushing to a
+shared branch, merging, applying a migration, deleting data, sending email,
+posting to an accounting system), anything that spends money (such as
+`pnpm record:cassettes`), or anything this file says needs a person or an ADR.
+Those wait for the user's answer; keep working on whatever doesn't depend on
+them. `.dashboard/` is gitignored; the agent's saved style lives in
+`.claude/agent-memory/dashboard-builder/` and is committed, and
+`.claude/hooks/dashboard-guard.py` keeps the agent inside those two folders.
+
 ## Guardrails against the ways AI-written code fails on money paths
 
 - Do NOT swallow errors. Fail loud.
