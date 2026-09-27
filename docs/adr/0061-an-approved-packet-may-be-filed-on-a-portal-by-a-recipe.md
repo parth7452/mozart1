@@ -1,7 +1,7 @@
 # 0061 — An approved packet may be filed on a portal by a recipe, never by an agent
 
-- Status: proposed (2026-09-27). The founder accepts or rejects it, including
-  each choice in §6. Nothing is built.
+- Status: accepted (the founder, 2026-09-27), with each recommended choice in
+  §6. Nothing is built; each portal still needs its own submission ADR.
 - Date: 2026-09-27
 - Depends on: ADR 0057 accepted (worker, recipe registry, sealed
   credentials), and one accepted submission ADR per portal (§3).

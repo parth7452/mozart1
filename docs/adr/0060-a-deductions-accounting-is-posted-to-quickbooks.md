@@ -1,6 +1,7 @@
 # 0060 — A deduction's accounting is posted to QuickBooks, one approval per decision
 
-- Status: proposed (2026-09-27). Nothing here is built: no code, no migration.
+- Status: accepted (the founder, 2026-09-27). Built on PR #127, gated off:
+  nothing posts until `QBO_POSTING=1`, the switch and an approval.
 - Date: 2026-09-27
 - Amends: ADR 0020 (a case may carry a second human decision, the
   settlement), ADR 0036 (the ledger reader learns the shape our own postings

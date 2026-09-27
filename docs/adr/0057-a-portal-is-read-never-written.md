@@ -1,8 +1,7 @@
 # 0057 — A portal is read, never written, by a recipe a person promoted
 
-- Status: proposed (2026-09-26). The founder accepts or amends it, including
-  each choice in §17. Nothing here is built: no code, no migration, no
-  service.
+- Status: accepted (the founder, 2026-09-27), with each recommended choice
+  in §17. Proposed 2026-09-26; the read engine was built on PR #127.
 - Date: 2026-09-26
 - Promotes: Draft H (`docs/plans/phase-2/adr-drafts/H-portal-read.md`), which
   this supersedes. Draft H's six decisions are kept, except where the table

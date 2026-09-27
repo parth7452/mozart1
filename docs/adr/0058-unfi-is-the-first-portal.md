@@ -1,6 +1,7 @@
 # 0058 — UNFI is the first portal, and its terms are read before anything runs
 
-- Status: proposed (2026-09-26). **The terms-of-service check is pending.** No
+- Status: accepted (the founder, 2026-09-27). **The terms-of-service check is
+  still pending.** No
   automated read of any UNFI system runs until the founder has read UNFI's
   terms and recorded the answer in §2 of the Decision. Nothing is built.
 - Date: 2026-09-26

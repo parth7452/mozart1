@@ -3,7 +3,7 @@
 A deterministic, human-gated document workflow for recovering invalid deductions:
 money a payer withholds from an invoice with a coded reason attached. Not an
 autonomous agent: ingest → classify → plan evidence → decide → assemble packet →
-**a human approves and submits** → record outcome → invoice the contingency fee.
+**a human approves, and submits or has a recipe file the approved packet** → record outcome → invoice the contingency fee.
 Agentic loops are reserved for exactly two bounded steps (evidence planning,
 unknown-payer cold start).
 
@@ -135,7 +135,8 @@ It has no override. The Stop hook runs `env -u DATABASE_URL pnpm test`.
 Phase 0 foundations → 1 ingest+classify → **3 packet+approval+manual
 submission+outcomes, human-decided (ADR 0020)** → **1.5 ERP read + triage** → 2
 evidence+decision (EV-gated) + portal **read** → **2.5 EDI 812/820** → 4 QBO
-write-back + contingency billing → 5 learning loop → 6 careful autonomy.
+write-back + contingency billing → recipe filing on a portal (ADR 0061), after
+that portal's read → 5 learning loop → 6 careful autonomy.
 
 Phase 3 moved ahead of 1.5 and 2 per ADR 0020, with the dispute decision made
 by a human rather than by Jev, so a customer can run one case end to end and a
@@ -151,8 +152,9 @@ already knew about it and sent it to us, and the whole coverage thesis is the
 ~70% they never surface. **Read** moves early; **write** (auto-submission,
 write-back) stays exactly where it was, behind the approval gate.
 
-**Do not build yet**: browser-agent auto-submission (Phase 6), portal *write* of
-any kind, NetSuite/Xero (after QBO, same `AccountingSource` port). Their
+**Do not build yet**: browser-agent submission (a model choosing clicks), and
+any portal write other than filing an approved packet by recipe (ADR 0061),
+NetSuite/Xero (after QBO, same `AccountingSource` port). Their
 interfaces (`SubmissionChannel`, `EvidenceSource`) already exist so adding them
 is additive.
 
@@ -184,8 +186,8 @@ append-only tables.
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060, proposed) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified |
-| `portal` (ADR 0057, proposed) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified |
+| `portal` (ADR 0057) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
 ## Models
@@ -1639,8 +1641,8 @@ proactive gate, a longer duration or a step per part is chosen — the founder's
 call.
 
 **Built on PR #127 overnight, 2026-09-27: not merged, not deployed.** Nothing
-below is live, no migration below is applied anywhere, and ADRs 0057, 0058,
-0060 and 0061 are **proposed**, waiting on the founder.
+below is live, no migration below is applied anywhere, and ADRs 0051, 0057, 0058,
+0060 and 0061 were accepted by the founder on 2026-09-27.
 
 **A ledger case shows the payer's terms** (no ADR, no migration).
 `payerTermsFor` (`core-domain`) derives a case's reason code and deduction
@@ -1683,7 +1685,7 @@ that shows its header and first ten rows as escaped text, records the mapping
 under the session's member and opens it like "Open a case from it". Cases are
 `discovered_via = 'report_row'`. Suite 32 reads it back.
 
-**QuickBooks write-back is built, gated and off** (ADR 0060 proposed,
+**QuickBooks write-back is built, gated and off** (ADR 0060,
 migration 0037 not applied). An account map (each account's type checked as
 QuickBooks reports it), a per-connection `posting_enabled` switch an owner
 flips with an audit row, and write-once `writebacks` whose request id is the
@@ -1694,7 +1696,7 @@ row's status; it sends once, reads back and verifies, and a 5xx or timeout is
 an unknown outcome only a person retries. A payment is sent only after its
 entry verified. Nothing has posted to any QuickBooks company, sandbox included.
 
-**A portal is read, never written** (ADR 0057 and 0058 proposed, no
+**A portal is read, never written** (ADR 0057 and 0058, no
 migration). `@recouple/portal`: a recipe schema, a request guard
 (`decideRequest`) every request passes, and a read-only Playwright runner that
 ends the run on a refused navigation or form submission, checks every redirect
