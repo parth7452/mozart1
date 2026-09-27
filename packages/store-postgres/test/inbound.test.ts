@@ -321,6 +321,43 @@ describeDb('email-in on Postgres', () => {
     expect(loose?.email).toEqual({ dkim: 'unknown', senderDomain: 'walmart.example' });
   });
 
+  it('records an old Office attachment the door refuses, rather than failing the email', async () => {
+    const { token } = await owner.issueAddress();
+    const resolved = await inboundAddressFor(config, token);
+    const store = new PostgresStore(config, { orgId, userId: ownerId });
+    const never = async (): Promise<never> => { throw new Error('nothing is read at receipt'); };
+    const deps = {
+      store,
+      inbound: owner,
+      scanner: { name: 'clean', scan: async (): Promise<ScanVerdict> => ({ status: 'clean', scanner: 'clean' }) },
+      classifier: { name: 'none', classify: never },
+      extractor: { name: 'none', extract: never },
+      now: () => new Date(),
+    };
+    const ole = new Uint8Array(64);
+    ole.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    const email = parsePostmarkInbound(
+      {
+        MessageID: randomUUID(),
+        FromFull: { Email: 'ap@payer.example' },
+        From: 'ap@payer.example',
+        OriginalRecipient: `${token}@in.example.test`,
+        TextBody: '',
+        Headers: [],
+        Attachments: [{ Name: 'deductions.xls', ContentType: 'application/vnd.ms-excel',
+                        Content: Buffer.from(ole).toString('base64') }],
+      },
+      'in.example.test',
+    );
+    const receipt = await receiveInboundEmail(email, resolved!, deps as never);
+    expect(receipt).toMatchObject({ kind: 'recorded', alreadyRecorded: false });
+    if (receipt.kind !== 'recorded') return;
+    const parts = await owner.inboundMessageParts(receipt.inboundMessageId);
+    // legacy_or_encrypted_office, recorded as type_not_allowed until the
+    // outcome check is widened (plan 04, 4.7).
+    expect(parts.map((p) => [p.kind, p.outcome])).toEqual([['attachment', 'type_not_allowed']]);
+  });
+
   it('says who an address acts as, and when that member may no longer write', async () => {
     const adopterId = randomUUID();
     await admin.query(`insert into users (id, email) values ($1, $2)`, [adopterId, `inb-ad-${suffix}@example.test`]);

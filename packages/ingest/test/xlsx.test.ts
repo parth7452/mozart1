@@ -28,6 +28,13 @@ describe('inspectXlsx', () => {
     }
   });
 
+  it('refuses a cell whose reference names another row, or that sits outside any row', () => {
+    for (const body of ['<row r="3"><c r="A7"><v>1</v></c></row>', '<c r="A1"><v>1</v></c>']) {
+      const xlsx = buildXlsx({ sheets: [{ name: 'S', xml: sheetXml(body) }] });
+      expect(codeOf(() => inspectXlsx(xlsx)), body).toBe('malformed_spreadsheet');
+    }
+  });
+
   it('refuses too many entries', () => {
     const files = workbookParts();
     for (let i = 0; i < 10; i++) files[`xl/media/f${i}.txt`] = strToU8('x');

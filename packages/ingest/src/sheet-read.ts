@@ -8,7 +8,7 @@
 import { decodeCsvBytes, parseCsv } from './csv';
 import { DEFAULT_SHEET_LIMITS, TSV_MIME, XLSX_MIME, type SpreadsheetMime } from './sheet-limits';
 import { tokenizeXml, type XmlToken } from './sheet-xml';
-import { columnOf, unzipBounded } from './xlsx';
+import { columnOf, rowOfRef, unzipBounded } from './xlsx';
 
 export type CellType = 'shared_string' | 'inline_string' | 'number' | 'boolean' | 'date_serial' | 'csv_field';
 export const CELL_TYPES: readonly CellType[] = [
@@ -208,10 +208,14 @@ function readSheet(
         if (rowHidden) hiddenRows.push(row);
         nextColumn = 1;
       } else if (t.name === 'c') {
+        if (row === 0) throw new MalformedSpreadsheetError('a cell is outside any row');
         let column = nextColumn;
         if (t.attrs.r !== undefined) {
           const c = columnOf(t.attrs.r);
           if (c === undefined) throw new MalformedSpreadsheetError('a cell reference is malformed');
+          // A cell's row is its <row r>; a reference naming another row would
+          // put provenance on a cell the workbook does not have.
+          if (rowOfRef(t.attrs.r) !== row) throw new MalformedSpreadsheetError('a cell reference names another row');
           column = c;
         }
         nextColumn = column + 1;

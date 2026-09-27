@@ -12,6 +12,15 @@ const rows =
   '<c r="D1" t="b"><v>1</v></c><c r="E1" s="1"><v>45200</v></c><c r="F1" s="2"><v>3120</v></c></row>' +
   '<row r="2" hidden="1"><c r="A2"><f>SUM(C1,1)</f><v>1235.5</v></c><c r="B2" t="str"><f>"x"</f></c></row>';
 
+describe('parseWorkbook: a cell reference must agree with its row', () => {
+  it('refuses a cell whose reference names another row, or that sits outside any row', () => {
+    for (const body of ['<row r="3"><c r="A7"><v>1</v></c></row>', '<c r="A1"><v>1</v></c>']) {
+      const xlsx = buildXlsx({ sheets: [{ name: 'S', xml: sheetXml(body) }] });
+      expect(() => parseWorkbook(xlsx, XLSX_MIME), body).toThrow(/names another row|outside any row/);
+    }
+  });
+});
+
 describe('parseWorkbook: XLSX', () => {
   const wb = parseWorkbook(
     buildXlsx({

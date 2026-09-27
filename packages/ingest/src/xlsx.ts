@@ -148,12 +148,23 @@ export function inspectXlsx(bytes: Uint8Array, limits: SheetLimits = DEFAULT_SHE
   for (const [name, tokens] of xml) {
     if (!/^xl\/worksheets\/[^/]+\.xml$/i.test(name)) continue;
     let rows = 0;
+    // The row the parser will give a cell: the enclosing <row r>, else one past
+    // the last. A cell outside any row, or whose own reference names another
+    // row, is refused here as the parser refuses it, so door and parser agree.
+    let row = 0;
     for (const t of tokens) {
       if (t.kind !== 'open') continue;
-      if (t.name === 'row' && ++rows > limits.maxRows) throw tooLarge('rows');
-      if (t.name === 'c' && t.attrs.r !== undefined) {
+      if (t.name === 'row') {
+        if (++rows > limits.maxRows) throw tooLarge('rows');
+        row = t.attrs.r ? Number.parseInt(t.attrs.r, 10) : row + 1;
+        if (!Number.isInteger(row) || row < 1) throw new RejectedUploadError('malformed_spreadsheet', 'a row number is malformed');
+      }
+      if (t.name === 'c') {
+        if (row === 0) throw new RejectedUploadError('malformed_spreadsheet', 'a cell is outside any row');
+        if (t.attrs.r === undefined) continue;
         const col = columnOf(t.attrs.r);
         if (col === undefined) throw new RejectedUploadError('malformed_spreadsheet', 'a cell reference is malformed');
+        if (rowOfRef(t.attrs.r) !== row) throw new RejectedUploadError('malformed_spreadsheet', 'a cell reference names another row');
         if (col > limits.maxColumns) throw tooLarge('columns');
       }
     }
@@ -174,6 +185,12 @@ function checkTextLengths(tokens: XmlToken[], limits: SheetLimits): void {
 }
 
 /** 1-based column of an A1 reference (`AB12` → 28), or undefined if it is not one. */
+/** A cell reference's row digits, or undefined when the reference is malformed. */
+export function rowOfRef(ref: string): number | undefined {
+  const m = /^[A-Z]{1,3}([1-9][0-9]{0,6})$/.exec(ref);
+  return m ? Number.parseInt(m[1]!, 10) : undefined;
+}
+
 export function columnOf(ref: string): number | undefined {
   const m = /^([A-Z]{1,3})([1-9][0-9]{0,6})$/.exec(ref);
   if (!m) return undefined;
