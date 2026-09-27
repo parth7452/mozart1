@@ -95,6 +95,30 @@ describe.skipIf(!existsSync(CHROMIUM))('runRecipe against the fixture portal', {
     }
   });
 
+  it('refuses a sign-in POST redirected with its body to a host off the allowlist', async () => {
+    const other = await startFixturePortal();
+    const bouncing = await startFixturePortal({ loginRedirect: `${other.origin}/login` });
+    try {
+      const out = await runRecipe(
+        parseRecipe(recipeJson(bouncing.origin, { steps: [{ kind: 'open', name: 'start', url: `${bouncing.origin}/login.html` }, { kind: 'sign_in' }] })),
+        creds, { executablePath: CHROMIUM },
+      );
+      expect(out.status).toBe('failed');
+      expect(out.refused).toContainEqual(expect.objectContaining({ method: 'POST', url: `${other.origin}/login`, reason: 'host_not_allowed' }));
+      expect(other.hits).toEqual([]);
+    } finally {
+      await bouncing.close();
+      await other.close();
+    }
+  });
+
+  it('refuses every WebSocket a page opens', async () => {
+    const out = await run([{ kind: 'open', name: 'start', url: `${portal.origin}/ws.html` }, { kind: 'wait_for', name: 'w', selector: 'p' }]);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(out.refused).toContainEqual(expect.objectContaining({ method: 'WEBSOCKET', reason: 'scheme_not_allowed' }));
+    expect(saw('/leak')).toBe(false);
+  });
+
   it('stops at a challenge, a terms dialog and a changed page', async () => {
     expect(await run([{ kind: 'open', name: 'start', url: `${portal.origin}/challenge.html` }, { kind: 'capture_page', name: 'c' }]))
       .toMatchObject({ status: 'needs_attention', reason: 'challenge', captures: [] });

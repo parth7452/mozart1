@@ -10,7 +10,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 
 export type FixturePortal = { origin: string; hits: Array<{ method: string; path: string }>; close(): Promise<void> };
 
-export async function startFixturePortal(opts: { mfa?: boolean } = {}): Promise<FixturePortal> {
+export async function startFixturePortal(opts: { mfa?: boolean; loginRedirect?: string } = {}): Promise<FixturePortal> {
   const hits: Array<{ method: string; path: string }> = [];
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
@@ -18,6 +18,16 @@ export async function startFixturePortal(opts: { mfa?: boolean } = {}): Promise<
     hits.push({ method, path });
     req.resume();
     req.on('end', () => {
+      if (method === 'POST' && path === '/login' && opts.loginRedirect) {
+        res.writeHead(307, { location: opts.loginRedirect });
+        res.end();
+        return;
+      }
+      if (method === 'GET' && path === '/ws.html') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(`<!doctype html><title>ws</title><script>new WebSocket('ws://127.0.0.1:${(server.address() as AddressInfo).port}/leak')</script><p>ws</p>`);
+        return;
+      }
       if (method === 'POST' && path === '/login') {
         res.writeHead(303, { location: opts.mfa ? '/mfa.html' : '/deductions.html', 'set-cookie': 'session=1; HttpOnly; Path=/' });
         res.end();

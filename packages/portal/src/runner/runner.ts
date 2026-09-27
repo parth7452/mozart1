@@ -52,10 +52,29 @@ export async function runRecipe(
     const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: true, javaScriptEnabled: true });
     await context.route('**/*', async (route: Route, request: Request) => {
       const decision = decideRequest(recipe, { method: request.method(), url: request.url(), body: request.postData(), activeStep: active });
-      if (decision.allow) { await route.continue(); return; }
-      refused.push({ method: request.method(), url: request.url(), reason: decision.reason, atStep: active?.name ?? null });
-      if (request.isNavigationRequest()) navigationRefused = true;
-      await route.abort('blockedbyclient');
+      const refuse = async (method: string, url: string, reason: RefusedRequest['reason']): Promise<void> => {
+        refused.push({ method, url, reason, atStep: active?.name ?? null });
+        if (request.isNavigationRequest()) navigationRefused = true;
+        await route.abort('blockedbyclient');
+      };
+      if (!decision.allow) { await refuse(request.method(), request.url(), decision.reason); return; }
+      // The browser follows a redirect without asking the route again, so the
+      // hop is fetched here, unfollowed, and its target put to the same guard:
+      // a 307/308 re-sends the method and body, anything else becomes a GET.
+      const resp = await route.fetch({ maxRedirects: 0 });
+      const location = resp.status() >= 300 && resp.status() < 400 ? resp.headers()['location'] : undefined;
+      if (location !== undefined) {
+        const keep = resp.status() === 307 || resp.status() === 308;
+        const next = { method: keep ? request.method() : 'GET', url: new URL(location, request.url()).href, body: keep ? request.postData() : null };
+        const hop = decideRequest(recipe, { ...next, activeStep: active });
+        if (!hop.allow) { await refuse(next.method, next.url, hop.reason); return; }
+      }
+      await route.fulfill({ response: resp });
+    });
+    // A WebSocket never passes through context.route; none is allowed.
+    await context.routeWebSocket(/.*/, async (ws) => {
+      refused.push({ method: 'WEBSOCKET', url: ws.url(), reason: 'scheme_not_allowed', atStep: active?.name ?? null });
+      await ws.close();
     });
     const page = await context.newPage();
     page.setDefaultTimeout(STEP_TIMEOUT_MS);
@@ -148,6 +167,7 @@ export async function runRecipe(
             }
             const control = clickable(container, step.label);
             if ((await control.count()) !== 1) stop({ status: 'needs_attention', reason: 'terms_prompt' }, at);
+            await guardedClick(control, step.label, at);
             await settle(at, () => control.click());
             break;
           }

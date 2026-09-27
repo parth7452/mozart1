@@ -507,7 +507,8 @@ function detectDelimited(bytes: Uint8Array, filename: string): AllowedMimeType |
     const text = decodeCsvBytes(bytes, DEFAULT_SHEET_LIMITS);
     // An HTML page is not a table, whatever it parses as: HTML reaches the
     // store only as a portal snapshot, through acceptPortalSnapshot (ADR 0057).
-    if (/^\s*<(!doctype\s+html|html|head|body)\b/i.test(text)) return undefined;
+    // Markup anywhere counts, not only at the start: a sniffing reader finds it.
+    if (/<\s*(script|iframe|object|embed|svg|html|head|body|meta|link|style|form|!doctype|\?xml)\b/i.test(text)) return undefined;
     const rows = parseCsv(text, tab ? '\t' : ',');
     // A table has at least two cells; one run of text with no delimiter and
     // no line end is not one, whatever it decodes as.

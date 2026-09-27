@@ -14,6 +14,9 @@ export interface PayerTerms {
   documentId: string;
   fieldPath: string; // e.g. 'lines[2].reason_code' (or deduction_reference if no code)
   quoteVerified: boolean | null;
+  /** Each field's own quote verification; a letter prints only a field whose quote verified. */
+  reasonCodeVerified?: boolean | null;
+  deductionReferenceVerified?: boolean | null;
 }
 
 export type PayerTermsAnswer =
@@ -33,6 +36,8 @@ export interface PayerTermsLine {
   invoiceNumber?: string;
   /** of the reason_code field (else of deduction_reference) */
   quoteVerified: boolean | null;
+  reasonCodeVerified?: boolean | null;
+  deductionReferenceVerified?: boolean | null;
 }
 
 function termsOf(line: PayerTermsLine): PayerTerms | undefined {
@@ -44,6 +49,8 @@ function termsOf(line: PayerTermsLine): PayerTerms | undefined {
     documentId: line.documentId,
     fieldPath: `lines[${line.index}].${line.reasonCode === undefined ? 'deduction_reference' : 'reason_code'}`,
     quoteVerified: line.quoteVerified,
+    ...(line.reasonCode === undefined ? {} : { reasonCodeVerified: line.reasonCodeVerified ?? null }),
+    ...(reference === undefined ? {} : { deductionReferenceVerified: line.deductionReferenceVerified ?? null }),
   };
 }
 
@@ -73,4 +80,20 @@ export function payerTermsFor(input: {
   }
   if (distinct.size === 1) return { kind: 'derived', terms: qualifying[0]! };
   return { kind: 'conflicting', candidates: [...distinct.values()] };
+}
+
+/**
+ * The payer's own words a dispute letter may print: each only when the case's
+ * terms were derived and that field's own quote verified on the page. Page
+ * text is untrusted, and an approved packet is frozen by its hash.
+ */
+export function letterPayerTerms(answer: PayerTermsAnswer): { payerReasonCode?: string; deductionReference?: string } {
+  if (answer.kind !== 'derived') return {};
+  const t = answer.terms;
+  return {
+    ...(t.reasonCode !== undefined && t.reasonCodeVerified === true ? { payerReasonCode: t.reasonCode } : {}),
+    ...(t.deductionReference !== undefined && t.deductionReferenceVerified === true
+      ? { deductionReference: t.deductionReference }
+      : {}),
+  };
 }

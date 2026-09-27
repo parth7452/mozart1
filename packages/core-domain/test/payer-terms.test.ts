@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { cents } from '../src/money';
-import { payerTermsFor, type PayerTermsLine } from '../src/payer-terms';
+import { letterPayerTerms, payerTermsFor, type PayerTermsLine } from '../src/payer-terms';
 
 const stripUndefined = (o: Record<string, unknown>): PayerTermsLine =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as unknown as PayerTermsLine;
@@ -36,6 +36,8 @@ describe('payerTermsFor', () => {
         documentId: 'doc-n',
         fieldPath: 'lines[0].reason_code',
         quoteVerified: true,
+        reasonCodeVerified: null,
+        deductionReferenceVerified: null,
       },
     });
   });
@@ -109,5 +111,18 @@ describe('payerTermsFor', () => {
         expect(payerTermsFor({ amountCents: cents(50000), invoiceKeys: ['inv-1'], lines: shuffled })).toEqual(expected);
       }),
     );
+  });
+});
+
+describe('letterPayerTerms', () => {
+  const terms = { reasonCode: 'SHORT-QTY', deductionReference: 'CB-77', documentId: 'd', fieldPath: 'lines[0].reason_code', quoteVerified: true };
+  it('prints each field only when its own quote verified', () => {
+    expect(letterPayerTerms({ kind: 'derived', terms: { ...terms, reasonCodeVerified: true, deductionReferenceVerified: true } }))
+      .toEqual({ payerReasonCode: 'SHORT-QTY', deductionReference: 'CB-77' });
+    expect(letterPayerTerms({ kind: 'derived', terms: { ...terms, reasonCodeVerified: false, deductionReferenceVerified: null } })).toEqual({});
+    expect(letterPayerTerms({ kind: 'derived', terms: { ...terms, reasonCodeVerified: null, deductionReferenceVerified: true } }))
+      .toEqual({ deductionReference: 'CB-77' });
+    expect(letterPayerTerms({ kind: 'derived', terms })).toEqual({});
+    expect(letterPayerTerms({ kind: 'own' })).toEqual({});
   });
 });

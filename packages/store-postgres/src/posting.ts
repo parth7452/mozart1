@@ -642,10 +642,11 @@ export class PostgresPostingStore {
         lines: PostingLine[] | null;
         realm_id: string | null;
         posting_enabled: boolean | null;
+        enabled: boolean | null;
       }>(
         `select w.id, w.decision_id, w.method, w.status, w.qbo_txn_id, w.connection_id,
                 w.account_map_id, w.amount_cents::text as amount_cents, w.lines,
-                c.provider_account_id as realm_id, c.posting_enabled
+                c.provider_account_id as realm_id, c.posting_enabled, c.enabled
            from writebacks w
            left join accounting_connections c on c.id = w.connection_id
           where w.id = $1`,
@@ -687,7 +688,8 @@ export class PostgresPostingStore {
         qboTxnId: row.qbo_txn_id ?? undefined,
         connectionId: row.connection_id,
         realmId: row.realm_id,
-        postingEnabled: row.posting_enabled === true,
+        // A turned-off connection posts nothing, whatever its posting switch says.
+        postingEnabled: row.posting_enabled === true && row.enabled === true,
         amountCents: exact(row.amount_cents, 'amount_cents'),
         lines: row.lines ?? undefined,
         caseAmountCents: facts.caseAmountCents,

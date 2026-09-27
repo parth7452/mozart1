@@ -219,6 +219,11 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
       journalEntryId: '301',
       amountCents: amount,
     });
+
+    // A connection turned off keeps its posting switch, and posts nothing.
+    await admin.query(`update accounting_connections set enabled = false where id = $1`, [connectionId]);
+    expect(await as(approverId).writebackForPosting(payment.writebackId)).toMatchObject({ postingEnabled: false });
+    await admin.query(`update accounting_connections set enabled = true where id = $1`, [connectionId]);
   });
 
   it('keeps the dispute decision as the workflow decision, and refuses a write-off of the wrong amount', async () => {

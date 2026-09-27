@@ -156,6 +156,8 @@ describeDb("the payer's terms on a case, derived from its linked documents", () 
         documentId: noticeId,
         fieldPath: 'lines[0].reason_code',
         quoteVerified: true,
+        reasonCodeVerified: true,
+        deductionReferenceVerified: true,
       },
     });
     expect((await store.payerTermsForCases([deductionId])).get(deductionId)).toEqual(answer);

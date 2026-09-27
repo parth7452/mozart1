@@ -80,6 +80,9 @@ export const RecipeVersionSchema = z.object({
     const n = stepName(s);
     if (seen.has(n)) ctx.addIssue({ code: 'custom', path: ['steps'], message: `step name ${n} is not unique` });
     seen.add(n);
+    if (s.kind === 'dismiss' && matchesNeverClick(s.label, effectiveNeverClick(r))) {
+      ctx.addIssue({ code: 'custom', path: ['steps'], message: `dismiss step ${n} clicks a never-click control` });
+    }
   }
 });
 

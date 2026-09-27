@@ -22,6 +22,7 @@ describe('parseRecipe', () => {
   it('refuses a sign-in origin off the allowlist, and duplicate step names', () => {
     expect(() => parseRecipe(recipeJson(undefined, { hostAllowlist: ['other:1'] }))).toThrow(RecipeRefusedError);
     expect(() => parseRecipe(recipeJson(undefined, { steps: [{ kind: 'capture_page', name: 'a' }, { kind: 'capture_page', name: 'a' }] }))).toThrow(RecipeRefusedError);
+    expect(() => parseRecipe(recipeJson(undefined, { steps: [{ kind: 'dismiss', name: 'd', selector: '#m', label: 'I agree', containerText: 'Terms' }] }))).toThrow(RecipeRefusedError);
   });
   it('refuses a search without its recorded method and action', () => {
     expect(() => parseRecipe(recipeJson(undefined, { steps: [{ kind: 'search', name: 's', formSelector: 'form', fields: {} }] }))).toThrow(RecipeRefusedError);

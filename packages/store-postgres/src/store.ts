@@ -32,6 +32,7 @@ import {
   identifierMatchKey,
   parseMoneyToCents,
   payerTermsFor,
+  letterPayerTerms,
   resolveDebtorId,
   subCents,
   resolveIdentity,
@@ -4358,6 +4359,8 @@ export class PostgresStore
               (reasonCode !== undefined
                 ? g.f.get('reason_code')?.verified
                 : g.f.get('deduction_reference')?.verified) ?? null,
+            reasonCodeVerified: g.f.get('reason_code')?.verified ?? null,
+            deductionReferenceVerified: g.f.get('deduction_reference')?.verified ?? null,
           };
         });
         out.set(caseId, payerTermsFor({ amountCents, invoiceKeys, lines }));
@@ -4765,12 +4768,7 @@ export class PostgresStore
         present: evidenceOfDocuments(documents),
       });
       return {
-        ...(terms.kind === 'derived' && terms.terms.reasonCode !== undefined
-          ? { payerReasonCode: terms.terms.reasonCode }
-          : {}),
-        ...(terms.kind === 'derived' && terms.terms.deductionReference !== undefined
-          ? { deductionReference: terms.terms.deductionReference }
-          : {}),
+        ...letterPayerTerms(terms),
         evidenceChecklist: checklist.rows.map((row) => ({
           label: `${EVIDENCE_TYPE_WORDS[row.evidenceType]}${row.required ? '' : ' (optional)'}`,
           satisfied: row.status === 'have',

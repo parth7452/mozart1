@@ -702,3 +702,13 @@ describe('a destination-only /OpenAction', () => {
     });
   });
 });
+
+describe('markup is not a table', () => {
+  it('refuses a delimited file carrying markup anywhere', () => {
+    const enc = new TextEncoder();
+    for (const t of ['<script>alert(1)</script>,x\n', 'a,b\n<svg onload=x>,c\n', '<?xml version="1.0"?>,a\n']) {
+      expect(() => acceptUpload(enc.encode(t), 'x.csv')).toThrow();
+    }
+    expect(acceptUpload(enc.encode('a,b\n1,2\n'), 'x.csv').mimeType).toBe('text/csv');
+  });
+});
