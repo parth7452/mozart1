@@ -1,4 +1,4 @@
-import type { PostingConnectionView } from '@recouple/store-postgres';
+import type { PostingConnectionSetup } from '../lib/posting-setup';
 import { PostingSettings } from './posting-settings';
 import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
 import type { LedgerConnectionOverview } from '@recouple/store-postgres';
@@ -26,6 +26,7 @@ export function LedgerConnectionPage({
   deployment,
   notice,
   today,
+  posts,
   posting,
 }: {
   viewer: Viewer;
@@ -36,8 +37,17 @@ export function LedgerConnectionPage({
   /** A notice key from the last step of the flow, never a sentence (`lib/notices.ts`). */
   notice?: string | undefined;
   today: Date;
-  /** Posting's settings, present only for an owner on a deployment that posts (ADR 0060). */
-  posting?: readonly PostingConnectionView[] | undefined;
+  /**
+   * Whether this deployment posts to QuickBooks at all (`QBO_POSTING`), whoever
+   * is looking: what the page says about writing to a company is true for every
+   * member, not only for the owner who sees the switch.
+   */
+  posts: boolean;
+  /**
+   * Posting's settings, present only for an owner on a deployment that posts
+   * (ADR 0060), each connection with its chart of accounts as read (ADR 0063).
+   */
+  posting?: readonly PostingConnectionSetup[] | undefined;
 }) {
   const said = resolveNotice(notice);
   const current = connections.find((connection) => connection.enabled);
@@ -53,7 +63,12 @@ export function LedgerConnectionPage({
             <h1>QuickBooks</h1>
             <p className="page-description">
               Connect your QuickBooks company and every short-paid invoice becomes a case to look
-              at — read once a day, never written to.
+              at —{' '}
+              {posts
+                ? 'read once a day, and written to only if an owner turns posting on: then we ' +
+                  'create only the two accounts posting needs, and send nothing for a case ' +
+                  'until a second person approves it.'
+                : 'read once a day, never written to.'}
             </p>
           </div>
         </div>

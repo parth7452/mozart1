@@ -1,4 +1,11 @@
-import { sessionLockPool, type PostgresStoreConfig, type TenantContext } from './store';
+import type { PoolClient } from 'pg';
+import {
+  LOCK_POOL_CONNECT_TIMEOUT_MS,
+  isPoolConnectTimeout,
+  sessionLockPool,
+  type PostgresStoreConfig,
+  type TenantContext,
+} from './store';
 
 /**
  * The advisory-lock seed for a ledger account's key (ADR 0039 §5).
@@ -37,6 +44,28 @@ export class LedgerAccountBusyError extends Error {
         'nothing was changed here — try again in a minute',
     );
     this.name = 'LedgerAccountBusyError';
+  }
+}
+
+/**
+ * No connection to hold the company's lock on was free in the lock pool within
+ * `LOCK_POOL_CONNECT_TIMEOUT_MS`: document reads, invoice claims and other
+ * companies' refreshes held every one. The lock was never asked for, and
+ * nothing was changed: the caller's work never ran. Ids only.
+ *
+ * Not `LedgerAccountBusyError`: nobody was changing this company. Our own pool
+ * was full, which is an engineer's to look at if it keeps happening.
+ */
+export class LockPoolTimeoutError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly providerAccountId: string,
+  ) {
+    super(
+      `no lock connection was free within ${LOCK_POOL_CONNECT_TIMEOUT_MS}ms for ${provider} ` +
+        `company ${providerAccountId}; nothing was changed here — try again in a minute`,
+    );
+    this.name = 'LockPoolTimeoutError';
   }
 }
 
@@ -79,6 +108,9 @@ export interface LedgerAccountKey {
  *
  * @throws {LedgerAccountBusyError} the lock was not granted within
  *   `LEDGER_ACCOUNT_LOCK_TIMEOUT_MS`; `work` did not run.
+ * @throws {LockPoolTimeoutError} no lock-pool connection was free within
+ *   `LOCK_POOL_CONNECT_TIMEOUT_MS`, so the lock was never asked for; `work`
+ *   did not run.
  */
 export async function withLedgerAccountLock<T>(
   config: PostgresStoreConfig,
@@ -91,7 +123,17 @@ export async function withLedgerAccountLock<T>(
   if (account.provider.trim() === '' || account.providerAccountId.trim() === '') {
     throw new Error('a ledger account lock needs a provider and an account id');
   }
-  const client = await sessionLockPool(config).connect();
+  let client: PoolClient;
+  try {
+    client = await sessionLockPool(config).connect();
+  } catch (error) {
+    // Named, so a caller can say what happened rather than repeat pg's words.
+    // A connection that could not be opened at all is thrown as it came.
+    if (isPoolConnectTimeout(error)) {
+      throw new LockPoolTimeoutError(account.provider, account.providerAccountId);
+    }
+    throw error;
+  }
   // Set when anything below fails. A connection is then destroyed rather than
   // pooled, because its transaction may still be open or aborted, and the
   // next borrower of this pool — a document read, an invoice claim — would

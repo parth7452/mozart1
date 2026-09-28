@@ -219,6 +219,7 @@ function page(props: Partial<Parameters<typeof LedgerConnectionPage>[0]> = {}): 
       mayConnect
       deployment={sandbox}
       today={today}
+      posts={false}
       {...props}
     />,
   );

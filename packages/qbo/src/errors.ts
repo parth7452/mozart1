@@ -134,3 +134,55 @@ export class QboInvalidWindow extends QboError {
 export class QboInvalidId extends QboError {
   override name = 'QboInvalidId';
 }
+
+/**
+ * The caller asked for an account setup does not create (ADR 0063 §3).
+ *
+ * `QboClient.createAccount` sends nothing but one of `SETUP_ACCOUNTS`, exactly:
+ * two fixed names, types and detail types. Anything else is refused before a
+ * request is built. A programming error on our side, typed for
+ * `QboInvalidWindow`'s reason — this is the one place our code writes to a
+ * customer's chart of accounts — and it quotes nothing it was handed.
+ */
+export class QboInvalidAccountSpec extends QboError {
+  override name = 'QboInvalidAccountSpec';
+}
+
+/**
+ * A chart of accounts that did not end within the pages this client was built
+ * to read (`maxPages`; ADR 0063 §2). Not a malformed answer: the company has
+ * more accounts than a bounded read covers, and a chart read in part would
+ * propose accounts from — and look for setup's two names in — only some of
+ * it. So nothing is proposed or created from it. Numbers only.
+ */
+export class QboChartTooLarge extends QboError {
+  override name = 'QboChartTooLarge';
+  constructor(
+    readonly pages: number,
+    readonly pageSize: number,
+  ) {
+    super(`the chart of accounts did not end within ${pages} pages of ${pageSize} accounts`);
+  }
+}
+
+/** What is compared when an account setup created is read back (ADR 0063 §2). */
+export type AccountReadBackField = 'Id' | 'Name' | 'AccountType' | 'Active';
+
+/**
+ * An account setup created did not read back as it was sent (ADR 0063 §2):
+ * its name, its type or `Active` is not what `POST /account` carried, or the
+ * read answered for another id. The press stops there, before a map is saved.
+ *
+ * It names the account id and the fields, never a value read back: whatever
+ * that account is called now is the customer's text, not a log line's. Nothing
+ * renames, retypes or deletes the account; a person looks at it in QuickBooks.
+ */
+export class QboAccountReadBackError extends QboError {
+  override name = 'QboAccountReadBackError';
+  constructor(
+    readonly accountId: string,
+    readonly mismatch: readonly AccountReadBackField[],
+  ) {
+    super(`account ${accountId} did not read back as it was created: ${mismatch.join(', ')}`);
+  }
+}

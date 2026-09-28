@@ -14,10 +14,12 @@ import { postingStoreFor } from '../../../../lib/posting';
 /**
  * The owner's switch (ADR 0060 §5): posting on or off for one connection.
  *
- * This is the only code path that sets `posting_enabled`. The database holds
- * the rest — owner only, true only while a map exists, one audit row per
- * change — and this route refuses first where it can say why. Refused
- * outright unless this deployment posts at all (`QBO_POSTING`).
+ * Posting is turned on here, and by a setup press (`/settings/quickbooks/setup`,
+ * ADR 0063), which turns it on as its last step and never turns it off. Both
+ * go through `setPostingEnabled`: owner only in the database, true only while
+ * a map exists, one audit row per change. This route refuses first where it
+ * can say why, and is refused outright unless this deployment posts at all
+ * (`QBO_POSTING`).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
