@@ -24,14 +24,24 @@ import {
   type ReasonFamily,
 } from '@recouple/core-domain';
 import {
+  SETUP_ROWS,
   assertQboId,
   entryLines,
+  postingSetupRequestId,
   settlementStages,
+  type AccountReadBackField,
   type LedgerAccountMap,
   type PostingLine,
+  type SetupRow,
 } from '@recouple/qbo';
 import { OwnerRequiredError } from './connections';
-import { sessionPool, type PostgresStoreConfig, type TenantContext } from './store';
+import {
+  isPoolConnectTimeout,
+  sessionPool,
+  setupClaimPool,
+  type PostgresStoreConfig,
+  type TenantContext,
+} from './store';
 import { HUMAN_MODEL_VERSION, HUMAN_PROVIDER, HUMAN_SCHEMA_ID } from './workflow';
 
 /** A settlement decision's schema (ADR 0060 §2, moment 2). */
@@ -135,6 +145,54 @@ export interface PostingConnectionView {
   readonly postingEnabled: boolean;
   readonly map: (LedgerAccountMap & { readonly mapId: string }) | undefined;
 }
+
+/**
+ * The advisory-lock seed for a setup press's claim on its connection
+ * (ADR 0063 §2). Seed 0 is `withDocumentRead`'s and migration 0004's hash
+ * chains', 1 the invoice claim's (ADR 0028), 2 a company's refresh lock (ADR
+ * 0039 §5), 3 an inbound email's claim (ADR 0047 §10), 4 migration 0035's team
+ * locks. Not 2 above all: a press's own QuickBooks calls take the company's
+ * refresh lock when a token needs refreshing, and a press holding it would
+ * wait on itself.
+ */
+export const POSTING_SETUP_LOCK_SEED = 5;
+
+/**
+ * A setup press's claim on its connection: held while its work ran, or not had
+ * at all — another press holds it (`held`), or no connection to hold it on was
+ * free within `SETUP_CLAIM_CONNECT_TIMEOUT_MS` (`no_connection`).
+ */
+export type PostingSetupClaim<T> =
+  | { readonly held: false; readonly reason: 'held' | 'no_connection' }
+  | { readonly held: true; readonly result: T };
+
+/**
+ * A setup row whose latest create has no answer on the record (ADR 0063 §2),
+ * and the request id that create went out under: what a later press that
+ * finds the account records it as found for.
+ */
+export interface UnansweredAccountCreate {
+  readonly row: SetupRow;
+  readonly requestId: string;
+}
+
+/** Every QuickBooks account a setup press recorded for each row: created, or found. */
+export type RecordedSetupAccounts = Readonly<Record<SetupRow, readonly string[]>>;
+
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const QBO_ACCOUNT_ID = /^\d{1,20}$/;
+
+/**
+ * What a read-back compares (ADR 0063 §2), as the closed set the store checks
+ * a caller against. `satisfies` keeps it `AccountReadBackField`'s own set: a
+ * field added there fails to compile here until it is admitted.
+ */
+const READ_BACK_FIELDS = {
+  Id: true,
+  Name: true,
+  AccountType: true,
+  Active: true,
+} as const satisfies Record<AccountReadBackField, true>;
 
 export interface CaseWriteback {
   readonly writebackId: string;
@@ -258,6 +316,12 @@ interface DecisionFacts {
 
 export class PostgresPostingStore {
   private readonly pool: Pool;
+  /**
+   * Where a setup press's claim is held: its own pool (`setupClaimPool`) —
+   * never the working pool, and never the lock pool, which the press's own
+   * token refresh borrows from while the claim is held (`PoolPurpose`).
+   */
+  private readonly claimPool: Pool;
   private readonly role: string;
 
   constructor(
@@ -265,6 +329,7 @@ export class PostgresPostingStore {
     private readonly tenant: TenantContext,
   ) {
     this.pool = sessionPool(config);
+    this.claimPool = setupClaimPool(config);
     this.role = config.role ?? 'app_rw';
   }
 
@@ -297,8 +362,283 @@ export class PostgresPostingStore {
   }
 
   /**
+   * Whether the caller is an owner here, asked of the database
+   * (`app.member_is_owner()`), so a setup press is refused before it reads or
+   * creates anything in QuickBooks (ADR 0063 §2). Every write after it asks
+   * again in its own way; this is only the first, and the earliest.
+   */
+  async memberIsOwner(): Promise<boolean> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ owner: boolean }>('select app.member_is_owner() as owner');
+      return rows[0]?.owner === true;
+    });
+  }
+
+  /**
+   * Holds this connection's setup claim while `work` runs, so two presses of
+   * Turn on posting — a double click, two owners at once — never plan, create
+   * and save for one connection together (ADR 0063 §2). Without it both pass
+   * the no-map check and plan the same creates, and the audit log and the
+   * owner's notice end up saying what the other press did.
+   *
+   * `withDocumentRead`'s shape, for its reasons: a transaction-scoped try-lock
+   * (`DATABASE_URL` is the transaction pooler), the role and claims set
+   * transaction-locally, and the commit after `work` — which writes on the
+   * working pool — what releases it, whichever way `work` ended. `try` and not
+   * the waiting form: the press that does not get it is told at once and does
+   * nothing, rather than holding a request for the length of the other
+   * press's QuickBooks calls to find a map saved at the end of it.
+   *
+   * On a pool of its own (`setupClaimPool`), not the lock pool `withDocumentRead`
+   * holds its claims on: a press holds this for minutes, across QuickBooks
+   * calls whose token refresh takes a lock-pool connection of its own, and one
+   * pool for both is a press waiting on itself while document reads wait on
+   * it. A press that gets no connection within `SETUP_CLAIM_CONNECT_TIMEOUT_MS`
+   * is `no_connection`, having done nothing; one that could not be opened at
+   * all is thrown as it came.
+   *
+   * Keyed on the connection id, with `POSTING_SETUP_LOCK_SEED`.
+   */
+  async withSetupClaim<T>(
+    connectionId: string,
+    work: () => Promise<T>,
+  ): Promise<PostingSetupClaim<T>> {
+    let client: PoolClient;
+    try {
+      client = await this.claimPool.connect();
+    } catch (error) {
+      if (isPoolConnectTimeout(error)) return { held: false, reason: 'no_connection' };
+      throw error;
+    }
+    // Destroyed rather than pooled after any failure, as `withDocumentRead`'s
+    // is: an aborted transaction would fail the next borrower's first statement.
+    let failed: Error | undefined;
+    try {
+      await client.query('begin');
+      await client.query(`set local role ${this.role}`);
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: this.tenant.orgId, sub: this.tenant.userId }),
+      ]);
+      const { rows } = await client.query<{ held: boolean | null }>(
+        'select pg_try_advisory_xact_lock(hashtextextended($1, $2)) as held',
+        [connectionId, POSTING_SETUP_LOCK_SEED],
+      );
+      // `=== true` rather than truthiness: anything else is not a lock.
+      if (rows[0]?.held !== true) {
+        await client.query('rollback');
+        return { held: false, reason: 'held' };
+      }
+      const result = await work();
+      await client.query('commit');
+      return { held: true, result };
+    } catch (error) {
+      failed = error instanceof Error ? error : new Error(String(error));
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release(failed);
+    }
+  }
+
+  /**
+   * Records, before anything is sent, that an owner's setup press is asking
+   * QuickBooks for one of the two accounts ADR 0063 admits: one
+   * `accounting_connection.account_create_requested` row naming the
+   * connection, its realm, the row, and the request id the create goes out
+   * with. ADR 0060 §3's discipline for a write-back, applied to an account:
+   * when QuickBooks' answer never arrives — a timeout, a 5xx, a read-back that
+   * could not be made — the audit log still says this press asked, when and as
+   * whom, under the request id Intuit holds. One row per create a press
+   * attempts: it records the asking, whether or not QuickBooks was then
+   * reached. What answers it is a later `recordAccountCreated`, or
+   * `recordAccountFound`.
+   *
+   * The request id is derived here and never passed in, and returned for the
+   * create to go out with: `postingSetupRequestId` of this attempt, which is
+   * the number of answers this row already has. So a create sent again after
+   * one no answer came for is the same request to Intuit, and a create after
+   * an answered one is a new request, which Intuit cannot answer with the
+   * account the answered one made.
+   *
+   * Owner only, asked of the database in this row's own transaction: the last
+   * check before a write to a customer's books.
+   */
+  async recordAccountCreateRequested(connectionId: string, row: SetupRow): Promise<string> {
+    assertSetupRow(row);
+    return this.withOwner(async (client) => {
+      const connection = await this.connectionRow(client, connectionId);
+      const { rows } = await client.query<{ answers: number }>(
+        `select count(*)::int as answers
+           from audit_log
+          where subject_table = 'accounting_connections'
+            and subject_id = $1
+            and action in ('accounting_connection.account_created',
+                           'accounting_connection.account_found')
+            and payload->>'row' = $2`,
+        [connectionId, row],
+      );
+      const requestId = postingSetupRequestId(connectionId, row, rows[0]?.answers ?? 0);
+      await this.audit(client, 'accounting_connection.account_create_requested', connectionId, {
+        provider_account_id: connection.provider_account_id,
+        row,
+        request_id: requestId,
+      });
+      return requestId;
+    });
+  }
+
+  /**
+   * Records that an owner's setup press created one of the two accounts ADR
+   * 0063 admits: one `accounting_connection.account_created` row naming the
+   * connection, its realm (read off the connection here, never passed in),
+   * which of the two it was, the QuickBooks account id, and the request id it
+   * was created under — copied from the row's latest request, which is this
+   * press's own. Ids and words from closed sets only — never an account's
+   * name, ours or anyone's.
+   *
+   * `readBackMismatch` is set when the account did not read back as it was
+   * sent (ADR 0063 §2): QuickBooks made it all the same, so it is in the
+   * customer's books and is recorded like any other, with the fields that
+   * differed (`Id`, `Name`, `AccountType`, `Active`) and never their values.
+   *
+   * Only for an account QuickBooks answered this press's create with. One an
+   * earlier press asked for and never heard back about is not this row's:
+   * that is `recordAccountFound`.
+   *
+   * Owner only, like the switch. `audit_log`'s own policy admits any writer
+   * acting as themselves, so the owner is asked of the database in the same
+   * transaction and anybody else is `OwnerRequiredError`, with nothing written.
+   */
+  async recordAccountCreated(
+    connectionId: string,
+    input: {
+      readonly row: SetupRow;
+      readonly qboAccountId: string;
+      readonly readBackMismatch?: readonly AccountReadBackField[];
+    },
+  ): Promise<void> {
+    assertSetupRow(input.row);
+    const qboAccountId = assertQboId(input.qboAccountId);
+    const mismatch = input.readBackMismatch;
+    if (
+      mismatch !== undefined &&
+      (mismatch.length === 0 || !mismatch.every((field) => Object.hasOwn(READ_BACK_FIELDS, field)))
+    ) {
+      throw new PostingStoreError('a read-back mismatch names at least one of Id, Name, AccountType, Active');
+    }
+    await this.withOwner(async (client) => {
+      const connection = await this.connectionRow(client, connectionId);
+      await this.audit(client, 'accounting_connection.account_created', connectionId, {
+        provider_account_id: connection.provider_account_id,
+        row: input.row,
+        qbo_account_id: qboAccountId,
+        request_id: await this.requestAnswered(client, connectionId, input.row),
+        ...(mismatch === undefined ? {} : { read_back_mismatch: [...new Set(mismatch)] }),
+      });
+    });
+  }
+
+  /**
+   * Records that an owner's setup press found, in the company's chart, the
+   * account an earlier press asked QuickBooks for and never heard back about
+   * (ADR 0063 §2): one `accounting_connection.account_found` row naming the
+   * connection, its realm (read off the connection here, never passed in), the
+   * row, the QuickBooks account id, and the request id that went unanswered —
+   * copied from the row's latest request. Ids and words from closed sets only.
+   *
+   * Not `account_created`, because nobody saw it made. The press found an
+   * account as that request would have made it, and a person could have made
+   * that account in QuickBooks in between; the action says only what is
+   * known. The request row before it says whose press asked. It carries no
+   * read-back: only a press that made the account has one.
+   *
+   * Owner only, as `recordAccountCreated` is.
+   */
+  async recordAccountFound(
+    connectionId: string,
+    input: { readonly row: SetupRow; readonly qboAccountId: string },
+  ): Promise<void> {
+    assertSetupRow(input.row);
+    const qboAccountId = assertQboId(input.qboAccountId);
+    await this.withOwner(async (client) => {
+      const connection = await this.connectionRow(client, connectionId);
+      await this.audit(client, 'accounting_connection.account_found', connectionId, {
+        provider_account_id: connection.provider_account_id,
+        row: input.row,
+        qbo_account_id: qboAccountId,
+        request_id: await this.requestAnswered(client, connectionId, input.row),
+      });
+    });
+  }
+
+  /**
+   * The setup rows of this connection whose latest create has no answer on the
+   * record (ADR 0063 §2): an `accounting_connection.account_create_requested`
+   * row with no `accounting_connection.account_created` or
+   * `accounting_connection.account_found` for the same row after it. That is a
+   * press that asked QuickBooks for an account and never learned what it made
+   * — a timeout, a 5xx, a reply with no id, a read-back that could not be made,
+   * a 4xx that does not say which of those two requests it refused — so
+   * nothing yet names the account's id, if there is one. The next press
+   * settles it from its own read of the chart (`recordAccountFound`), and logs
+   * the request id it answers before it records it.
+   *
+   * In `SETUP_ROWS`' order. A read of this tenant's own audit log, through its
+   * policy; `audit_log` has no index on its subject, and a press is rare enough
+   * for this to scan the tenant's rows.
+   */
+  async unansweredAccountCreates(connectionId: string): Promise<readonly UnansweredAccountCreate[]> {
+    return this.withTenant(async (client) => {
+      const latest = await this.latestRequests(client, connectionId);
+      return SETUP_ROWS.flatMap((row) => {
+        const request = latest.get(row);
+        return request === undefined || request.answered ? [] : [{ row, requestId: request.requestId }];
+      });
+    });
+  }
+
+  /**
+   * Every QuickBooks account a setup press has recorded for each row of this
+   * connection — created, or found as a request with no answer had asked for
+   * it — oldest first (ADR 0063 §2). What a press reads before it plans a
+   * create: an account setup already recorded for a row, and still in the
+   * chart though no longer under our name there, is one a second create would
+   * duplicate, so the press refuses rather than ask again.
+   *
+   * A read of this tenant's own audit log, through its policy, like
+   * `unansweredAccountCreates`. A row that names an account id that is not
+   * digits is refused rather than read around: nothing of ours writes one.
+   */
+  async recordedSetupAccounts(connectionId: string): Promise<RecordedSetupAccounts> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ setup_row: string | null; qbo_account_id: unknown }>(
+        `select payload->>'row' as setup_row, payload->>'qbo_account_id' as qbo_account_id
+           from audit_log
+          where subject_table = 'accounting_connections'
+            and subject_id = $1
+            and action in ('accounting_connection.account_created',
+                           'accounting_connection.account_found')
+          order by id`,
+        [connectionId],
+      );
+      const recorded: Record<SetupRow, string[]> = { deductions_receivable: [], writeoff: [] };
+      for (const { setup_row, qbo_account_id } of rows) {
+        const row = SETUP_ROWS.find((candidate) => candidate === setup_row);
+        if (row === undefined) continue;
+        if (typeof qbo_account_id !== 'string' || !QBO_ACCOUNT_ID.test(qbo_account_id)) {
+          throw new PostingStoreError(`an account setup recorded for connection ${connectionId} has no account id`);
+        }
+        recorded[row].push(qbo_account_id);
+      }
+      return recorded;
+    });
+  }
+
+  /**
    * Saves a new map for a connection, after checking each account's type as
-   * QuickBooks reports it now. We never create an account. Owner only — the
+   * QuickBooks reports it now. This never creates an account: the two a setup
+   * press may create (ADR 0063) exist before it is called. Owner only — the
    * database's rule; its refusal is `OwnerRequiredError`.
    */
   async saveAccountMap(
@@ -898,9 +1238,9 @@ export class PostgresPostingStore {
   private async connectionRow(
     client: PoolClient,
     connectionId: string,
-  ): Promise<{ posting_enabled: boolean }> {
-    const { rows } = await client.query<{ posting_enabled: boolean }>(
-      `select posting_enabled from accounting_connections where id = $1`,
+  ): Promise<{ posting_enabled: boolean; provider_account_id: string }> {
+    const { rows } = await client.query<{ posting_enabled: boolean; provider_account_id: string }>(
+      `select posting_enabled, provider_account_id from accounting_connections where id = $1`,
       [connectionId],
     );
     const row = rows[0];
@@ -925,6 +1265,89 @@ export class PostgresPostingStore {
     return sqlState(error) === '42501'
       ? new OwnerRequiredError(this.tenant.orgId, this.tenant.userId)
       : error;
+  }
+
+  /**
+   * `withTenant` for an audit row only an owner writes: the owner asked of the
+   * database first, in the same transaction, and a refusal anywhere in `work`
+   * read as `OwnerRequiredError`. `audit_log`'s own policy admits any writer
+   * acting as themselves, so this is what makes such a row owner-only.
+   */
+  private async withOwner<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ owner: boolean }>('select app.member_is_owner() as owner');
+      if (rows[0]?.owner !== true) throw new OwnerRequiredError(this.tenant.orgId, this.tenant.userId);
+      try {
+        return await work(client);
+      } catch (error) {
+        throw this.ownerRefusal(error);
+      }
+    });
+  }
+
+  /**
+   * Each setup row's latest `account_create_requested` on this connection: the
+   * request id it went out under, and whether an `account_created` or
+   * `account_found` for the same row came after it. A row setup never makes
+   * is not read; a request that names no request id is refused rather than
+   * read around, because nothing of ours writes one.
+   */
+  private async latestRequests(
+    client: PoolClient,
+    connectionId: string,
+  ): Promise<ReadonlyMap<SetupRow, { readonly requestId: string; readonly answered: boolean }>> {
+    const { rows } = await client.query<{ setup_row: string | null; request_id: unknown; answered: boolean }>(
+      `select asked.setup_row, asked.request_id,
+              exists (select 1 from audit_log answer
+                       where answer.subject_table = 'accounting_connections'
+                         and answer.subject_id = $1
+                         and answer.action in ('accounting_connection.account_created',
+                                               'accounting_connection.account_found')
+                         and answer.payload->>'row' = asked.setup_row
+                         and answer.id > asked.id) as answered
+         from (select distinct on (payload->>'row')
+                      payload->>'row' as setup_row, payload->>'request_id' as request_id, id
+                 from audit_log
+                where subject_table = 'accounting_connections'
+                  and subject_id = $1
+                  and action = 'accounting_connection.account_create_requested'
+                order by payload->>'row', id desc) asked`,
+      [connectionId],
+    );
+    const latest = new Map<SetupRow, { readonly requestId: string; readonly answered: boolean }>();
+    for (const { setup_row, request_id, answered } of rows) {
+      const row = SETUP_ROWS.find((candidate) => candidate === setup_row);
+      if (row === undefined) continue;
+      if (typeof request_id !== 'string' || !REQUEST_ID.test(request_id)) {
+        throw new PostingStoreError(`a setup request for connection ${connectionId} names no request id`);
+      }
+      latest.set(row, { requestId: request_id, answered: answered === true });
+    }
+    return latest;
+  }
+
+  /**
+   * The request id an account created or found for `row` answers: the row's
+   * latest request, copied rather than derived again, so the answer names the
+   * request id the create went out under. A row nobody asked for has no
+   * answer to give, and is refused.
+   */
+  private async requestAnswered(client: PoolClient, connectionId: string, row: SetupRow): Promise<string> {
+    const request = (await this.latestRequests(client, connectionId)).get(row);
+    if (request === undefined) {
+      throw new PostingStoreError(`no ${row} account was asked for on connection ${connectionId}`);
+    }
+    return request.requestId;
+  }
+}
+
+/**
+ * A caller the type system does not reach (a script, a form) gets no audit
+ * row for an account setup never makes.
+ */
+function assertSetupRow(row: SetupRow): void {
+  if (!SETUP_ROWS.includes(row)) {
+    throw new PostingStoreError('an account created at setup is deductions_receivable or writeoff');
   }
 }
 

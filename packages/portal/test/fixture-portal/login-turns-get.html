@@ -1,0 +1,7 @@
+<!doctype html><html><body><h1>Supplier portal</h1>
+<form action="/login" method="post"><input name="username" type="text"><input name="password" type="password"><button type="submit">Sign in</button></form>
+<script>
+// A form that posts until something is typed into it, and then submits by GET.
+document.querySelector('input[name=password]').addEventListener('input', function () { this.form.method = 'get'; });
+</script>
+</body></html>

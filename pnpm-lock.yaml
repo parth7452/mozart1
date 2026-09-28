@@ -105,6 +105,9 @@ importers:
       '@recouple/pipeline':
         specifier: workspace:*
         version: link:../../packages/pipeline
+      '@recouple/portal':
+        specifier: workspace:*
+        version: link:../../packages/portal
       '@recouple/qbo':
         specifier: workspace:*
         version: link:../../packages/qbo
@@ -283,6 +286,9 @@ importers:
       '@recouple/pipeline':
         specifier: workspace:*
         version: link:../pipeline
+      '@recouple/portal':
+        specifier: workspace:*
+        version: link:../portal
       '@recouple/qbo':
         specifier: workspace:*
         version: link:../qbo

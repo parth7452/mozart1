@@ -1,0 +1,30 @@
+# The worker's build context is the repository root. The build stage installs
+# the workspace from its lockfile and bundles the worker from it, and only the
+# bundle, Playwright and Chromium reach the image (see the Dockerfile). These
+# stay out of the context altogether, so they are never sent to a builder:
+# anything that can hold a secret, agents' and tools' own files, and what is
+# large and unused.
+#
+# Both builders read this file. BuildKit takes a `<Dockerfile>.dockerignore`
+# beside the Dockerfile, and flyctl takes fly.toml's `ignorefile`, resolved
+# beside fly.toml. A flyctl that finds no ignore file sends everything.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+.git
+.github
+.claude
+.agents
+.dashboard
+**/node_modules
+**/.next
+**/.cache
+**/.turbo
+**/dist
+**/coverage
+**/*.tsbuildinfo
+apps/web/preview
+docs
+supabase

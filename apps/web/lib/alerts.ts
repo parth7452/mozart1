@@ -3,13 +3,14 @@ import { INNGEST_APP_ID, READ_DOCUMENT_CONFIG } from './inngest';
 import { READ_INBOUND_EMAIL_CONFIG } from './inbound';
 import { LEDGER_SYNC_CONFIG, LEDGER_SYNC_FAN_OUT_CONFIG } from './inngest-ledger';
 import { POST_WRITEBACK_CONFIG } from './inngest-posting';
+import { PORTAL_READ_CONFIG, PORTAL_READ_FAN_OUT_CONFIG } from './inngest-portal';
 
 /**
  * An email to the operator when a background job fails after its retries
  * (ADR 0052).
  *
  * One function, triggered by Inngest's own `inngest/function.failed`, filtered
- * to the four jobs that do work a customer cannot watch. What the email may
+ * to the jobs that do work a customer cannot watch. What the email may
  * say is the whole design: the function, the run id, the error's class name and
  * a link — each a constant or checked against a closed format. The failure
  * event also carries the error's message and the event that started the run,
@@ -75,6 +76,31 @@ export const ALERTED_FUNCTIONS: ReadonlyMap<string, { readonly name: string; rea
         next:
           'A posting to QuickBooks was refused, failed or did not read back as sent. Nothing was ' +
           'retried or reversed. Open the case, check QuickBooks, and retry from the case page.',
+      },
+    ],
+    [
+      // A refused sign-in, an expired session or a failed run (ADR 0057 §13,
+      // ADR 0062 §5): each ends the job failed once its outcome is recorded.
+      fullId(PORTAL_READ_CONFIG.id),
+      {
+        name: PORTAL_READ_CONFIG.name,
+        next:
+          'A portal read needs a person. The error class says which: PortalCredentialRejectedError ' +
+          '(the portal refused the sign-in; the connection is now off, and the sign-in is never ' +
+          'tried again by itself), PortalSessionExpiredError (the portal ended the session mid-run; ' +
+          'it was not signed in again), or anything else (the run failed). Its outcome is under the ' +
+          'connection on Settings → Portals, and docs/plans/ariba-portal/README.md step 10 says what ' +
+          'to do for each.',
+      },
+    ],
+    [
+      fullId(PORTAL_READ_FAN_OUT_CONFIG.id),
+      {
+        name: PORTAL_READ_FAN_OUT_CONFIG.name,
+        next:
+          'The portal reads someone asked for were not started for any workspace. Nothing ' +
+          'schedules them: send the fan-out event from the Inngest dashboard again once the run ' +
+          'below says why.',
       },
     ],
   ]);

@@ -953,7 +953,7 @@ export const NOTICES = {
   },
   posting_map_invalid: {
     tone: 'bad',
-    text: 'every account in the map needs its QuickBooks id — nothing was saved',
+    text: 'every row of the map needs one of your QuickBooks accounts chosen — nothing was saved',
   },
   posting_map_types: {
     tone: 'bad',
@@ -978,6 +978,95 @@ export const NOTICES = {
   posting_disabled: {
     tone: 'good',
     text: 'posting to QuickBooks is off for this company; nothing more will be sent',
+  },
+  // --- turning posting on with one press (ADR 0063) --------------------------
+  posting_setup_invalid: {
+    tone: 'bad',
+    text: 'that setup form was not complete, so nothing was created or saved — reload this page and press Turn on posting again',
+  },
+  posting_setup_not_configured: {
+    tone: 'bad',
+    text: 'this deployment cannot reach QuickBooks for that company just now, so nothing was created or saved',
+  },
+  posting_setup_mapped: {
+    tone: 'bad',
+    text: 'this company already has an account map, so nothing was created or changed — change its accounts or turn posting on below',
+  },
+  posting_setup_no_receivable: {
+    tone: 'bad',
+    text: 'your QuickBooks company has no active Accounts Receivable account, and we never create one. Add one in QuickBooks, then press Turn on posting again. Nothing was created or saved.',
+  },
+  posting_setup_choice: {
+    tone: 'bad',
+    text: 'an account you chose is no longer an active account of the right type in QuickBooks, so nothing was created or saved — reload this page and choose again',
+  },
+  posting_setup_receivable_wrong_type: {
+    tone: 'bad',
+    text: 'your QuickBooks already has an account named Deductions Receivable that is not an Other Current Asset account. We never change an account: rename it in QuickBooks, then press Turn on posting again. Nothing was created or saved.',
+  },
+  posting_setup_receivable_inactive: {
+    tone: 'bad',
+    text: 'your QuickBooks has an inactive account named Deductions Receivable. We never reactivate an account: make it active or rename it in QuickBooks, then press Turn on posting again. Nothing was created or saved.',
+  },
+  posting_setup_writeoff_wrong_type: {
+    tone: 'bad',
+    text: 'your QuickBooks already has an account named Customer Deductions that is not an Expense or Other Expense account. We never change an account: rename it in QuickBooks, then press Turn on posting again. Nothing was created or saved.',
+  },
+  posting_setup_writeoff_inactive: {
+    tone: 'bad',
+    text: 'your QuickBooks has an inactive account named Customer Deductions. We never reactivate an account: make it active or rename it in QuickBooks, then press Turn on posting again. Nothing was created or saved.',
+  },
+  posting_setup_unreachable: {
+    tone: 'bad',
+    text: 'QuickBooks could not be reached, so setup stopped and posting is still off. Press Turn on posting again: it looks first for an account we already created, by its name, and uses it rather than make another — so leave our two accounts as they are in QuickBooks until posting is on. If this keeps happening, reconnect QuickBooks on this page.',
+  },
+  posting_setup_busy: {
+    tone: 'bad',
+    text: 'another press of Turn on posting is running, so this one did nothing — reload this page in a minute to see how it went, and press again if posting is still off',
+  },
+  posting_setup_chart_too_large: {
+    tone: 'bad',
+    text: 'your QuickBooks company has more accounts than setup reads (two pages of a thousand), so nothing was created or saved and posting is still off. Setting up posting for a company this large is not supported yet.',
+  },
+  posting_setup_receivable_renamed: {
+    tone: 'bad',
+    text: 'the Deductions Receivable account we set up for this company earlier is still in your QuickBooks, but no longer by that name at the top of your chart of accounts: it was renamed, or moved under another account. We don’t make a second one while it is there, and we never change an account. Choose it, or another active Other Current Asset account, under Change accounts and press Turn on posting again — or give it back its name in QuickBooks. Nothing was created or saved.',
+  },
+  posting_setup_writeoff_renamed: {
+    tone: 'bad',
+    text: 'the Customer Deductions account we set up for this company earlier is still in your QuickBooks, but no longer by that name at the top of your chart of accounts: it was renamed, or moved under another account. We don’t make a second one while it is there, and we never change an account. Choose it, or another active Expense or Other Expense account, under Change accounts and press Turn on posting again — or give it back its name in QuickBooks. Nothing was created or saved.',
+  },
+  posting_setup_receivable_read_back: {
+    tone: 'bad',
+    text: 'QuickBooks created the Deductions Receivable account, but it did not read back as we asked for it — active, an Other Current Asset account, by that name — so setup stopped there: no map was saved and posting is still off. We never change an account: look at it in QuickBooks and put it right there, then press Turn on posting again.',
+  },
+  posting_setup_writeoff_read_back: {
+    tone: 'bad',
+    text: 'QuickBooks created the Customer Deductions account, but it did not read back as we asked for it — active, an Expense account, by that name — so setup stopped there: no map was saved and posting is still off. We never change an account: look at it in QuickBooks and put it right there, then press Turn on posting again.',
+  },
+  posting_setup_receivable_create_refused: {
+    tone: 'bad',
+    text: 'QuickBooks refused a request while we were creating the Deductions Receivable account, so setup stopped there: no map was saved and posting is still off. The account may have been made all the same. If the card below no longer says we’ll create it, it was: press Turn on posting to use it. If the card still says we’ll create it, QuickBooks would not make it: check the company in QuickBooks, or create an Other Current Asset account there yourself, then reload this page and choose it under Change accounts.',
+  },
+  posting_setup_writeoff_create_refused: {
+    tone: 'bad',
+    text: 'QuickBooks refused a request while we were creating the Customer Deductions account, so setup stopped there: no map was saved and posting is still off. The account may have been made all the same. If the card below no longer says we’ll create it, it was: press Turn on posting to use it. If the card still says we’ll create it, QuickBooks would not make it: check the company in QuickBooks, or create an Expense account there yourself, then reload this page and choose it under Change accounts.',
+  },
+  posting_setup_map_types: {
+    tone: 'bad',
+    text: 'QuickBooks now reports an account in the map as the wrong type, so the map was not saved and posting is still off — reload this page and press Turn on posting again',
+  },
+  posting_set_up: {
+    tone: 'good',
+    text: 'posting to QuickBooks is on for this company, using accounts already in your books. Nothing is sent until someone approves a case.',
+  },
+  posting_set_up_created_one: {
+    tone: 'good',
+    text: 'posting to QuickBooks is on for this company, and we created the one account your books were missing. Nothing is sent until someone approves a case.',
+  },
+  posting_set_up_created_two: {
+    tone: 'good',
+    text: 'posting to QuickBooks is on for this company, and we created the two accounts your books were missing. Nothing is sent until someone approves a case.',
   },
   approved_and_posting: {
     tone: 'good',

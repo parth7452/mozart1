@@ -1,0 +1,7 @@
+<!doctype html><html><body><p>Statement</p>
+<script>
+// A page that writes as it unloads, and sends itself away.
+addEventListener('pagehide', function () { navigator.sendBeacon('/beacon-on-pagehide', 'claim=DN-1001'); });
+setTimeout(function () { location.href = '/beacon-landed.html'; }, 300);
+</script>
+</body></html>

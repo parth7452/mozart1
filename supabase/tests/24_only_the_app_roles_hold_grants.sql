@@ -338,6 +338,77 @@ begin
   -- and TRUNCATE and nothing else, and app_rw keeps its UPDATE (suite 12).
   perform test.ok(has_table_privilege('app_rw', 'submissions', 'UPDATE'),
     'while app_rw keeps UPDATE on submissions, whose trigger refuses only DELETE and TRUNCATE');
+
+  -- =========================================================================
+  -- C. The portal tables (migration 0038, ADR 0057 §15), by name.
+  -- =========================================================================
+  -- The derivation above reads what is forbidden off each table's own
+  -- block_mutations triggers, so a table that lost them would drop out of it
+  -- without a word. ADR 0057 §15 names six append-only portal tables: each is
+  -- asked for its triggers by name, and then for the grants the derivation
+  -- would have asked about had they been there.
+  foreach t in array array['portal_credentials', 'portal_recipe_versions', 'portal_recipe_reviews',
+                           'portal_read_starts', 'portal_read_runs', 'portal_captures'] loop
+    perform test.ok(
+      coalesce((select bool_or(tg.tgtype & 16 <> 0) and bool_or(tg.tgtype & 8 <> 0)
+                       and bool_or(tg.tgtype & 32 <> 0)
+                  from pg_trigger tg
+                 where tg.tgrelid = t::regclass and tg.tgfoid = 'app.block_mutations'::regproc), false),
+      format('%s is append-only by trigger: UPDATE, DELETE and TRUNCATE', t));
+    select string_agg(format('%s %s', r.rolname, p), ', ' order by r.rolname, p) into offenders
+      from pg_roles r
+      cross join unnest(array['UPDATE', 'DELETE', 'TRUNCATE']) p
+     where not r.rolsuper
+       and r.rolname !~ '^pg_'
+       and not pg_has_role(r.oid, (select c.relowner from pg_class c where c.oid = t::regclass), 'USAGE')
+       and not (p in ('UPDATE', 'DELETE') and pg_has_role(r.oid, 'pg_write_all_data', 'USAGE'))
+       and case p
+             when 'UPDATE' then has_any_column_privilege(r.oid, t::regclass, 'UPDATE')
+             else has_table_privilege(r.oid, t::regclass, p)
+           end;
+    perform test.ok(offenders is null, format(
+      'and no role holds UPDATE, DELETE or TRUNCATE on %s (held: %s)', t, coalesce(offenders, 'none')));
+  end loop;
+
+  -- Their run tables are written only through a definer function each.
+  foreach t in array array['portal_read_starts', 'portal_read_runs'] loop
+    perform test.ok(not has_any_column_privilege('app_rw', t, 'INSERT'),
+      format('app_rw holds no INSERT on %s: its definer function is the only door', t));
+  end loop;
+
+  -- The registry is not append-only, because `enabled` flips — and app_rw's
+  -- UPDATE is on that and the label, column by column, and on nothing else.
+  select count(*) into n
+    from pg_attribute att
+   where att.attrelid = 'portal_connections'::regclass and att.attnum > 0 and not att.attisdropped
+     and has_column_privilege('app_rw', 'portal_connections', att.attname::text, 'UPDATE');
+  perform test.ok(
+    not has_table_privilege('app_rw', 'portal_connections', 'UPDATE')
+      and has_column_privilege('app_rw', 'portal_connections', 'label', 'UPDATE')
+      and has_column_privilege('app_rw', 'portal_connections', 'enabled', 'UPDATE')
+      and n = 2,
+    format('app_rw updates the portal registry''s label and enabled and no other column (%s columns)', n));
+  perform test.ok(
+    not has_table_privilege('app_rw', 'portal_connections', 'DELETE')
+      and not has_table_privilege('app_rw', 'portal_connections', 'TRUNCATE'),
+    'and deletes none: turning a connection off is the verb');
+
+  -- The two run writers and the fan-out list: definer, and app_rw's alone.
+  select count(*) into n
+    from pg_proc p
+   where p.pronamespace = 'app'::regnamespace
+     and p.proname in ('record_portal_read_start', 'record_portal_read_run', 'portal_connections_to_read');
+  perform test.ok(n = 3, format('the portal run writers and fan-out list are there (%s)', n));
+  select string_agg(p.oid::regprocedure::text, ', ') into offenders
+    from pg_proc p
+   where p.pronamespace = 'app'::regnamespace
+     and p.proname in ('record_portal_read_start', 'record_portal_read_run', 'portal_connections_to_read')
+     and (not p.prosecdef
+          or has_function_privilege('public', p.oid, 'EXECUTE')
+          or has_function_privilege('app_ro', p.oid, 'EXECUTE')
+          or not has_function_privilege('app_rw', p.oid, 'EXECUTE'));
+  perform test.ok(offenders is null, format(
+    'each is security definer and executable by app_rw alone (not: %s)', coalesce(offenders, 'none')));
 end
 $test$;
 rollback;

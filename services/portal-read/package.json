@@ -1,0 +1,12 @@
+{
+  "name": "@recouple/portal-read",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The portal-read worker (ADR 0057 §6): opens a sealed portal credential for its binding alone, and runs a promoted recipe with it.",
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

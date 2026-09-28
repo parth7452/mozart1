@@ -217,8 +217,46 @@ const pools = new Map<string, Pool>();
  * then does — fetch the document, record the classification, open the case —
  * would queue for a connection that is never coming back. Not slower: stopped,
  * with `pool.connect()` waiting for ever by default.
+ *
+ * `inbound` and `setup` are two claims held for a long time, each on a pool of
+ * its own for the same reason: an inbound email's (ADR 0047 §10), and a setup
+ * press's (ADR 0063 §2), whose QuickBooks calls take a `locks` connection
+ * whenever the company's token needs refreshing — a press holding one of
+ * those as well would be waiting on its own pool.
  */
-type PoolPurpose = 'work' | 'locks' | 'inbound';
+type PoolPurpose = 'work' | 'locks' | 'inbound' | 'setup';
+
+/**
+ * How long `connect()` on the lock pool waits for a connection before it is
+ * refused. Lock connections are held for the length of a read, so exhausting
+ * that pool is a real possibility rather than a momentary one — and a
+ * `connect()` that waits for ever turns it into a worker that never returns
+ * and a reviewer watching a spinner. It fails instead, loudly, and a job that
+ * failed is a job the runtime retries. A token refresh spends this wait before
+ * the company's lock's own (ADR 0063 §2 counts both).
+ */
+export const LOCK_POOL_CONNECT_TIMEOUT_MS = 30_000;
+
+/**
+ * How long a setup press waits for a connection to hold its claim on (ADR 0063
+ * §2). Two presses in one process is already rare, so a third that waits this
+ * long is told another press is running rather than kept waiting for one to
+ * end — minutes, across its QuickBooks calls.
+ */
+export const SETUP_CLAIM_CONNECT_TIMEOUT_MS = 10_000;
+
+/** What pg-pool says, and all it leaves, when a pool stayed full for its whole wait. */
+const POOL_CONNECT_TIMEOUT_MESSAGE = 'timeout exceeded when trying to connect';
+
+/**
+ * Whether `connect()` failed because every connection in the pool stayed in
+ * use for its whole `connectionTimeoutMillis`: pg-pool's own words for that,
+ * which are the only mark it leaves. A connection that could not be opened at
+ * all is not this, and its caller throws it as it came.
+ */
+export function isPoolConnectTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === POOL_CONNECT_TIMEOUT_MESSAGE;
+}
 
 function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Pool {
   const key = `${config.connectionString}::${config.max ?? 4}::${purpose}`;
@@ -228,17 +266,14 @@ function poolFor(config: PostgresStoreConfig, purpose: PoolPurpose = 'work'): Po
     connectionString: config.connectionString,
     // An inbound email's claim is held for the length of a scan. Two, and its
     // own: a burst of mail to one address must not hold the connections every
-    // document read and token refresh waits on (ADR 0047 §10).
-    max: purpose === 'inbound' ? 2 : (config.max ?? 4),
+    // document read and token refresh waits on (ADR 0047 §10). A setup press's
+    // is held for the length of the press, and two for its reason.
+    max: purpose === 'inbound' || purpose === 'setup' ? 2 : (config.max ?? 4),
     // A delivery that cannot get a connection at once answers 503 and Postmark
     // comes back; waiting would spend Postmark's two minutes on a queue.
     ...(purpose === 'inbound' ? { connectionTimeoutMillis: 1_000 } : {}),
-    // Lock connections are held for the length of a read, so exhausting that
-    // pool is a real possibility rather than a momentary one — and a
-    // `connect()` that waits for ever turns it into a worker that never
-    // returns and a reviewer watching a spinner. It fails instead, loudly, and
-    // a job that failed is a job the runtime retries.
-    ...(purpose === 'locks' ? { connectionTimeoutMillis: 30_000 } : {}),
+    ...(purpose === 'locks' ? { connectionTimeoutMillis: LOCK_POOL_CONNECT_TIMEOUT_MS } : {}),
+    ...(purpose === 'setup' ? { connectionTimeoutMillis: SETUP_CLAIM_CONNECT_TIMEOUT_MS } : {}),
   });
   // A pool that throws on an idle client's error takes the process with it.
   pool.on('error', () => undefined);
@@ -268,6 +303,15 @@ export function sessionLockPool(config: PostgresStoreConfig): Pool {
  */
 export function inboundClaimPool(config: PostgresStoreConfig): Pool {
   return poolFor(config, 'inbound');
+}
+
+/**
+ * A setup press's claim's own pool (ADR 0063 §2): two connections, and
+ * `SETUP_CLAIM_CONNECT_TIMEOUT_MS` before a press is told another is running.
+ * Never the lock pool, which the press's own token refresh borrows from.
+ */
+export function setupClaimPool(config: PostgresStoreConfig): Pool {
+  return poolFor(config, 'setup');
 }
 
 /**

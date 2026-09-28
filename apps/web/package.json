@@ -7,13 +7,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. apps/web"
   },
   "dependencies": {
     "@recouple/core-domain": "workspace:*",
     "@recouple/crypto": "workspace:*",
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "@recouple/portal": "workspace:*",
     "@recouple/qbo": "workspace:*",
     "@recouple/store-postgres": "workspace:*",
     "@supabase/ssr": "^0.8.0",

@@ -11,7 +11,7 @@ export function Wordmark() {
 }
 
 /** Which part of the workspace a page belongs to, for the nav and the breadcrumb. */
-export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks' | 'email' | 'team';
+export type WorkspaceSection = 'deductions' | 'coverage' | 'quickbooks' | 'email' | 'portals' | 'team';
 
 /**
  * The other workspaces this person belongs to, as buttons that POST to
@@ -133,6 +133,16 @@ export function WorkspaceShell({
             Email<span aria-hidden="true">↗</span>
           </Link>
           <Link
+            className={section === 'portals' ? 'nav-item active' : 'nav-item'}
+            href="/settings/portals"
+            aria-current={section === 'portals' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ⌂
+            </span>
+            Portals<span aria-hidden="true">↗</span>
+          </Link>
+          <Link
             className={section === 'team' ? 'nav-item active' : 'nav-item'}
             href="/settings/team"
             aria-current={section === 'team' ? 'page' : undefined}
@@ -186,6 +196,12 @@ export function WorkspaceShell({
                 <span>Settings</span>
                 <span className="breadcrumb-divider">/</span>
                 <Link href="/settings/email">Email</Link>
+              </>
+            ) : section === 'portals' ? (
+              <>
+                <span>Settings</span>
+                <span className="breadcrumb-divider">/</span>
+                <Link href="/settings/portals">Portals</Link>
               </>
             ) : section === 'team' ? (
               <>

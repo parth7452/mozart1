@@ -4,6 +4,34 @@
 // tokenizer: no HTML library was added for this.
 export const SNAPSHOT_RULE_VERSION = 1;
 
+/** What the sealed username becomes in anything a run captures: a snapshot's text, a download's filename (ADR 0057 §9). */
+export const USERNAME_PLACEHOLDER = '[portal-user]';
+
+/**
+ * `text` with every occurrence of the username replaced by the placeholder
+ * (ADR 0057 §9). An occurrence is the username in any case, since a sign-in
+ * name is not case-sensitive and a portal may print it in capitals; as HTML
+ * escapes it, for a snapshot; and percent-encoded, as a file's name can carry
+ * it. A run of spaces in it matches any run of whitespace, since a snapshot
+ * folds each run to one space.
+ */
+export function withoutUsername(text: string, username: string): string {
+  if (username.length === 0) return text;
+  // A string with a lone surrogate has no percent-encoding: encodeURIComponent throws on one.
+  const encoded = LONE_SURROGATE.test(username) ? [] : [encodeURIComponent(username)];
+  const spellings = [...new Set([username, escapeHtml(username), ...encoded])]
+    .sort((a, b) => b.length - a.length)
+    .map((s) => s.split(/\s+/).map(escapeRegExp).join('\\s+'));
+  return text.replace(new RegExp(spellings.join('|'), 'giu'), () => USERNAME_PLACEHOLDER);
+}
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/** Only the syntax characters: an escaped anything else is refused by a `u` pattern. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
 const KEEP = new Set(['table', 'thead', 'tbody', 'tr', 'th', 'td', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p']);
 /** Elements whose contents are never text a person reads. */
 const DROP_WITH_CONTENT = new Set(['script', 'style', 'template', 'noscript', 'iframe', 'object', 'embed', 'svg', 'math', 'head', 'title', 'textarea', 'select', 'button']);
@@ -51,9 +79,6 @@ export function serialiseSnapshot(html: string, username: string): string {
     else if (tag === 'br' || tag === 'div' || tag === 'tr') out += ' ';
   }
   if (skipping === null) out += escapeText(html.slice(last));
-  out = out.replace(/\s+/g, ' ').trim();
-  if (username.length > 0) {
-    out = out.split(escapeHtml(username)).join('[portal-user]').split(username).join('[portal-user]');
-  }
+  out = withoutUsername(out.replace(/\s+/g, ' ').trim(), username);
   return `<!doctype html>\n<html><body>${out}</body></html>\n`;
 }

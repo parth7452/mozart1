@@ -2,6 +2,11 @@
 
 - Status: accepted (the founder, 2026-09-27). Built on PR #127, gated off:
   nothing posts until `QBO_POSTING=1`, the switch and an approval.
+  `QBO_POSTING=1` went onto Vercel Production on 2026-09-27 at the founder's
+  word, waiving §5's sandbox run (see there). The account map, each
+  connection's switch and each case's approval still gate every post.
+- Amended by: ADR 0063 (2026-09-27): §4's "We never create an account" now
+  admits two, created on one owner's press.
 - Date: 2026-09-27
 - Amends: ADR 0020 (a case may carry a second human decision, the
   settlement), ADR 0036 (the ledger reader learns the shape our own postings
@@ -165,6 +170,14 @@ an account.
   and replayed in CI, as `settlement-window.test.ts` does for the sync.
   `QBO_POSTING` goes onto Vercel Production only after the founder accepts this
   ADR and has seen that run. Previews never get it.
+  - **Waived, 2026-09-27.** The founder had `QBO_POSTING=1` set on Vercel
+    Production before any sandbox run, and no request or response has been
+    recorded for CI. The first post will therefore be the first time this
+    path meets QuickBooks, in a production company. Posting is still off per
+    connection until an owner saves an account map and turns the switch on,
+    and every post still needs its approval. Reversing `QBO_POSTING` (unset
+    it and redeploy) stops new posts; anything already posted stays and is
+    reversed by a person in QuickBooks (§7).
 
 ### 6. Scope and logging
 

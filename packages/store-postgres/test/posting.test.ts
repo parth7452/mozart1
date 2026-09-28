@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { REASON_FAMILIES, cents } from '@recouple/core-domain';
-import type { LedgerAccountMap } from '@recouple/qbo';
+import { postingSetupRequestId, type LedgerAccountMap } from '@recouple/qbo';
 import { OwnerRequiredError } from '../src/connections';
 import {
   AccountMapRequiredError,
   AccountMapTypeError,
+  POSTING_SETUP_LOCK_SEED,
   PostgresPostingStore,
   WritebackExistsError,
   WritebackNotApprovedError,
@@ -14,6 +15,7 @@ import {
   type AccountTypeReader,
   PostingDecisionError,
 } from '../src/posting';
+import { withLedgerAccountLock } from '../src/ledger-lock';
 import { closeAllPools, PostgresStore } from '../src/store';
 
 const connectionString = process.env.TEST_DATABASE_URL;
@@ -308,5 +310,335 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
     );
     expect(asked).toEqual([{ who: analystId }]);
     expect((await as(ownerId).postingConnections()).map((c) => c.connectionId)).toEqual([connectionId]);
+  });
+
+  /** A company of its own, so the audit rows one test writes are not another's. */
+  async function setupConnection(label: string): Promise<string> {
+    const id = randomUUID();
+    await admin.query(
+      `insert into accounting_connections (id, org_id, provider, provider_account_id, created_by, enabled)
+       values ($1,$2,'qbo',$3,$4,false)`,
+      [id, orgId, `realm-${label}-${suffix}`, ownerId],
+    );
+    return id;
+  }
+
+  it('records an account a setup press created as one audit row, ids only, and only for an owner', async () => {
+    const made = await setupConnection('made');
+    expect(await as(ownerId).memberIsOwner()).toBe(true);
+    expect(await as(approverId).memberIsOwner()).toBe(false);
+    expect(await as(analystId).memberIsOwner()).toBe(false);
+
+    // An approver may write the audit log as themselves, and still records
+    // nothing here: the store asks for an owner first.
+    await expect(
+      as(approverId).recordAccountCreated(made, { row: 'writeoff', qboAccountId: '301' }),
+    ).rejects.toBeInstanceOf(OwnerRequiredError);
+    // An account's name is not its id, and a row setup never makes is no row.
+    await expect(
+      as(ownerId).recordAccountCreated(made, { row: 'writeoff', qboAccountId: 'Customer Deductions' }),
+    ).rejects.toMatchObject({ name: 'QboInvalidId' });
+    await expect(
+      as(ownerId).recordAccountCreated(made, { row: 'ar' as never, qboAccountId: '301' }),
+    ).rejects.toThrow(/deductions_receivable or writeoff/);
+    await expect(
+      as(ownerId).recordAccountCreated(randomUUID(), { row: 'writeoff', qboAccountId: '301' }),
+    ).rejects.toMatchObject({ name: 'PostingConnectionNotFoundError' });
+    // A read-back names at least one field it compared, and only those.
+    await expect(
+      as(ownerId).recordAccountCreated(made, { row: 'writeoff', qboAccountId: '301', readBackMismatch: [] }),
+    ).rejects.toThrow(/at least one of Id, Name, AccountType, Active/);
+    await expect(
+      as(ownerId).recordAccountCreated(made, {
+        row: 'writeoff',
+        qboAccountId: '301',
+        readBackMismatch: ['Customer Deductions' as never],
+      }),
+    ).rejects.toThrow(/at least one of Id, Name, AccountType, Active/);
+    // An answer names the request it answers: with none asked for, there is none to give.
+    await expect(
+      as(ownerId).recordAccountCreated(made, { row: 'writeoff', qboAccountId: '301' }),
+    ).rejects.toThrow(/no writeoff account was asked for/);
+
+    const receivable = await as(ownerId).recordAccountCreateRequested(made, 'deductions_receivable');
+    await as(ownerId).recordAccountCreated(made, { row: 'deductions_receivable', qboAccountId: '300' });
+    // One QuickBooks made and did not read back as sent: in the books all the
+    // same, so on the record, with the fields that differed and not their values.
+    const writeoff = await as(ownerId).recordAccountCreateRequested(made, 'writeoff');
+    await as(ownerId).recordAccountCreated(made, {
+      row: 'writeoff',
+      qboAccountId: '302',
+      readBackMismatch: ['Active', 'Name'],
+    });
+    expect(receivable).toBe(postingSetupRequestId(made, 'deductions_receivable', 0));
+    expect(writeoff).toBe(postingSetupRequestId(made, 'writeoff', 0));
+    const { rows } = await admin.query(
+      `select actor_id, subject_table, subject_id, payload from audit_log
+        where org_id = $1 and subject_id = $2 and action = 'accounting_connection.account_created' order by id`,
+      [orgId, made],
+    );
+    expect(rows).toEqual([
+      {
+        actor_id: ownerId,
+        subject_table: 'accounting_connections',
+        subject_id: made,
+        payload: {
+          provider_account_id: `realm-made-${suffix}`,
+          row: 'deductions_receivable',
+          qbo_account_id: '300',
+          request_id: receivable,
+        },
+      },
+      {
+        actor_id: ownerId,
+        subject_table: 'accounting_connections',
+        subject_id: made,
+        payload: {
+          provider_account_id: `realm-made-${suffix}`,
+          row: 'writeoff',
+          qbo_account_id: '302',
+          request_id: writeoff,
+          read_back_mismatch: ['Active', 'Name'],
+        },
+      },
+    ]);
+  });
+
+  it('puts a setup create on the record before it is sent, under the request id it goes out with, owner only', async () => {
+    const asked = await setupConnection('asked');
+    await expect(as(approverId).recordAccountCreateRequested(asked, 'writeoff')).rejects.toBeInstanceOf(
+      OwnerRequiredError,
+    );
+    await expect(as(ownerId).recordAccountCreateRequested(asked, 'ar' as never)).rejects.toThrow(
+      /deductions_receivable or writeoff/,
+    );
+    await expect(as(ownerId).recordAccountCreateRequested(randomUUID(), 'writeoff')).rejects.toMatchObject({
+      name: 'PostingConnectionNotFoundError',
+    });
+
+    // Derived here, never passed in, and handed back for the create to go out with.
+    const requestId = await as(ownerId).recordAccountCreateRequested(asked, 'writeoff');
+    expect(requestId).toBe(postingSetupRequestId(asked, 'writeoff', 0));
+    const { rows } = await admin.query(
+      `select actor_id, subject_table, subject_id, payload from audit_log
+        where org_id = $1 and subject_id = $2 and action = 'accounting_connection.account_create_requested'
+        order by id`,
+      [orgId, asked],
+    );
+    expect(rows).toEqual([
+      {
+        actor_id: ownerId,
+        subject_table: 'accounting_connections',
+        subject_id: asked,
+        payload: {
+          provider_account_id: `realm-asked-${suffix}`,
+          row: 'writeoff',
+          request_id: requestId,
+        },
+      },
+    ]);
+  });
+
+  it('names each attempt at a row: the same request until it is answered, and a new one after', async () => {
+    const attempts = await setupConnection('attempts');
+    const owner = as(ownerId);
+    expect(await owner.recordedSetupAccounts(attempts)).toEqual({ deductions_receivable: [], writeoff: [] });
+
+    // Asked, and no answer came: asking again is the same request to Intuit.
+    const first = await owner.recordAccountCreateRequested(attempts, 'deductions_receivable');
+    expect(await owner.recordAccountCreateRequested(attempts, 'deductions_receivable')).toBe(first);
+    expect(await owner.unansweredAccountCreates(attempts)).toEqual([
+      { row: 'deductions_receivable', requestId: first },
+    ]);
+
+    // Answered: the next create of that row is a new request, which Intuit
+    // cannot answer with the account the first one made.
+    await owner.recordAccountCreated(attempts, { row: 'deductions_receivable', qboAccountId: '500' });
+    const second = await owner.recordAccountCreateRequested(attempts, 'deductions_receivable');
+    expect(second).toBe(postingSetupRequestId(attempts, 'deductions_receivable', 1));
+    expect(second).not.toBe(first);
+    // An account found for a request that had no answer answers it as well.
+    await owner.recordAccountFound(attempts, { row: 'deductions_receivable', qboAccountId: '501' });
+    expect(await owner.recordAccountCreateRequested(attempts, 'deductions_receivable')).toBe(
+      postingSetupRequestId(attempts, 'deductions_receivable', 2),
+    );
+    // Each row counts its own answers.
+    expect(await owner.recordAccountCreateRequested(attempts, 'writeoff')).toBe(
+      postingSetupRequestId(attempts, 'writeoff', 0),
+    );
+
+    // Every answer names the request it answered.
+    const { rows } = await admin.query(
+      `select action, payload->>'qbo_account_id' as account, payload->>'request_id' as request
+         from audit_log
+        where org_id = $1 and subject_id = $2
+          and action in ('accounting_connection.account_created', 'accounting_connection.account_found')
+        order by id`,
+      [orgId, attempts],
+    );
+    expect(rows).toEqual([
+      { action: 'accounting_connection.account_created', account: '500', request: first },
+      { action: 'accounting_connection.account_found', account: '501', request: second },
+    ]);
+
+    // What every press reads before it plans a create: the accounts setup has
+    // recorded for each row, oldest first — a read any member may make, and
+    // another tenant sees none of.
+    const recorded = { deductions_receivable: ['500', '501'], writeoff: [] };
+    expect(await owner.recordedSetupAccounts(attempts)).toEqual(recorded);
+    expect(await as(analystId).recordedSetupAccounts(attempts)).toEqual(recorded);
+    expect(
+      await new PostgresPostingStore(config, { orgId: randomUUID(), userId: ownerId }).recordedSetupAccounts(attempts),
+    ).toEqual({ deductions_receivable: [], writeoff: [] });
+  });
+
+  it('holds one setup press per connection, answers a second at once, and lets go however the first ends', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const first = as(ownerId).withSetupClaim(connectionId, async () => {
+      entered();
+      await gate;
+      return 'first';
+    });
+    await inside;
+
+    // Another request for the same connection: refused at once, its work never run.
+    let ran = false;
+    await expect(
+      as(approverId).withSetupClaim(connectionId, async () => {
+        ran = true;
+        return 'second';
+      }),
+    ).resolves.toEqual({ held: false, reason: 'held' });
+    expect(ran).toBe(false);
+    // Another connection is a claim of its own, and the seed is the setup's
+    // own: a document read keyed on the same text is not held by it.
+    await expect(as(ownerId).withSetupClaim(bareConnectionId, async () => 'other')).resolves.toEqual({
+      held: true,
+      result: 'other',
+    });
+    const reads = new PostgresStore(config, { orgId, userId: ownerId });
+    await expect(reads.withDocumentRead(connectionId, async () => 'read')).resolves.toEqual({
+      held: true,
+      result: 'read',
+    });
+
+    release();
+    await expect(first).resolves.toEqual({ held: true, result: 'first' });
+    // Released by the commit once the work ended, and by the rollback when it threw.
+    await expect(as(ownerId).withSetupClaim(connectionId, async () => 'again')).resolves.toEqual({
+      held: true,
+      result: 'again',
+    });
+    await expect(
+      as(ownerId).withSetupClaim(connectionId, async () => {
+        throw new Error('refused');
+      }),
+    ).rejects.toThrow('refused');
+    await expect(as(ownerId).withSetupClaim(connectionId, async () => 'after')).resolves.toEqual({
+      held: true,
+      result: 'after',
+    });
+    expect(POSTING_SETUP_LOCK_SEED).toBe(5);
+  });
+
+  it("holds a setup claim on a pool of its own, so the press's own token refresh still gets a lock connection", async () => {
+    // One lock connection in all. Were the claim held on the lock pool, the
+    // company's lock — what a press's token refresh takes, inside the press —
+    // would wait for the connection the press itself holds, and fail.
+    const single = { ...config, max: 1 };
+    const tenant = { orgId, userId: ownerId };
+    const claimed = await new PostgresPostingStore(single, tenant).withSetupClaim(connectionId, () =>
+      withLedgerAccountLock(single, tenant, { provider: 'qbo', providerAccountId: `realm-${suffix}` }, async () =>
+        'refreshed',
+      ),
+    );
+    expect(claimed).toEqual({ held: true, result: 'refreshed' });
+  });
+
+  it('names the setup rows whose create was asked for and never answered, and records one found as found', async () => {
+    const settling = await setupConnection('settle');
+    const owner = as(ownerId);
+    expect(await owner.unansweredAccountCreates(settling)).toEqual([]);
+
+    const writeoff = await owner.recordAccountCreateRequested(settling, 'writeoff');
+    const receivable = await owner.recordAccountCreateRequested(settling, 'deductions_receivable');
+    const both = [
+      { row: 'deductions_receivable', requestId: receivable },
+      { row: 'writeoff', requestId: writeoff },
+    ];
+    // In SETUP_ROWS' order, whatever order they were asked in, each with the
+    // request id it went out under. A read of the tenant's own audit log: any
+    // member may make it, and another tenant sees none.
+    expect(await owner.unansweredAccountCreates(settling)).toEqual(both);
+    expect(await as(analystId).unansweredAccountCreates(settling)).toEqual(both);
+    expect(
+      await new PostgresPostingStore(config, { orgId: randomUUID(), userId: ownerId }).unansweredAccountCreates(settling),
+    ).toEqual([]);
+
+    // Found after a request that had no answer: its own action, owner only,
+    // ids only, and never a name where an id goes or a row setup never makes.
+    await expect(
+      as(approverId).recordAccountFound(settling, { row: 'writeoff', qboAccountId: '401' }),
+    ).rejects.toBeInstanceOf(OwnerRequiredError);
+    await expect(
+      owner.recordAccountFound(settling, { row: 'writeoff', qboAccountId: 'Customer Deductions' }),
+    ).rejects.toMatchObject({ name: 'QboInvalidId' });
+    await expect(owner.recordAccountFound(settling, { row: 'ar' as never, qboAccountId: '401' })).rejects.toThrow(
+      /deductions_receivable or writeoff/,
+    );
+    await expect(
+      owner.recordAccountFound(randomUUID(), { row: 'writeoff', qboAccountId: '401' }),
+    ).rejects.toMatchObject({ name: 'PostingConnectionNotFoundError' });
+    await owner.recordAccountFound(settling, { row: 'writeoff', qboAccountId: '401' });
+    expect(await owner.unansweredAccountCreates(settling)).toEqual([both[0]]);
+    // A creation QuickBooks answered settles a request as well.
+    await owner.recordAccountCreated(settling, { row: 'deductions_receivable', qboAccountId: '400' });
+    expect(await owner.unansweredAccountCreates(settling)).toEqual([]);
+
+    // Only an answer after a request answers it: one asked for again is
+    // unanswered again — a new attempt, since the last one was answered.
+    const again = await owner.recordAccountCreateRequested(settling, 'writeoff');
+    expect(again).toBe(postingSetupRequestId(settling, 'writeoff', 1));
+    expect(await owner.unansweredAccountCreates(settling)).toEqual([{ row: 'writeoff', requestId: again }]);
+    expect(await owner.unansweredAccountCreates(bareConnectionId)).toEqual([]);
+
+    // A found account is never recorded as created: a count of what setup
+    // made in a customer's books reads `account_created` alone.
+    const { rows } = await admin.query(
+      `select actor_id, action, payload from audit_log
+        where org_id = $1 and subject_id = $2
+          and action in ('accounting_connection.account_created', 'accounting_connection.account_found')
+        order by id`,
+      [orgId, settling],
+    );
+    expect(rows).toEqual([
+      {
+        actor_id: ownerId,
+        action: 'accounting_connection.account_found',
+        payload: {
+          provider_account_id: `realm-settle-${suffix}`,
+          row: 'writeoff',
+          qbo_account_id: '401',
+          request_id: writeoff,
+        },
+      },
+      {
+        actor_id: ownerId,
+        action: 'accounting_connection.account_created',
+        payload: {
+          provider_account_id: `realm-settle-${suffix}`,
+          row: 'deductions_receivable',
+          qbo_account_id: '400',
+          request_id: receivable,
+        },
+      },
+    ]);
   });
 });

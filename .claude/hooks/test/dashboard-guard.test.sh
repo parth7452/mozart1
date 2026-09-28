@@ -75,5 +75,19 @@ expect 2 "any other command"             run Bash '{"command":"ls"}'
 expect 2 "another tool"                  run WebFetch '{"url":"https://example.com"}'
 expect 2 "garbage payload" bash -c "echo 'not json' | CLAUDE_PROJECT_DIR='$PROJ' python3 '$HOOK' >/dev/null 2>'$TMP/last-stderr'"
 
+# --- registered project-wide (settings.json) ------------------------------------
+# With --only-dashboard-agent the hook guards only the dashboard-builder's calls.
+run_as() {
+  local agent="$1" tool="$2" input="$3"
+  printf '{"tool_name":"%s","tool_input":%s%s}' "$tool" "$input" \
+    ${agent:+",\"agent_type\":\"$agent\""} \
+    | CLAUDE_PROJECT_DIR="$PROJ" python3 "$HOOK" --only-dashboard-agent >/dev/null 2>"$TMP/last-stderr"
+}
+expect 2 "project-wide: dashboard-builder write outside .dashboard blocked" run_as dashboard-builder Write "{\"file_path\":\"$PROJ/src/x.ts\"}"
+expect 2 "project-wide: dashboard-builder heredoc blocked" run_as dashboard-builder Bash '{"command":"cat > .dashboard/index.html <<EOF"}'
+expect 0 "project-wide: dashboard-builder write inside .dashboard allowed" run_as dashboard-builder Write "{\"file_path\":\"$PROJ/.dashboard/index.html\"}"
+expect 0 "project-wide: main session untouched" run_as "" Write "{\"file_path\":\"$PROJ/src/x.ts\"}"
+expect 0 "project-wide: other agent untouched" run_as general-purpose Bash '{"command":"pnpm test"}'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

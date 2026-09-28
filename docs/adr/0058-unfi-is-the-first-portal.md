@@ -1,6 +1,8 @@
 # 0058 — UNFI is the first portal, and its terms are read before anything runs
 
-- Status: accepted (the founder, 2026-09-27). The terms answer in §2 is
+- Status: **paused 2026-09-27** (the founder): no sandbox to test against and no
+  dedicated login until the pilot call; ADR 0062 proves the plumbing on SAP
+  Business Network first. Accepted (the founder, 2026-09-27). The terms answer in §2 is
   recorded: the founder holds an agreement with UNFI that covers this. The
   read still waits on the dedicated user (§3) and the walk-through (§11).
 - Date: 2026-09-26
