@@ -1651,6 +1651,19 @@ the request roles hold nothing on them; no `app` function is unpinned; and no
 connection has `posting_enabled`. The security advisor shows only its old
 leaked-password notice. Nothing posts to QuickBooks and no portal runs.
 
+Migration 0038 (portal read, ADR 0057/0062) was applied on the founder's go on
+2026-09-28, to `mozart-preview` (15:35 UTC) and then production (15:39), and
+read back on both: the stored statement's md5 equals the file's; all seven
+`portal_*` tables have RLS; the six append-only ones carry `no_update_delete`
+and `no_truncate`; the request roles hold nothing; `app_rw` holds no UPDATE,
+DELETE or TRUNCATE on an append-only table (on `portal_connections`, UPDATE on
+`label` and `enabled` only); no `app` function is unpinned. **Applying a
+migration through the Supabase MCP tool can change its bytes:** the tool
+parameter decodes literal `\uXXXX` escapes into characters, so 0038's regex
+classes had to be sent as `\\u` and checked with a read-only
+`select md5($m$…$m$)` before applying. Compare the stored md5 with the file's
+after every apply.
+
 **A ledger case shows the payer's terms** (no ADR, no migration).
 `payerTermsFor` (`core-domain`) derives a case's reason code and deduction
 reference at read time from the notices and remittances linked to it and to the
