@@ -76,6 +76,7 @@ import {
   type NewPortalRecipeVersion,
   type PortalBinding,
   type PortalCaptureInput,
+  type PortalNewCaptureInput,
   type PortalConnectionRecord,
   type PortalConnectionToRead,
   type PortalCredentialPayload,
@@ -100,7 +101,10 @@ import {
   type RunStepLogEntry,
   type SealedPortalCredential,
 } from '@recouple/portal';
-import { sessionPool, type PostgresStoreConfig, type TenantContext } from './store';
+import { randomUUID } from 'node:crypto';
+import type { StoredDocument } from '@recouple/pipeline';
+import { insertBlobOn, insertDocumentOn, insertUploadOn } from './document-rows';
+import { refForDocument, sessionPool, type PostgresStoreConfig, type TenantContext } from './store';
 
 /** How many runs `listRuns` returns when asked for no number, and the most it returns. */
 export const PORTAL_RUNS_DEFAULT = 20;
@@ -1644,25 +1648,17 @@ export class PostgresPortalStore implements PortalStore {
   }
 
   /**
-   * Writes one capture's row; returns its id.
+   * Writes one capture's row, for bytes the tenant already held or a capture
+   * the door refused; returns its id. Neither writes an `uploads` row, so this
+   * is a transaction of its own. A new document's row is `recordNewCapture`'s.
    *
-   * The database checks what it can see: that the run is not a dry run, that
-   * the capture names the run's own recipe version, and that a stored
-   * capture's hash is its document's. A replay of exactly the same capture —
-   * a job step retried after its row committed — returns the row already
-   * written rather than a second one, under a lock per run so two deliveries
-   * of one step cannot both write.
-   *
-   * The contract asks for this row "in the transaction that wrote its
-   * `uploads` row"; `ingestDocument` writes that row in its own transaction,
-   * and this port is handed only the document id afterwards, so this is its
-   * own transaction, written straight after the ingest. What that leaves: the
-   * job ingests and calls this in one retried step, and the bytes dedupe to
-   * the same document, so a retry replays this row; but a worker that forgets
-   * the run between the two writes (a restart, its result's TTL) answers the
-   * retry's capture fetch 404, and a `portal_fetch` document keeps no capture
-   * row naming its run. Closing that takes a port that ingests and records in
-   * one transaction, which is the contract's decision, not this method's.
+   * The database checks what it can see: that the caller's own run started it
+   * and has not ended (migration 0039's policy), that the run is not a dry
+   * run, that the capture names the run's own recipe version, and that a
+   * stored capture's hash is its document's. A replay of exactly the same
+   * capture — a job step retried after its row committed — returns the row
+   * already written rather than a second one, under a lock per run so two
+   * deliveries of one step cannot both write.
    */
   async recordCapture(input: PortalCaptureInput): Promise<string> {
     this.assertOwnOrg(input.orgId);
@@ -1696,6 +1692,71 @@ export class PostgresPortalStore implements PortalStore {
         const id = rows[0]?.id;
         if (id === undefined) throw new Error('insert into portal_captures returned no row');
         return id;
+      } catch (error) {
+        throw runRecordRefusal('capture', capture.runId, error);
+      }
+    });
+  }
+
+  /**
+   * Writes a new capture's `uploads` row (`portal_fetch`, no member), its
+   * document — row, bytes and text pages — and its capture row, in one
+   * transaction (ADR 0057 §15, ADR 0064); returns the document and the
+   * capture row's id. Whatever refuses — the capture's checks, the document's
+   * unique hash, RLS — refuses all of it, so no arrival or document is left
+   * without the row naming its run.
+   *
+   * The bytes are always the database's (`document_blobs`), as
+   * `PostgresStore`'s default blob store keeps them, and are written in the
+   * same transaction rather than first. The scan is the caller's, after.
+   */
+  async recordNewCapture(
+    input: PortalNewCaptureInput,
+  ): Promise<{ readonly document: StoredDocument; readonly captureId: string }> {
+    const given: unknown = input;
+    if (given === null || typeof given !== 'object') refuse('input', 'a capture and its document');
+    const document = input.document;
+    this.assertOwnOrg(input.capture?.orgId);
+    this.assertOwnOrg(document?.orgId);
+    if (!(document.bytes instanceof Uint8Array) || document.bytes.byteLength !== document.byteSize) {
+      refuse('document.bytes', 'the bytes, as many as byteSize says');
+    }
+    const documentId = randomUUID();
+    const capture = captureOf({ ...input.capture, documentId });
+    if (document.sha256 !== capture.sha256) {
+      refuse('document.sha256', "the capture's own hash: the bytes captured are the bytes kept");
+    }
+    const storageRef = refForDocument(documentId);
+
+    return this.withTenant(async (client) => {
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 5))', [
+        `portal_capture:${capture.runId}`,
+      ]);
+      let uploadId: string;
+      try {
+        uploadId = await insertUploadOn(client, { orgId: this.tenant.orgId, source: 'portal_fetch' });
+      } catch (error) {
+        throw writeRefusal('uploads', error);
+      }
+      const stored: StoredDocument = { ...document, documentId, uploadId };
+      try {
+        await insertBlobOn(client, this.tenant.orgId, documentId, document.bytes);
+        await insertDocumentOn(client, documentId, storageRef, { ...document, uploadId });
+      } catch (error) {
+        throw writeRefusal('documents', error);
+      }
+      try {
+        const { rows } = await client.query<{ id: string }>(
+          `insert into portal_captures
+             (run_id, recipe_version_id, kind, step_name, page_path, snapshot_rule_version,
+              sha256, captured_at, document_id, refusal, org_id)
+           values ($1, $2, $3, $4, $5, $6::integer, $7, $8::timestamptz, $9::uuid, $10::text, $11)
+           returning id`,
+          [...captureParams(capture), this.tenant.orgId],
+        );
+        const captureId = rows[0]?.id;
+        if (captureId === undefined) throw new Error('insert into portal_captures returned no row');
+        return { document: stored, captureId };
       } catch (error) {
         throw runRecordRefusal('capture', capture.runId, error);
       }

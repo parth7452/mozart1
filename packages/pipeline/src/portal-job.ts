@@ -56,8 +56,8 @@ import {
   sha256,
   type RejectionCode,
 } from '@recouple/ingest';
-import type { PipelineDeps } from './ports';
-import { ingestDocument, type IngestResult } from './steps';
+import type { PipelineDeps, StoredDocument } from './ports';
+import { ingestDocument, type IngestResult, type StoreNewDocument } from './steps';
 
 // ---------------------------------------------------------------------------
 // What a run can end as (contracts.ts: PortalRunEnd and its reason codes)
@@ -184,7 +184,7 @@ export type PortalJobRunEndInput = {
   readonly stepLog: readonly PortalJobStepLogEntry[];
 } & PortalJobRunEnd;
 
-export type PortalJobCaptureInput = {
+export interface PortalJobCaptureRow {
   readonly runId: string;
   readonly orgId: string;
   readonly recipeVersionId: string;
@@ -194,10 +194,13 @@ export type PortalJobCaptureInput = {
   readonly snapshotRuleVersion: number | null;
   readonly sha256: string;
   readonly capturedAt: Date;
-} & (
-  | { readonly documentId: string; readonly refusal?: never }
-  | { readonly refusal: RejectionCode; readonly documentId?: never }
-);
+}
+
+export type PortalJobCaptureInput = PortalJobCaptureRow &
+  (
+    | { readonly documentId: string; readonly refusal?: never }
+    | { readonly refusal: RejectionCode; readonly documentId?: never }
+  );
 
 /** What turning a connection off answered: `not_visible` when this tenant could not see it. */
 export type PortalJobDisableAnswer = 'disabled' | 'newer_credential' | 'already_off' | 'not_visible';
@@ -226,7 +229,16 @@ export interface PortalReadJobStore<R extends PortalJobRecipe> {
   readonly latestCredential: (connectionId: string) => Promise<PortalJobCredential | undefined>;
   readonly recordRunStart: (input: PortalJobRunStart) => Promise<string>;
   readonly recordRunEnd: (input: PortalJobRunEndInput) => Promise<string>;
+  /** A capture of bytes the tenant already held, or one the door refused: its own transaction. */
   readonly recordCapture: (input: PortalJobCaptureInput) => Promise<string>;
+  /**
+   * A new capture's `uploads` row, its document and its capture row, in one
+   * transaction (ADR 0057 §15, ADR 0064): a failure anywhere writes none.
+   */
+  readonly recordNewCapture: (input: {
+    readonly capture: PortalJobCaptureRow;
+    readonly document: Omit<StoredDocument, 'documentId' | 'uploadId'>;
+  }) => Promise<{ readonly document: StoredDocument; readonly captureId: string }>;
   /** Only while the refused credential is still the latest, so a re-entry since is never undone. */
   readonly disableConnection: (input: {
     readonly connectionId: string;
@@ -1129,7 +1141,8 @@ async function tenantHolds<R extends PortalJobRecipe>(
  * behind it (ADR 0057 §9). A page snapshot goes through the snapshot door, a
  * download through the one that decides a file by its bytes; a file the door
  * refuses is recorded as refused, with no bytes kept. The capture's row is
- * written straight after its document, naming the run and the version.
+ * written with its document's arrival, in one transaction, when the
+ * bytes are new, and on its own when the tenant already held them.
  *
  * Asked again, it stores nothing twice: the bytes dedupe to the document the
  * first attempt stored, and the capture row is the database's replay.
@@ -1171,6 +1184,21 @@ async function ingestCapture<R extends PortalJobRecipe>(
     capturedAt: new Date(capture.capturedAt),
   } as const;
 
+  // A capture of bytes the tenant does not hold is stored with its row, in
+  // the transaction that writes its `uploads` row (ADR 0057 §15, ADR 0064), so
+  // a row that fails leaves no portal arrival and no document without it.
+  let rowWritten = false;
+  const storeNewDocument: StoreNewDocument = async ({ upload, document }) => {
+    // The door's arrival for a portal capture is always this one; a store
+    // writes it as such, and anything else here is a caller's mistake.
+    if (upload.source !== 'portal_fetch' || upload.createdBy !== undefined || upload.orgId !== ids.orgId) {
+      throw new PortalWorkerContractError(ids.runId, 'a capture arrives as portal_fetch, with no member');
+    }
+    const stored = await deps.store.recordNewCapture({ capture: row, document });
+    rowWritten = true;
+    return stored.document;
+  };
+
   let ingested: IngestResult;
   try {
     ingested = await ingestDocument(
@@ -1184,7 +1212,7 @@ async function ingestCapture<R extends PortalJobRecipe>(
         // refused rather than let through as a snapshot.
         ...(capture.kind === 'page_snapshot' ? { declaredMimeType: PORTAL_SNAPSHOT_MIME } : {}),
       },
-      deps.ingest,
+      { ...deps.ingest, storeNewDocument },
     );
   } catch (error) {
     // The door's refusal of this one capture is an outcome, recorded; the run
@@ -1196,7 +1224,12 @@ async function ingestCapture<R extends PortalJobRecipe>(
   }
 
   const documentId = ingested.document.documentId;
-  await deps.store.recordCapture({ ...row, documentId });
+  if (!rowWritten) {
+    // Bytes the tenant already held (or an earlier attempt of this step
+    // stored): no arrival is written, and the row is its own transaction — a
+    // replay of the row that attempt wrote, or a new row for held bytes.
+    await deps.store.recordCapture({ ...row, documentId });
+  }
   if (ingested.verdict.status === 'error') {
     throw new PortalCaptureUnscannedError(ids.runId, summary.index, documentId);
   }

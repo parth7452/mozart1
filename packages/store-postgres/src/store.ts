@@ -113,6 +113,7 @@ import {
   UPLOAD_SOURCES,
   type HumanDecisionRecord,
 } from '@recouple/pipeline';
+import { insertBlobOn, insertDocumentOn, insertUploadOn } from './document-rows';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
@@ -1152,14 +1153,7 @@ export class PostgresBlobStore implements BlobStore {
     // answer, so this is a programming error — and a second `BlobStore` must
     // not inherit the silence either.
     if (documentId === undefined) throw new BlobRefUnrecognisedError(ref);
-    await this.withTenant(async (client) => {
-      await client.query(
-        `insert into document_blobs (document_id, org_id, bytes, byte_size)
-         values ($1, $2, $3, $4)
-         on conflict (document_id) do nothing`,
-        [documentId, this.tenant.orgId, Buffer.from(bytes), bytes.byteLength],
-      );
-    });
+    await this.withTenant((client) => insertBlobOn(client, this.tenant.orgId, documentId, bytes));
   }
 
   async get(ref: string): Promise<Uint8Array | undefined> {
@@ -1347,14 +1341,7 @@ export class PostgresStore
     readonly createdBy?: string;
   }): Promise<UploadRecord> {
     return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ id: string }>(
-        `insert into uploads (org_id, source, created_by)
-         values ($1, $2, $3)
-         returning id`,
-        [input.orgId, input.source, input.createdBy ?? null],
-      );
-      const id = rows[0]?.id;
-      if (id === undefined) throw new Error('insert into uploads returned no row');
+      const id = await insertUploadOn(client, input);
       return {
         uploadId: id,
         orgId: input.orgId,
@@ -1605,51 +1592,9 @@ export class PostgresStore
     await this.blobs.put(storageRef, document.bytes);
 
     return this.withTenant(async (client) => {
-      const { rows } = await client.query<{ id: string }>(
-        `insert into documents
-           (id, org_id, sha256, byte_size, mime_type, storage_ref, filename, upload_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         returning id`,
-        [
-          documentId,
-          document.orgId,
-          Buffer.from(document.sha256, 'hex'),
-          document.byteSize,
-          document.mimeType,
-          storageRef,
-          document.filename,
-          // Null only for a caller that stored bytes without recording an
-          // arrival. `ingestDocument` always records one first; a test that
-          // writes a document straight into the store is the other case, and a
-          // case opened on such a document cannot be declined (see
-          // `declineCase`), which is the loud version of not knowing.
-          document.uploadId ?? null,
-        ],
-      );
-      const id = rows[0]?.id as string;
-
-      if (document.pageText !== undefined && document.pageText.length > 0) {
-        await this.insertPages(client, document.orgId, id, document.pageText);
-      }
-
-      return { ...document, documentId: id };
+      await insertDocumentOn(client, documentId, storageRef, document);
+      return { ...document, documentId };
     });
-  }
-
-  private async insertPages(
-    client: PoolClient,
-    orgId: string,
-    documentId: string,
-    pages: readonly string[],
-  ): Promise<void> {
-    for (const [index, text] of pages.entries()) {
-      await client.query(
-        `insert into document_pages (org_id, document_id, page_number, text_layer)
-         values ($1, $2, $3, $4)
-         on conflict (document_id, page_number) do nothing`,
-        [orgId, documentId, index + 1, text],
-      );
-    }
   }
 
   async recordScan(documentId: string, verdict: ScanVerdict): Promise<void> {

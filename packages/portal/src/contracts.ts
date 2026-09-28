@@ -18,6 +18,7 @@
 // schema's refusal names the field and the rule, never the value.
 import { z } from 'zod';
 import type { RejectionCode } from '@recouple/ingest';
+import type { StoredDocument } from '@recouple/pipeline';
 import type { Capture } from './capture';
 import { RecipeVersionSchema, type RecipeVersion } from './recipe';
 
@@ -776,7 +777,11 @@ export interface PortalRunStartInput {
   readonly runId: string;
   readonly orgId: string;
   readonly connectionId: string;
-  /** Null only for a run that found no version to run; it then ends `not_configured`. */
+  /**
+   * Null only for a run that found no version to run, or that was refused
+   * before it looked for one (a member who may no longer write, a connection
+   * turned off, terms not allowed): it then ends `not_configured` or `refused`.
+   */
   readonly recipeVersionId: string | null;
   readonly dryRun: boolean;
   /** The member the run acts as: the connection's `created_by`, whose claims the store holds. */
@@ -803,8 +808,8 @@ export type PortalRunEndInput = {
   readonly stepLog: readonly RunStepLogEntry[];
 } & PortalRunEnd;
 
-/** One capture, stored as a document or refused at the door. The refusal is the door's code; no bytes are kept. */
-export type PortalCaptureInput = {
+/** What a capture row says of the run and the bytes, before it is stored or refused. */
+export interface PortalCaptureRow {
   readonly runId: string;
   readonly orgId: string;
   readonly recipeVersionId: string;
@@ -814,7 +819,21 @@ export type PortalCaptureInput = {
   readonly snapshotRuleVersion: number | null;
   readonly sha256: string;
   readonly capturedAt: Date;
-} & ({ readonly documentId: string; readonly refusal?: never } | { readonly refusal: RejectionCode; readonly documentId?: never });
+}
+
+/** One capture, stored as a document or refused at the door. The refusal is the door's code; no bytes are kept. */
+export type PortalCaptureInput = PortalCaptureRow &
+  ({ readonly documentId: string; readonly refusal?: never } | { readonly refusal: RejectionCode; readonly documentId?: never });
+
+/**
+ * A capture whose bytes the tenant does not hold yet: the row, and the
+ * document the door accepted, whose hash is the row's. Its `uploads` row is
+ * `portal_fetch` with no member behind it (ADR 0057 §9).
+ */
+export interface PortalNewCaptureInput {
+  readonly capture: PortalCaptureRow;
+  readonly document: Omit<StoredDocument, 'documentId' | 'uploadId'>;
+}
 
 /**
  * Why a connection was turned off. `credential_rejected` is the job's, on the
@@ -899,8 +918,18 @@ export interface PortalStore {
   recordRunStart(input: PortalRunStartInput): Promise<string>;
   /** Writes the run's one outcome row through `app.record_portal_read_run()`; returns its id. A replay of the same outcome writes nothing. */
   recordRunEnd(input: PortalRunEndInput): Promise<string>;
-  /** Writes a capture's row: for a new document, in the transaction that wrote its `uploads` row (ADR 0057 §15); returns its id. */
+  /**
+   * Writes a capture of bytes the tenant already held, or one the door
+   * refused, in a transaction of its own: neither writes an `uploads` row.
+   * Returns its id; a replay of the same capture writes nothing.
+   */
   recordCapture(input: PortalCaptureInput): Promise<string>;
+  /**
+   * Writes a new capture's `uploads` row, its document (bytes and text pages)
+   * and its capture row in one transaction (ADR 0057 §15, ADR 0064): a failure
+   * anywhere writes none of them. Returns the document and the capture row's id.
+   */
+  recordNewCapture(input: PortalNewCaptureInput): Promise<{ readonly document: StoredDocument; readonly captureId: string }>;
   /** Turns the connection off, with an audit row naming the reason; `undefined` when this tenant cannot see it. */
   disableConnection(input: DisablePortalConnectionInput): Promise<PortalDisableOutcome | undefined>;
   /** Turns the connection back on, as an owner, with an audit row; `undefined` when this tenant cannot see it. Storing a credential does not. */

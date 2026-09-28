@@ -1478,6 +1478,138 @@ describeDb('the portal store on Postgres (ADR 0057, migration 0038)', () => {
     );
   });
 
+  /** What a new capture writes, counted by the admin: arrivals, documents, bytes, pages and rows. */
+  async function newCaptureTrail(sha256: string, runId: string) {
+    const hash = Buffer.from(sha256, 'hex');
+    return {
+      documents: await count(`select count(*)::int as n from documents where org_id = $1 and sha256 = $2`, [orgA, hash]),
+      uploads: await count(
+        `select count(*)::int as n from uploads u join documents d on d.upload_id = u.id
+          where d.org_id = $1 and d.sha256 = $2`,
+        [orgA, hash],
+      ),
+      blobs: await count(
+        `select count(*)::int as n from document_blobs b join documents d on d.id = b.document_id
+          where d.org_id = $1 and d.sha256 = $2`,
+        [orgA, hash],
+      ),
+      captures: await count(`select count(*)::int as n from portal_captures where run_id = $1`, [runId]),
+    };
+  }
+
+  function newDocument(bytes: Buffer) {
+    return {
+      orgId: orgA,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      filename: 'landing.html',
+      mimeType: 'text/html',
+      byteSize: bytes.length,
+      bytes: new Uint8Array(bytes),
+      pageText: ['landing page'],
+      requiresSplit: false,
+    };
+  }
+
+  it('writes a new capture’s arrival, document and row in one transaction', async () => {
+    const { connectionId, versionId } = await readyConnection('new_capture');
+    const runId = randomUUID();
+    await a().recordRunStart({ runId, orgId: orgA, connectionId, recipeVersionId: versionId, dryRun: false, requestedBy: ownerA });
+    const document = newDocument(randomBytes(64));
+    const capture = {
+      runId,
+      orgId: orgA,
+      recipeVersionId: versionId,
+      kind: 'page_snapshot' as const,
+      stepName: 'landing',
+      pagePath: '/dashboard/home',
+      snapshotRuleVersion: 1,
+      sha256: document.sha256,
+      capturedAt: new Date('2026-09-28T10:00:00.123Z'),
+    };
+    const { document: stored, captureId } = await a().recordNewCapture({ capture, document });
+
+    expect(await newCaptureTrail(document.sha256, runId)).toEqual({ documents: 1, uploads: 1, blobs: 1, captures: 1 });
+    const { rows } = await admin.query<{ source: string; created_by: string | null; document_id: string; pages: number }>(
+      `select u.source, u.created_by, c.document_id,
+              (select count(*)::int from document_pages p where p.document_id = d.id) as pages
+         from portal_captures c
+         join documents d on d.id = c.document_id
+         join uploads u on u.id = d.upload_id
+        where c.id = $1`,
+      [captureId],
+    );
+    expect(rows[0]).toEqual({ source: 'portal_fetch', created_by: null, document_id: stored.documentId, pages: 1 });
+    expect(stored).toMatchObject({ orgId: orgA, sha256: document.sha256, uploadId: expect.any(String) });
+    // A replay of the step finds the bytes and replays the row, writing nothing.
+    expect(await a().recordCapture({ ...capture, documentId: stored.documentId })).toBe(captureId);
+    expect(await newCaptureTrail(document.sha256, runId)).toEqual({ documents: 1, uploads: 1, blobs: 1, captures: 1 });
+  });
+
+  it('leaves no orphan upload or document when the capture row is refused', async () => {
+    const { key, connectionId, versionId } = await readyConnection('new_capture_refused');
+    const other = await addVersion(key, 2);
+    const run = randomUUID();
+    const dry = randomUUID();
+    const ended = randomUUID();
+    for (const [runId, dryRun] of [[run, false], [dry, true], [ended, false]] as const) {
+      await a().recordRunStart({ runId, orgId: orgA, connectionId, recipeVersionId: versionId, dryRun, requestedBy: ownerA });
+    }
+    await a().recordRunEnd({
+      runId: ended,
+      orgId: orgA,
+      atStep: null,
+      counts: counts({ pages: 1 }),
+      stepLog: [],
+      outcome: 'completed',
+    });
+    const base = {
+      runId: run,
+      orgId: orgA,
+      recipeVersionId: versionId,
+      kind: 'page_snapshot' as const,
+      stepName: 'landing',
+      pagePath: '/dashboard',
+      snapshotRuleVersion: 1,
+      capturedAt: new Date(),
+    };
+    const cases: [string, (sha: string) => Promise<unknown>][] = [
+      ['a dry run', (sha) => a().recordNewCapture({ capture: { ...base, runId: dry, sha256: sha }, document: newDocument(bytesBySha.get(sha)!) })],
+      ['another version', (sha) => a().recordNewCapture({ capture: { ...base, recipeVersionId: other, sha256: sha }, document: newDocument(bytesBySha.get(sha)!) })],
+      ['a run that ended', (sha) => a().recordNewCapture({ capture: { ...base, runId: ended, sha256: sha }, document: newDocument(bytesBySha.get(sha)!) })],
+      ['another owner than the run’s member', (sha) => store(orgA, ownerA2).recordNewCapture({ capture: { ...base, sha256: sha }, document: newDocument(bytesBySha.get(sha)!) })],
+      ['a writer', (sha) => store(orgA, analystA).recordNewCapture({ capture: { ...base, sha256: sha }, document: newDocument(bytesBySha.get(sha)!) })],
+    ];
+    const bytesBySha = new Map<string, Buffer>();
+    for (const [label, attempt] of cases) {
+      const bytes = randomBytes(64);
+      const sha = createHash('sha256').update(bytes).digest('hex');
+      bytesBySha.set(sha, bytes);
+      const refused = await refusal(attempt(sha));
+      expect(refused, label).toMatchObject({ record: 'capture' });
+      for (const runId of [run, dry, ended]) {
+        expect(await newCaptureTrail(sha, runId), label).toEqual({ documents: 0, uploads: 0, blobs: 0, captures: 0 });
+      }
+    }
+    expect(
+      await count(
+        `select count(*)::int as n from uploads u
+          where u.org_id = $1 and u.source = 'portal_fetch'
+            and not exists (select 1 from documents d where d.upload_id = u.id)`,
+        [orgA],
+      ),
+    ).toBe(0);
+
+    // Refused before the database: a capture whose hash is not the document's.
+    const doc = newDocument(randomBytes(64));
+    expect(
+      await refusal(a().recordNewCapture({ capture: { ...base, sha256: 'a'.repeat(64) }, document: doc })),
+    ).toBeInstanceOf(PortalInputError);
+    expect(
+      await refusal(a().recordNewCapture({ capture: { ...base, sha256: doc.sha256 }, document: { ...doc, orgId: orgB } })),
+    ).toBeInstanceOf(PortalActorMismatchError);
+    expect(await newCaptureTrail(doc.sha256, run)).toEqual({ documents: 0, uploads: 0, blobs: 0, captures: 0 });
+  });
+
   // -------------------------------------------------------------------------
   // Turning a connection off and on (ADR 0057 §7, §8)
   // -------------------------------------------------------------------------
@@ -1517,6 +1649,13 @@ describeDb('the portal store on Postgres (ADR 0057, migration 0038)', () => {
     const replacement = await refusal(a().enableConnection(connectionId));
     expect(replacement).toBeInstanceOf(PortalCredentialReplacementRequiredError);
     expect(replacement).toMatchObject({ disabledFor: 'credential_rejected' });
+    // The database holds it too, for a writer that goes around the store
+    // (migration 0039, ADR 0064): an owner's own UPDATE is refused.
+    expect(await rawEnableAs(ownerA, connectionId)).toMatchObject({
+      code: '23514',
+      message: expect.stringContaining('portal connection enable blocked'),
+    });
+    expect(await enabled(connectionId)).toBe(false);
 
     const newer = await a(appCipher).sealAndStoreCredential({
       connectionId,
@@ -1639,6 +1778,27 @@ describeDb('the portal store on Postgres (ADR 0057, migration 0038)', () => {
     });
     expect(await a().enableConnection(connectionId)).toBe('enabled');
   });
+
+  /** `update portal_connections set enabled = true`, as `app_rw` with a member's claims; the error, or `undefined`. */
+  async function rawEnableAs(userId: string, connectionId: string): Promise<unknown> {
+    const client = await admin.connect();
+    try {
+      await client.query('begin');
+      await client.query('set local role app_rw');
+      await client.query('select set_config($1, $2, true)', [
+        'request.jwt.claims',
+        JSON.stringify({ org_id: orgA, sub: userId }),
+      ]);
+      await client.query(`update portal_connections set enabled = true where id = $1`, [connectionId]);
+      await client.query('rollback');
+      return undefined;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      return error;
+    } finally {
+      client.release();
+    }
+  }
 
   /** Writes a disable row for `connectionId` as a member could, as `app_rw` with their claims. */
   async function disabledRowAs(
