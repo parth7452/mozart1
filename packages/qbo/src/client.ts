@@ -14,16 +14,28 @@ import { randomUUID } from 'node:crypto';
 import type { LedgerWindow } from '@recouple/adapters';
 import { DateParseError, parsePrintedDate } from '@recouple/core-domain';
 import {
+  QboAccountReadBackError,
   QboAuthError,
+  QboChartTooLarge,
   QboInvalidWindow,
   QboMalformedResponse,
   QboRateLimited,
   QboRequestFailed,
+  type QboError,
 } from './errors';
 import { defaultFetch, request, retryAfterMs, summarise, type FetchLike } from './http';
 import { assertQboId } from './ids';
 import { exchangeIntuitToken } from './oauth';
 import { describe, isJsonObject, readArray, readObject, type JsonObject } from './reader';
+import {
+  SETUP_ACCOUNTS,
+  accountReadBackMismatch,
+  readAccountId,
+  setupRowOf,
+  toQboAccount,
+  type QboAccount,
+  type SetupAccountSpec,
+} from './setup';
 import { ACCESS_TOKEN_REFRESH_SKEW_MS, type QboTokenStore, type QboTokens } from './tokens';
 
 // Where these lived before the OAuth calls moved to `oauth.ts`, `http.ts` and
@@ -53,6 +65,14 @@ export type QboEntity = 'Invoice' | 'Payment' | 'CreditMemo';
 
 /** The entities a write-back creates (ADR 0060 §1). */
 export type QboWriteEntity = 'JournalEntry' | 'Payment';
+
+/**
+ * Every entity this client creates and reads back: a write-back's, and the
+ * `Account` setup creates (ADR 0063). `Account` stays out of `QboWriteEntity`
+ * on purpose: the posting job is typed on that one, so it cannot create an
+ * account, and `findByReference` has no reference to find one by.
+ */
+type QboCreatedEntity = QboWriteEntity | 'Account';
 
 export interface QboConnectionConfig {
   /** The customer's QuickBooks company id. */
@@ -165,6 +185,12 @@ export class QboClient {
     entity: QboEntity | 'Account',
     where: string,
     offset = 0,
+    /**
+     * What a read still going at `maxPages` is: a server that never shortens a
+     * page, unless the caller says otherwise — `listAccounts` says a chart
+     * longer than the pages it was allowed.
+     */
+    unended?: () => QboError,
   ): Promise<readonly JsonObject[]> {
     const rows: JsonObject[] = [];
     let startPosition = 1;
@@ -199,9 +225,12 @@ export class QboClient {
 
     // Only reachable if every page came back full. Better a loud stop than an
     // unbounded loop against a customer's ledger.
-    throw new QboMalformedResponse(
-      `pagination did not terminate for ${entity} within ${this.maxPages} pages`,
-      `QueryResponse.${entity}`,
+    throw (
+      unended?.() ??
+      new QboMalformedResponse(
+        `pagination did not terminate for ${entity} within ${this.maxPages} pages`,
+        `QueryResponse.${entity}`,
+      )
     );
   }
 
@@ -220,6 +249,79 @@ export class QboClient {
    * request to Intuit whichever one it honours. Returns the created entity.
    */
   async post(entity: QboWriteEntity, body: JsonObject, requestId: string): Promise<JsonObject> {
+    return this.create(entity, body, requestId);
+  }
+
+  /**
+   * The company's whole chart of accounts, inactive accounts included, for
+   * setting up posting (ADR 0063 §1). QuickBooks answers an `Account` query
+   * with active accounts only unless asked for both, and an inactive account
+   * still holds its name — which is what setup has to know before it creates
+   * one. Paged like every other read, each row read by `toQboAccount`, and an
+   * id listed twice refused rather than counted twice.
+   *
+   * A chart that has not ended by the client's `maxPages` is
+   * `QboChartTooLarge`, never the part of it read: a settings request builds
+   * its client with a page or two, so that its read ends inside its route's
+   * time (ADR 0063 §2), and a name missing from part of a chart is not missing
+   * from the company.
+   */
+  async listAccounts(): Promise<readonly QboAccount[]> {
+    const rows = await this.queryAll(
+      'Account',
+      'Active in (true, false)',
+      0,
+      () => new QboChartTooLarge(this.maxPages, this.pageSize),
+    );
+    const seen = new Set<string>();
+    return rows.map((row, index) => {
+      const path = `Account[${index}]`;
+      const account = toQboAccount(row, path);
+      if (seen.has(account.id)) {
+        throw new QboMalformedResponse(`account ${account.id} is listed twice`, `${path}.Id`);
+      }
+      seen.add(account.id);
+      return account;
+    });
+  }
+
+  /**
+   * Creates one of setup's two accounts, then reads it back (ADR 0063 §2).
+   *
+   * `spec` must be one of `SETUP_ACCOUNTS` exactly, or `QboInvalidAccountSpec`
+   * refuses it before a request is built: this client creates no other
+   * account. `requestId` is the caller's `postingSetupRequestId` for this
+   * attempt, sent the way `post` sends a write-back's, so a press that sends
+   * again a create no answer came for is the same request to Intuit. Nothing
+   * here retries: a 5xx or a timeout is an unknown outcome, thrown as
+   * `QboRequestFailed`, and the next press re-reads the chart and finds the
+   * account if it was made.
+   *
+   * The account is read back by the id QuickBooks answered with, under a fresh
+   * request id, and returned only if its id, name, type and `Active` are what
+   * was sent. `QboAccountReadBackError` names the fields that are not; nothing
+   * is changed in QuickBooks to put them right.
+   */
+  async createAccount(spec: SetupAccountSpec, requestId: string): Promise<QboAccount> {
+    const fixed = SETUP_ACCOUNTS[setupRowOf(spec)];
+    const created = await this.create(
+      'Account',
+      { Name: fixed.name, AccountType: fixed.accountType, AccountSubType: fixed.accountSubType },
+      requestId,
+    );
+    const accountId = readAccountId(created, 'Account');
+    const got = await this.read('Account', accountId);
+    const mismatch = accountReadBackMismatch(fixed, accountId, got);
+    if (mismatch.length > 0) throw new QboAccountReadBackError(accountId, mismatch);
+    return toQboAccount(got, 'Account');
+  }
+
+  /** `post`'s request, for any entity this client creates. */
+  private async create(
+    entity: QboCreatedEntity,
+    body: JsonObject,
+    requestId: string,
+  ): Promise<JsonObject> {
     const id = assertRequestId(requestId);
     const payload = await this.call(
       'POST',
@@ -253,7 +355,8 @@ export class QboClient {
   /**
    * Each named account's `AccountType`, read live, for checking an account
    * map before it is saved (ADR 0060 §4). An id QuickBooks does not have is
-   * absent from the answer. We never create an account.
+   * absent from the answer. It creates nothing: the only accounts this client
+   * ever creates are setup's two (`createAccount`, ADR 0063).
    */
   async accountTypes(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
     const unique = [...new Set(ids.map((id) => assertQboId(id)))];
@@ -272,6 +375,11 @@ export class QboClient {
 
   /** Reads one entity back by its QuickBooks id, with a fresh request id. */
   async getById(entity: QboWriteEntity, id: string): Promise<JsonObject> {
+    return this.read(entity, id);
+  }
+
+  /** `getById`'s request, for any entity this client creates. */
+  private async read(entity: QboCreatedEntity, id: string): Promise<JsonObject> {
     const qboId = assertQboId(id);
     const payload = await this.call(
       'GET',

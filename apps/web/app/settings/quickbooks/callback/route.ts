@@ -37,7 +37,10 @@ export const dynamic = 'force-dynamic';
  * is the state cookie — a single-use nonce this app minted when the owner
  * pressed Connect, compared in constant time, ten minutes at most — and that is
  * checked before anything else is. Everything the cookie names beyond the nonce
- * is re-derived from the live session.
+ * is re-derived from the live session. (Settings → QuickBooks is a GET that
+ * may write too: an owner's read of a chart of accounts may refresh the
+ * company's token and store the rotated one, taking nothing from the request
+ * — ADR 0063 §1. This is the one GET that writes what a request brought.)
  *
  * In order, each before anything it could cost:
  *

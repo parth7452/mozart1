@@ -8,6 +8,17 @@ import { type NoticeKey } from '../../../../lib/notices';
 import { mayConnectLedger, QBO_SETTINGS_PATH } from '../../../../lib/qbo-connect';
 import { qboPostingFromEnv } from '../../../../lib/qbo-posting';
 import { postingStoreFor } from '../../../../lib/posting';
+import { PRESS_BOUNDS } from '../../../../lib/posting-setup';
+
+/**
+ * One type check of at most `PRESS_REQUEST_TIMEOUT_MS`, the bound a setup
+ * press checks its map with (`PRESS_BOUNDS`), and one token refresh on its own
+ * bounds (a lock connection, 30 s; the company's lock, 15 s; Intuit, 10 s):
+ * 80 s at worst. Without this the platform's default (10 s on Hobby, 15 s on
+ * Pro, ADR 0021) would answer a slow QuickBooks with a gateway timeout rather
+ * than `posting_map_unreadable`.
+ */
+export const maxDuration = 120;
 
 /** A QuickBooks account id as the form sends it: digits, nothing else. */
 const ACCOUNT_ID = /^[0-9]{1,20}$/;
@@ -16,8 +27,10 @@ const ACCOUNT_ID = /^[0-9]{1,20}$/;
  * Saves a connection's account map (ADR 0060 §4): which QuickBooks accounts a
  * posting debits and credits. Owner only — the database's rule as well as
  * this route's — and each account's type is read live from QuickBooks before
- * anything is written. We never create an account. Hidden, and refused,
- * unless this deployment posts at all (`QBO_POSTING`).
+ * anything is written. The form's dropdowns send ids the page read from the
+ * company's chart (ADR 0063 §4); this route creates no account — only a setup
+ * press does. Hidden, and refused, unless this deployment posts at all
+ * (`QBO_POSTING`).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
@@ -64,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const store = postingStoreFor(session);
   const connection = (await store.postingConnections()).find((c) => c.connectionId === connectionId);
   if (connection === undefined) return say('posting_unknown_connection');
-  const readTypes = poster.accountTypesFor(identity, connection);
+  const readTypes = poster.accountTypesFor(identity, connection, PRESS_BOUNDS);
   if (readTypes === undefined) return say('posting_off');
 
   try {

@@ -281,6 +281,23 @@ describe('whether an environment posts to QuickBooks (ADR 0060 §5)', () => {
     expect(qboPostingFromEnv({ ...qbo, QBO_POSTING: '1' })).toBeDefined();
   });
 
+  it('reads no chart and creates no account without the Intuit app or a KMS key (ADR 0063)', () => {
+    const id = '11111111-2222-4333-8444-555555555555';
+    const identity = { orgId: id, userId: id };
+    const connection = { connectionId: id, realmId: '4620816365' };
+    for (const environment of [
+      { ...qbo, QBO_POSTING: '1', QBO_CLIENT_ID: '' },
+      { ...qbo, QBO_POSTING: '1', QBO_TOKEN_KMS_KEY_ID: '' },
+    ]) {
+      const poster = qboPostingFromEnv(environment);
+      expect(poster).toBeDefined();
+      expect(poster?.accountsFor(identity, connection)).toBeUndefined();
+      expect(poster?.accountCreatorFor(identity, connection)).toBeUndefined();
+      expect(poster?.accountTypesFor(identity, connection)).toBeUndefined();
+      expect(poster?.clientFor(identity, connection)).toBeUndefined();
+    }
+  });
+
   it('refuses the job before it builds a store or a request when there is no poster', async () => {
     let built = false;
     const id = '11111111-2222-4333-8444-555555555555';
