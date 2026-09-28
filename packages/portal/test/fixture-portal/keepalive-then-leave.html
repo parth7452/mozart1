@@ -1,0 +1,9 @@
+<!doctype html><html><body><p>Statement</p>
+<script>
+// A keepalive fetch started just before the page sends itself away: it outlives the page that sent it.
+setTimeout(function () {
+  fetch('/keepalive-then-leave', { method: 'POST', body: 'claim=DN-1001', keepalive: true }).catch(function () {});
+  location.href = '/beacon-landed.html';
+}, 300);
+</script>
+</body></html>

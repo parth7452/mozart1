@@ -316,6 +316,7 @@ describe.skipIf(!existsSync(CHROMIUM))('runRecipe against the fixture portal', {
       ['beacon-popup.html', '/beacon-from-closed-popup'],
       ['beacon-self-nav.html', '/beacon-on-pagehide'],
       ['keepalive.html', '/keepalive-on-pagehide'],
+      ['keepalive-then-leave.html', '/keepalive-then-leave'],
       ['beacon-iframe.html', '/beacon-from-removed-frame'],
     ];
     for (const [page, path] of pages) {
@@ -334,14 +335,13 @@ describe.skipIf(!existsSync(CHROMIUM))('runRecipe against the fixture portal', {
     // proxy every time, and every time it is refused and counted.
     const popup = await run(steps('beacon-popup.html'), {}, creds, { executablePath });
     expect(popup.refused).toContainEqual(expect.objectContaining({ method: 'POST', url: `${portal.origin}/beacon-from-closed-popup`, reason: 'non_get_not_allowed' }));
-    // A keepalive fetch as a page sends itself away Chromium sends most times and not all (as with a beacon, above):
-    // whenever it comes, it is refused and counted.
-    let counted = false;
-    for (let attempt = 0; attempt < 5 && !counted; attempt++) {
-      const out = await run(steps('keepalive.html'), {}, creds, { executablePath });
-      counted = out.refused.some((r) => r.method === 'POST' && r.url === `${portal.origin}/keepalive-on-pagehide` && r.reason === 'non_get_not_allowed');
-    }
-    expect(counted).toBe(true);
+    // A keepalive fetch started as a page sends itself away outlives the page, and Chromium sends it every time: it is
+    // refused and counted. One sent from `pagehide` Chromium sends only sometimes, under load about one run in three,
+    // however long the run waits after (measured 2026-09-28), so counting it cannot be asked of one run; the test
+    // above holds that it is never sent on, whenever it comes.
+    const leaving = await run(steps('keepalive-then-leave.html'), {}, creds, { executablePath });
+    expect(leaving.refused).toContainEqual(expect.objectContaining({ method: 'POST', url: `${portal.origin}/keepalive-then-leave`, reason: 'non_get_not_allowed' }));
+    expect(saw('/keepalive-then-leave')).toBe(false);
     expect(writes()).toEqual([]);
   });
 
