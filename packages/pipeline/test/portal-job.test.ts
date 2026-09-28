@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PORTAL_TERMS_ALLOWED, portalTermsAllowances } from '@recouple/core-domain';
+import { portalTermsAllowances } from '@recouple/core-domain';
 import { allFixtureDocuments } from '@recouple/fixtures';
 import type { ScanVerdict } from '@recouple/ingest';
 import {
@@ -557,9 +557,9 @@ describe('a dry run', () => {
     expectNothingLeaked(steps.returned, result);
   });
 
-  it('is refused while ADR 0062 records its terms as pending: the deployed data', async () => {
+  it('is refused while its ADR records no allowing answer', async () => {
     const w = world();
-    const result = await readPortalJob({ ...w.deps, terms: PORTAL_TERMS_ALLOWED }, input(), new FakeSteps());
+    const result = await readPortalJob({ ...w.deps, terms: portalTermsAllowances([]) }, input(), new FakeSteps());
 
     expect(result).toMatchObject({
       outcome: 'refused',

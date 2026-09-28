@@ -899,10 +899,10 @@ describeDb('a portal read on Postgres (the handler, the job and migration 0038)'
     expectNothingLeaked(error, audits);
   });
 
-  it('refuses every run under ADR 0062 while its terms are pending, and sends the worker nothing', async () => {
+  it('refuses every run under an ADR that records no allowing answer, and sends the worker nothing', async () => {
     const { connectionId, versionId } = await ready();
     const worker = fakeWorker({ outcome: 'completed' });
-    const result = await portalReadSteps(contextFor(worker, PORTAL_TERMS_ALLOWED, []))({
+    const result = await portalReadSteps(contextFor(worker, portalTermsAllowances([]), []))({
       event: portalReadRequestedEvent({
         connectionId,
         orgId,

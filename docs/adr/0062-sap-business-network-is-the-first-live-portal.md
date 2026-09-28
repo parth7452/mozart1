@@ -1,8 +1,8 @@
 # 0062 — SAP Business Network is the first live portal: sign-in plumbing only
 
-- Status: accepted (the founder, 2026-09-27: "Start with B, Ariba"). **The terms
-  record in §2 is pending.** No recipe runs against any SAP host, as a dry run or
-  otherwise, until the founder fills it in (ADR 0057 §2).
+- Status: accepted (the founder, 2026-09-27: "Start with B, Ariba"). The terms
+  record in §2 was filled in by the founder on 2026-09-28: allowed with
+  conditions.
 - Date: 2026-09-27
 - Depends on: ADR 0057 (portal read, accepted), which this is the per-portal ADR
   for. Its §6 worker, §7 sealed credentials, §8 MFA, §13 runs and §15 tables are
@@ -52,7 +52,7 @@ connection's public account identifier is the ANID, which the recipe's first
 step after sign-in compares with what the portal displays (ADR 0057 §13,
 `account_mismatch`).
 
-### 2. The terms come first: pending
+### 2. The terms come first: allowed with conditions
 
 The founder reads SAP Business Network's supplier terms of use in a browser,
 and whatever terms apply to Standard accounts and test accounts, then records
@@ -63,12 +63,21 @@ the answer here. The questions are those of ADR 0058 §2:
 
 The record:
 
-- Terms read by: *pending*
-- On: *pending*
-- Documents and versions: *pending*
-- Answer: *pending* (one of: allowed; allowed with conditions; needs SAP's
-  written consent; not allowed)
-- Conditions, if any: *pending*
+- Terms read by: the founder
+- On: 2026-09-28
+- Documents and versions: SAP Business Network's supplier terms of use and the
+  clickwrap presented at account creation or invitation. The founder did not
+  name versions; the walk-through (§3) records the clickwrap it meets.
+- Answer: allowed with conditions. The founder, 2026-09-28, to the three
+  questions: automated access by a script is not forbidden; a dedicated user
+  is acceptable; terms "are accepted via clickwrap during account creation or
+  invitation rather than at every sign-in", and where a sign-in does present
+  them, "can add a human interval here".
+- Conditions, if any: terms are accepted only by a person, at account creation
+  or invitation, never by a run. A sign-in that presents terms stops as
+  `needs_attention` (`terms_prompt`) for a person to read and accept by hand,
+  as the runner already does (ADR 0057 §1); a clickwrap accepted then that
+  changes these answers is recorded here before the next run.
 
 Until it says "allowed" or "allowed with conditions", the job refuses to run
 any recipe whose `provenance.portalAdr` names this ADR (ADR 0057 §2). If the

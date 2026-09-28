@@ -83,9 +83,10 @@ const allowance = (over: Partial<PortalTermsAllowance> = {}): PortalTermsAllowan
 });
 
 describe('what is deployed', () => {
-  it('allows no portal yet: UNFI is paused and SAP Business Network is pending', () => {
-    expect([...PORTAL_TERMS_ALLOWED.keys()]).toEqual([]);
-    expect(portalTermsVerdict(SAP)).toEqual({ allowed: false, reason: 'not_recorded' });
+  it('allows SAP Business Network with conditions, and not UNFI, which is paused', () => {
+    expect([...PORTAL_TERMS_ALLOWED.keys()]).toEqual(['0062']);
+    expect(portalTermsVerdict(SAP)).toEqual({ allowed: true, allowance: PORTAL_TERMS_ALLOWED.get('0062') });
+    expect(PORTAL_TERMS_ALLOWED.get('0062')?.answer).toBe('allowed_with_conditions');
     expect(portalTermsVerdict({ portalKey: 'unfi', portalAdr: '0058' })).toEqual({
       allowed: false,
       reason: 'not_recorded',
@@ -95,7 +96,7 @@ describe('what is deployed', () => {
   it('reads the two portal ADRs the way this test reads every entry', () => {
     expect(adrsWithTermsRecords()).toEqual(['0058', '0062']);
     expect(termsRecord(adrText('0058'))).toEqual({ answer: 'allowed', on: '2026-09-27' });
-    expect(termsRecord(adrText('0062'))).toEqual({ answer: 'pending', on: 'pending' });
+    expect(termsRecord(adrText('0062'))).toEqual({ answer: 'allowed_with_conditions', on: '2026-09-28' });
   });
 
   it('holds no entry its ADR does not record, for that portal and that day', () => {
