@@ -1664,6 +1664,14 @@ classes had to be sent as `\\u` and checked with a read-only
 `select md5($m$…$m$)` before applying. Compare the stored md5 with the file's
 after every apply.
 
+Migration 0039 (portal read hardening, ADR 0064) was applied on the founder's
+go on 2026-09-28, to `mozart-preview` (17:42 UTC) and then production (17:42),
+and read back on both: the stored statement's md5 equals the file's; the
+`enable_is_not_held` trigger is on `portal_connections`; `portal_captures`'
+`tenant_insert` names the run's own start and no outcome row; no `app`
+function is unpinned. The security advisor shows only its old leaked-password
+notice.
+
 **A ledger case shows the payer's terms** (no ADR, no migration).
 `payerTermsFor` (`core-domain`) derives a case's reason code and deduction
 reference at read time from the notices and remittances linked to it and to the
