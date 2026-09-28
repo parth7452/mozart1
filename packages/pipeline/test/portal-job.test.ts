@@ -25,6 +25,7 @@ import {
   readPortalJob,
   type PortalJobBinding,
   type PortalJobCaptureInput,
+  type PortalJobCaptureRow,
   type PortalJobConnection,
   type PortalJobCredential,
   type PortalJobRecipe,
@@ -42,6 +43,7 @@ import {
   type PortalWorkerClient,
   type PortalWorkerRunEnd,
 } from '../src/portal-job';
+import type { StoredDocument } from '../src/ports';
 import { ingestDocument } from '../src/steps';
 import { AlwaysCleanScanner, AlwaysInfectedScanner, InMemoryStore } from '../src/testing/memory-store';
 
@@ -153,6 +155,10 @@ class FakePortalStore implements PortalReadJobStore<TestRecipe> {
   /** Runs after a start row is first written: a person acting in between. */
   afterStart: (() => void) | undefined;
   disableError: Error | undefined;
+  /** The capture row refused, after its checks: nothing of the capture is written. */
+  newCaptureError: Error | undefined;
+
+  constructor(readonly documents: InMemoryStore) {}
 
   async memberMayWrite(actor: { orgId: string; userId: string }): Promise<boolean> {
     this.calls.push('memberMayWrite');
@@ -229,6 +235,26 @@ class FakePortalStore implements PortalReadJobStore<TestRecipe> {
     if (index >= 0) return `capture:${index}`;
     this.captures.push(input);
     return `capture:${this.captures.length - 1}`;
+  }
+  /**
+   * One transaction, as the Postgres store writes it: every check first, then
+   * the arrival, the document and the row, so a refusal writes none of them.
+   */
+  async recordNewCapture(input: {
+    capture: PortalJobCaptureRow;
+    document: Omit<StoredDocument, 'documentId' | 'uploadId'>;
+  }): Promise<{ document: StoredDocument; captureId: string }> {
+    this.calls.push('recordNewCapture');
+    const start = this.starts.find((s) => s.runId === input.capture.runId);
+    if (start === undefined) throw new Error('a capture needs its start row');
+    if (start.dryRun) throw new Error('a dry run captures nothing');
+    if (start.recipeVersionId !== input.capture.recipeVersionId) throw new Error('a capture names its run’s version');
+    if (input.document.sha256 !== input.capture.sha256) throw new Error('the bytes captured are the bytes kept');
+    if (this.newCaptureError !== undefined) throw this.newCaptureError;
+    const upload = await this.documents.recordUpload({ orgId: input.document.orgId, source: 'portal_fetch' });
+    const document = await this.documents.putDocument({ ...input.document, uploadId: upload.uploadId });
+    this.captures.push({ ...input.capture, documentId: document.documentId });
+    return { document, captureId: `capture:${this.captures.length - 1}` };
   }
   async disableConnection(input: {
     connectionId: string;
@@ -401,9 +427,9 @@ class FakeSteps implements PortalJobSteps {
 // ---------------------------------------------------------------------------
 
 function world() {
-  const store = new FakePortalStore();
-  const worker = new FakeWorker();
   const documents = new InMemoryStore();
+  const store = new FakePortalStore(documents);
+  const worker = new FakeWorker();
   const reads: (readonly string[])[] = [];
   const deps: PortalReadJobDeps<TestRecipe> = {
     store,
@@ -757,7 +783,7 @@ describe('a read that captures', () => {
       'request-reads',
     ]);
     // The rows come before the outcome, and the outcome before any read.
-    expect(w.store.calls.slice(-3)).toEqual(['recordCapture', 'recordCapture', 'recordRunEnd']);
+    expect(w.store.calls.slice(-3)).toEqual(['recordNewCapture', 'recordNewCapture', 'recordRunEnd']);
 
     // A step returns ids and codes: no bytes, no filename, no path.
     const returned = JSON.stringify(steps.returned);
@@ -765,6 +791,20 @@ describe('a read that captures', () => {
       expect(returned).not.toContain(withheld);
     }
     expectNothingLeaked(steps.returned, result);
+  });
+
+  it('writes a new capture with its arrival, so a refused row leaves no upload and no document', async () => {
+    const w = capturing();
+    w.store.newCaptureError = new Error('portal capture blocked');
+    const error = await failure(readPortalJob(w.deps, input({ dryRun: false }), new FakeSteps()));
+
+    expect(error).toBeInstanceOf(PortalRunAlertError);
+    expect(w.store.calls).toContain('recordNewCapture');
+    expect(w.store.calls).not.toContain('recordCapture');
+    expect(w.documents.uploads.size).toBe(0);
+    expect(w.documents.documents.size).toBe(0);
+    expect(w.store.captures).toEqual([]);
+    expect(w.reads).toEqual([]);
   });
 
   it('keeps the first arrival of bytes the tenant already held, and counts them as such', async () => {

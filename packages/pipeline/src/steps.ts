@@ -192,12 +192,39 @@ export interface IngestResult {
 }
 
 /**
+ * Stores a document the tenant does not hold yet: its arrival (`uploads`) and
+ * its row, the arrival first. `ingestDocument`'s default is the store's
+ * `recordUpload` and then its `putDocument`, one transaction each.
+ *
+ * A caller that must write a row of its own with the arrival — the portal job,
+ * whose capture row is written in the transaction that writes its `uploads`
+ * row (ADR 0057 §15, ADR 0064) — passes one that writes all of them together.
+ * It is asked only for a document the tenant did not hold: a re-arrival of
+ * bytes already stored writes no `uploads` row, so there is nothing to join.
+ */
+export type StoreNewDocument = (arrival: {
+  readonly upload: { readonly orgId: string; readonly source: IngestSource; readonly createdBy?: string };
+  readonly document: Omit<StoredDocument, 'documentId' | 'uploadId'>;
+}) => Promise<StoredDocument>;
+
+/** `StoreNewDocument`'s default: the arrival, then the document, one port call each. */
+function arrivalThenDocument(store: PipelineDeps['store']): StoreNewDocument {
+  return async ({ upload, document }) => {
+    // Before the document, so a stored document always has an arrival behind
+    // it. The reverse order can leave a document that says nothing about where
+    // it came from, which is the state this whole change exists to end.
+    const recorded = await store.recordUpload(upload);
+    return store.putDocument({ ...document, uploadId: recorded.uploadId });
+  };
+}
+
+/**
  * Hardens, stores and scans. Rejections come back as `RejectedUploadError` with
  * a code — the caller shows the user why, rather than a silent failure.
  */
 export async function ingestDocument(
   input: IngestInput,
-  deps: Pick<PipelineDeps, 'store' | 'scanner'>,
+  deps: Pick<PipelineDeps, 'store' | 'scanner'> & { readonly storeNewDocument?: StoreNewDocument },
 ): Promise<IngestResult> {
   const accepted =
     input.source === 'email_body'
@@ -240,15 +267,6 @@ export async function ingestDocument(
     return { document: existing, verdict, deduplicated: true, warnings: accepted.warnings };
   }
 
-  // Before the document, so a stored document always has an arrival behind it.
-  // The reverse order can leave a document that says nothing about where it
-  // came from, which is the state this whole change exists to end.
-  const upload = await deps.store.recordUpload({
-    orgId: input.orgId,
-    source: input.source,
-    ...(input.uploadedBy !== undefined ? { createdBy: input.uploadedBy } : {}),
-  });
-
   // A spreadsheet's text layer is its cells, rendered by code (ADR 0056): one
   // page per sheet, no OCR. The door has already refused anything unreadable.
   const pageText =
@@ -257,17 +275,26 @@ export async function ingestDocument(
       ? parseWorkbook(input.bytes, accepted.mimeType).sheets.map(renderSheetText)
       : undefined);
 
-  const document = await deps.store.putDocument({
-    orgId: input.orgId,
-    sha256: accepted.sha256,
-    filename: input.filename,
-    mimeType: accepted.mimeType,
-    byteSize: accepted.byteSize,
-    bytes: input.bytes,
-    uploadId: upload.uploadId,
-    ...(pageText !== undefined ? { pageText } : {}),
-    requiresSplit: accepted.requiresSplit,
-  });
+  const arrival = {
+    upload: {
+      orgId: input.orgId,
+      source: input.source,
+      ...(input.uploadedBy !== undefined ? { createdBy: input.uploadedBy } : {}),
+    },
+    document: {
+      orgId: input.orgId,
+      sha256: accepted.sha256,
+      filename: input.filename,
+      mimeType: accepted.mimeType,
+      byteSize: accepted.byteSize,
+      bytes: input.bytes,
+      ...(pageText !== undefined ? { pageText } : {}),
+      requiresSplit: accepted.requiresSplit,
+    },
+  } as const;
+
+  const storeNew = deps.storeNewDocument ?? arrivalThenDocument(deps.store);
+  const document = await storeNew(arrival);
 
   const verdict = await deps.scanner.scan(input.bytes);
   await deps.store.recordScan(document.documentId, verdict);

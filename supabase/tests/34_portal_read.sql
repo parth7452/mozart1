@@ -1263,9 +1263,14 @@ begin
     format(ins_cap, org_a, run_live, ver_1, doc_b, null, 'page_snapshot', 'x', '/x', 1,
            encode(digest('portal-b', 'sha256'), 'hex'), now()),
     'portal_captures_document_same_org', 'a capture names this workspace''s document');
+  -- As the table owner, past RLS: since migration 0039 the insert policy
+  -- refuses another workspace's run for app_rw first (suite 35), and this
+  -- asks the composite tie itself, which answers for every role.
+  reset role;
   perform test.expect_error(
     format(ins_cap, org_a, run_b, ver_1, null, 'too_large', 'download', 'x', '/x', null, sha_2, now()),
     'portal_captures_start_same_org', 'and this workspace''s run');
+  set role app_rw;
   perform test.expect_error(
     format(ins_cap, org_a, run_live, ver_1, doc_1, null, 'page_snapshot', 'x', '/x', 1, sha_1, null),
     'not-null', 'and when it was captured');
