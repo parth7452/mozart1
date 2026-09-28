@@ -17,9 +17,8 @@
 
   None of it changes which two accounts are created. It changes what the
   audit log records, when a create is sent again under the same request id,
-  when a press refuses, and when the settings page may write. **The founder
-  has not confirmed the amendment.** It is theirs to confirm, recorded in
-  this line, before the merge.
+  when a press refuses, and when the settings page may write. The founder
+  confirmed the amendment on 2026-09-28 ("approve both").
 - Date: 2026-09-27
 - Amends: ADR 0060 §4, whose last sentence is "We never create an account".
   After this ADR, we create only the two accounts §2 names, each on an
