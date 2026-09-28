@@ -13,14 +13,14 @@
  * **This list may say less than an ADR, and never more.**
  * `packages/core-domain/test/portal-terms.test.ts` reads each entry's ADR and
  * refuses an entry whose terms record does not give that answer for that
- * portal. It starts empty:
+ * portal:
  *
  *  - ADR 0058 (UNFI) records "allowed", and is paused (2026-09-27): there is no
  *    sandbox and no dedicated login until the pilot call. It is added here
  *    when UNFI resumes, on the founder's go.
- *  - ADR 0062 (SAP Business Network) records its answer as pending: the
- *    founder has not yet read SAP's terms (§2). Until an entry is deployed,
- *    every run of a recipe naming it is refused.
+ *  - ADR 0062 (SAP Business Network) records "allowed with conditions"
+ *    (2026-09-28): terms are accepted by a person, never by a run, and a
+ *    sign-in that presents them stops for one (`terms_prompt`).
  *
  * Removing an entry is how a portal is stopped for every tenant at once: the
  * next run of any recipe naming its ADR is refused before anything is read.
@@ -100,11 +100,13 @@ export function portalTermsAllowances(
 }
 
 /**
- * What is deployed: the ADRs whose terms record lets a recipe run. Empty, for
- * the reasons at the top of this file.
+ * What is deployed: the ADRs whose terms record lets a recipe run, for the
+ * reasons at the top of this file.
  */
 export const PORTAL_TERMS_ALLOWED: ReadonlyMap<string, PortalTermsAllowance> =
-  portalTermsAllowances([]);
+  portalTermsAllowances([
+    { adr: '0062', portalKey: 'sap_business_network', answer: 'allowed_with_conditions', recordedOn: '2026-09-28' },
+  ]);
 
 /**
  * Why a recipe may not run under its terms: it names no ADR as four digits,
