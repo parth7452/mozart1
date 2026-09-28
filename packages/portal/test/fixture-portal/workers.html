@@ -1,0 +1,17 @@
+<!doctype html><html><body><h1>Deductions</h1>
+<script>
+// Two ways a page's script can try to write from a worker. A dedicated
+// worker's requests are routed, and its POST refused; a shared worker's never
+// reach the route handler, so the runner switches shared workers off.
+var left = 2;
+function done() { if (--left === 0) document.body.setAttribute('data-done', '1'); }
+new Worker('/dedicated-worker.js').onmessage = done;
+try {
+  var shared = new SharedWorker('/shared-worker.js');
+  shared.port.onmessage = done;
+  shared.port.start();
+} catch (e) {
+  done();
+}
+</script>
+</body></html>

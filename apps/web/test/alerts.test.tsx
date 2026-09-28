@@ -22,6 +22,7 @@ import { INNGEST_APP_ID, READ_DOCUMENT_CONFIG } from '../lib/inngest';
 import { READ_INBOUND_EMAIL_CONFIG } from '../lib/inbound';
 import { LEDGER_SYNC_CONFIG, LEDGER_SYNC_FAN_OUT_CONFIG } from '../lib/inngest-ledger';
 import { POST_WRITEBACK_CONFIG } from '../lib/inngest-posting';
+import { PORTAL_READ_CONFIG, PORTAL_READ_FAN_OUT_CONFIG } from '../lib/inngest-portal';
 
 /**
  * The failed-run alert (ADR 0052).
@@ -86,7 +87,7 @@ function harness(binding: AlertBinding = { kind: 'configured', settings: SETTING
 afterEach(() => vi.restoreAllMocks());
 
 describe('which failures are emailed', () => {
-  it('watches exactly the five jobs, by the id Inngest reports', () => {
+  it('watches exactly the seven jobs, by the id Inngest reports', () => {
     expect([...ALERTED_FUNCTIONS.keys()].sort()).toEqual(
       [
         READ_DOCUMENT_CONFIG.id,
@@ -94,14 +95,19 @@ describe('which failures are emailed', () => {
         LEDGER_SYNC_CONFIG.id,
         LEDGER_SYNC_FAN_OUT_CONFIG.id,
         POST_WRITEBACK_CONFIG.id,
+        PORTAL_READ_CONFIG.id,
+        PORTAL_READ_FAN_OUT_CONFIG.id,
       ]
         .map((id) => `recouple-${id}`)
         .sort(),
     );
     expect(READ).toBe('recouple-read-document');
+    // A refused sign-in, an expired session and a failed run end the portal
+    // job failed once recorded, which is how they reach a person (ADR 0062 §5).
+    expect(ALERTED_FUNCTIONS.has('recouple-read-portal')).toBe(true);
   });
 
-  it('filters the trigger to those five, with ids safe inside a CEL string', () => {
+  it('filters the trigger to those seven, with ids safe inside a CEL string', () => {
     for (const id of ALERTED_FUNCTIONS.keys()) {
       expect(id).toMatch(/^[a-z0-9-]+$/);
       expect(ALERT_FILTER).toContain(`event.data.function_id == '${id}'`);

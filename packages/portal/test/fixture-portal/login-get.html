@@ -1,0 +1,7 @@
+<!doctype html><html><body><h1>Supplier portal</h1>
+<form action="/login" method="get"><input name="username" type="text"><input name="password" type="password"><button type="submit">Sign in</button></form>
+<script>
+// Reports the first thing typed into the page, so a test can tell a form typed into from one that was not.
+document.addEventListener('input', function () { fetch('/typed'); }, { once: true });
+</script>
+</body></html>

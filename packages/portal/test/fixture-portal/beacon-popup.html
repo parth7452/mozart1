@@ -1,0 +1,8 @@
+<!doctype html><html><body><p>Statement</p>
+<script>
+// A popup that writes as it goes away, and closes itself: by the time its
+// beacon is sent its frame is gone, and Playwright routes nothing for it.
+window.open('/beacon-popup-closes.html');
+setTimeout(function () { document.body.setAttribute('data-done', '1'); }, 2000);
+</script>
+</body></html>

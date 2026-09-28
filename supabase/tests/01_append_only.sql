@@ -95,4 +95,89 @@ begin
     'every blocked mutation left the chain intact');
 end
 $test$;
+
+-- The portal tables (migration 0038, ADR 0057 §15): six append-only tables,
+-- the run-start table among them, each with a row in it, refused an UPDATE, a
+-- DELETE and a TRUNCATE by app_rw's grants and, for the owner, by the trigger.
+-- The registry, portal_connections, is not one of them: `enabled` flips.
+do $portal$
+declare
+  ids jsonb; org uuid; owner_id uuid;
+  conn uuid; ver uuid; run uuid; upl uuid; doc uuid;
+  -- One-per-account is across every org, and a used database keeps rows.
+  account text := 'AN' || lpad((floor(random() * 1e11))::bigint::text, 11, '0') || '-T';
+  effective date := (now() at time zone 'utc')::date - 1;
+  t text;
+  n int;
+  six constant text[] := array[
+    'portal_credentials', 'portal_recipe_versions', 'portal_recipe_reviews',
+    'portal_read_starts', 'portal_read_runs', 'portal_captures'];
+begin
+  ids := test.seed_org('appendonlyportal');
+  org := (ids->>'org')::uuid;
+  insert into users (email, full_name) values ('appendonlyportal-owner@example.test', 'Owner')
+    returning id into owner_id;
+  insert into memberships (org_id, user_id, role) values (org, owner_id, 'owner');
+
+  set role app_rw;
+  perform test.as_member(org, owner_id);
+
+  insert into portal_connections (org_id, portal_key, label, account_id, created_by)
+    values (org, 'sap_business_network', 'Append-only', account, owner_id)
+    returning id into conn;
+  insert into portal_credentials
+    (org_id, connection_id, cipher, key_id, wrapped_key, ciphertext,
+     sign_in_origin, sign_in_paths, hosts_hash, created_by)
+    values (org, conn, 'aws-kms+aes-256-gcm', 'arn:aws:kms:us-east-1:1:key/portal', 'd3JhcHBlZA==',
+            'c2VhbGVk', 'https://service.ariba.com', array['/sign-in'],
+            encode(digest('service.ariba.com', 'sha256'), 'hex'), owner_id);
+  insert into portal_recipe_versions (org_id, portal_key, version, effective_from, recipe, created_by)
+    values (org, 'sap_business_network', 1, effective,
+            jsonb_build_object('portalKey', 'sap_business_network', 'version', 1,
+                               'effectiveFrom', to_char(effective, 'YYYY-MM-DD'),
+                               'provenance', jsonb_build_object(
+                                 'draftedBy', jsonb_build_object('kind', 'person', 'id', 'founder'))),
+            owner_id)
+    returning id into ver;
+  insert into portal_recipe_reviews (org_id, recipe_version_id, verdict, reviewer)
+    values (org, ver, 'promoted', owner_id);
+  run := gen_random_uuid();
+  perform app.record_portal_read_start(run, org, conn, ver, false, owner_id);
+  insert into uploads (org_id, source) values (org, 'portal_fetch') returning id into upl;
+  insert into documents (org_id, upload_id, sha256, byte_size, mime_type, storage_ref)
+    values (org, upl, digest('append-only-portal', 'sha256'), 10, 'text/html', 'portal/append-only')
+    returning id into doc;
+  insert into portal_captures (org_id, run_id, recipe_version_id, document_id, kind, step_name,
+                               page_path, snapshot_rule_version, sha256, captured_at)
+    values (org, run, ver, doc, 'page_snapshot', 'capture_landing', '/dashboard', 1,
+            encode(digest('append-only-portal', 'sha256'), 'hex'), now());
+  perform app.record_portal_read_run(run, org, 'completed', null, null, null, 1, 1, 1, 0, 0,
+                                     '[{"step": "capture_landing", "passed": true}]'::jsonb);
+
+  foreach t in array six loop
+    perform test.expect_error(format('update %I set org_id = org_id', t), 'denied',
+      format('app_rw holds no UPDATE privilege on %s', t));
+    perform test.expect_error(format('delete from %I', t), 'denied',
+      format('app_rw holds no DELETE privilege on %s', t));
+    perform test.expect_error(format('truncate %I', t), 'denied',
+      format('app_rw holds no TRUNCATE privilege on %s', t));
+  end loop;
+
+  reset role;
+
+  foreach t in array six loop
+    perform test.expect_error(format('update %I set org_id = org_id where org_id = %L', t, org),
+      'append-only', format('the trigger rejects UPDATE on %s even for the table owner', t));
+    perform test.expect_error(format('delete from %I where org_id = %L', t, org),
+      'append-only', format('the trigger rejects DELETE on %s even for the table owner', t));
+    -- CASCADE, because several of these are referenced, and a plain truncate
+    -- of a referenced table is refused by the foreign key before any trigger
+    -- fires (suite 14's reasoning).
+    perform test.expect_error(format('truncate %I cascade', t),
+      'append-only', format('TRUNCATE of %s is blocked even for the table owner', t));
+    execute format('select count(*) from %I where org_id = %L', t, org) into n;
+    perform test.ok(n = 1, format('and the row in %s is still there (saw %s)', t, n));
+  end loop;
+end
+$portal$;
 rollback;

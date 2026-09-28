@@ -1,0 +1,6 @@
+<!doctype html><html><body><p>Popup</p>
+<script>
+addEventListener('pagehide', function () { navigator.sendBeacon('/beacon-from-closed-popup', 'claim=DN-1001'); });
+setTimeout(function () { window.close(); }, 300);
+</script>
+</body></html>

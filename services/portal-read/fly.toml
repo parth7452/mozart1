@@ -1,0 +1,51 @@
+# The portal-read worker (ADR 0057 §6, ADR 0062 §6). Deployed from the
+# repository root and never from this folder: the build needs the workspace.
+# The README has the command.
+app = "recouple-portal-read"
+primary_region = "iad"
+
+[build]
+  # flyctl resolves both beside this file, and prefers them to its flags.
+  dockerfile = "Dockerfile"
+  ignorefile = "Dockerfile.dockerignore"
+
+# The worker's AWS identity, by Fly's OpenID Connect rather than a static key:
+# with AWS_ROLE_ARN set, the AWS SDK assumes the role with a token Fly issues
+# the Machine, and holds credentials that expire in minutes (README, "AWS
+# credentials"). The role is the one allowed kms:Decrypt on the portal key and
+# nothing else. Uncomment with its ARN once the role exists.
+# [env]
+#   AWS_ROLE_ARN = "arn:aws:iam::<account>:role/recouple-portal-read"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # One machine, always on. A run's result lives only in that machine's
+  # memory. A second machine, or one that stopped, answers "not found", and
+  # the job then records the run failed.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.http_options.response]
+    pristine = true
+
+# The worker starts its browser once, and checks its sandbox, before it
+# listens: a few seconds, well inside the grace period.
+[[http_service.checks]]
+  grace_period = "45s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+# Back up after any exit. The worker stops itself when a run's browser will
+# not close, and a clean process is the only sure way to be rid of it.
+[[restart]]
+  policy = "always"
+
+# Headless Chromium on a demanding sign-in page wants more than one shared CPU
+# and more than 1 GB. The worker holds at most 256 MB of captures besides.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

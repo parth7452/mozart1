@@ -71,6 +71,17 @@ jobs:
       - name: unit, property and integration tests
         run: pnpm test
 
+      # The portal-read worker (services/portal-read) is not a workspace
+      # package, so `pnpm test` does not reach it; `pnpm typecheck` does. Its
+      # tests spawn the worker, which refuses to start unless Chromium's sandbox
+      # does, and Ubuntu 24.04 keeps the unprivileged user namespaces the
+      # sandbox is made of behind AppArmor until this is lifted
+      # (services/portal-read/README.md, "Tests").
+      - name: portal-read worker tests
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          pnpm exec vitest run --config services/portal-read/vitest.config.ts
+
       # Replays committed cassettes. Calls no model and spends nothing.
       - name: extraction evals (no regression beyond tolerance)
         run: pnpm eval

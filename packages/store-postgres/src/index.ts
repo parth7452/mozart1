@@ -37,3 +37,4 @@ export {
 } from './review-queue';
 export * from './inbound';
 export * from './team';
+export * from './portal';

@@ -11,6 +11,7 @@
     "@recouple/extraction": "workspace:*",
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "@recouple/portal": "workspace:*",
     "@recouple/qbo": "workspace:*",
     "pg": "^8.16.3"
   },

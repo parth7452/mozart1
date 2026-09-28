@@ -1,0 +1,7 @@
+<!doctype html><html><body><p>Statement</p>
+<script>
+// A keepalive fetch, which outlives the page that sent it, sent as it unloads.
+addEventListener('pagehide', function () { fetch('/keepalive-on-pagehide', { method: 'POST', body: 'claim=DN-1001', keepalive: true }).catch(function () {}); });
+setTimeout(function () { location.href = '/beacon-landed.html'; }, 300);
+</script>
+</body></html>

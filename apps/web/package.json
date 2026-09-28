@@ -14,6 +14,7 @@
     "@recouple/crypto": "workspace:*",
     "@recouple/ingest": "workspace:*",
     "@recouple/pipeline": "workspace:*",
+    "@recouple/portal": "workspace:*",
     "@recouple/qbo": "workspace:*",
     "@recouple/store-postgres": "workspace:*",
     "@supabase/ssr": "^0.8.0",

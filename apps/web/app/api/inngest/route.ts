@@ -9,6 +9,7 @@ import {
 } from '../../../lib/inngest';
 import { ledgerSyncFunctions } from '../../../lib/inngest-ledger';
 import { postingFunctions } from '../../../lib/inngest-posting';
+import { portalReadContext, portalReadFunctions } from '../../../lib/inngest-portal';
 import { alertOnFailureFunction } from '../../../lib/alerts';
 import { inboundStoreFor, readInboundEmailFunction } from '../../../lib/inbound';
 import { pipelineDepsFor, storeForActor } from '../../../lib/pipeline';
@@ -135,7 +136,19 @@ function handlers(): Served | undefined {
       // A write-back to QuickBooks (ADR 0060 §3). Registered always; it
       // refuses before it builds anything unless QBO_POSTING=1.
       ...postingFunctions(client),
-      // An email to the operator when one of the four above fails after its
+      // A payer's portal, read by the worker outside Vercel (ADR 0057 §6,
+      // ADR 0062): a read Settings → Portals starts as a dry run, and a
+      // fan-out nothing schedules. Registered always; a read records
+      // `not_configured` where the worker's variables are not set, and the
+      // terms gate refuses every recipe whose portal's ADR does not record
+      // its terms as allowing it. Each read runs as its connection's member.
+      ...portalReadFunctions(
+        client,
+        portalReadContext(async (events) => {
+          await client.send([...events]);
+        }),
+      ),
+      // An email to the operator when one of the jobs above fails after its
       // retries (ADR 0052). Registered whether or not mail is configured, so
       // its run says why no email came. It opens no database connection.
       alertOnFailureFunction(client),

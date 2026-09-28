@@ -1,0 +1,24 @@
+<!doctype html><html><body><p>Live updates</p>
+<script>
+// Three WebSockets the page-level stand-in Playwright puts in each frame never
+// reaches: one from a worker made from a blob, one from a worker loaded by
+// URL, and a WebSocketStream. Each is opened to the host the query names (the
+// page's own by default, which the allowlist names) and would write a dispute
+// once open. The body says when each has had its chance, and whether this
+// browser has WebSocketStream at all.
+var q = new URLSearchParams(location.search);
+var base = (q.get('scheme') || 'ws') + '://' + (q.get('host') || location.host);
+var left = 3;
+function done() { if (--left === 0) document.body.setAttribute('data-done', '1'); }
+var src = "var ws = new WebSocket('" + base + "/ws-from-blob-worker'); ws.onopen = function () { ws.send('dispute DN-1001'); }; ws.onclose = function () { postMessage('closed'); };";
+new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))).onmessage = done;
+new Worker('/ws-worker.js?url=' + encodeURIComponent(base + '/ws-from-script-worker')).onmessage = done;
+document.body.setAttribute('data-stream', typeof WebSocketStream === 'function' ? 'yes' : 'no');
+if (typeof WebSocketStream === 'function') {
+  var stream = new WebSocketStream(base + '/ws-from-websocketstream');
+  stream.opened.then(function (c) { return c.writable.getWriter().write('dispute DN-1003'); }).catch(function () {}).then(done);
+} else {
+  done();
+}
+</script>
+</body></html>

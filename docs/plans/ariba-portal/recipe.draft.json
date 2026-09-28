@@ -1,0 +1,32 @@
+{
+  "portalKey": "sap_business_network",
+  "version": 1,
+  "effectiveFrom": "2026-09-27",
+  "hostAllowlist": [
+    "placeholder-supplier-sign-in.invalid",
+    "placeholder-sap-identity.invalid",
+    "placeholder-business-network.invalid"
+  ],
+  "signIn": {
+    "origin": "https://placeholder-sap-identity.invalid",
+    "formPaths": ["/placeholder-password-form-path"],
+    "mfaPaths": ["/placeholder-code-form-path"],
+    "acsPaths": []
+  },
+  "neverClick": ["Create Invoice", "Submit", "Confirm", "Send", "Accept", "Publish"],
+  "postAsRead": [],
+  "caps": { "maxPages": 10, "maxDownloads": 0, "maxRunMs": 120000 },
+  "provenance": {
+    "draftedBy": { "kind": "person", "id": "founder" },
+    "source": "UNVERIFIED DRAFT of 2026-09-27, prepared from ADR 0062 §3-4 before any walk-through. Every host, path and selector is a placeholder (a .invalid host, a /placeholder- path, #placeholder-anid-element) and the caps are provisional. Do not upload it until the founder's walk-through (docs/plans/ariba-portal/README.md, step 7) has replaced them; this line then names that walk-through and its date.",
+    "portalAdr": "0062"
+  },
+  "steps": [
+    { "kind": "open", "name": "open_sign_in", "url": "https://placeholder-supplier-sign-in.invalid/placeholder-sign-in-page" },
+    { "kind": "sign_in" },
+    { "kind": "answer_mfa" },
+    { "kind": "expect", "name": "expect_anid", "selector": "#placeholder-anid-element" },
+    { "kind": "capture_page", "name": "landing" },
+    { "kind": "sign_out" }
+  ]
+}

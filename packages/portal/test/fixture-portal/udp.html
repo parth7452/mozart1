@@ -1,0 +1,30 @@
+<!doctype html><html><body><p>Live updates</p>
+<script>
+// Tries to reach the UDP port its query names, which no allowlist names: by
+// WebRTC's STUN and TURN, then by WebTransport, which is HTTP/3 over UDP. Once
+// each has had its chance to send, the body says what was tried.
+(async function () {
+  var port = new URLSearchParams(location.search).get('port');
+  var tried = [];
+  function settled(promise, ms) {
+    return Promise.race([promise.then(function () {}, function () {}), new Promise(function (r) { setTimeout(r, ms); })]);
+  }
+  var pc = new RTCPeerConnection({ iceServers: [
+    { urls: 'stun:127.0.0.1:' + port },
+    { urls: 'turn:127.0.0.1:' + port + '?transport=udp', username: 'fixture', credential: 'fixture' },
+  ] });
+  var gathered = new Promise(function (resolve) {
+    pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') resolve(); });
+  });
+  pc.createDataChannel('updates');
+  await pc.setLocalDescription(await pc.createOffer());
+  await settled(gathered, 1500);
+  tried.push('webrtc');
+  var wt = new WebTransport('https://127.0.0.1:' + port + '/updates');
+  wt.closed.catch(function () {});
+  await settled(wt.ready, 1500);
+  tried.push('webtransport');
+  document.body.setAttribute('data-tried', tried.join(' '));
+})().catch(function () { document.body.setAttribute('data-tried', 'error'); });
+</script>
+</body></html>
