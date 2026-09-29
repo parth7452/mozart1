@@ -134,6 +134,9 @@ real failure with the log's tail, and exits clean — saying so on stderr — wh
 dependencies are not installed, when the tree is unchanged since the last pass,
 or when the stop it is asked about was caused by the hook itself. A skipped run
 is not a passing one: never report the checks green off the hook's silence.
+A SessionStart hook (`.claude/hooks/session-start.sh`) runs `pnpm install
+--frozen-lockfile` in a Claude Code on the web container, and nowhere else,
+so the Stop hook has something to run there.
 
 ## Build order (do not reorder)
 
