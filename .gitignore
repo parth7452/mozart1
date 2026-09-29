@@ -25,3 +25,6 @@ apps/web/.env.local
 
 # The progress dashboard (dashboard-builder) — regenerated every session
 .dashboard/
+
+# Stop hook: fingerprint of the last tree that passed typecheck + tests
+.claude/.stop-verify-ok

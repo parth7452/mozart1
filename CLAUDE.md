@@ -128,7 +128,15 @@ integration tests against it, leaving rows in append-only tables for good
 test process holding `DATABASE_URL`, a `TEST_DATABASE_URL` without the opt-in
 (or the opt-in without one), a Supabase host, or a database carrying a
 `recouple_app` login, a `supabase_admin` role or applied Supabase migrations.
-It has no override. The Stop hook runs `env -u DATABASE_URL pnpm test`.
+It has no override. The Stop hook (`.claude/hooks/stop-verify.sh`) runs
+`pnpm typecheck` and `env -u DATABASE_URL pnpm test`, blocks the stop only on a
+real failure with the log's tail, and exits clean — saying so on stderr — when
+dependencies are not installed, when the tree is unchanged since the last pass,
+or when the stop it is asked about was caused by the hook itself. A skipped run
+is not a passing one: never report the checks green off the hook's silence.
+A SessionStart hook (`.claude/hooks/session-start.sh`) runs `pnpm install
+--frozen-lockfile` in a Claude Code on the web container, and nowhere else,
+so the Stop hook has something to run there.
 
 ## Build order (do not reorder)
 
