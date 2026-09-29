@@ -3,6 +3,9 @@
 - Status: accepted (the founder, 2026-09-27: "Start with B, Ariba"). The terms
   record in §2 was filled in by the founder on 2026-09-28: allowed with
   conditions.
+  **Paused 2026-09-29** after the walk-through (§3): SAP's sign-in needs four
+  runner changes before any run, none needed for the MVP.
+  `docs/plans/ariba-portal/STATUS.md` holds where it stopped.
 - Date: 2026-09-27
 - Depends on: ADR 0057 (portal read, accepted), which this is the per-portal ADR
   for. Its §6 worker, §7 sealed credentials, §8 MFA, §13 runs and §15 tables are
@@ -93,6 +96,15 @@ Two things are expected, to be confirmed:
 The founder enrols the authenticator and keeps its setup key, which is sealed
 with the password (ADR 0057 §8, option 1). Anything else it asks for (SMS, a
 push, a security question) is a stop (`mfa_unanswerable`).
+
+**Found on the walk-through (2026-09-29):** sign-in is at SAP Cloud Identity
+(`lwbnlive.accounts.ondemand.com`), reached from
+`service.ariba.com/Authenticator.aw/ad/` and returning to Ariba by SAML; the
+username and the password are on two pages; the code is six boxes; the landing
+page is on `portal.us.bn.cloud.ariba.com` and shows no ANID without a click;
+sign-out is a POST from the profile menu. An authenticator-app option exists.
+Each of those four is a runner change (`docs/plans/ariba-portal/STATUS.md`),
+and none is made yet.
 
 The host allowlist is not guessed. The founder's walk-through records every
 host the sign-in visits, and the recipe version lists exactly those. A redirect
