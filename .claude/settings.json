@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm --silent typecheck && env -u DATABASE_URL pnpm --silent test"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-verify.sh\""
           }
         ]
       }
