@@ -303,7 +303,7 @@ from the form.
 **What the invitee sees.** They type their address on the sign-in page and
 press **Email me a sign-in link**. The first time, the email is Supabase's
 **Confirm signup** email rather than one that says "sign in" (with the
-branded templates, "Welcome to Mozart: your first sign-in link"): its link
+branded templates, "Confirm your email to sign in to Mozart"): its link
 confirms their address and signs them in, through `/auth/callback`. Every link
 after that is an ordinary sign-in link. Each one only works **in the browser
 that asked for it**, and the first one expires **five minutes after it was
