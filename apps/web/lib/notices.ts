@@ -827,8 +827,20 @@ export const NOTICES = {
   team_invited: {
     tone: 'good',
     text:
-      'added. They can now sign in at app.mozart.financial with this address. A welcome ' +
-      'message you can send them is below.',
+      'added, and emailed how to sign in at app.mozart.financial with this address. The ' +
+      'message we sent is below.',
+  },
+  team_invited_not_emailed: {
+    tone: 'good',
+    text:
+      'added. They can now sign in at app.mozart.financial with this address. This ' +
+      'deployment sends no invitation email, so send them the welcome message below.',
+  },
+  team_invited_mail_failed: {
+    tone: 'bad',
+    text:
+      'added, but the invitation email did not send. They can still sign in at ' +
+      'app.mozart.financial with this address; send them the welcome message below yourself.',
   },
   team_invalid: {
     tone: 'bad',

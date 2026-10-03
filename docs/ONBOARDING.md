@@ -266,9 +266,13 @@ select u.email, a.created_at as account_made_at, a.email_confirmed_at, a.last_si
 Team → Add a person (ADR 0051). That writes the `users` row and the membership
 that the create block writes, with the same rules (one row per address
 ignoring capitals, an existing member refused by name, an audit row naming the
-owner). Nothing else is needed from us: the page shows the owner a welcome
-message to send, and the person signs in at
-**https://app.mozart.financial/login** with that address.
+owner). Nothing else is needed from us: the app emails the person the welcome
+message below (ADR 0065: from `ALERT_EMAIL_FROM` through Resend, under the name
+"Mozart"), the page shows the owner the same message and whether it went, and
+the person signs in at **https://app.mozart.financial/login** with that
+address. The email holds no sign-in link, only the page's address. If the
+notice says it did not send, the app's log has `[recouple] team invitation`
+with the reason, and the owner sends the message from the page instead.
 
 **The `users` row and membership are the whole invitation.** The sign-in form
 asks the database whether the address is invited (`app.address_is_invited()`:
@@ -306,7 +310,12 @@ sent**, not five minutes after it is opened.
 
 **If it goes wrong:**
 
-- *No email.* Check spam, then the app's log for `[sign-in link]`, which says
+- *No invitation email* (from Mozart, before they have asked for anything).
+  Check spam, then the app's log for `[recouple] team invitation`: `not
+  emailed` means this deployment has no `ALERT_EMAIL_FROM` and
+  `RESEND_API_KEY`, `email failed` names Resend's status. They can sign in
+  without it; the owner sends the message from Settings → Team.
+- *No sign-in email.* Check spam, then the app's log for `[sign-in link]`, which says
   why for every address it did not send to, and Supabase → Logs → Auth.
   `NOT SENT to an invited address` means Supabase refused to make the account:
   check that sign-ups are on and the hook is set as in §0. `no link sent`

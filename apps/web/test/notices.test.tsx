@@ -181,6 +181,8 @@ const EVERY_KEY: readonly string[] = [
   'team_holds_ledger',
   'team_invalid',
   'team_invited',
+  'team_invited_mail_failed',
+  'team_invited_not_emailed',
   'team_last_owner',
   'team_not_member',
   'team_remove_confirm',

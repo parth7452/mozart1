@@ -35,29 +35,39 @@ export const SIGN_IN_URL = 'https://app.mozart.financial/login';
  * (supabase/auth `internal/models/flow_state.go`, `IsExpired`): a late click
  * still confirms the address, and the next link — an ordinary magic link — works.
  */
-export function welcomeMessage(input: {
+export interface WelcomeInput {
   readonly workspace: string;
   readonly fullName?: string | undefined;
   readonly email: string;
   readonly role: MembershipRole;
-}): string {
+}
+
+/** The welcome message as an email: what the invite route sends (ADR 0065). */
+export function welcomeEmail(input: WelcomeInput): { readonly subject: string; readonly text: string } {
   const first = input.fullName?.trim().split(/\s+/)[0];
   const greeting = first === undefined || first === '' ? 'Hi,' : `Hi ${first},`;
-  return [
-    `Subject: Your ${input.workspace} workspace on Mozart`,
-    '',
-    greeting,
-    '',
-    `You have been added to ${input.workspace}'s workspace on Mozart as ` +
-      `${ROLE_WORDS[input.role].name}.`,
-    '',
-    `To sign in, go to ${SIGN_IN_URL}, type ${input.email} under Work email and press ` +
-      '"Email me a sign-in link". Open the link in that email in the same browser. If your ' +
-      'email app opens it somewhere else you will see "that link has expired"; copy it into ' +
-      'the browser where you asked for it instead. There is no password.',
-    '',
-    'The first time, the email comes from our sign-in provider and asks you to confirm your ' +
-      'address. Open it within five minutes: its link signs you in. If you are too late it says ' +
-      'the link has expired, and the next link you ask for will work.',
-  ].join('\n');
+  return {
+    subject: `Your ${input.workspace} workspace on Mozart`,
+    text: [
+      greeting,
+      '',
+      `You have been added to ${input.workspace}'s workspace on Mozart as ` +
+        `${ROLE_WORDS[input.role].name}.`,
+      '',
+      `To sign in, go to ${SIGN_IN_URL}, type ${input.email} under Work email and press ` +
+        '"Email me a sign-in link". Open the link in that email in the same browser. If your ' +
+        'email app opens it somewhere else you will see "that link has expired"; copy it into ' +
+        'the browser where you asked for it instead. There is no password.',
+      '',
+      'The first time, the email comes from our sign-in provider and asks you to confirm your ' +
+        'address. Open it within five minutes: its link signs you in. If you are too late it says ' +
+        'the link has expired, and the next link you ask for will work.',
+    ].join('\n'),
+  };
+}
+
+/** The same message for an owner to copy, its subject on the first line. */
+export function welcomeMessage(input: WelcomeInput): string {
+  const { subject, text } = welcomeEmail(input);
+  return `Subject: ${subject}\n\n${text}`;
 }
