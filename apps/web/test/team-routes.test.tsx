@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { TeamChangeRefusedError, type TeamMember, type TeamRefusal } from '@recouple/store-postgres';
 import { resolveNotice } from '../lib/notices';
-import { welcomeMessage } from '../lib/team-words';
+import { welcomeEmail } from '../lib/team-words';
 
 /**
  * Settings → Team (ADR 0051): the page and its three writes.
@@ -100,7 +100,6 @@ function landed(response: Response) {
   return {
     path: at.pathname,
     said: resolveNotice(at.searchParams.get('team') ?? undefined)?.text,
-    invited: at.searchParams.get('invited'),
     confirm: at.searchParams.get('confirm'),
   };
 }
@@ -205,14 +204,13 @@ describe('every write', () => {
 });
 
 describe('adding a person', () => {
-  it('invites as the owner, emails them the welcome message, and says so', async () => {
+  it('invites as the owner, emails them an invitation, and says so', async () => {
     const response = await invite(
       request('/settings/team/invite', { email: ADDRESS, fullName: 'New Person', role: 'approver' }),
     );
     expect(response.status).toBe(303);
     expect(landed(response)).toMatchObject({
-      invited: MEMBER_ID,
-      said: expect.stringMatching(/emailed how to sign in at app\.mozart\.financial with this address/),
+      said: expect.stringMatching(/emailed an invitation to sign in at app\.mozart\.financial with this address/),
     });
     expect(harness.invites).toEqual([{ email: ADDRESS, fullName: 'New Person', role: 'approver' }]);
     expect(harness.identities).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
@@ -226,14 +224,14 @@ describe('adding a person', () => {
     expect(logged.join('\n')).not.toContain('New Person');
   });
 
-  it('keeps the person added when the email does not go, and says to send the message instead', async () => {
+  it('keeps the person added when the email does not go, and says to tell them where to sign in', async () => {
     for (const [notice, said] of [
-      ['team_invited_mail_failed', /did not send.*send them the welcome message below yourself/],
-      ['team_invited_not_emailed', /sends no invitation email, so send them the welcome message below/],
+      ['team_invited_mail_failed', /did not send\. Let them know to sign in at app\.mozart\.financial/],
+      ['team_invited_not_emailed', /sends no invitation email, so let them know to sign in at app\.mozart\.financial/],
     ] as const) {
       harness.mailNotice = notice;
       const response = await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }));
-      expect(landed(response)).toMatchObject({ invited: MEMBER_ID, said: expect.stringMatching(said) });
+      expect(landed(response)).toMatchObject({ said: expect.stringMatching(said) });
     }
     expect(harness.invites).toHaveLength(2);
   });
@@ -315,24 +313,23 @@ describe('the page', () => {
     expect(plain).toContain('Only an owner can add');
   });
 
-  it('shows the welcome message for the person just invited, and a confirmation for a removal', async () => {
-    const html = await page({ team: 'team_invited', invited: MEMBER_ID });
-    expect(html).toContain('Welcome message for New Person');
-    expect(html).toContain('Email me a sign-in link');
-    expect(html).toContain('They can now sign in at app.mozart.financial with this address');
+  it('shows the notice after an invitation and no message to copy, and a confirmation for a removal', async () => {
+    const html = await page({ team: 'team_invited' });
+    expect(html).toContain('emailed an invitation to sign in at app.mozart.financial');
+    expect(html).not.toContain('Welcome message');
+    expect(html).not.toContain('<textarea');
 
     const confirming = await page({ team: 'team_remove_confirm', confirm: MEMBER_ID });
     expect(confirming).toContain('Remove New Person');
     expect(confirming).toContain('name="confirmed" value="yes"');
 
-    // An id not in the list, or not an id, shows neither.
-    const stray = await page({ invited: '55555555-5555-5555-5555-555555555555', confirm: 'x' });
-    expect(stray).not.toContain('Welcome message');
-    expect(stray).not.toContain('Remove them');
+    // An id not in the list, or not an id, shows nothing.
+    expect(await page({ confirm: '55555555-5555-5555-5555-555555555555' })).not.toContain('Remove them');
+    expect(await page({ confirm: 'x' })).not.toContain('Remove them');
 
     // Nor to someone who is not an owner.
     harness.role = 'approver';
-    expect(await page({ invited: MEMBER_ID, confirm: MEMBER_ID })).not.toContain('Welcome message');
+    expect(await page({ confirm: MEMBER_ID })).not.toContain('name="confirmed" value="yes"');
   });
 
   it('warns when the workspace cannot finish a case', async () => {
@@ -343,18 +340,23 @@ describe('the page', () => {
   });
 });
 
-describe('the welcome message', () => {
-  it('names the workspace, the role and the address, and says how the first sign-in goes', () => {
-    const text = welcomeMessage({ workspace: 'Acme Foods', fullName: 'Dana Reyes', email: ADDRESS, role: 'owner' });
-    expect(text).toContain('Subject: Your Acme Foods workspace on Mozart');
+describe('the invitation email', () => {
+  it('names the workspace, the role and the address, and says where and how to sign in', () => {
+    const { subject, text } = welcomeEmail({
+      workspace: 'Acme Foods',
+      fullName: 'Dana Reyes',
+      email: ADDRESS,
+      role: 'owner',
+    });
+    expect(subject).toBe("You're invited to Acme Foods on Mozart");
     expect(text).toContain('Hi Dana,');
-    expect(text).toContain('as an owner');
-    expect(text).toContain(`go to https://app.mozart.financial/login, type ${ADDRESS}`);
-    expect(text).toContain('asks you to confirm your address');
-    expect(text).toContain('within five minutes');
+    expect(text).toContain('the Acme Foods workspace on Mozart as an owner');
+    expect(text).toContain(`Sign in at https://app.mozart.financial/login with ${ADDRESS}`);
+    expect(text).toContain('open it in the same browser');
+    expect(text).toContain('There is no password');
     expect(text).not.toMatch(/Send invitation|dashboard/);
 
-    const viewer = welcomeMessage({ workspace: 'Acme Foods', email: ADDRESS, role: 'read_only' });
+    const viewer = welcomeEmail({ workspace: 'Acme Foods', email: ADDRESS, role: 'read_only' }).text;
     expect(viewer).toContain('Hi,');
     expect(viewer).toContain('as a viewer');
   });

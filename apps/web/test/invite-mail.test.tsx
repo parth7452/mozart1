@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RESEND_API_URL } from '../lib/alerts';
-import { inviteMailFromEnv, sendInvitation, type InviteMailBinding } from '../lib/invite-mail';
-import { welcomeMessage } from '../lib/team-words';
+import {
+  escapeHtml,
+  invitationHtml,
+  inviteMailFromEnv,
+  sendInvitation,
+  type InviteMailBinding,
+} from '../lib/invite-mail';
+import { welcomeEmail } from '../lib/team-words';
 
 /**
- * The invitation email (ADR 0065): the welcome message, sent through the
- * alerts' Resend account once the person has been added. It never throws —
+ * The invitation email (ADR 0065), sent through the alerts' Resend account
+ * once the person has been added. It never throws —
  * the person is added whatever the mail does — and it answers which notice
  * the page shows. Logs carry ids, never the address, the name or the key.
  */
@@ -61,7 +67,7 @@ describe('inviteMailFromEnv', () => {
 });
 
 describe('sendInvitation', () => {
-  it('sends the welcome message to the person, from Mozart, and answers team_invited', async () => {
+  it('sends the invitation to the person, from Mozart Financial, and answers team_invited', async () => {
     const fetchImpl = vi.fn(async () => new Response('{"id":"x"}', { status: 200 }));
     const notice = await sendInvitation(WELCOME, IDS, { binding: CONFIGURED, fetch: fetchImpl });
 
@@ -76,13 +82,12 @@ describe('sendInvitation', () => {
 
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body).toEqual({
-      from: 'Mozart <alerts@mozart.example>',
+      from: 'Mozart Financial <alerts@mozart.example>',
       to: [ADDRESS],
-      subject: 'Your Acme Foods workspace on Mozart',
-      text: expect.any(String),
+      subject: "You're invited to Acme Foods on Mozart",
+      text: welcomeEmail(WELCOME).text,
+      html: invitationHtml(WELCOME),
     });
-    // The same words the page offers to copy, less the subject line.
-    expect(welcomeMessage(WELCOME)).toBe(`Subject: ${body.subject as string}\n\n${body.text as string}`);
     expect(body.text).toContain('https://app.mozart.financial/login');
     expectNothingPersonalLogged();
   });
@@ -128,5 +133,36 @@ describe('sendInvitation', () => {
       );
     }
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('invitationHtml', () => {
+  it('says who, where and as what, with one link: the sign-in page', () => {
+    const html = invitationHtml(WELCOME);
+    expect(html).toContain('Join Acme Foods on Mozart');
+    expect(html).toContain("Hi New, you've been added as an analyst.");
+    expect(html).toContain(ADDRESS);
+    expect(html).toContain('Sign in to Mozart');
+    const links = [...html.matchAll(/href="([^"]*)"/g)].map((match) => match[1]);
+    expect(links).toEqual(['https://app.mozart.financial/login', 'https://mozart.financial']);
+    // Nothing remote: no image, stylesheet or script for a mail client to fetch.
+    expect(html).not.toMatch(/<img|<link|<script|src=/i);
+  });
+
+  it('opens without a name when none was given', () => {
+    expect(invitationHtml({ ...WELCOME, fullName: '' })).toContain("You've been added as an analyst.");
+  });
+
+  it('escapes everything a person typed, so a name cannot become markup', () => {
+    const html = invitationHtml({
+      workspace: '<a href="https://evil.example">Acme</a> & Co',
+      fullName: '<script>x</script> Person',
+      email: ADDRESS,
+      role: 'analyst',
+    });
+    expect(html).not.toContain('evil.example">');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain(escapeHtml('<a href="https://evil.example">Acme</a> & Co'));
+    expect(escapeHtml(`<>&"'`)).toBe('&lt;&gt;&amp;&quot;&#39;');
   });
 });

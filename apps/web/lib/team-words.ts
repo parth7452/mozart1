@@ -2,7 +2,7 @@ import type { MembershipRole } from '@recouple/store-postgres';
 
 /**
  * Settings → Team's pure half (ADR 0051): who may manage, what a role is
- * called, and the welcome message an owner copies. No server imports, so the
+ * called, and the words of the invitation email (ADR 0065). No server imports, so the
  * view and the routes share one answer.
  */
 
@@ -11,7 +11,7 @@ export function mayManageTeam(role: string): boolean {
   return role === 'owner';
 }
 
-/** What each role may do, in the words the page and the welcome message use. */
+/** What each role may do, in the words the page and the invitation use. */
 export const ROLE_WORDS: Readonly<Record<MembershipRole, { readonly name: string; readonly does: string }>> = {
   owner: {
     name: 'an owner',
@@ -26,15 +26,6 @@ export const ROLE_WORDS: Readonly<Record<MembershipRole, { readonly name: string
 /** The one address people sign in at. */
 export const SIGN_IN_URL = 'https://app.mozart.financial/login';
 
-/**
- * The welcome message, from docs/ONBOARDING.md §2's wording, the same for
- * everyone. Somebody who has never signed in to Mozart gets their account made
- * by the sign-in form the first time they ask for a link (ADR 0051 §6), and
- * that first email asks them to confirm their address; its link signs them in.
- * Its code expires five minutes after it was sent rather than after the click
- * (supabase/auth `internal/models/flow_state.go`, `IsExpired`): a late click
- * still confirms the address, and the next link — an ordinary magic link — works.
- */
 export interface WelcomeInput {
   readonly workspace: string;
   readonly fullName?: string | undefined;
@@ -42,32 +33,33 @@ export interface WelcomeInput {
   readonly role: MembershipRole;
 }
 
-/** The welcome message as an email: what the invite route sends (ADR 0065). */
-export function welcomeEmail(input: WelcomeInput): { readonly subject: string; readonly text: string } {
-  const first = input.fullName?.trim().split(/\s+/)[0];
-  const greeting = first === undefined || first === '' ? 'Hi,' : `Hi ${first},`;
-  return {
-    subject: `Your ${input.workspace} workspace on Mozart`,
-    text: [
-      greeting,
-      '',
-      `You have been added to ${input.workspace}'s workspace on Mozart as ` +
-        `${ROLE_WORDS[input.role].name}.`,
-      '',
-      `To sign in, go to ${SIGN_IN_URL}, type ${input.email} under Work email and press ` +
-        '"Email me a sign-in link". Open the link in that email in the same browser. If your ' +
-        'email app opens it somewhere else you will see "that link has expired"; copy it into ' +
-        'the browser where you asked for it instead. There is no password.',
-      '',
-      'The first time, the email comes from our sign-in provider and asks you to confirm your ' +
-        'address. Open it within five minutes: its link signs you in. If you are too late it says ' +
-        'the link has expired, and the next link you ask for will work.',
-    ].join('\n'),
-  };
+/** Their first name, or undefined when none was given. */
+export function firstName(fullName: string | undefined): string | undefined {
+  const first = fullName?.trim().split(/\s+/)[0];
+  return first === undefined || first === '' ? undefined : first;
 }
 
-/** The same message for an owner to copy, its subject on the first line. */
-export function welcomeMessage(input: WelcomeInput): string {
-  const { subject, text } = welcomeEmail(input);
-  return `Subject: ${subject}\n\n${text}`;
+/**
+ * The invitation the invite route emails (ADR 0065): its subject and its
+ * plain-text part (`invitationHtml` is the HTML one). Short on purpose. Somebody who has never signed in to Mozart gets their account made
+ * by the sign-in form the first time they ask for a link (ADR 0051 §6); that
+ * link only works in the browser that asked for it, which is the one thing
+ * here worth a sentence.
+ */
+export function welcomeEmail(input: WelcomeInput): { readonly subject: string; readonly text: string } {
+  const first = firstName(input.fullName);
+  return {
+    subject: `You're invited to ${input.workspace} on Mozart`,
+    text: [
+      first === undefined ? 'Hi,' : `Hi ${first},`,
+      '',
+      `You've been added to the ${input.workspace} workspace on Mozart as ` +
+        `${ROLE_WORDS[input.role].name}.`,
+      '',
+      `Sign in at ${SIGN_IN_URL} with ${input.email}. We'll email you a secure link; ` +
+        'open it in the same browser. There is no password.',
+      '',
+      "If you weren't expecting this, you can ignore this email.",
+    ].join('\n'),
+  };
 }

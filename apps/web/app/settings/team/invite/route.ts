@@ -23,9 +23,9 @@ const NAME_MAX = 200;
  * invited (§6). The notice is the same whether or not they have signed in
  * before, so adding an address tells an owner nothing about it.
  *
- * Once the membership has committed, the welcome message is emailed to them
- * (ADR 0065). The notice says whether it went; a send that fails never undoes
- * the invitation, and the page still shows the message to copy.
+ * Once the membership has committed, an invitation is emailed to them (ADR
+ * 0065). The notice says whether it went; a send that fails never undoes the
+ * invitation.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { workspace: session.org.name, fullName, email, role },
       { orgId: identity.orgId, invitedUserId: invited.userId },
     );
-    return teamRedirect(request, notice, { param: 'invited', userId: invited.userId });
+    return teamRedirect(request, notice);
   } catch (error) {
     const refused = teamRefusalNotice(error);
     if (refused !== undefined) return teamRedirect(request, refused);
