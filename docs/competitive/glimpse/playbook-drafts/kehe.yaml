@@ -1,0 +1,109 @@
+# Payer playbook draft: KeHE. Data, not code. See README.md in this folder.
+
+retailer_key: kehe
+display_name: KeHE Distributors
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null
+drafted_at: 2026-10-03
+drafted_from:
+  - id: glimpse-kehe
+    source_url: https://www.tryglimpse.com/post/unfi-kehe-supplier-deductions
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from https://www.tryglimpse.com/resources
+    captured_at: 2026-10-03
+  - id: sps-ksolve
+    source_url: https://www.spscommerce.com/community/articles/a-guide-to-disputing-kehe-deductions-in-k-solve
+    publisher: SPS Commerce (vendor), used only to corroborate
+    captured_at: 2026-10-03
+  - id: endless-clocks
+    source_url: https://endlesscommerce.com/playbook/kehe-and-unfi-deductions-codes-and-clocks/
+    publisher: Endless Commerce (vendor), used only to corroborate
+    captured_at: 2026-10-03
+
+identity_signals:
+  names_as_printed:
+    - value: KeHE
+      source: glimpse-kehe
+    - value: KeHE Distributors
+      source: glimpse-kehe
+  portal_hosts:
+    - value: KeHE CONNECT (supplier portal)   # host not stated in any source read
+      source: glimpse-kehe
+  document_titles: []   # Glimpse names no remittance or notice title; left empty rather than guessed
+
+code_map:
+  # Glimpse prints no KeHE code strings, only categories. Nothing to map yet;
+  # the categories are kept so a real KeHE remittance can be checked against them.
+  categories_claimed:
+    - label: Shortages
+      canonical_candidates: [shortage_quantity, shortage_carton]
+      source: glimpse-kehe
+    - label: MCBs
+      glimpse_quote: "MCBs cover promotional activity: off-invoice allowances, scan-back programs, ad fees, and display allowances"
+      canonical_candidates: [promo_allowance_claimed, coop_advertising]
+      source: glimpse-kehe
+    - label: Spoils and Warehouse Damage
+      glimpse_quote: "KeHE pulls product ... for spoilage or damage"
+      canonical_candidates: [quality_expired_short_dated, quality_damaged_in_transit]
+      source: glimpse-kehe
+    - label: Compliance Chargebacks
+      glimpse_quote: "late deliveries, labeling errors, non-standard pallet configurations, or failed EDI transmissions"
+      canonical_candidates: [compliance_late_delivery, compliance_label_barcode, compliance_pallet_spec, compliance_asn_missing]
+      source: glimpse-kehe
+  entries: []
+
+deadline_rules:
+  - window_days: 180
+    counted_from: deduction_date
+    glimpse_quote: "180 days (6 months) from the deduction; dispute option removed from the portal once it closes"
+    outcome_past_window: "dispute option removed from the portal"
+    source: glimpse-kehe
+    corroborated: endless-clocks ("180 days from the deduction date ... waived permanently"); sps-ksolve (KeHE "requiring suppliers to dispute within 180 days")
+    note: "Three vendors agree; no KeHE primary text read. Which date 'the deduction' means on a KeHE remittance is not stated."
+
+evidence_requirements:
+  entries:
+    - canonical: [shortage_quantity, shortage_carton, shortage_pallet]
+      required:
+        - Signed BOL
+        - proof of delivery
+      source: glimpse-kehe
+    - canonical: [promo_allowance_claimed, promo_not_agreed, promo_rate_mismatch, price_discrepancy]
+      required:
+        - "approved item file or deal confirmation"
+      source: glimpse-kehe
+  general_set_claim:
+    value: "Signed BOL, proof of delivery, approved item file or deal confirmation"
+    source: glimpse-kehe
+  corroboration:
+    value: "the purchase order, the bill of lading, proof of delivery, and any UDR response already on file"
+    source: endless-clocks
+
+submission_channel:
+  entries:
+    - kind: portal
+      name: K-Solve, inside KeHE CONNECT
+      navigation_claim: "Sales Orders > Credits > K-Solve"   # SPS, not Glimpse
+      applies_to: all deduction disputes
+      source: glimpse-kehe
+      corroborated: sps-ksolve
+    - kind: email
+      address: null
+      note: "No KeHE email channel is named by Glimpse; left out rather than guessed"
+  writes_by_us: none   # ADR 0057: read, never write
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  Nothing read says whether KeHE reverses a deduction on its own or how a
+  reversal appears on a remittance. Billing attribution waits on a real pair.
+
+escalation_path:
+  - step: none_stated
+    note: "No appeal, second review or named contact in Glimpse's post. SPS's K-Solve guide was not read past its summary."
+
+questions_to_raise_confidence:
+  - "On your KeHE remittance, which printed date does the 180 days run from, and is it the same date K-Solve shows on the deduction?"
+  - "Does KeHE ever correct an MCB or a spoils charge without a dispute, and how does that line read when it does?"
+  - "Which CONNECT role do you hold, and does it include K-Solve?"
