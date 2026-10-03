@@ -24,7 +24,7 @@ contents, and press **Save**. Then do the same on `mozart-preview`.
 
 | Template in the dashboard | Subject | Body | When it is sent |
 | --- | --- | --- | --- |
-| **Confirm signup** | `Welcome to Mozart: your first sign-in link` | [`confirm-signup.html`](confirm-signup.html) | An invited person's first **Email me a sign-in link** (ADR 0051 §6). Its link confirms the address and signs them in through `/auth/callback` |
+| **Confirm signup** | `Confirm your email to sign in to Mozart` | [`confirm-signup.html`](confirm-signup.html) | An invited person's first **Email me a sign-in link** (ADR 0051 §6). Its link confirms the address and signs them in through `/auth/callback` |
 | **Magic link** | `Your sign-in link` | [`magic-link.html`](magic-link.html) | Every sign-in after the first. Already set in production; this file is the copy of record |
 | **Invite user** | `Your Mozart workspace is ready` | [`invite.html`](invite.html) | Only the fallback, Authentication → Users → **Send invitation**. Its link confirms the address and lands on the sign-in page still signed out |
 
@@ -53,7 +53,7 @@ Leave them as they are.
    `you+tenantb@gmail.com` after its Auth user was deleted).
 2. In a private window, ask for a sign-in link for that address.
 3. **You should see** the email arrive in the **inbox**, not spam, with the
-   subject "Welcome to Mozart: your first sign-in link" and the Mozart design.
+   subject "Confirm your email to sign in to Mozart" and the Mozart design.
    Its button signs you in.
 4. If it lands in spam anyway, press **Report not spam**, and tell me: the next
    step would be a custom domain for Supabase Auth, so the link no longer
