@@ -765,4 +765,3 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .team-members select { width: auto; margin-top: 0; padding: 6px 8px; font-size: 13px; }
 .team-members button, .card.team button { padding: 7px 12px; background: white; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 .card.team button:hover, .team-members button:hover { background: var(--bg); }
-.card.team textarea.welcome { font-size: 13px; min-height: 220px; }

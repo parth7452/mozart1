@@ -342,6 +342,8 @@ export interface ResendEmail {
   readonly to: string;
   readonly subject: string;
   readonly text: string;
+  /** An HTML alternative to `text`, for a message a person reads in a mail client. */
+  readonly html?: string;
   readonly idempotencyKey: string;
   readonly userAgent: string;
 }
@@ -375,6 +377,7 @@ export async function sendThroughResend(
           to: [email.to],
           subject: email.subject,
           text: email.text,
+          ...(email.html === undefined ? {} : { html: email.html }),
         }),
         signal: abort.signal,
       });

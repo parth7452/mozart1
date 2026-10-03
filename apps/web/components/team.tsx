@@ -1,7 +1,7 @@
 import type { MembershipRole, TeamMember } from '@recouple/store-postgres';
 import { MEMBERSHIP_ROLES } from '@recouple/store-postgres';
 import { resolveNotice } from '../lib/notices';
-import { ROLE_WORDS, welcomeMessage } from '../lib/team-words';
+import { ROLE_WORDS } from '../lib/team-words';
 import { WorkspaceShell } from './workspace-shell';
 import type { Viewer } from './case-list';
 
@@ -43,7 +43,6 @@ export function TeamPage({
   members,
   mayManage,
   notice,
-  invited,
   confirmRemove,
 }: {
   viewer: Viewer;
@@ -53,13 +52,10 @@ export function TeamPage({
   mayManage: boolean;
   /** A notice key, never a sentence (`lib/notices.ts`). */
   notice?: string | undefined;
-  /** The member just invited, for the welcome message. */
-  invited?: string | undefined;
   /** The member whose removal awaits a second press. */
   confirmRemove?: string | undefined;
 }) {
   const said = resolveNotice(notice);
-  const welcomeFor = mayManage ? members.find((member) => member.userId === invited) : undefined;
   const removing = mayManage ? members.find((member) => member.userId === confirmRemove) : undefined;
   const writers = members.filter((member) =>
     (['owner', 'approver', 'analyst'] as readonly string[]).includes(member.role),
@@ -92,28 +88,6 @@ export function TeamPage({
               : 'Only one person here can write, so nothing they prepare can be approved. Add a second.'}
           </p>
         ) : null}
-
-        {welcomeFor === undefined ? null : (
-          <section className="card team" aria-label="Welcome message">
-            <h2>Welcome message for {welcomeFor.fullName ?? welcomeFor.email}</h2>
-            <p className="empty">
-              They can now sign in at app.mozart.financial with this address. The notice above says
-              whether we emailed them this; you can also copy it and send it from your own email.
-            </p>
-            <label htmlFor="welcome-message">Welcome message</label>
-            <textarea
-              id="welcome-message"
-              className="welcome"
-              readOnly
-              value={welcomeMessage({
-                workspace: viewer.orgName,
-                fullName: welcomeFor.fullName,
-                email: welcomeFor.email,
-                role: welcomeFor.role,
-              })}
-            />
-          </section>
-        )}
 
         {removing === undefined ? null : (
           <section className="card team" aria-label="Confirm removing a member">
@@ -189,8 +163,8 @@ export function TeamPage({
               </button>
             </form>
             <p className="empty">
-              They can sign in at once with this address: the first sign-in link they ask for
-              makes their account. The page then shows a welcome message to send them.
+              We email them an invitation. They can sign in at once with this address: the first
+              sign-in link they ask for makes their account.
             </p>
           </section>
         ) : (

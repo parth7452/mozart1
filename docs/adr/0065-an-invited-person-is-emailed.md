@@ -23,12 +23,15 @@ after being added (2026-09-26) had been told by hand.
 
 ## Decision
 
-1. **After the membership commits, the invite route emails the welcome
-   message to the address the owner typed.** It is the same text the page
-   shows. `welcomeEmail()` is the one copy, and `welcomeMessage()` is built from
-   it. It contains the address of the sign-in page and no link that signs
-   anyone in, so a forwarded or intercepted invitation gives nobody anything
-   the page itself does not.
+1. **After the membership commits, the invite route emails an invitation to
+   the address the owner typed.** Its words are `welcomeEmail()`'s (subject
+   and plain text), and its HTML part is `invitationHtml()`, in
+   `docs/email-templates/magic-link.html`'s layout with every value a person
+   typed escaped. It contains the address of the sign-in page and no link that
+   signs anyone in, so a forwarded or intercepted invitation gives nobody
+   anything the page itself does not. The welcome message ADR 0051 showed an
+   owner to copy is gone from the page (the founder, 2026-10-03: it only
+   added complexity once the app sends the email).
 2. **The provider's own email is not used for this.** Calling
    `signInWithOtp` from the owner's request would send a PKCE link whose code
    verifier sits in the *owner's* browser. The invitee's click would confirm
@@ -36,7 +39,7 @@ after being added (2026-09-26) had been told by hand.
    endpoint needs the service-role key (invariant 6).
 3. **It is sent through the Resend account the failure alerts use** (ADR
    0052): `RESEND_API_KEY` (send-only) and `ALERT_EMAIL_FROM`, as
-   `Mozart <ALERT_EMAIL_FROM>`. `ALERT_EMAIL_TO` stays the alerts' alone.
+   `Mozart Financial <ALERT_EMAIL_FROM>`. `ALERT_EMAIL_TO` stays the alerts' alone.
    `inviteMailFromEnv` is `alertsFromEnv`'s shape: both variables or neither,
    and one alone is logged as misconfigured. Both are Production only
    (docs/supabase.md), so a preview sends no invitation.
@@ -44,8 +47,8 @@ after being added (2026-09-26) had been told by hand.
    three things happened: `team_invited` (emailed), `team_invited_not_emailed`
    (this deployment sends no mail) or `team_invited_mail_failed` (Resend
    refused, timed out or could not be reached, or the address was not one
-   bare address). The page still shows the message to copy in every case.
-   Nothing is retried. A second press of "Add" is refused as `already_member`
+   bare address). The last two tell the owner to let the person know where to
+   sign in. Nothing is retried. A second press of "Add" is refused as `already_member`
    and sends nothing.
 5. **Logs carry ids, Resend's status and a class name.** They never carry the
    address, the name, the key or Resend's body. `AlertMailError` already

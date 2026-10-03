@@ -826,21 +826,19 @@ export const NOTICES = {
   team_role: { tone: 'bad', text: 'only an owner can add, re-role or remove people' },
   team_invited: {
     tone: 'good',
-    text:
-      'added, and emailed how to sign in at app.mozart.financial with this address. The ' +
-      'message we sent is below.',
+    text: 'added, and emailed an invitation to sign in at app.mozart.financial with this address.',
   },
   team_invited_not_emailed: {
     tone: 'good',
     text:
-      'added. They can now sign in at app.mozart.financial with this address. This ' +
-      'deployment sends no invitation email, so send them the welcome message below.',
+      'added. This deployment sends no invitation email, so let them know to sign in at ' +
+      'app.mozart.financial with this address.',
   },
   team_invited_mail_failed: {
     tone: 'bad',
     text:
-      'added, but the invitation email did not send. They can still sign in at ' +
-      'app.mozart.financial with this address; send them the welcome message below yourself.',
+      'added, but the invitation email did not send. Let them know to sign in at ' +
+      'app.mozart.financial with this address.',
   },
   team_invalid: {
     tone: 'bad',

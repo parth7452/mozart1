@@ -25,13 +25,13 @@ export function teamStoreFor(identity: { readonly orgId: string; readonly userId
 }
 
 /**
- * Back to the page with a notice, and at most one id: the person just invited
- * (for the welcome message) or the person whose removal awaits confirmation.
+ * Back to the page with a notice, and at most one id: the person whose removal
+ * awaits confirmation.
  */
 export function teamRedirect(
   request: Request,
   notice: NoticeKey,
-  person?: { readonly param: 'invited' | 'confirm'; readonly userId: string },
+  person?: { readonly param: 'confirm'; readonly userId: string },
 ): NextResponse {
   const url = new URL(TEAM_SETTINGS_PATH, request.url);
   url.searchParams.set('team', notice);
