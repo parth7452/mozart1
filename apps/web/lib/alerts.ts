@@ -157,7 +157,7 @@ export type AlertBinding =
 const ALERT_VARIABLES = ['ALERT_EMAIL_TO', 'ALERT_EMAIL_FROM', 'RESEND_API_KEY'] as const;
 
 /** One bare address: no name, no list, no angle brackets. */
-const ONE_ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
+export const ONE_ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 
 /**
  * Whether this deployment emails failures, decided in one place
@@ -334,51 +334,84 @@ export interface ResendConfig {
   readonly timeoutMs?: number;
 }
 
+/** One plain-text email through Resend's send endpoint. */
+export interface ResendEmail {
+  readonly apiKey: string;
+  /** The whole From header: a display name and one bare address. */
+  readonly from: string;
+  readonly to: string;
+  readonly subject: string;
+  readonly text: string;
+  readonly idempotencyKey: string;
+  readonly userAgent: string;
+}
+
+/**
+ * Sends one email, or throws `AlertMailError` naming why not. Shared by the
+ * failure alerts (ADR 0052) and the team invitation (ADR 0065); the key, the
+ * address and Resend's body never reach the error.
+ */
+export async function sendThroughResend(
+  email: ResendEmail,
+  options: { readonly fetch?: typeof fetch; readonly timeoutMs?: number } = {},
+): Promise<void> {
+  const fetchImpl = options.fetch ?? fetch;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), options.timeoutMs ?? 10_000);
+  try {
+    let response: Response;
+    try {
+      response = await fetchImpl(RESEND_API_URL, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${email.apiKey}`,
+          'content-type': 'application/json',
+          // Resend refuses a request with no User-Agent.
+          'user-agent': email.userAgent,
+          'idempotency-key': email.idempotencyKey,
+        },
+        body: JSON.stringify({
+          from: email.from,
+          to: [email.to],
+          subject: email.subject,
+          text: email.text,
+        }),
+        signal: abort.signal,
+      });
+    } catch (error) {
+      throw new AlertMailError(
+        error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'network',
+      );
+    }
+    // The body is Resend's and says nothing we would print; the status does.
+    await response.body?.cancel().catch(() => undefined);
+    if (!response.ok) throw new AlertMailError('http', response.status);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Plain text through Resend's send endpoint, with a key that can only send (ADR 0052 §2). */
 export class ResendAlertMailer implements AlertMailer {
-  private readonly fetchImpl: typeof fetch;
-  private readonly timeoutMs: number;
-
-  constructor(private readonly config: ResendConfig) {
-    this.fetchImpl = config.fetch ?? fetch;
-    this.timeoutMs = config.timeoutMs ?? 10_000;
-  }
+  constructor(private readonly config: ResendConfig) {}
 
   async send(message: AlertMessage): Promise<void> {
     const { settings } = this.config;
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), this.timeoutMs);
-    try {
-      let response: Response;
-      try {
-        response = await this.fetchImpl(RESEND_API_URL, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${settings.apiKey}`,
-            'content-type': 'application/json',
-            // Resend refuses a request with no User-Agent.
-            'user-agent': 'recouple-alerts/1',
-            'idempotency-key': message.idempotencyKey,
-          },
-          body: JSON.stringify({
-            from: `Mozart alerts <${settings.from}>`,
-            to: [settings.to],
-            subject: message.subject,
-            text: message.text,
-          }),
-          signal: abort.signal,
-        });
-      } catch (error) {
-        throw new AlertMailError(
-          error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'network',
-        );
-      }
-      // The body is Resend's and says nothing we would print; the status does.
-      await response.body?.cancel().catch(() => undefined);
-      if (!response.ok) throw new AlertMailError('http', response.status);
-    } finally {
-      clearTimeout(timer);
-    }
+    await sendThroughResend(
+      {
+        apiKey: settings.apiKey,
+        from: `Mozart alerts <${settings.from}>`,
+        to: settings.to,
+        subject: message.subject,
+        text: message.text,
+        idempotencyKey: message.idempotencyKey,
+        userAgent: 'recouple-alerts/1',
+      },
+      {
+        ...(this.config.fetch === undefined ? {} : { fetch: this.config.fetch }),
+        ...(this.config.timeoutMs === undefined ? {} : { timeoutMs: this.config.timeoutMs }),
+      },
+    );
   }
 }
 

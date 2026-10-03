@@ -30,6 +30,15 @@ const harness = vi.hoisted(() => ({
   was: 'analyst' as string,
   fail: undefined as Error | undefined,
   identities: [] as unknown[],
+  mailed: [] as unknown[],
+  mailNotice: 'team_invited' as string,
+}));
+
+vi.mock('../lib/invite-mail', () => ({
+  sendInvitation: async (welcome: unknown, ids: unknown) => {
+    harness.mailed.push([welcome, ids]);
+    return harness.mailNotice;
+  },
 }));
 
 vi.mock('../lib/session', () => ({
@@ -125,6 +134,8 @@ beforeEach(() => {
   harness.was = 'analyst';
   harness.fail = undefined;
   harness.identities = [];
+  harness.mailed = [];
+  harness.mailNotice = 'team_invited';
   logged.length = 0;
   vi.spyOn(console, 'info').mockImplementation((line: string) => void logged.push(line));
   vi.spyOn(console, 'error').mockImplementation((line: string) => void logged.push(line));
@@ -194,19 +205,45 @@ describe('every write', () => {
 });
 
 describe('adding a person', () => {
-  it('invites as the owner, and says they can sign in now', async () => {
+  it('invites as the owner, emails them the welcome message, and says so', async () => {
     const response = await invite(
       request('/settings/team/invite', { email: ADDRESS, fullName: 'New Person', role: 'approver' }),
     );
     expect(response.status).toBe(303);
     expect(landed(response)).toMatchObject({
       invited: MEMBER_ID,
-      said: expect.stringMatching(/They can now sign in at app\.mozart\.financial with this address/),
+      said: expect.stringMatching(/emailed how to sign in at app\.mozart\.financial with this address/),
     });
     expect(harness.invites).toEqual([{ email: ADDRESS, fullName: 'New Person', role: 'approver' }]);
     expect(harness.identities).toEqual([{ orgId: ORG_ID, userId: USER_ID }]);
+    expect(harness.mailed).toEqual([
+      [
+        { workspace: 'Acme Foods', fullName: 'New Person', email: ADDRESS, role: 'approver' },
+        { orgId: ORG_ID, invitedUserId: MEMBER_ID },
+      ],
+    ]);
     expect(logged.join('\n')).not.toContain(ADDRESS);
     expect(logged.join('\n')).not.toContain('New Person');
+  });
+
+  it('keeps the person added when the email does not go, and says to send the message instead', async () => {
+    for (const [notice, said] of [
+      ['team_invited_mail_failed', /did not send.*send them the welcome message below yourself/],
+      ['team_invited_not_emailed', /sends no invitation email, so send them the welcome message below/],
+    ] as const) {
+      harness.mailNotice = notice;
+      const response = await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }));
+      expect(landed(response)).toMatchObject({ invited: MEMBER_ID, said: expect.stringMatching(said) });
+    }
+    expect(harness.invites).toHaveLength(2);
+  });
+
+  it('emails nobody when the database refuses the invitation', async () => {
+    harness.fail = new TeamChangeRefusedError(ORG_ID, 'invite', 'already_member', 'RCT00');
+    expect(landed(await invite(request('/settings/team/invite', { email: ADDRESS, role: 'analyst' }))).said).toMatch(
+      /already a member/,
+    );
+    expect(harness.mailed).toEqual([]);
   });
 
   it('refuses what is not an address, a name or a role before the store is asked', async () => {
@@ -219,6 +256,7 @@ describe('adding a person', () => {
       expect(landed(await invite(request('/settings/team/invite', form))).said).toMatch(/enter a work email/);
     }
     expect(harness.invites).toEqual([]);
+    expect(harness.mailed).toEqual([]);
   });
 });
 

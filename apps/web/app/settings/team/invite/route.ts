@@ -2,6 +2,7 @@ import type { NextRequest, NextResponse } from 'next/server';
 import { isMembershipRole } from '@recouple/store-postgres';
 import { requireSession, storeFor } from '../../../../lib/session';
 import { isCrossSite, refuseCrossSite } from '../../../../lib/request';
+import { sendInvitation } from '../../../../lib/invite-mail';
 import {
   className,
   mayManageTeam,
@@ -21,6 +22,10 @@ const NAME_MAX = 200;
  * first time they ask for a link, because the database now says the address is
  * invited (§6). The notice is the same whether or not they have signed in
  * before, so adding an address tells an owner nothing about it.
+ *
+ * Once the membership has committed, the welcome message is emailed to them
+ * (ADR 0065). The notice says whether it went; a send that fails never undoes
+ * the invitation, and the page still shows the message to copy.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
@@ -51,7 +56,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       `[recouple] team member invited: user ${invited.userId} as ${role} org ${identity.orgId} ` +
         `by ${identity.userId} (users row ${invited.usersRowCreated ? 'created' : 'reused'})`,
     );
-    return teamRedirect(request, 'team_invited', { param: 'invited', userId: invited.userId });
+    const notice = await sendInvitation(
+      { workspace: session.org.name, fullName, email, role },
+      { orgId: identity.orgId, invitedUserId: invited.userId },
+    );
+    return teamRedirect(request, notice, { param: 'invited', userId: invited.userId });
   } catch (error) {
     const refused = teamRefusalNotice(error);
     if (refused !== undefined) return teamRedirect(request, refused);

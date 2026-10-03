@@ -97,10 +97,10 @@ export function TeamPage({
           <section className="card team" aria-label="Welcome message">
             <h2>Welcome message for {welcomeFor.fullName ?? welcomeFor.email}</h2>
             <p className="empty">
-              They can now sign in at app.mozart.financial with this address. Copy this and send it
-              from your own email.
+              They can now sign in at app.mozart.financial with this address. The notice above says
+              whether we emailed them this; you can also copy it and send it from your own email.
             </p>
-            <label htmlFor="welcome-message">Copy and send</label>
+            <label htmlFor="welcome-message">Welcome message</label>
             <textarea
               id="welcome-message"
               className="welcome"
