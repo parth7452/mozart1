@@ -1,0 +1,170 @@
+# Payer playbook draft: Walgreens (post-audit focus). Data, not code. See README.md.
+
+retailer_key: walgreens
+display_name: Walgreens
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null
+drafted_at: 2026-10-03
+drafted_from:
+  - id: glimpse-wag
+    source_url: https://www.tryglimpse.com/post/walgreens-deduction-disputes-cpg
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from https://www.tryglimpse.com/resources
+    captured_at: 2026-10-03
+    note: "Reads as a paraphrase of Walgreens' Post Audit Policy document; the policy itself was not read"
+  - id: sps-wag
+    source_url: https://www.spscommerce.com/community/articles/how-to-dispute-deductions-at-walgreens
+    publisher: SPS Commerce (vendor), used only to corroborate
+    captured_at: 2026-10-03
+    read: search summary only
+
+identity_signals:
+  names_as_printed:
+    - value: Walgreens
+      source: glimpse-wag
+  departments:
+    - value: Post Audit department
+      source: glimpse-wag
+  email_domains:
+    - value: walgreens.com
+      source: glimpse-wag
+  document_titles:
+    - value: Deal Contents Reports   # Walgreens' own record of a deal, cited as chargeback support
+      source: glimpse-wag
+
+code_map:
+  # Glimpse prints no Walgreens reason codes, only the post-audit claim types.
+  categories_claimed:
+    - label: Invoice and bracket pricing
+      glimpse_quote: "charge back the difference between the lowest price it was offered"
+      canonical_candidates: [post_audit_pricing]
+      source: glimpse-wag
+    - label: Cash discounts
+      glimpse_quote: "Terms of 3% or less offered for prompt payment are treated as cash discounts"
+      canonical_candidates: [post_audit_allowance]
+      source: glimpse-wag
+    - label: Trade discounts
+      glimpse_quote: "Terms above 3% are treated as trade discounts"
+      canonical_candidates: [post_audit_allowance]
+      source: glimpse-wag
+    - label: Anticipation charges
+      glimpse_quote: "cash-flow charge calculated at 12% per annum"
+      canonical_candidates: [post_audit_allowance, administrative_fee]
+      source: glimpse-wag
+    - label: Returns and defective allowances
+      glimpse_quote: "at either gross purchase price or replacement cost"
+      canonical_candidates: [return_unsaleable, return_handling_fee]
+      source: glimpse-wag
+    - label: Advertising allowances (off-invoice)
+      glimpse_quote: "based on 100% of qualifying gross purchases"
+      canonical_candidates: [coop_advertising, post_audit_allowance]
+      source: glimpse-wag
+    - label: Promotional allowances
+      glimpse_quote: "merchandise ordered or shipped within the promo period, including a five-day grace period"
+      canonical_candidates: [promo_allowance_claimed, post_audit_allowance]
+      source: glimpse-wag
+    - label: Volume rebates
+      glimpse_quote: "calculated on gross purchases less returns and adjustments"
+      canonical_candidates: [post_audit_allowance]
+      source: glimpse-wag
+    - label: Scanning allowances
+      glimpse_quote: "based on store sales, calculated off Walgreens' Wednesday-to-Tuesday scan report"
+      canonical_candidates: [promo_allowance_claimed]
+      source: glimpse-wag
+    - label: Price protection
+      glimpse_quote: "a permanent price reduction ... 90 days or longer"
+      canonical_candidates: [markdown_allowance, post_audit_pricing]
+      source: glimpse-wag
+    - label: Recalled product
+      glimpse_quote: "an added handling fee of 10% or $1,500"
+      canonical_candidates: [return_handling_fee]
+      source: glimpse-wag
+  entries: []
+
+deadline_rules:
+  - rule: payer_lookback
+    window: "up to two and a half years from the end of the calendar year in which it occurred"
+    direction: payer_may_claim   # how far back Walgreens may audit us, not how long we have
+    source: glimpse-wag
+    corroborated: sps-wag ("two and one-half years from the end of the calendar year")
+  - rule: respond_to_post_audit_notice
+    window_days_working: 5
+    glimpse_quote: "provide a written response within five working days"
+    source: glimpse-wag
+  - rule: pre_deduction_review
+    tiers_claimed_by_glimpse:
+      - { over_usd: 5000, detail: "30-day review period prior to deduction; mailed notice" }
+      - { over_usd: 10000, detail: "Automatic 10-day fax requesting the status of your review" }
+      - { over_usd: 25000, detail: "Category Manager notification added" }
+    tiers_claimed_by_sps:
+      - { under_usd: 50000, detail: "automatically deducted" }
+      - { range_usd: [50001, 500000], detail: "deducted after 15 days if no response from the vendor" }
+      - { over_usd: 500000, detail: "deducted if no response from the vendor or buyer in 20 days" }
+    conflict: "The two vendors describe different tier schedules. Both kept; neither used until the policy document is read."
+    source: [glimpse-wag, sps-wag]
+  - rule: minimum_claim
+    glimpse_quote: "Claims under $250: Not processed (except duplicates, freight issues, statement credits)"
+    source: glimpse-wag
+  - rule: price_increase_notice
+    glimpse_quote: "at least 60 days' advance notice for general merchandise; 180 days' for generics"
+    source: glimpse-wag
+    note: "A supplier obligation, kept because a price-protection claim turns on it"
+
+evidence_requirements:
+  - canonical: [post_audit_pricing, post_audit_allowance, promo_allowance_claimed]
+    required:
+      - "written agreement for every pricing exception and promotional term, approved by the Category Manager"
+    glimpse_quote: "Unless agreed to in writing"
+    source: glimpse-wag
+  - canonical: [promo_allowance_claimed, coop_advertising]
+    payer_side_evidence: "Deal Contents Reports serve as sufficient support for a chargeback"
+    note: "This is what Walgreens treats as enough to deduct; our rebuttal needs the deal sheet it was built from"
+    source: glimpse-wag
+  - canonical: [markdown_allowance, post_audit_pricing]
+    required:
+      - "advance notice on increases"
+    source: glimpse-wag
+  - canonical: [price_discrepancy]
+    note: "Bracket qualification threshold 'at least 95%' of tier criteria; a 48-hour consolidation window for combining shipments"
+    source: glimpse-wag
+
+submission_channel:
+  entries:
+    - kind: email
+      address: PostAudit@walgreens.com
+      applies_to: post-audit claims
+      source: glimpse-wag
+      corroborated: sps-wag names PostAudit@Walgreens.com "as an alternative"
+    - kind: email
+      address: DanvilleVendor.Relations@Walgreens.com
+      applies_to: post-audit disputes (SPS's primary)
+      source: sps-wag
+      note: "Not in Glimpse's post. Kept as the second vendor's answer; which is current is a question for Walgreens"
+    - kind: mail_or_fax
+      glimpse_quote: "written mail and fax"
+      applies_to: post-audit correspondence
+      source: glimpse-wag
+    - kind: portal
+      name: null
+      note: "Glimpse's post names no portal for post-audit disputes. Walgreens' supplier portal for other deduction types is out of this draft's scope."
+  writes_by_us: none
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  A post-audit claim is announced before it is deducted (per both vendors),
+  so a claim withdrawn during the review period never becomes a deduction.
+  Whether that counts as a recovery, and how a later reversal is shown, is
+  unobserved.
+
+escalation_path:
+  - step: Category Manager
+    detail: "notified at $25,000+ (Glimpse); approves every pricing exception and promotional term"
+    source: glimpse-wag
+  - step: none_further_stated
+
+questions_to_raise_confidence:
+  - "Do you have the Walgreens Post Audit Policy document the post paraphrases? Its tier schedule decides which of the two vendors' versions is right."
+  - "On your last post-audit notice, where did it arrive (mail, fax, email) and what address did you answer?"
+  - "Has a post-audit claim ever been withdrawn during the review period, and did anything show on a later remittance?"

@@ -1,0 +1,256 @@
+# Payer playbook draft: UNFI. Data, not code. See README.md in this folder.
+# The deep source for UNFI is docs/plans/unfi-portal/research.md (ADR 0058);
+# this draft records only what Glimpse's two UNFI posts state, so a claim a
+# competitor publishes is kept with its provenance. Where research.md already
+# holds the same fact its row id is named.
+
+retailer_key: unfi
+display_name: UNFI (United Natural Foods, Inc.)
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null   # a Glimpse post is not a payer policy; nothing here states when a rule took effect
+drafted_at: 2026-10-03
+drafted_from:
+  - id: glimpse-unfi
+    source_url: https://www.tryglimpse.com/post/how-to-dispute-unfi-deductions
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from https://www.tryglimpse.com/resources
+    captured_at: 2026-10-03
+  - id: glimpse-kehe
+    source_url: https://www.tryglimpse.com/post/unfi-kehe-supplier-deductions
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09
+    captured_at: 2026-10-03
+  - id: sps-dc
+    source_url: https://www.spscommerce.com/community/articles/how-to-submit-and-appeal-a-deduction-dispute-in-unfis-dispute-center
+    publisher: SPS Commerce (vendor), used only to corroborate
+    captured_at: 2026-10-03
+
+identity_signals:
+  names_as_printed:
+    - value: UNFI
+      source: glimpse-unfi
+    - value: United Natural Foods
+      source: glimpse-unfi
+  channels:
+    - value: natural   # "Natural Channel Suppliers"
+      source: glimpse-unfi
+    - value: conventional   # "Conventional Channel Suppliers"
+      source: glimpse-unfi
+  portal_hosts:
+    - value: myunfi.com   # "Dispute Center, accessed through myUNFI and powered by Direct Commerce"
+      source: glimpse-unfi
+      corroborated: research.md P1, P2
+    - value: SVHarbor ePASS   # conventional; host in research.md P4
+      source: glimpse-unfi
+      corroborated: research.md P4
+  document_titles:
+    - value: UNFI Direct Deposit Advice   # not in Glimpse's posts; research.md P14 (remitparse)
+      source: research.md P14
+
+code_map:
+  # Glimpse prints code shapes, not a code list. Mapped only where the family is
+  # unambiguous from Glimpse's own description.
+  entries:
+    - printed: "<invoice#>-111"
+      glimpse_description: "Shortages coded as -111 suffix on invoice number; pricing discrepancies also under -111"
+      canonical: null
+      why_unmapped: "-111 covers both shortage and pricing per the same post; research.md C19 says the backup tells them apart. Mapping needs the backup, not the code."
+      source: glimpse-kehe
+    - printed: "UOI(mmyy)"
+      glimpse_description: "Advertising and Promotional, East"
+      canonical: promo_allowance_claimed
+      source: glimpse-kehe
+    - printed: "MCB(yyyymmdd)"
+      glimpse_description: "Advertising and Promotional, West; tagged A for ads, C for price, E for EDLP"
+      canonical: promo_allowance_claimed
+      note: "The A/C/E tag may warrant coop_advertising (A) or markdown_allowance (C, E); not split until a real MCB is read"
+      source: glimpse-kehe
+    - printed: "[DC#]CNDM(mmmyy)"
+      glimpse_description: "concealed-damage charge; 01CNDM Rocklin, 02CNDM Seattle, 05CNDM Denver"
+      canonical: quality_damaged_in_transit
+      note: "Concealed damage found inside a DC; shortage_concealed is the other candidate. Chosen by Glimpse's own heading 'Warehouse damage'."
+      source: glimpse-kehe
+    - printed: "LCPV(PO#)"
+      glimpse_description: "pallet failures"
+      canonical: compliance_pallet_spec
+      source: glimpse-kehe
+    - printed: "LCP(PO#)"
+      glimpse_description: "labeling"
+      canonical: compliance_label_barcode
+      source: glimpse-kehe
+    - printed: "LCBOL(PO#)"
+      glimpse_description: "BOL errors"
+      canonical: compliance_routing_guide
+      source: glimpse-kehe
+    - printed: "AVL(PO#)"
+      glimpse_description: "late delivery (30+ minutes)"
+      canonical: compliance_appointment_missed
+      note: "Late to a DC appointment rather than late against a ship window; compliance_late_delivery is the alternative"
+      source: glimpse-kehe
+    - printed: "SAS<...>"
+      glimpse_description: "SAS-prefixed deductions, third-party recovery vendor"
+      canonical: null
+      why_unmapped: "Routed to SAS Recovery; the family is post_audit only by analogy with the conventional label (research.md row for SAS)"
+      source: glimpse-unfi
+    - printed: "SASIF<...>"
+      glimpse_description: "freight-specific deductions"
+      canonical: null
+      why_unmapped: "freight or post_audit_freight, decided by the backup"
+      source: glimpse-unfi
+    - printed: "<...>PP"
+      glimpse_description: "PP suffix is not a deduction (early payment reversal notation)"
+      canonical: null
+      why_unmapped: "Glimpse says it is not a deduction; whether it is a cash-discount reversal to dispute is a question for the payer"
+      source: glimpse-unfi
+  code_count_claim:
+    value: "446 codes across 55 categories"
+    source: glimpse-kehe
+    note: "Glimpse's own count of UNFI's Supplier Deduction Key; not verified (research.md P6)"
+
+deadline_rules:
+  entries:
+    - channel: natural
+      window_days: 365
+      counted_from: deduction_recorded_by_payer
+      glimpse_quote: "The clock starts when UNFI records the deduction, not when you spot it on a remittance"
+      outcome_past_window: "flags any adjustment older than 12 months and denies it unless an exception applies"
+      source: glimpse-unfi
+      corroborated: sps-dc ("Adjustments older than 12 months will be denied"); research.md C32 notes no UNFI primary text confirms it
+    - channel: natural
+      rule: appeal_window
+      window_days_business: 3
+      glimpse_quote: "Three business days after resolution"
+      source: glimpse-unfi
+      corroborated: none
+    - channel: conventional
+      window_days: null
+      note: "Glimpse gives no conventional window; research.md P17 records 18 months (2020 SVHarbor terms) against 12 months (SPS 2025). Open."
+  resolution_time_claim:
+    value: "Most resolve within 30–45 days"
+    source: glimpse-unfi
+  repayment_posting_claim:
+    value: "Within 7–10 business days"
+    source: glimpse-unfi
+
+evidence_requirements:
+  entries:
+    - canonical: [shortage_quantity, shortage_carton, shortage_pallet]
+      required:
+        - "Signed, dated Bill of Lading tied to the specific PO"
+        - "Signed proof of delivery and packing list"
+      note: "BOL must show quantity shipped vs. PO deducted"
+      source: glimpse-unfi
+    - canonical: [promo_allowance_claimed, promo_not_agreed, promo_rate_mismatch]
+      required:
+        - "Complete promo calendar"
+      source: glimpse-unfi
+    - canonical: [quality_damaged_in_transit, quality_expired_short_dated]
+      required: []
+      note: "Governed by Section 7C of Supplier Policies (Glimpse); the section itself was not read"
+      source: glimpse-unfi
+    - canonical: [compliance_appointment_missed, compliance_pallet_spec, compliance_otif, compliance_label_barcode]
+      required: []
+      note: "Exhibit A lists appointment, load, fill rate, costing/invoice-surcharge, late-notice fees (Glimpse); the exhibit itself was not read"
+      source: glimpse-unfi
+    - canonical: [price_discrepancy]
+      required:
+        - PO
+        - invoice
+      source: glimpse-kehe   # "PO, invoice, BOL, proof of delivery" given as the general set
+  general_set_claim:
+    value: "PO, invoice, BOL, proof of delivery"
+    source: glimpse-kehe
+
+submission_channel:
+  entries:
+    - channel: natural
+      kind: portal
+      name: UNFI Dispute Center (Direct Commerce), via myUNFI
+      applies_to: standard disputes
+      source: glimpse-unfi
+      corroborated: research.md P2, C28
+    - channel: natural
+      kind: email
+      address: SupplierDeductionDisputeMgmt@unfi.com
+      applies_to: standard disputes (alternative to the Dispute Center)
+      source: glimpse-unfi
+      corroborated: research.md P16
+    - channel: natural
+      kind: email
+      address: UNFINaturalResearch@unfi.com
+      applies_to: "AP Cash Terms / PP lines"
+      source: glimpse-unfi
+      corroborated: research.md C29
+    - channel: natural
+      kind: email
+      address: unficorr@sasrecovery.com
+      applies_to: SAS-prefixed
+      source: glimpse-unfi
+      corroborated: research.md C23
+    - channel: natural
+      kind: email
+      address: unfifrt@sasrecovery.com
+      applies_to: SASIF-prefixed (freight)
+      source: glimpse-unfi
+      corroborated: research.md C23
+    - channel: natural
+      kind: email
+      address: deductionsbackup@unfi.com
+      applies_to: backup requests, not disputes
+      subject_line: "BACKUP REQUEST"
+      body_must_name: [remit number, deduction invoice number, check number]
+      source: glimpse-unfi
+      corroborated: research.md C25
+    - channel: conventional
+      kind: portal
+      name: SVHarbor ePASS
+      applies_to: all conventional disputes ("exclusively")
+      source: glimpse-unfi
+      corroborated: research.md P17
+  writes_by_us: none   # ADR 0057: a portal is read, never written; ADR 0061 recipe filing is not built for UNFI
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  Nothing in either post says whether UNFI reverses a deduction without a
+  dispute, or how a reversal is distinguished from a won dispute on the
+  remittance. This decides billing attribution and stays unknown until a
+  real remittance pair is read.
+
+escalation_path:
+  - step: appeal
+    detail: '"appeal disputes that have been denied or partially approved" in the Dispute Center; Glimpse gives three business days'
+    source: glimpse-unfi, sps-dc
+  - step: none_further_stated
+    note: "No named person, team or second-level contact in either post"
+
+programs:
+  ssa:
+    name: Simplified Supplier Approach
+    glimpse_facts:
+      - "Consolidates fees into single 2.5% charge on total purchases"
+      - "Applies to most US purchases"
+      - "Eligibility: minimum $25,000 in UNFI purchases over prior four quarters"
+      - "Less than one year on the UNFI roster excluded unless agreed"
+      - "Waives DCE fees, slotting fees, SVHarbor access, ReposiTrak fees"
+      - "Grants UNFI Insights reporting platform access"
+      - "Consolidated ... February 1, 2026"
+    scorecard_green_thresholds:
+      appointment_violations: "5% or fewer per PO"
+      load_condition: "5% or fewer per PO"
+      costing_letters: "5% or fewer per PO"
+      fill_rate: "95% or higher"
+      late_notification_disposition: "1% or fewer per PO"
+      revocation: "Three consecutive months (at 30, 60, and 90 days) revoke the waiver"
+    source: glimpse-unfi
+    note: "An SSA-enrolled supplier's compliance deductions may be waived; whether an SSA fee line is a deduction to dispute is a question for the payer"
+  payment_terms_claim:
+    value: "net 45 days for check, 50 days for ACH, 25 days for credit card; 2% early-pay at 20, 25, and 10 days respectively"
+    source: glimpse-unfi
+    corroborated: research.md C17 (with a class action alleging the discount is taken late)
+
+questions_to_raise_confidence:
+  - "On a real UNFI natural remittance, which identifier does the 12-month window count from, and is it printed on the remittance or only in the Dispute Center?"
+  - "Has UNFI ever reversed one of your deductions without a dispute (e.g. an MCB correction)? What did that line look like on the remittance?"
+  - "Which side are you on, natural or conventional, and do you hold a myUNFI account with Dispute Center access or an SVHarbor ePASS login?"

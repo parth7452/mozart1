@@ -1,0 +1,174 @@
+# Payer playbook draft: Chewy. Data, not code. See README.md in this folder.
+
+retailer_key: chewy
+display_name: Chewy
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null
+drafted_at: 2026-10-03
+drafted_from:
+  - id: glimpse-chewy
+    source_url: https://www.tryglimpse.com/post/pet-brands-chewy-vendor-deductions
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from https://www.tryglimpse.com/resources
+    captured_at: 2026-10-03
+    cites: "Chewy Vendor Compliance Manual v4.6 (February 2026), Vendor Chargeback Matrix"   # the manual itself is behind the Partner Hub login and was not read
+  - id: glimpse-pet
+    source_url: https://www.tryglimpse.com/post/pet-retailer-compliance-fees-independent-brands
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-08
+    captured_at: 2026-10-03
+    note: "About natural pet retailers generally; used here only for the shelf-life pattern, not Chewy facts"
+
+identity_signals:
+  names_as_printed:
+    - value: Chewy
+      source: glimpse-chewy
+  portal_hosts:
+    - value: cph.chewy.com   # "Chewy Partner Hub (cph.chewy.com/home)"
+      source: glimpse-chewy
+  document_titles:
+    - value: monthly chargeback notification
+      source: glimpse-chewy
+  governing_document:
+    value: "Chewy Vendor Compliance Manual v4.6 (February 2026)"
+    source: glimpse-chewy
+
+code_map:
+  # Glimpse prints chargeback names and amounts from the matrix, not codes.
+  # Mapped where the name states the violation.
+  entries:
+    - printed: "No Call No Show (NCNS)"
+      amount_claim: "$1,000 per missed appointment"
+      canonical: compliance_appointment_missed
+      source: glimpse-chewy
+    - printed: "Reschedules"
+      amount_claim: "$750 per appointment (waived if monthly reschedule rate <= 4%)"
+      canonical: compliance_appointment_missed
+      source: glimpse-chewy
+    - printed: "ASN Fill Rate"
+      amount_claim: "5% of COGS on units not received/overfilled (waived if within +/-1%)"
+      canonical: compliance_asn_inaccurate
+      source: glimpse-chewy
+    - printed: "ASN On Time"
+      amount_claim: "5% of COGS on the affected units (waived if monthly >= 99%)"
+      canonical: compliance_asn_missing
+      note: "A late ASN rather than a missing one; closest code available"
+      source: glimpse-chewy
+    - printed: "POA Fill Rate"
+      amount_claim: "5% of COGS (waived if monthly >= 95%)"
+      canonical: compliance_otif
+      source: glimpse-chewy
+    - printed: "PO On Time"
+      amount_claim: "5% of COGS on late units (waived if monthly >= 95%)"
+      canonical: compliance_late_delivery
+      source: glimpse-chewy
+    - printed: "Pallet Damaged"
+      amount_claim: "$50 per pallet"
+      canonical: compliance_pallet_spec
+      source: glimpse-chewy
+    - printed: "Pallet Refusals"
+      amount_claim: "$100 per pallet"
+      canonical: compliance_pallet_spec
+      source: glimpse-chewy
+    - printed: "Value Added Service"
+      amount_claim: "$100 per PO + per-unit application cost"
+      canonical: administrative_fee
+      source: glimpse-chewy
+    - printed: "Disposal"
+      amount_claim: "$500 charge plus potential re-work and return fees"
+      canonical: quality_expired_short_dated
+      note: "Disposal follows a shelf-life rejection in the post; the code is the cause, not the fee"
+      source: glimpse-chewy
+  categories_claimed:
+    - label: Shortage Deductions
+      canonical_candidates: [shortage_quantity, shortage_carton]
+      source: glimpse-chewy
+    - label: Advertising/Marketing Deductions
+      glimpse_quote: "co-op fees, promotional allowances, and sponsored placement charges"
+      canonical_candidates: [coop_advertising, promo_allowance_claimed]
+      source: glimpse-chewy
+    - label: Price Discrepancy Deductions
+      glimpse_quote: "Chewy's PO price and your invoice price don't match"
+      canonical_candidates: [price_discrepancy]
+      source: glimpse-chewy
+  freight_accessorials_claimed:   # carrier-side charges Glimpse lists; family freight
+    entries:
+      - { printed: "Loading detention", amount: "$100/hour after 2 free hours", canonical: detention_or_layover }
+      - { printed: "Layover at shipper", amount: "$250/day", canonical: detention_or_layover }
+      - { printed: "Truck ordered not used", amount: "$250/order", canonical: freight_rate_mismatch }
+      - { printed: "Re-work & redelivery", amount: "$250/pallet (max $3,500/load)", canonical: freight_rate_mismatch }
+      - { printed: "Product return (<=125 mi)", amount: "$500 flat", canonical: return_handling_fee }
+      - { printed: "Product return (>125 mi)", amount: "$4/mile", canonical: return_handling_fee }
+    source: glimpse-chewy
+
+deadline_rules:
+  entries:
+    - canonical_family: compliance
+      window_days: 60
+      counted_from: monthly_chargeback_notification
+      glimpse_quote: "Chargeback disputes must be submitted within 60 calendar days of the monthly chargeback notification"
+      source: glimpse-chewy
+    - canonical_family: shortage
+      window_days: 90
+      counted_from: null   # not stated what the 90 days run from
+      glimpse_quote: "Proof of delivery for unpaid-invoice and shortage inquiries must reach Chewy within 90 days"
+      source: glimpse-chewy
+    - rule: absolute_age_limit
+      window_months: 6
+      glimpse_quote: "Chewy won't investigate anything older than six months"
+      source: glimpse-chewy
+    - rule: rejection_does_not_reset
+      glimpse_quote: "submissions with the wrong file type or incomplete attachments get rejected. That rejection does not reset your dispute clock."
+      source: glimpse-chewy
+  decision_time_claim:
+    value: "Chewy reviews and returns a decision within about five business days"
+    source: glimpse-chewy
+
+evidence_requirements:
+  entries:
+    - canonical: [shortage_quantity, shortage_carton, price_discrepancy, compliance_otif]
+      required:
+        - "the original purchase order and invoice, matched line by line"
+        - "proof of delivery, including carrier confirmation and pallet counts"
+        - "Screenshots or exports from Chewy's Partner Hub showing the chargeback notification date"
+      source: glimpse-chewy
+    - canonical: [promo_allowance_claimed, coop_advertising, price_discrepancy]
+      required:
+        - "promotional agreements or deal sheets that confirm the pricing"
+      source: glimpse-chewy
+    - canonical: [quality_expired_short_dated]
+      payer_rule:
+        - "minimum of 180 days to expiration at time of receipt"
+        - "Cold-chain products: a minimum of 90 days (refrigerated facilities: 105 days)"
+      source: glimpse-chewy
+  format_constraint:
+    glimpse_quote: "Chewy's dispute portal requires documents in specific formats"
+    formats: null   # which formats is not stated
+    source: glimpse-chewy
+
+submission_channel:
+  entries:
+    - kind: portal
+      name: Chewy Partner Hub
+      host: cph.chewy.com
+      applies_to: all disputes
+      glimpse_quote: "Everything goes through the Chewy Partner Hub; disputes sent by email or phone don't count"
+      source: glimpse-chewy
+  writes_by_us: none
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  Several chargebacks are "waived" when a monthly rate stays inside a
+  threshold. Whether a waiver is a reversal shown on a remittance, a charge
+  never taken, or a credit memo is not stated, and it decides attribution.
+
+escalation_path:
+  - step: none_stated
+    note: "No appeal step or named contact in Glimpse's post"
+
+questions_to_raise_confidence:
+  - "Can you export the Vendor Chargeback Matrix from the Partner Hub? The post cites v4.6 (February 2026); the matrix decides every amount above."
+  - "On your monthly chargeback notification, which date starts the 60 days, and does the Partner Hub show the same date?"
+  - "When a chargeback is waived for staying inside a threshold, how does that show: never charged, reversed on a remittance, or a credit memo?"
