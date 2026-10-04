@@ -39,6 +39,12 @@ export interface DocumentSuggestions {
  * documents' identifiers come first, so a cut here drops amount-only
  * candidates — which can only ever be `probable` — before it drops any case an
  * exact or ambiguous answer depends on.
+ *
+ * That holds only while the cases carrying an identifier fit under the limit.
+ * Past it the read cannot tell one carrier from several — the second case that
+ * makes an identifier `ambiguous` may be the row that was cut — so
+ * `suggestionsForDocuments` suggests nothing for that read rather than call a
+ * match `exact` on part of the candidates.
  */
 export const SUGGESTION_CANDIDATES_LIMIT = 1_000;
 
@@ -79,6 +85,10 @@ interface CandidateRow {
   retailer_key: string | null;
   aliases: string[];
   identifiers: { kind: IdentifierKind | DocumentMatchKind; value: string }[];
+  /** Whether the case carries one of the documents' identifiers. */
+  carries: boolean;
+  /** How many open cases carry one, before the limit cut the rows. */
+  carrying_total: string;
 }
 
 /**
@@ -95,6 +105,12 @@ interface CandidateRow {
  *    `claim_id`, and the purchase order and shipment numbers on the documents
  *    linked to it or to a case merged into it;
  * 3. `suggestCasesForDocument`, per document, over those cases.
+ *
+ * When more open cases carry one of those identifiers than
+ * `SUGGESTION_CANDIDATES_LIMIT` returns, every document is answered with no
+ * suggestion: `exact` means one open case carries the identifier, and a read
+ * that did not see every carrier cannot say that. A person still files the
+ * document from the picker.
  */
 export async function suggestionsForDocuments(
   client: PoolClient,
@@ -203,7 +219,11 @@ export async function suggestionsForDocuments(
               coalesce((select array_agg(a.alias order by a.alias) from debtor_aliases a
                          where a.debtor_id = d.debtor_id), '{}') as aliases,
               coalesce((select jsonb_agg(jsonb_build_object('kind', c.kind, 'value', c.value))
-                          from carried c where c.case_id = d.id), '[]'::jsonb) as identifiers
+                          from carried c where c.case_id = d.id), '[]'::jsonb) as identifiers,
+              exists (select 1 from carried c where c.case_id = d.id) as carries,
+              -- Counted over every row the where admits, before the limit.
+              (count(*) filter (where exists (select 1 from carried c where c.case_id = d.id))
+                 over ())::text as carrying_total
          from deductions d
          left join debtors b on b.id = d.debtor_id
         where d.state <> all ($2::text[])
@@ -214,6 +234,12 @@ export async function suggestionsForDocuments(
         limit $4`,
       params,
     );
+    // The limit cut a case that carries one of these identifiers: which
+    // identifiers one case carries and which several do is no longer known.
+    const carrying = rows.filter((row) => row.carries).length;
+    if (rows.some((row) => Number(row.carrying_total) > carrying)) {
+      return documentIds.map((documentId) => ({ documentId, suggestions: [] }));
+    }
     for (const row of rows) {
       candidates.push({
         caseId: row.id,
