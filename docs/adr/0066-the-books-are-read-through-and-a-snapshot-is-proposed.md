@@ -1,9 +1,9 @@
 # 0066 — The books are read through, and keeping a snapshot of them is proposed
 
-- Status: **proposed**. §1–§3 (the read) are built in the PR that carries this
-  file and are the founder's to accept on merge. §4 (keeping snapshots) is a
-  proposal only: nothing in it is built, and it needs a migration the founder
-  applies by hand.
+- Status: **accepted** by the founder on 2026-10-04 (§1–§3, the read, built
+  and merged in PR #145). §4 (keeping snapshots) is approved as the direction
+  and still **not built**: it needs a migration the founder applies by hand,
+  and nothing in it exists yet.
 - Date: 2026-10-04
 - Extends: ADR 0026 (the `AccountingSource` port), ADR 0063 §1 (a settings
   request reads a chart live and may refresh the company's token)
