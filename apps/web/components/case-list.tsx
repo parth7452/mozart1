@@ -10,6 +10,7 @@ import {
   type CaseStateTally,
   type CaseSummary,
   type FiledNothingByAddress,
+  type RetailerBoard as RetailerBoardRead,
   type ReviewQueueRead,
 } from '@recouple/store-postgres';
 import { money, unattachedCount } from '../lib/format';
@@ -28,6 +29,7 @@ import { UnattachedDocuments } from './unattached-documents';
 import { PossibleDuplicates } from './possible-duplicates';
 import { EmailThatFiledNothing } from './inbound-email';
 import { WorkQueue, type QueueViewer } from './work-queue';
+import { RetailerBoard } from './retailer-board';
 
 export interface Viewer {
   readonly email: string;
@@ -58,6 +60,7 @@ export function CaseList({
   cases,
   ledger,
   tally,
+  board,
   queue,
   today,
   mayUpload,
@@ -87,6 +90,13 @@ export function CaseList({
    * undercounted past that and did not say so.
    */
   tally: readonly CaseStateTally[];
+  /**
+   * Every payer with its figures and its most urgent cases
+   * (`PostgresStore.retailerBoard`): the first thing on the page. Shown to
+   * every member, `read_only` included, for the queue's reason — a reading of
+   * cases they can already see, with no action of its own.
+   */
+  board: RetailerBoardRead;
   /**
    * What to work on next (ADR 0043): every case a person can act on now, most
    * urgent first, with who is asking so an approval the viewer may not give
@@ -170,6 +180,7 @@ export function CaseList({
                 : `${queue.read.total.toLocaleString('en-US')} ${queue.read.total === 1 ? 'case needs' : 'cases need'} attention.`}
             </p>
             <nav className="dashboard-jump" aria-label="On this page">
+              <a href="#retailers">By retailer</a>
               <a href="#work-queue-title">Review queue</a>
               <a href="#ledger">All deductions</a>
               {mayUpload ? <a href="#documents">Documents</a> : null}
@@ -184,6 +195,7 @@ export function CaseList({
         {said === undefined ? null : (
           <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
         )}
+        <RetailerBoard board={board} today={today} />
         <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
         <section className="metrics" aria-label="Deduction overview">
           <div className="metric featured">

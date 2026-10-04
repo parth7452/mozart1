@@ -13,6 +13,7 @@ import type {
   CaseSummary,
   FiledNothingByAddress,
   PostgresStore,
+  RetailerBoard,
   ReviewQueueRead,
   ReviewQueueRow,
 } from '@recouple/store-postgres';
@@ -50,6 +51,25 @@ const harness = vi.hoisted(() => ({
   /** Every `caseTally` call: the figures, over every case, with the queue's today. */
   tallyCalls: [] as ({ today?: Date } | undefined)[],
   tally: [] as CaseStateTally[],
+  /** Every `retailerBoard` call: the board, for every member, with the queue's today. */
+  boardCalls: [] as ({ today?: Date; casesPerGroup?: number } | undefined)[],
+  board: {
+    groups: [],
+    totals: {
+      openCases: 0,
+      closedCases: 0,
+      declinedCases: 0,
+      awaitingApprovalCases: 0,
+      inDisputeCents: 0,
+      recoveredCents: 0,
+      recoveredUnrecordedCases: 0,
+      declinedCents: 0,
+      atRiskCases: 0,
+      atRiskCents: 0,
+      listableCases: 0,
+    },
+    casesPerGroup: 8,
+  } as RetailerBoard,
   /** Every `attachTargets` call: the open cases a loose document can go on. */
   attachCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
   attachTargets: { rows: [], total: 0, limit: 250 } as AttachTargets,
@@ -113,6 +133,10 @@ vi.mock('../lib/session', () => ({
       async caseTally(options?: { today?: Date }) {
         harness.tallyCalls.push(options);
         return harness.tally;
+      },
+      async retailerBoard(options?: { today?: Date; casesPerGroup?: number }) {
+        harness.boardCalls.push(options);
+        return harness.board;
       },
       async attachTargets(options?: { today?: Date; limit?: number }) {
         harness.attachCalls.push(options);
@@ -209,6 +233,8 @@ describe('the case list page', () => {
     };
     harness.tallyCalls = [];
     harness.tally = [];
+    harness.boardCalls = [];
+    harness.board = { ...harness.board, groups: [] };
     harness.attachCalls = [];
     harness.attachTargets = { rows: [], total: 0, limit: 250 };
     harness.searchCalls = [];
@@ -247,6 +273,53 @@ describe('the case list page', () => {
         confidence: 0.98,
       },
     ];
+  });
+
+  it('opens with the board by payer, read once for every member with the queue’s today', async () => {
+    const walmart: CaseSummary = {
+      ...listed('aaaaaaaa-7777-2222-3333-444444444444', 'APDP-7'),
+      debtorName: 'Walmart',
+    };
+    harness.board = {
+      ...harness.board,
+      groups: [
+        {
+          kind: 'matched',
+          key: 'debtor:dddddddd-7777-2222-3333-444444444444',
+          name: 'Walmart',
+          debtorId: 'dddddddd-7777-2222-3333-444444444444',
+          printedNames: [],
+          totals: { ...harness.board.totals, openCases: 1, inDisputeCents: 42_150, listableCases: 1 },
+          cases: [walmart],
+          moreCases: 0,
+        },
+      ],
+    };
+    for (const role of ['analyst', 'read_only']) {
+      harness.role = role;
+      harness.boardCalls = [];
+      harness.queueCalls = [];
+      const html = await render();
+
+      // One read, with the same `today` the queue was read with, and no limit
+      // of the page's own: the store's constant decides how many are listed.
+      expect(harness.boardCalls).toHaveLength(1);
+      expect(harness.boardCalls[0]?.today).toBeInstanceOf(Date);
+      expect(harness.boardCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+      expect(harness.boardCalls[0]?.casesPerGroup).toBeUndefined();
+
+      // The board is the first section, above the queue, and the rest of the
+      // page is still there under the anchors a bookmark may hold.
+      const board = html.indexOf('id="retailers"');
+      const queue = html.indexOf('id="work-queue-title"');
+      const ledger = html.indexOf('id="ledger"');
+      expect(board).toBeGreaterThan(-1);
+      expect(board).toBeLessThan(queue);
+      expect(queue).toBeLessThan(ledger);
+      expect(html).toContain('href="#retailers"');
+      expect(html).toContain('href="/cases/aaaaaaaa-7777-2222-3333-444444444444"');
+      expect(html).toContain('href="/?q=Walmart#ledger"');
+    }
   });
 
   it('lists what was read and is on no case, with what it was read as', async () => {

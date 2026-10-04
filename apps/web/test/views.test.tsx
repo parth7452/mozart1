@@ -32,6 +32,7 @@ import { DISPUTE_REASONS } from '../components/case-actions';
 import { UNATTACHED_SHOWN, confidencePercent, deadline, fieldLabel, money, unattachedCount } from '../lib/format';
 import { displaysInline, viewsThroughRendition } from '../lib/document-types';
 import { tallyOf } from './case-tally';
+import { NO_BOARD } from './retailer-board-fixture';
 
 const viewer: Viewer = { email: 'ap@harborline.test', orgName: 'Harborline Foods', role: 'analyst' };
 /** An empty review queue, for the tests about the rest of the list. */
@@ -51,11 +52,13 @@ type CaseListProps = Parameters<typeof CaseList>[0];
  * reach past the rows render `CaseList`.
  */
 function EveryCaseList(
-  props: Omit<CaseListProps, 'tally' | 'ledger'> & Partial<Pick<CaseListProps, 'ledger'>>,
+  props: Omit<CaseListProps, 'tally' | 'ledger' | 'board'> &
+    Partial<Pick<CaseListProps, 'ledger' | 'board'>>,
 ) {
   return (
     <CaseList
       {...props}
+      board={props.board ?? NO_BOARD}
       ledger={props.ledger ?? { filter: {}, matching: props.cases.length }}
       tally={tallyOf(props.cases, props.today)}
     />
@@ -299,6 +302,7 @@ describe('the case list', () => {
     // figures are the tally's; before, they were summed from the two rows.
     const html = renderToStaticMarkup(
       <CaseList
+        board={NO_BOARD}
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -468,6 +472,7 @@ describe('the case list', () => {
     );
     const html = renderToStaticMarkup(
       <CaseList
+        board={NO_BOARD}
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -486,6 +491,7 @@ describe('the case list', () => {
   it('shows the search, not the first-run text, when a search matched nothing', () => {
     const html = renderToStaticMarkup(
       <CaseList
+        board={NO_BOARD}
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}
@@ -2047,6 +2053,7 @@ describe('a case that was declined', () => {
     });
     const html = renderToStaticMarkup(
       <CaseList
+        board={NO_BOARD}
         queue={NO_QUEUE}
         mayUpload
         viewer={viewer}

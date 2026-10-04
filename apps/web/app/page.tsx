@@ -67,6 +67,9 @@ export default async function CaseListPage({
         // The figures are over every case, not the newest hundred in `cases`:
         // the same RLS, counted by state, and the queue's today for deadlines.
         tally={await store.caseTally({ today })}
+        // The same cases by payer, for every member and with the queue's
+        // today: one read, and the board only formats what it returns.
+        board={await store.retailerBoard({ today })}
         // Every member, `read_only` included: the queue is a reading of cases
         // they can already see, and it offers no action of its own.
         queue={{
