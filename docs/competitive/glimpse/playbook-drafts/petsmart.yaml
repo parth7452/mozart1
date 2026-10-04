@@ -1,0 +1,189 @@
+# Payer playbook draft: PetSmart. Data, not code. See README.md in this folder.
+# One source: Glimpse's PetSmart guide. No other vendor's write-up of PetSmart's
+# dispute process was found on 2026-10-04, so nothing here is corroborated.
+
+retailer_key: petsmart
+display_name: PetSmart
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null
+drafted_at: 2026-10-04
+drafted_from:
+  - id: glimpse-psm
+    source_url: https://www.tryglimpse.com/post/petsmart-vendor-deductions-cpg-guide
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from page 2 of https://www.tryglimpse.com/resources
+    captured_at: 2026-10-04
+    note: "Reads as a paraphrase of PetSmart's vendor compliance documents; none of those was read"
+  - id: glimpse-pet
+    source_url: https://www.tryglimpse.com/post/pet-cpg-shortage-deductions-dispute
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-08   # resources page; the page title says September 2026
+    captured_at: 2026-10-04
+    note: "Names PetSmart as a portal Glimpse processes; states no PetSmart rule"
+
+identity_signals:
+  names_as_printed:
+    - value: PetSmart
+      source: glimpse-psm
+  departments:
+    - value: Research Desk
+      source: glimpse-psm
+  email_domains:
+    - value: petsmart.com
+      source: glimpse-psm
+  portal_hosts:
+    - value: "AI-DM (Active Intelligence Deduction Management), hosted by OpenText"   # no host or URL printed
+      source: glimpse-psm
+  document_titles:
+    - value: PetSmart invoice reduction report
+      source: glimpse-psm
+    - value: Detailed Overall Failure Report   # weekly, Wednesday, on-time failures; title as summarised on read, not a checked quote
+      source: glimpse-psm
+      verbatim: false
+
+code_map:
+  # Glimpse prints six compliance category names, not codes.
+  entries:
+    - printed: "PO On Time"
+      glimpse_description: "late arrival after the PO due date"
+      verbatim: false
+      canonical: compliance_late_delivery
+      source: glimpse-psm
+    - printed: "PO Fill Rate"
+      amount_claim: "Each violation carries a $50 admin fee plus a percentage of the shorted SKU line value, which varies by SKU status code."
+      canonical: compliance_otif
+      note: "Fill rate alone, without the on-time half; mapped as the Chewy draft maps 'POA Fill Rate'. A fill-rate fee is not a shortage claim: the shortage itself is disputed by email, the fee in AI-DM."
+      source: glimpse-psm
+    - printed: "ASN Compliance"
+      glimpse_description: "late or missing ASN"
+      verbatim: false
+      canonical: compliance_asn_missing
+      note: "compliance_asn_inaccurate if the ASN was sent and wrong; the guide does not split them"
+      source: glimpse-psm
+    - printed: "Load Quality"
+      glimpse_description: "pallet violations (slip sheets, overhang, height, wrap); charged per pallet or per truckload"
+      verbatim: false
+      canonical: compliance_pallet_spec
+      source: glimpse-psm
+    - printed: "Labels"
+      glimpse_description: "non-compliant GS1-128 labels"
+      verbatim: false
+      canonical: compliance_label_barcode
+      source: glimpse-psm
+    - printed: "Code Date"
+      glimpse_description: "insufficient shelf life at DC receipt"
+      verbatim: false
+      canonical: quality_expired_short_dated
+      source: glimpse-psm
+  categories_claimed:
+    - label: Shortage and damage claims
+      canonical_candidates: [shortage_quantity, shortage_carton, quality_damaged_in_transit]
+      source: glimpse-psm
+    - label: Pricing discrepancies
+      canonical_candidates: [price_discrepancy]
+      source: glimpse-psm
+    - label: Defective / unsellable
+      glimpse_description: "annual write-offs (damaged, past code, returned), taken off invoice or by manual check above a minimum threshold"
+      verbatim: false
+      canonical_candidates: [return_unsaleable]
+      source: glimpse-psm
+
+deadline_rules:
+  entries:
+    - canonical_family: compliance
+      window_days: 30
+      counted_from: deduction_created
+      glimpse_quote: "You have 30 days from the date a compliance deduction is created to dispute it through the AI-DM portal."
+      outcome_past_window: "the deduction stands as filed without further review, and PetSmart will not reopen the case"
+      source: glimpse-psm
+      corroborated: none
+    - canonical_family: shortage
+      window_days: 30
+      counted_from: shortage_claim_date
+      glimpse_quote: "Within 30 days of the shortage claim, email a complete packet to proofofdelivery@petsmart.com."
+      outcome_past_window: "the deduction stands as filed without further review"
+      source: glimpse-psm
+      corroborated: none
+    - rule: pre_deduction_comment
+      window_hours: 48
+      glimpse_quote: "Vendors have 48 hours to comment on any failure before it uploads to the AI-DM portal the following Monday."
+      source: glimpse-psm
+      note: "A window before the deduction exists; a failure withdrawn here never becomes a deduction"
+    - rule: payer_research_time
+      window_days: 90
+      direction: payer_side
+      glimpse_quote: "PetSmart's Research Desk reviews claims on a first-come, first-served basis and allows up to 90 days for research."
+      source: glimpse-psm
+    - rule: incomplete_packet
+      glimpse_quote: "Incomplete packets are returned without research, so send everything together."
+      source: glimpse-psm
+    - rule: pricing
+      window_days: null
+      note: "Glimpse says to contact the buyer 'promptly'; no window"
+      verbatim: false
+      source: glimpse-psm
+
+evidence_requirements:
+  entries:
+    - canonical: [shortage_quantity, shortage_carton, quality_damaged_in_transit]
+      required:
+        - original invoice
+        - packing list
+        - "signed POD (prepaid shipments) or signed BOL (collect shipments)"
+        - PetSmart invoice reduction report
+      glimpse_quote: "The packet must include: original invoice, packing list, signed POD (prepaid shipments) or signed BOL (collect shipments), and the PetSmart invoice reduction report."
+      source: glimpse-psm
+    - canonical: [compliance_late_delivery, compliance_asn_missing, compliance_label_barcode, compliance_pallet_spec, compliance_otif]
+      required:
+        - "supporting documents and a comment explaining the dispute"
+        - "ASN timestamps or carrier records confirming on-time DC arrival by the PO due date"
+      source: glimpse-psm
+    - canonical: [price_discrepancy]
+      required: []
+      note: "Routed to the buyer; no document list given"
+      source: glimpse-psm
+
+submission_channel:
+  entries:
+    - kind: portal
+      name: AI-DM (OpenText)
+      applies_to: compliance deductions
+      source: glimpse-psm
+    - kind: email
+      address: proofofdelivery@petsmart.com
+      applies_to: shortage and damage claims ("Shortage disputes do not go through the AI-DM portal; they go via email.")
+      source: glimpse-psm
+    - kind: email
+      address: accountspayable@petsmart.com
+      applies_to: requesting the invoice reduction report
+      verbatim: false
+      source: glimpse-psm
+    - kind: person
+      name: the buyer
+      applies_to: pricing discrepancies
+      source: glimpse-psm
+  writes_by_us: none
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  A failure commented on inside the 48-hour window may never upload as a
+  deduction. Whether that, or a dispute PetSmart approves, shows as a line on a
+  later remittance is not stated. Unknown until a real pair is read.
+
+escalation_path:
+  - step: redispute
+    detail: "Glimpse describes refiling a denied PetSmart dispute with added documents; it states no PetSmart limit or second-level contact"
+    source: glimpse-psm
+  - step: none_further_stated
+
+company_reported_claims:
+  - value: "Glimpse processes deductions across KeHE, UNFI, and PetSmart portals; Chewy and Petco in active development"
+    source: glimpse-pet
+    verbatim: false
+
+questions_to_raise_confidence:
+  - "Do you have PetSmart's vendor compliance document and its fee table? The guide gives one amount ($50 plus a percentage) and no others."
+  - "On a real PetSmart deduction, which date does AI-DM show as 'created', and is the 30 days counted from it or from the remittance?"
+  - "Has a failure you commented on within 48 hours ever been dropped, and did anything show on a remittance afterwards?"

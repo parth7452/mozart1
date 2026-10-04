@@ -1,0 +1,242 @@
+# Payer playbook draft: Walmart (APDP). Data, not code. See README.md in this folder.
+# Glimpse's Walmart guide and SPS Commerce's Walmart articles disagree on what
+# two of the four codes Glimpse prints mean, and on the window for a
+# chargeback. Both versions are recorded and neither is used.
+
+retailer_key: walmart
+display_name: Walmart (Walmart Stores, Walmart.com; Sam's Club is a separate payer and not drafted)
+version: 0.1.0-draft
+status: draft
+confidence: low
+effective_from: null   # a vendor's blog post is not a payer policy
+drafted_at: 2026-10-04
+drafted_from:
+  - id: glimpse-wmt
+    source_url: https://www.tryglimpse.com/post/disputing-walmart-deductions-step-by-step
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-09   # month, from page 2 of https://www.tryglimpse.com/resources ("How to File Walmart Deduction Disputes in APDP"); the page's search title says "June 2026"
+    captured_at: 2026-10-04
+    note: "Not on the first page of Glimpse's resources list; found by search"
+  - id: glimpse-bigbox
+    source_url: https://www.tryglimpse.com/channel/big-box-retailers
+    publisher: Glimpse (tryglimpse.com), channel marketing page
+    captured_at: 2026-10-04
+  - id: glimpse-integrations
+    source_url: https://www.tryglimpse.com/integrations
+    publisher: Glimpse (tryglimpse.com)
+    captured_at: 2026-10-04
+  - id: sps-apdp
+    source_url: https://www.spscommerce.com/community/articles/walmart-apdp-portal-explained-best-practices
+    publisher: SPS Commerce (vendor; owns SupplyPike), used to corroborate and to record conflicts
+    published: "Last Updated May 27, 2025"
+    captured_at: 2026-10-04
+  - id: sps-codes
+    source_url: https://www.spscommerce.com/community/articles/what-are-the-most-common-walmart-deductions-codes
+    publisher: SPS Commerce (vendor)
+    published: "Last Updated July 2, 2020"
+    captured_at: 2026-10-04
+  - id: sps-schedule
+    source_url: https://www.spscommerce.com/community/articles/disputing-your-walmart-deductions-on-a-schedule
+    publisher: SPS Commerce (vendor)
+    published: 2025-03-31
+    captured_at: 2026-10-04
+
+identity_signals:
+  names_as_printed:
+    - value: Walmart
+      source: glimpse-wmt
+  portal_hosts:
+    - value: supplierhelp.walmart.com   # Glimpse gives "https://supplierhelp.walmart.com/s/activity" as where Retail Link is reached
+      source: glimpse-wmt
+      note: "This is the host Glimpse prints. It reads as Walmart's supplier help site, not Retail Link's own sign-in host; not checked against Walmart."
+  portals_named:
+    - value: Retail Link
+      source: glimpse-wmt
+      corroborated: sps-apdp ("Log into Retail Link")
+    - value: APDP (Accounts Payable Disputes Portal), a module inside Retail Link
+      source: glimpse-wmt
+      corroborated: sps-apdp
+    - value: APIS (Accounts Payable Information System), "companion tool"
+      source: glimpse-wmt
+    - value: "Walmart's AR dispute portal"   # for OTIF; Glimpse gives it no other name
+      source: glimpse-wmt
+  document_titles: []   # no remittance or claim document title is named by any source read
+
+code_map:
+  entries:
+    - printed: "22"
+      glimpse_description: "Code 22 (Shortage): Walmart claims fewer units were received than invoiced."
+      other_vendor_description: 'sps-apdp: "Merchandise Billed Not Shipped"; sps-codes: "Goods Billed not Shipped"'
+      canonical: shortage_quantity
+      note: "The one code where all three write-ups describe the same thing"
+      source: [glimpse-wmt, sps-apdp, sps-codes]
+    - printed: "24"
+      glimpse_description: "Code 24 (Pricing Discrepancy): The invoice price doesn't match Walmart's purchase order."
+      other_vendor_description: 'sps-codes: "Carton Shortage/Freight Bill Signed Short"'
+      canonical: null
+      why_unmapped: "Conflict. Glimpse calls 24 a pricing code; SPS (2020) calls it a carton shortage. A pricing dispute and a shortage dispute need different evidence, so a wrong mapping is a wrong dispute basis."
+      source: [glimpse-wmt, sps-codes]
+    - printed: "25"
+      glimpse_description: "Code 25 (Advertising): Charges tied to co-op or promotional agreements."
+      other_vendor_description: 'sps-codes: "No Merchandise Received for Invoice"'
+      canonical: null
+      why_unmapped: "Conflict. Glimpse calls 25 advertising; SPS (2020) calls it a no-receipt shortage."
+      source: [glimpse-wmt, sps-codes]
+    - printed: "98"
+      glimpse_description: "Code 98 (Return to Vendor): Returns deductions flowing through Walmart's returns centers are not visible or disputable in APDP."
+      canonical: null
+      why_unmapped: "A return; whether return_authorised, return_unauthorised or return_unsaleable is decided by the return paperwork, not the code"
+      source: glimpse-wmt
+    # The rows below are SPS's, not Glimpse's. Kept so a real Walmart remittance
+    # can be checked against both vendors' lists.
+    - printed: "10"
+      other_vendor_description: "Price Difference as Documented"
+      canonical: price_discrepancy
+      source: sps-apdp
+    - printed: "11"
+      other_vendor_description: "Price Difference Between PO and Invoice"
+      canonical: price_discrepancy
+      source: sps-apdp
+    - printed: "21"
+      other_vendor_description: "Concealed Shortage Claims"
+      canonical: shortage_concealed
+      source: sps-apdp
+    - printed: "30"
+      other_vendor_description: "Duplicate Billings"
+      canonical: null
+      why_unmapped: "duplicate_invoice_deduction or duplicate_payment; the description alone does not say which side was doubled"
+      source: sps-apdp
+    - printed: "51"
+      other_vendor_description: "Promotional Allowance"
+      canonical: promo_allowance_claimed
+      source: sps-apdp
+  code_count_claim:
+    value: "nearly one hundred Walmart deduction codes"
+    source: sps-codes
+    note: "sps-apdp says 16 codes account for 80% of claims and lists them in a table; only six were legible in the read"
+  compliance_programs_named:
+    - printed: OTIF
+      glimpse_description: "OTIF compliance chargebacks are AR deductions routed through Walmart's AR dispute portal, not APDP"
+      amount_claim: "reach 3% of COGS on non-compliant orders"
+      canonical: compliance_otif
+      source: glimpse-wmt
+    - printed: SQEP
+      canonical: null
+      why_unmapped: "Named by sps-apdp as a compliance fine; no description read. Likely compliance_packaging / compliance_label_barcode / compliance_asn_inaccurate by defect type."
+      source: sps-apdp
+    - printed: MABD   # named for Sam's Club on Glimpse's integrations page, not Walmart
+      canonical: null
+      why_unmapped: "Sam's Club; out of this draft"
+      source: glimpse-integrations
+
+deadline_rules:
+  entries:
+    - canonical_family: shortage
+      window_months: 12
+      counted_from: invoice_date
+      glimpse_quote: "allow 12 months from the invoice date"
+      source: glimpse-wmt
+      corroborated: sps-apdp ("Shortage deductions must be disputed within 12 months"; SPS does not say counted from what)
+    - rule: general_invoice_disputes
+      window_months: 24
+      glimpse_quote: "allow up to two years"
+      source: glimpse-wmt
+      corroborated: sps-apdp ("The standard filing window for disputes is 24 months"); sps-schedule ("Walmart only allows suppliers to dispute deductions that are less than two years old")
+    - rule: ap_chargebacks
+      window_days: null
+      glimpse_quote: "disputes must be submitted within 15 to 30 days of the posting date"
+      other_vendor: 'sps-apdp gives no window shorter than 12 months for anything filed in APDP, and says "Allowance deductions can also be disputed for up to 24 months"'
+      conflict: "Glimpse states a 15-to-30-day window for AP chargebacks; SPS states none. Which deduction types the short window covers is not said. Both kept; neither used."
+      source: [glimpse-wmt, sps-apdp]
+    - canonical_family: compliance
+      applies_to: OTIF (AR side)
+      window_days: null
+      glimpse_quote: "a separate window closer to 30 days from invoicing"
+      source: glimpse-wmt
+      corroborated: none
+      note: "'closer to 30 days' is not a number"
+    - rule: refile_limit
+      glimpse_quote: "can be refiled up to 3 times"
+      detail: "Resubmitting the same documentation produces the same denial; only new evidence wins a refile"
+      source: glimpse-wmt
+      corroborated: none (sps-apdp does not state a limit)
+  resolution_time_claim:
+    value: "it often takes a month or more for Walmart to act on a dispute"
+    source: sps-codes
+
+evidence_requirements:
+  entries:
+    - canonical: [shortage_quantity, shortage_carton, shortage_never_received]
+      required:
+        - signed BOL
+        - POD
+        - packing list
+        - carrier confirmation
+        - item-level quantity support
+      glimpse_quote: "signed BOL, POD, packing list, carrier confirmation, and item-level quantity support"
+      payer_refuses: "carrier-generated delivery reports (\"Walmart's APDP does not accept those as valid backup for shortage disputes\")"
+      source: glimpse-wmt
+    - canonical: [price_discrepancy]
+      required:
+        - invoice
+        - purchase order
+        - "price confirmation pulled from Retail Link"
+      source: glimpse-wmt
+    - canonical: [compliance_otif, compliance_appointment_missed, compliance_late_delivery]
+      required:
+        - original PO
+        - appointment confirmation
+        - receiving support
+      source: glimpse-wmt
+    - canonical: [return_authorised, return_unauthorised, return_unsaleable]
+      required: []
+      note: "Code 98 is 'not visible or disputable in APDP' per Glimpse; no other channel is named"
+      source: glimpse-wmt
+  general_set_claim:
+    value: "Invoices, proof of delivery and compliance records"
+    source: sps-apdp
+
+submission_channel:
+  entries:
+    - kind: portal
+      name: APDP, inside Retail Link
+      applies_to: accounts-payable deductions (shortage, pricing, allowance)
+      statuses_shown: ["Pending review", "In review", "Supplier action needed", "Approved or denied"]
+      source: glimpse-wmt
+      corroborated: sps-apdp
+    - kind: portal
+      name: "Walmart's AR dispute portal"
+      applies_to: OTIF compliance chargebacks (AR deductions)
+      source: glimpse-wmt
+      corroborated: none
+      note: "Glimpse names no product for it. sps-apdp names no separate channel for compliance fines."
+    - kind: email
+      address: null
+      note: "No Walmart email address is named in any source read"
+  writes_by_us: none   # ADR 0057: a portal is read, never written
+
+auto_reversal_behavior: unknown
+auto_reversal_note: >
+  Nothing read says whether Walmart reverses a deduction without a dispute, or
+  how an approved APDP dispute is repaid (a credit on a later remittance, a
+  separate payment). "Approved or denied" is a status in the portal, not a
+  remittance line. Billing attribution waits on a real pair.
+
+escalation_path:
+  - step: refile
+    detail: "up to 3 times, with new evidence (Glimpse)"
+    source: glimpse-wmt
+  - step: none_further_stated
+    note: "No named team, buyer escalation or second-level contact in any source read"
+
+company_reported_claims:   # Glimpse's own numbers on the same page; not payer facts
+  - value: "91% average recovery rate"
+    source: glimpse-wmt
+  - value: "Target's compliance chargebacks carry just a two-week exemption window"
+    source: glimpse-bigbox
+    note: "A Target fact on Glimpse's big-box page. Glimpse publishes no Target guide, so there is no Target draft; this line is kept here so it is not lost."
+
+questions_to_raise_confidence:
+  - "On a real Walmart remittance or APDP export, what do codes 24 and 25 print as? Glimpse and SPS give different meanings for both."
+  - "Which of your Walmart deductions carried a window shorter than 12 months, and where was that window shown (APDP, the claim document, the supplier agreement)?"
+  - "When an APDP dispute was approved, how did the money come back, and what did that line look like on the remittance?"

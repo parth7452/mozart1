@@ -20,6 +20,12 @@ drafted_from:
     published: 2026-08
     captured_at: 2026-10-03
     note: "About natural pet retailers generally; used here only for the shelf-life pattern, not Chewy facts"
+  # Added 2026-10-04 (second pass over Glimpse's public posts):
+  - id: glimpse-pet-shortage
+    source_url: https://www.tryglimpse.com/post/pet-cpg-shortage-deductions-dispute
+    publisher: Glimpse (tryglimpse.com), competitor content marketing
+    published: 2026-08   # resources page; the page title says September 2026
+    captured_at: 2026-10-04
 
 identity_signals:
   names_as_printed:
@@ -122,6 +128,12 @@ deadline_rules:
     - rule: rejection_does_not_reset
       glimpse_quote: "submissions with the wrong file type or incomplete attachments get rejected. That rejection does not reset your dispute clock."
       source: glimpse-chewy
+    - rule: window_as_stated_in_glimpses_other_post   # added 2026-10-04
+      window_days: null
+      glimpse_quote: "30 to 60 days from the deduction posting date depending on claim type"
+      detail: 'The same post says "There is no appeal after the deadline expires"'
+      conflict: "Glimpse's Chewy guide gives 60 calendar days from the monthly notification and 90 days for proof of delivery; its pet-shortage post gives 30 to 60 days from the posting date. Two posts by one vendor, two answers. Both kept; neither used."
+      source: glimpse-pet-shortage
   decision_time_claim:
     value: "Chewy reviews and returns a decision within about five business days"
     source: glimpse-chewy
