@@ -1,6 +1,7 @@
 import {
   DISPUTE_REASONS,
   MAX_RATIONALE_LENGTH,
+  REASON_WORDS,
   familyOf,
   type CanonicalReasonCode,
   type CaseState,
@@ -69,6 +70,19 @@ export interface CaseActionsProps {
    * button also authorises the found posting, and says so.
    */
   readonly postsFound?: boolean;
+  /**
+   * The reason this case's payer code maps to (ADR 0066), with the code and
+   * where the mapping came from. The decide form starts on it when it is one
+   * the form offers, and says so. A default only: the person still chooses,
+   * and nothing is decided by a mapping.
+   */
+  readonly suggestedReason?:
+    | {
+        readonly code: CanonicalReasonCode;
+        readonly payerCode: string;
+        readonly provenance: string;
+      }
+    | undefined;
 }
 
 /**
@@ -94,7 +108,12 @@ export function CaseActions({
   filenames,
   unservable,
   postsFound = false,
+  suggestedReason,
 }: CaseActionsProps) {
+  // Only a reason the form offers can be its default; a mapped code outside
+  // `DISPUTE_REASONS` is said in words and the person picks.
+  const offered =
+    suggestedReason !== undefined && DISPUTE_REASONS.some(([code]) => code === suggestedReason.code);
   const decision = workflow?.decision;
   const packet = workflow?.packet;
   const approval = workflow?.approval;
@@ -119,7 +138,12 @@ export function CaseActions({
           </p>
           <form action={`/cases/${deductionId}/decide`} method="post">
             <label htmlFor="dispute-reason">Why this deduction is invalid</label>
-            <select id="dispute-reason" name="reason" required defaultValue="">
+            <select
+              id="dispute-reason"
+              name="reason"
+              required
+              defaultValue={offered && suggestedReason !== undefined ? suggestedReason.code : ''}
+            >
               <option value="" disabled>
                 Choose a reason…
               </option>
@@ -133,6 +157,23 @@ export function CaseActions({
                 </optgroup>
               ))}
             </select>
+            {suggestedReason === undefined ? null : (
+              <p className="hint suggested-reason">
+                {offered ? (
+                  <>
+                    Pre-selected from the payer code{' '}
+                    <span className="mono">{suggestedReason.payerCode}</span> ({suggestedReason.provenance}).
+                    It is a starting point: change it if it is wrong for this deduction.
+                  </>
+                ) : (
+                  <>
+                    The payer code <span className="mono">{suggestedReason.payerCode}</span> maps to
+                    &ldquo;{REASON_WORDS[suggestedReason.code]}&rdquo; ({suggestedReason.provenance}), which
+                    is not a reason this form offers. Choose the one that fits.
+                  </>
+                )}
+              </p>
+            )}
 
             <label htmlFor="rationale">In one line, for whoever approves it</label>
             {/* The cap is the packet narrative's, not a number this file chose:

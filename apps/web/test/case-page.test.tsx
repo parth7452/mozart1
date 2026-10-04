@@ -181,6 +181,27 @@ vi.mock('../lib/workflow', async (importOriginal) => ({
   workflowStoreFor: () => current,
 }));
 
+/**
+ * What the case's payer code maps to (ADR 0066), as the page's second store
+ * answers it. `no_code` unless a describe below says otherwise; every call is
+ * recorded with the identity the store was made for and the terms it was
+ * handed.
+ */
+const mapping = vi.hoisted(() => ({
+  answer: { kind: 'no_code' } as import('@recouple/store-postgres').PayerCodeMappingAnswer,
+  asked: [] as unknown[],
+}));
+
+vi.mock('../lib/reason-code-maps', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/reason-code-maps')>()),
+  payerCodeMapStoreFor: (identity: unknown) => ({
+    payerCodeMappingForCase: async (id: string, terms: unknown) => {
+      mapping.asked.push({ identity, id, terms });
+      return mapping.answer;
+    },
+  }),
+}));
+
 const CasePage = (await import('../app/cases/[id]/page')).default;
 
 describe('the review page for a deduction taken against the invoice, not an item', () => {
@@ -460,5 +481,77 @@ describe('the review page offers documents read and on no case', () => {
     } finally {
       current = looseStore;
     }
+  });
+});
+
+/**
+ * The payer's code beside what this workspace mapped it to (ADR 0066): read by
+ * the page as the member signed in, shown under the code, and offered as the
+ * decide form's starting reason. Shown, never applied.
+ */
+describe('the review page shows what the payer code maps to', () => {
+  const DEBTOR_ID = 'dddddddd-1111-2222-3333-444444444444';
+  const render = async () =>
+    renderToStaticMarkup(
+      await CasePage({ params: Promise.resolve({ id: CASE_ID }), searchParams: Promise.resolve({}) }),
+    );
+
+  afterAll(() => {
+    mapping.answer = { kind: 'no_code' };
+  });
+
+  it('asks as the member signed in, with the terms the case page derived', async () => {
+    mapping.asked.length = 0;
+    await render();
+    expect(mapping.asked).toEqual([
+      { identity: { orgId: ORG_ID, userId: USER_ID }, id: CASE_ID, terms: { kind: 'none' } },
+    ]);
+  });
+
+  it('names the mapping, its source and confidence, and starts the decide form on it', async () => {
+    mapping.answer = {
+      kind: 'mapped',
+      payerCode: 'PREMIUM-NOAUTH',
+      debtorId: DEBTOR_ID,
+      asOf: '2026-09-01',
+      map: {
+        id: 'eeeeeeee-1111-2222-3333-444444444444',
+        orgId: ORG_ID,
+        debtorId: DEBTOR_ID,
+        payerCode: 'PREMIUM-NOAUTH',
+        canonicalCode: 'unauthorised_deduction_no_basis',
+        effectiveFrom: '2026-01-01',
+        source: 'customer_confirmed',
+        confidence: 'high',
+        recordedBy: USER_ID,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    };
+    const html = await render();
+    expect(html).toContain(
+      'Payer code <span class="mono">PREMIUM-NOAUTH</span> → Deduction taken with no stated basis or ' +
+        'supporting documentation (mapped by the customer, high confidence)',
+    );
+    expect(html).toContain('<option value="unauthorised_deduction_no_basis" selected="">');
+    expect(html).toContain('Pre-selected from the payer code');
+    // Still a form a person submits: nothing was decided by the mapping.
+    expect(html).toContain(`action="/cases/${CASE_ID}/decide"`);
+  });
+
+  it('says there is no mapping yet, and offers the link only to someone who may add one', async () => {
+    mapping.answer = {
+      kind: 'unmapped',
+      payerCode: 'PREMIUM-NOAUTH',
+      debtorId: DEBTOR_ID,
+      asOf: '2026-09-01',
+      mappable: true,
+    };
+    const html = await render();
+    expect(html).toContain('no mapping yet');
+    // The session here is an analyst, who may not add one.
+    expect(html).not.toContain(`/settings/reason-codes?debtor=${DEBTOR_ID}`);
+    expect(html).toContain('An owner or approver can add one');
+    expect(html).not.toContain('Pre-selected from the payer code');
+    expect(html).not.toMatch(/<option value="[a-z_]+" selected="">/);
   });
 });

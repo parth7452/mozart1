@@ -14,6 +14,7 @@ import { isSpreadsheetMime } from '@recouple/ingest';
 import { sheetExtractFor } from '../../../lib/sheet-extract-load';
 import { qboPostingFromEnv } from '../../../lib/qbo-posting';
 import { postingStoreFor } from '../../../lib/posting';
+import { payerCodeMapStoreFor } from '../../../lib/reason-code-maps';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,6 +95,13 @@ export default async function CasePage({
         // remittances linked to this case when it printed none of its own.
         store.payerTermsForCase(id),
       ]);
+    // What the payer's code maps to in this workspace's own mappings, on the
+    // day the deduction was taken (ADR 0066). After the terms, because a case
+    // with no code of its own takes the one its documents agree on.
+    const payerCodeMapping = await payerCodeMapStoreFor({
+      orgId: session.org.orgId,
+      userId: session.userId,
+    }).payerCodeMappingForCase(id, payerTerms);
     // Read only where the deployment posts at all (`QBO_POSTING`, ADR 0060 §5):
     // elsewhere the card, the retry and the posting approve label do not exist.
     const posting = qboPostingFromEnv() === undefined ? undefined : await postingStoreFor(session).postingForCase(id);
@@ -122,6 +130,7 @@ export default async function CasePage({
         viewer={viewerOf(session)}
         summary={summary}
         payerTerms={payerTerms}
+        payerCodeMapping={payerCodeMapping}
         evidenceChecklist={evidence}
         documents={documents}
         fields={fields}

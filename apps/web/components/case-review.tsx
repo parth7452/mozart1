@@ -25,7 +25,9 @@ import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
 import { CasePostingCard } from './case-posting';
-import type { CasePosting } from '@recouple/store-postgres';
+import type { CasePosting, PayerCodeMappingAnswer } from '@recouple/store-postgres';
+import { PayerCodeMappingLine } from './reason-code-maps';
+import { mappingWords } from '../lib/reason-code-words';
 import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
 import { DraftJournal } from './draft-journal';
 import { CaseTimeline } from './case-timeline';
@@ -270,6 +272,12 @@ export interface CaseReviewProps {
    * did, from the case's own column.
    */
   readonly payerTerms?: PayerTermsAnswer;
+  /**
+   * What the case's payer code maps to in the canonical taxonomy, from this
+   * workspace's own mappings (`payerCodeMappingForCase`, ADR 0066). Shown
+   * under the code and offered as the decide form's default; never applied.
+   */
+  readonly payerCodeMapping?: PayerCodeMappingAnswer | undefined;
   /** The evidence the chosen reason needs (ADR 0059); undefined before a decision. */
   readonly evidenceChecklist?: EvidenceChecklist | undefined;
   readonly fields: readonly StoredField[];
@@ -337,6 +345,7 @@ export function CaseReview({
   sheetExtract,
   summary,
   payerTerms,
+  payerCodeMapping,
   evidenceChecklist,
   documents,
   fields,
@@ -493,6 +502,7 @@ export function CaseReview({
                   </ul>
                 </div>
               ) : null}
+              <PayerCodeMappingLine mapping={payerCodeMapping} mayMap={mayApprove} />
               {primary === undefined ? (
                 <p className="empty">
                   {documents.length === 0
@@ -725,6 +735,15 @@ export function CaseReview({
                 posting?.connection?.postingEnabled === true &&
                 posting.connection.hasMap &&
                 posting.ledgerInvoiceId !== undefined
+              }
+              suggestedReason={
+                payerCodeMapping?.kind === 'mapped'
+                  ? {
+                      code: payerCodeMapping.map.canonicalCode,
+                      payerCode: payerCodeMapping.payerCode,
+                      provenance: mappingWords(payerCodeMapping.map).provenance,
+                    }
+                  : undefined
               }
             />
             <DraftJournal
