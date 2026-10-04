@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { basisKinds } from '@recouple/core-domain';
 import {
   attachReadDocument,
   CaseMergedAwayError,
@@ -23,6 +24,11 @@ import { NOTICE_ABOUT_PARAM, type NoticeKey } from '../../../../lib/notices';
  * It is not a second way into the pipeline. It reads nothing and calls no
  * model: the document's reading is already recorded, a case reads a document's
  * fields by document, and a link is all that is missing (`attachReadDocument`).
+ *
+ * Pressed from beside a suggested case ("Attach to this case"), it also
+ * records on `evidence.attached` that the case was suggested and on what:
+ * `suggested_by`, `strength` and `basis`, identifier kinds only. The link is
+ * append-only, which is why a suggestion is never filed without this press.
  *
  * The role check here is a better error message, not the enforcement. The two
  * things that enforce are underneath it: `app.member_may_write()` asked of the
@@ -66,7 +72,32 @@ export async function POST(
       return say('attach_role');
     }
 
-    const result = await attachReadDocument(store, { documentId: id, deductionId: caseId });
+    // The button beside a suggested case posts a `basis` field. It says only
+    // that the person pressed a suggestion: what is recorded on the event is
+    // what this code computes now for this document and this case — kinds and
+    // a strength from closed sets — and never the field's own text, which the
+    // browser sent. A suggestion that no longer holds (the case closed, another
+    // case now carries the identifier) is filed as an ordinary attach: the
+    // person still chose the case.
+    const basis = form.get('basis');
+    const suggested =
+      typeof basis === 'string' && basis !== ''
+        ? await store.suggestionForAttach(id, caseId)
+        : undefined;
+
+    const result = await attachReadDocument(store, {
+      documentId: id,
+      deductionId: caseId,
+      ...(suggested !== undefined
+        ? {
+            suggestion: {
+              suggestedBy: 'identifier_match' as const,
+              strength: suggested.strength,
+              basis: basisKinds(suggested.basis),
+            },
+          }
+        : {}),
+    });
 
     // To the case, where the document now is — told whether this press did it
     // or an earlier one had.

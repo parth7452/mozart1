@@ -790,3 +790,12 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .board-notes code { font-family: var(--mono); font-size: 11px; }
 @media(max-width:1200px) { .board-group > summary { grid-template-columns: 1fr; }.board-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media(max-width:760px) { .board-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Suggested cases on a document read and on no case (document-match). */
+.unattached-group-heading { margin: 18px 0 2px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.unattached-group .empty { padding: 0 0 6px; }
+.suggested-cases { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.suggested-case { display: grid; gap: 4px; }
+.suggested-line { font-size: 12px; line-height: 1.45; color: var(--ink-soft); }
+.suggested-exact .suggested-line { color: var(--ink); }
+.card.unattached .or-pick { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+.attach-read-list .suggested-line { color: var(--ink); }

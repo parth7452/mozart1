@@ -25,6 +25,12 @@ import type {
 } from '@recouple/extraction';
 import type { CellType, ScanVerdict } from '@recouple/ingest';
 import type { SheetMapping } from '@recouple/core-domain';
+import {
+  DOCUMENT_MATCH_BASIS_KINDS,
+  DOCUMENT_MATCH_STRENGTHS,
+  type DocumentMatchBasisKind,
+  type DocumentMatchStrength,
+} from '@recouple/core-domain';
 import type { DocumentHold, HoldReason, HoldRecord } from './hold';
 
 /**
@@ -517,6 +523,7 @@ export interface PipelineStore {
     readonly deductionId: string;
     readonly documentId: string;
     readonly docType: DocType;
+    readonly suggestion?: EvidenceSuggestion;
   }): Promise<boolean>;
   transitionCase(deductionId: string, to: CaseState): Promise<CaseRecord>;
   appendEvent(input: {
@@ -756,7 +763,65 @@ export interface EvidenceAttachStore {
     readonly deductionId: string;
     readonly documentId: string;
     readonly docType: DocType;
+    readonly suggestion?: EvidenceSuggestion;
   }): Promise<boolean>;
+}
+
+/**
+ * That a person filed a document on the case the product suggested for it, and
+ * what the suggestion rested on — for the `evidence.attached` event.
+ *
+ * Constants only: which kinds of fact agreed and how strong the match was
+ * (`suggestCasesForDocument`), never an identifier, a name or a sentence off
+ * the page (invariant 4). A store refuses anything else (`assertEvidenceSuggestion`).
+ */
+export interface EvidenceSuggestion {
+  readonly suggestedBy: 'identifier_match';
+  readonly strength: DocumentMatchStrength;
+  readonly basis: readonly DocumentMatchBasisKind[];
+}
+
+/** A suggestion a store was handed that is not made of the constants it must be. */
+export class EvidenceSuggestionError extends Error {
+  constructor(detail: string) {
+    super(`an attach suggestion is constants only: ${detail}`);
+    this.name = 'EvidenceSuggestionError';
+  }
+}
+
+/**
+ * Refuses a suggestion that carries anything but the closed sets — the last
+ * check before an append-only event row is written, whoever the caller was.
+ * The message names what was wrong and never repeats the value.
+ */
+export function assertEvidenceSuggestion(suggestion: EvidenceSuggestion): void {
+  if (suggestion.suggestedBy !== 'identifier_match') {
+    throw new EvidenceSuggestionError('suggestedBy is not a known source');
+  }
+  if (!(DOCUMENT_MATCH_STRENGTHS as readonly string[]).includes(suggestion.strength)) {
+    throw new EvidenceSuggestionError('strength is not a known strength');
+  }
+  if (!Array.isArray(suggestion.basis) || suggestion.basis.length === 0) {
+    throw new EvidenceSuggestionError('basis is empty');
+  }
+  for (const kind of suggestion.basis) {
+    if (!(DOCUMENT_MATCH_BASIS_KINDS as readonly string[]).includes(kind)) {
+      throw new EvidenceSuggestionError('basis names an unknown kind');
+    }
+  }
+}
+
+/** The suggestion as an `evidence.attached` payload carries it; empty without one. */
+export function evidenceSuggestionPayload(
+  suggestion: EvidenceSuggestion | undefined,
+): Record<string, unknown> {
+  if (suggestion === undefined) return {};
+  assertEvidenceSuggestion(suggestion);
+  return {
+    suggested_by: suggestion.suggestedBy,
+    strength: suggestion.strength,
+    basis: [...suggestion.basis],
+  };
 }
 
 /**

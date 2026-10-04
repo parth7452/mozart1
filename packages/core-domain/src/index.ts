@@ -22,3 +22,4 @@ export * from './payer-terms';
 export * from './invariants/index';
 export * from './sheet-mapping';
 export * from './portal-terms';
+export * from './document-match';
