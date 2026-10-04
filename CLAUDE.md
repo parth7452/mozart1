@@ -1841,3 +1841,15 @@ action, shown to every member; it shows dollars and counts and no rate (ADR
 0030). An unmatched group says `pnpm link:retailer` is what links it. The queue,
 the figures, the ledger and the documents follow it unchanged, under the same
 anchors, with `#retailers` added.
+
+**The overnight screens were looked at in a browser** (2026-10-04, no ADR, no
+migration). The retailer board, the document suggestions and Books were
+rendered from a scratch database, seeded through the pipeline and the store,
+at 1440 and 390 pixels wide, and twelve layout and wording defects were fixed
+in `globals.css` and component markup only: the board's figures share one
+baseline and a case opened today says "today"; a case page's read-and-unfiled
+documents are a styled list; Books' window is one row, its trial balance fits
+a phone, an account's postings share columns with the next account's, and
+dates, case names and money never break across lines. No number, order, read
+or behaviour changed. `docs/plans/ui-review-polish/04-overnight-screens.md`
+has each defect with before and after, and what was seen and left alone.
