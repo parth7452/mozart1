@@ -1743,3 +1743,29 @@ that records every request it receives, so each refusal test proves the
 forbidden request never arrived. Captures enter as `portal_fetch` (a snapshot
 through `acceptPortalSnapshot`, text/html with no script or form), and a notice
 or remittance so arrived is held `by_portal`. No real portal, no credentials.
+
+**The case list opens with a board per retailer or distributor** (no ADR, no
+migration). The founder asked for the dashboard by payer: a name, its figures,
+its cases. `PostgresStore.retailerBoard` is one statement as `app_rw` through
+RLS: a row per debtor and, for a case no debtor matched, per name exactly as
+printed, with open and closed cases, cases awaiting approval, dollars in
+dispute, dollars recovered (each closed case's latest `outcome.recorded`
+`recovered_cents`, the one place `recordOutcome` writes it), declines and their
+dollars, cases due within `DUE_SOON_DAYS` or overdue with their dollars, and the
+oldest open case's age. Open means not in `CLOSED_STATES` and not declined
+(`DECLINED_SQL`), the case list's own rule; a merged-away case is counted
+nowhere and its survivor once; a won or partial case with no readable amount
+adds nothing and is counted and said. `foldRetailerBoard` (`core-domain`,
+property-tested) folds printed spellings by `retailerMatchKey`, which is still
+written once and not in SQL, and orders the groups: matched by dollars in
+dispute, then unmatched, then "Retailer unknown". Under each payer are its
+cases that are not closed, the queue's first and in its order (`QUEUED_SQL`,
+`URGENCY_ORDER_SQL`), cut at `RETAILER_BOARD_CASES_PER_GROUP` with the rest
+counted and linked to the ledger's search; two spellings' lists are merged on
+the database's own position, so there is no second ordering rule, and
+`retailer-board.test.ts` holds each group to `rankForReview`.
+`components/retailer-board.tsx` is a `<details>` per payer with no script and no
+action, shown to every member; it shows dollars and counts and no rate (ADR
+0030). An unmatched group says `pnpm link:retailer` is what links it. The queue,
+the figures, the ledger and the documents follow it unchanged, under the same
+anchors, with `#retailers` added.

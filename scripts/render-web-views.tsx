@@ -143,6 +143,7 @@ const today = new Date();
 const ledger = await store.searchCases();
 const cases = ledger.rows;
 const tally = await store.caseTally({ today });
+const board = await store.retailerBoard({ today });
 // The viewer is an analyst, who prepares and may not approve — the same answer
 // `mayApprove` in `apps/web/lib/workflow.ts` gives for that role. Not imported:
 // that module pulls in `next/server` and the session, which a file on disk has
@@ -176,6 +177,7 @@ writeFileSync(
       cases={cases}
       ledger={{ filter: {}, matching: ledger.total }}
       tally={tally}
+      board={board}
       queue={queue}
       today={today}
       mayUpload

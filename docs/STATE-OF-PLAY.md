@@ -13,6 +13,22 @@ anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
 Email-in went live on 2026-09-25: a notice emailed from Gmail to an issued
 address was held because it came by email, and a person opened its case.
 
+## 2026-10-04: the case list by payer
+
+Not merged, not deployed. No migration.
+
+- The case list opens with a board per retailer or distributor: each payer's
+  open and closed cases, cases awaiting approval, dollars in dispute, dollars
+  recovered, cases due within 14 days or overdue, and its most urgent cases in
+  the review queue's order. Dollars and counts only; no rate (ADR 0030).
+- A name no customer record answers to is its own group, marked "not matched",
+  with its other printed spellings. `pnpm link:retailer` is still how it is
+  linked; nothing in the app links one.
+- The review queue, the figures, the ledger and the documents are below it,
+  unchanged. Every member sees the board; it has no action on it.
+- Not looked at in a browser yet: the tests render the markup, nobody has seen
+  the layout on a screen or a phone.
+
 ## 2026-09-27: built overnight on PR #127
 
 Not merged, not deployed, no migration applied anywhere. Tests and typecheck

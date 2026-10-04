@@ -79,6 +79,18 @@ export function ledgerFilterFrom(params: {
   };
 }
 
+/**
+ * The ledger searched for `text`, as a link: where the retailer board sends a
+ * reader for every case of one payer. Built through `ledgerFilterFrom`, so it
+ * is the query the page would accept — and nothing when the page would drop it
+ * (over-long, a control character, blank), since a link that silently showed
+ * the unfiltered ledger would say it was one payer's cases and list everyone's.
+ */
+export function ledgerSearchHref(text: string): string | undefined {
+  const { query } = ledgerFilterFrom({ q: text });
+  return query === undefined ? undefined : `/?q=${encodeURIComponent(query)}#ledger`;
+}
+
 /** What the ledger's table was asked for; neither is the newest cases. */
 export interface LedgerFilter {
   readonly query?: string;

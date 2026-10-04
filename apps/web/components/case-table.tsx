@@ -83,55 +83,9 @@ export function CaseTable({
             </tr>
           </thead>
           <tbody>
-            {cases.map((row) => {
-              const due = deadline(row.disputeDeadline, today);
-              const who = retailer(row, '—');
-              return (
-                <tr key={row.deductionId}>
-                  <td>
-                    <Link
-                      href={`/cases/${row.deductionId}`}
-                      className="customer-name case-name-link"
-                      aria-label={who.name === '—'
-                        ? `Review case ${row.claimId ?? row.deductionId.slice(0, 8)}`
-                        : undefined}
-                    >
-                      {who.name === '—' ? (row.claimId ?? row.deductionId.slice(0, 8)) : who.name}
-                    </Link>
-                    {/* Nothing was read for a name: say so, and link by the claim. */}
-                    {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
-                    {who.matched ? null : <span className="unmatched">not matched</span>}
-                  </td>
-                  <td>
-                    <span className="mono case-claim">{row.claimId ?? row.deductionId.slice(0, 8)}</span>
-                    {row.invoiceNumber === undefined ? null : (
-                      <div className="unmatched" style={{ marginLeft: 0 }}>
-                        invoice {row.invoiceNumber}
-                      </div>
-                    )}
-                  </td>
-                  <td className="money">{money(row.deductionAmountCents)}</td>
-                  <td>
-                    <span className={`pill state-${row.state}`}>
-                      {stateLabel(row.state)}
-                    </span>
-                    {/* A decline moves no state (ADR 0043): without this a
-                        declined case reads as a `classified` one waiting. */}
-                    {row.declined === true ? <span className="pill declined">declined</span> : null}
-                  </td>
-                  <td className="evidence-count">
-                    {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}
-                  </td>
-                  <td>
-                    {due === undefined ? (
-                      '—'
-                    ) : (
-                      <span className={`pill ${due.tone}`}>{due.label}</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {cases.map((row) => (
+              <CaseRow key={row.deductionId} row={row} today={today} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -149,5 +103,81 @@ export function CaseTable({
         <span>Amounts in USD</span>
       </div>
     </>
+  );
+}
+
+/**
+ * One case as a table row: the ledger's, and the retailer board's.
+ *
+ * With `payer` the first cell names the customer or retailer and links to the
+ * case, as the ledger has always shown it. Without, that cell is left out —
+ * the board prints the payer once, above its cases — and the claim is the
+ * link. Everything a row prints came off somebody else's page and is text.
+ */
+export function CaseRow({
+  row,
+  today,
+  payer = true,
+}: {
+  row: CaseSummary;
+  today: Date;
+  /** Whether the row names its payer. The board's rows sit under one already. */
+  payer?: boolean;
+}) {
+  const due = deadline(row.disputeDeadline, today);
+  const who = retailer(row, '—');
+  const claim = row.claimId ?? row.deductionId.slice(0, 8);
+  return (
+    <tr>
+      {payer ? (
+        <td>
+          <Link
+            href={`/cases/${row.deductionId}`}
+            className="customer-name case-name-link"
+            aria-label={who.name === '—'
+              ? `Review case ${claim}`
+              : undefined}
+          >
+            {who.name === '—' ? claim : who.name}
+          </Link>
+          {/* Nothing was read for a name: say so, and link by the claim. */}
+          {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
+          {who.matched ? null : <span className="unmatched">not matched</span>}
+        </td>
+      ) : null}
+      <td>
+        {payer ? (
+          <span className="mono case-claim">{claim}</span>
+        ) : (
+          <Link href={`/cases/${row.deductionId}`} className="mono case-claim case-name-link">
+            {claim}
+          </Link>
+        )}
+        {row.invoiceNumber === undefined ? null : (
+          <div className="unmatched" style={{ marginLeft: 0 }}>
+            invoice {row.invoiceNumber}
+          </div>
+        )}
+      </td>
+      <td className="money">{money(row.deductionAmountCents)}</td>
+      <td>
+        <span className={`pill state-${row.state}`}>
+          {stateLabel(row.state)}
+        </span>
+        {/* A decline moves no state (ADR 0043): without this a
+            declined case reads as a `classified` one waiting. */}
+        {row.declined === true ? <span className="pill declined">declined</span> : null}
+      </td>
+      <td className="evidence-count">
+        {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}
+      </td>
+      <td>
+        {due === undefined ? (
+          '—'
+        ) : (
+          <span className={`pill ${due.tone}`}>{due.label}</span>
+        )}
+      </td>
+    </tr>
   );
 }
