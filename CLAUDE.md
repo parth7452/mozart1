@@ -626,7 +626,13 @@ lists: their stored fields, and the open cases carrying one of their
 identifiers or amounts — `deduction_identifiers` and each case's `claim_id`
 mapped through `deduction_merges_current`, plus the purchase order and shipment
 numbers on documents already linked to the case. The SQL only narrows
-candidates; the rule runs in TypeScript. **Nothing is ever linked
+candidates; the rule runs in TypeScript. One read hands the rule at most
+`SUGGESTION_CANDIDATES_LIMIT` (1,000) cases for every listed document, and when
+more open cases than that carry one of the documents' identifiers it suggests
+nothing for that read: `exact` means one case carries the identifier, and the
+second carrier may be the row the limit cut (an audit reproduced the list
+saying `exact` for one of two; `suggestion-candidates-cut.test.ts`). The page
+does not yet say that suggestions were withheld. **Nothing is ever linked
 automatically**, because `deduction_documents` is append-only and a wrong
 attach cannot be undone: the list and a case's own page show the suggestion
 with its strength and an **Attach to this case** button, the picker stays as
