@@ -1,0 +1,111 @@
+{
+  "Header": {
+    "Time": "2026-09-30T09:12:47-07:00",
+    "ReportName": "GeneralLedger",
+    "ReportBasis": "Accrual",
+    "StartPeriod": "2026-09-01",
+    "EndPeriod": "2026-09-30",
+    "Currency": "USD",
+    "Option": [
+      {
+        "Name": "NoReportData",
+        "Value": "true"
+      }
+    ]
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColTitle": "Date",
+        "ColType": "Date",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "tx_date"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Transaction Type",
+        "ColType": "String",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "txn_type"
+          }
+        ]
+      },
+      {
+        "ColTitle": "No.",
+        "ColType": "String",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "doc_num"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Name",
+        "ColType": "String",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "name"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Memo/Description",
+        "ColType": "String",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "memo"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Account",
+        "ColType": "String",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "account_name"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Debit",
+        "ColType": "Money",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "debt_amt"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Credit",
+        "ColType": "Money",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "credit_amt"
+          }
+        ]
+      },
+      {
+        "ColTitle": "Balance",
+        "ColType": "Money",
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "rbal_nat_amount"
+          }
+        ]
+      }
+    ]
+  },
+  "Rows": {}
+}

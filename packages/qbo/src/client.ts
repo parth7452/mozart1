@@ -27,6 +27,7 @@ import { defaultFetch, request, retryAfterMs, summarise, type FetchLike } from '
 import { assertQboId } from './ids';
 import { exchangeIntuitToken } from './oauth';
 import { describe, isJsonObject, readArray, readObject, type JsonObject } from './reader';
+import type { QboReportName } from './reports';
 import {
   SETUP_ACCOUNTS,
   accountReadBackMismatch,
@@ -267,6 +268,18 @@ export class QboClient {
    * from the company.
    */
   async listAccounts(): Promise<readonly QboAccount[]> {
+    const rows = await this.listAccountRows();
+    return rows.map((row, index) => toQboAccount(row, `Account[${index}]`));
+  }
+
+  /**
+   * `listAccounts`' read, as the rows QuickBooks sent: the same query, the
+   * same bound (`QboChartTooLarge`), and the same refusal of an id listed
+   * twice. For a reader that wants more of a row than setup does — the Books
+   * page's account code and classification (`toLedgerAccount`, ADR 0066 §1).
+   * Every row has been read once by `toQboAccount` before it is returned.
+   */
+  async listAccountRows(): Promise<readonly JsonObject[]> {
     const rows = await this.queryAll(
       'Account',
       'Active in (true, false)',
@@ -274,15 +287,37 @@ export class QboClient {
       () => new QboChartTooLarge(this.maxPages, this.pageSize),
     );
     const seen = new Set<string>();
-    return rows.map((row, index) => {
+    rows.forEach((row, index) => {
       const path = `Account[${index}]`;
       const account = toQboAccount(row, path);
       if (seen.has(account.id)) {
         throw new QboMalformedResponse(`account ${account.id} is listed twice`, `${path}.Id`);
       }
       seen.add(account.id);
-      return account;
     });
+    return rows;
+  }
+
+  /**
+   * One `GET /v3/company/{realmId}/reports/{name}` round trip (ADR 0066 §1):
+   * a read, under a fresh request id like every other. The Reports API does
+   * not paginate, so this is the whole report or — past Intuit's cell limit —
+   * one that says it was cut short, which `reports.ts` refuses.
+   *
+   * `params` are the caller's and are sent as query parameters, so each value
+   * is proven here to be dates, digits, commas and Intuit's own column keys:
+   * nothing a customer typed reaches the URL.
+   */
+  async report(
+    name: QboReportName,
+    params: Readonly<Record<string, string>>,
+  ): Promise<JsonObject> {
+    for (const [key, value] of Object.entries(params)) {
+      if (!/^[a-z_]{1,40}$/.test(key) || !/^[A-Za-z0-9_,-]{1,4000}$/.test(value)) {
+        throw new QboRequestFailed(`a report parameter is not one this client sends: ${key}`, 0, undefined);
+      }
+    }
+    return this.call('GET', `reports/${name}`, params, randomUUID(), undefined);
   }
 
   /**

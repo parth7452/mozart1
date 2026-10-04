@@ -16,14 +16,26 @@
  * `detectShortPays`, next door in `core-domain`.
  */
 
+import {
+  GENERAL_LEDGER_MAX_WINDOW_DAYS,
+  sumCents,
+  windowDays,
+} from '@recouple/core-domain';
 import type {
   AccountingSource,
   AccountingSourceKind,
+  GeneralLedger,
+  GeneralLedgerAccount,
+  GeneralLedgerLine,
+  GeneralLedgerOptions,
+  LedgerAccount,
   LedgerCredit,
   LedgerInvoice,
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  TrialBalance,
+  TrialBalanceLine,
 } from '../accounting';
 
 export interface InMemoryLedger {
@@ -32,6 +44,12 @@ export interface InMemoryLedger {
   readonly invoices?: readonly LedgerInvoice[];
   readonly payments?: readonly LedgerPayment[];
   readonly credits?: readonly LedgerCredit[];
+  /** The chart of accounts, returned whole and in this order. */
+  readonly accounts?: readonly LedgerAccount[];
+  /** The trial balance's rows, whatever day is asked for: this double keeps one. */
+  readonly trialBalanceLines?: readonly TrialBalanceLine[];
+  /** Every general-ledger posting, in the order a real ledger would print them. */
+  readonly ledgerLines?: readonly GeneralLedgerLine[];
 }
 
 /**
@@ -48,12 +66,18 @@ export class InMemoryAccountingSource implements AccountingSource {
   private readonly invoices: readonly LedgerInvoice[];
   private readonly payments: readonly LedgerPayment[];
   private readonly credits: readonly LedgerCredit[];
+  private readonly accounts: readonly LedgerAccount[];
+  private readonly trialBalanceLines: readonly TrialBalanceLine[];
+  private readonly ledgerLines: readonly GeneralLedgerLine[];
 
   constructor(ledger: InMemoryLedger = {}) {
     this.kind = ledger.kind ?? 'qbo';
     this.invoices = ledger.invoices ?? [];
     this.payments = ledger.payments ?? [];
     this.credits = ledger.credits ?? [];
+    this.accounts = ledger.accounts ?? [];
+    this.trialBalanceLines = ledger.trialBalanceLines ?? [];
+    this.ledgerLines = ledger.ledgerLines ?? [];
   }
 
   async listInvoices(window: LedgerWindow): Promise<readonly LedgerInvoice[]> {
@@ -83,6 +107,73 @@ export class InMemoryAccountingSource implements AccountingSource {
       invoices,
       payments: this.payments.filter(touches),
       credits: this.credits.filter(touches),
+    };
+  }
+
+  async chartOfAccounts(): Promise<readonly LedgerAccount[]> {
+    return this.accounts;
+  }
+
+  /**
+   * The rows it was given, as of whatever day is asked, with the totals a real
+   * ledger prints: the sum of each side. It does not make them balance — a
+   * test that wants an unbalanced ledger gives it one.
+   */
+  async trialBalance(asOf: string): Promise<TrialBalance> {
+    return {
+      sourceKind: this.kind,
+      asOf,
+      lines: this.trialBalanceLines,
+      totalDebitCents: sumCents(this.trialBalanceLines.map((line) => line.debitCents)),
+      totalCreditCents: sumCents(this.trialBalanceLines.map((line) => line.creditCents)),
+    };
+  }
+
+  /**
+   * The postings dated inside the window, both ends counted, grouped by
+   * account in the order each account first appears — and only the named
+   * accounts when `accountIds` is given, none at all when it is empty. A
+   * window longer than the port allows is refused, as a real adapter refuses
+   * it.
+   */
+  async generalLedger(
+    window: LedgerWindow,
+    options: GeneralLedgerOptions = {},
+  ): Promise<GeneralLedger> {
+    if (windowDays(window) > GENERAL_LEDGER_MAX_WINDOW_DAYS) {
+      throw new RangeError(
+        `a general ledger is read over at most ${GENERAL_LEDGER_MAX_WINDOW_DAYS} days`,
+      );
+    }
+    const wanted = options.accountIds === undefined ? undefined : new Set(options.accountIds);
+    const sections = new Map<string, { account: GeneralLedgerAccount; lines: GeneralLedgerLine[] }>();
+    for (const line of this.ledgerLines) {
+      if (!withinWindow(line.date, window)) continue;
+      if (wanted !== undefined) {
+        if (line.accountExternalId === undefined || !wanted.has(line.accountExternalId)) continue;
+      }
+      const key = line.accountExternalId ?? `name:${line.accountName}`;
+      let section = sections.get(key);
+      if (section === undefined) {
+        const lines: GeneralLedgerLine[] = [];
+        section = {
+          lines,
+          account: {
+            ...(line.accountExternalId === undefined
+              ? {}
+              : { accountExternalId: line.accountExternalId }),
+            accountName: line.accountName,
+            lines,
+          },
+        };
+        sections.set(key, section);
+      }
+      section.lines.push(line);
+    }
+    return {
+      sourceKind: this.kind,
+      window,
+      accounts: [...sections.values()].map((section) => section.account),
     };
   }
 }

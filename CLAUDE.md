@@ -194,7 +194,7 @@ append-only tables.
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes what a request brought: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Settings → QuickBooks is a GET that may write too, taking nothing from the request: on a deployment that posts, an owner's view reads each enabled connection's chart of accounts, with a map saved or without, and that read may refresh the company's token and store the rotated one (ADR 0063 §1). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each), and once an invitation commits it emails the person a branded invitation through the alerts' Resend account — no sign-in link in it, and a send that fails never undoes the invitation (ADR 0065); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them) |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them). The books (ADR 0066) are three more reads and no write: a report is read whole or refused (`QboReportTooLarge`, `QboMalformedResponse`), its totals are checked against its lines and never read as one, and an empty report needs the report's own `NoReportData` |
 | `portal` (ADR 0057; first live portal SAP Business Network, ADR 0062, paused 2026-09-29 before any run: `docs/plans/ariba-portal/STATUS.md`; UNFI paused) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
@@ -1731,6 +1731,37 @@ then asks `memberMayWrite`, the switch, the connection being enabled and the
 row's status; it sends once, reads back and verifies, and a 5xx or timeout is
 an unknown outcome only a person retries. A payment is sent only after its
 entry verified. Nothing has posted to any QuickBooks company, sandbox included.
+
+**The books are read through, not stored** (ADR 0066, proposed; no migration).
+`AccountingSource` gains three reads — `chartOfAccounts`, `trialBalance(asOf)`
+and `generalLedger(window, { accountIds? })` — returning cents-based rows
+declared in `core-domain/src/books.ts`. For QuickBooks the chart is posting
+setup's own query with `AcctNum`, `Classification` and `CurrentBalance` read
+too, and the other two are the Reports API (`QboClient.report`), which does not
+paginate: a window past `GENERAL_LEDGER_MAX_WINDOW_DAYS` (186) is refused
+before a request, and a report Intuit cut short or one past
+`GENERAL_LEDGER_MAX_LINES` (20,000) is `QboReportTooLarge`, never part of a
+ledger. `packages/qbo/src/reports.ts` validates the envelope with zod and reads
+money through `parseMoneyToCents`; a `Summary`, a "Beginning Balance" row and
+the `GrandTotal` are never lines, and the lines read must add up to every
+total the report prints or the read is `QboMalformedResponse`. An empty report
+is returned only when its own `NoReportData` says so. A trial balance that
+does not balance is returned, and the page states the difference. `/books`
+(every member, no action, a GET form for the window) reads each enabled
+connection in the request as `app_rw` through the sealed token store, not
+gated on `QBO_POSTING`: the chart with the map's posting accounts marked, the
+trial balance as of today, the ledger for the trailing 35 days on the
+receivable, posting and deductions-like accounts (every account one link
+away), and a reconciliation of those postings against our cases
+(`PostgresBooksStore.casesInWindow`, `reconcileDeductions`) that asserts a
+match only on the same cents and the same day, one to one, and lists anything
+else as a candidate. A read may refresh the company's token, which the
+database stores only for a member it lets write, so the page asks
+`member_may_write()` and wraps a `read_only` member's token store in
+`withoutRefresh`: a stale token is refused before anything is sent to Intuit.
+A failure costs its section and is shown as a fixed sentence by error class.
+Fixtures are hand-written; neither report has been read from a real company.
+Keeping snapshots (ADR 0066 §4) is proposed and not built.
 
 **A portal is read, never written** (ADR 0057 and 0058, no
 migration). `@recouple/portal`: a recipe schema, a request guard

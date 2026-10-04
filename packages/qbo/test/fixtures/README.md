@@ -23,6 +23,18 @@ adds up rather than as a test that still passes.
 | `fault-authentication.json` | The 401 body |
 | `fault-throttled.json` | The 429 body |
 | `fault-validation.json` | A 400 body, for the "anything else" error |
+| `account-query-books.json` | The chart of accounts: eleven accounts with `AcctNum`, `Classification` and `CurrentBalance`, one sub-account, two with no code, one inactive (ADR 0066) |
+| `report-trial-balance.json` | `GET /reports/TrialBalance` in Intuit's documented flat shape: nine account rows and the `GrandTotal` section, $27,185.75 a side |
+| `report-trial-balance-nested.json` | The same nine accounts inside nested sections, each with its own `Summary`: four totals that must never be read as lines, and must each tie out |
+| `report-general-ledger.json` | `GET /reports/GeneralLedger` for September 2026 with the nine columns we ask for: a section per account, a "Beginning Balance" row, a `Summary` per section, and a parent account whose total covers its sub-account |
+| `report-general-ledger-no-data.json` | The same report with `NoReportData: true` and no rows: the only shape an empty ledger is read from |
+
+The books fixtures share one set of numbers: the receivable ends September at
+$4,130.25 in the chart, the trial balance and the ledger's running balance;
+the trial balance's Distributor Chargebacks ($1,770.00) is the two credit
+memos in the ledger; Customer Deductions is $320.00 in both. They are
+hand-written, like the rest — **neither report has been recorded from a
+sandbox**, and the first recording should be committed beside them.
 
 When a sandbox exists, record a real response, redact the realm id and any
 token, and commit it *beside* the hand-written one: a hand-written fixture

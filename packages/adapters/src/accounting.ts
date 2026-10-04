@@ -20,21 +20,32 @@
 
 import type {
   AccountingSourceKind,
+  GeneralLedger,
+  GeneralLedgerOptions,
+  LedgerAccount,
   LedgerCredit,
   LedgerInvoice,
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  TrialBalance,
 } from '@recouple/core-domain';
 
 export type {
   AccountingSourceKind,
+  GeneralLedger,
+  GeneralLedgerAccount,
+  GeneralLedgerLine,
+  GeneralLedgerOptions,
+  LedgerAccount,
   LedgerApplication,
   LedgerCredit,
   LedgerInvoice,
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  TrialBalance,
+  TrialBalanceLine,
 } from '@recouple/core-domain';
 
 /**
@@ -61,4 +72,26 @@ export interface AccountingSource {
    * `invoices`, not an error.
    */
   getInvoiceHistories(invoiceExternalIds: readonly string[]): Promise<LedgerInvoiceHistories>;
+  /**
+   * The whole chart of accounts, inactive accounts included, each with its
+   * code where the ledger has one (ADR 0066 §1). Whole or loud: an adapter
+   * that cannot read all of a chart throws rather than returning part of it,
+   * because an account missing from part of a chart is not missing from the
+   * company.
+   */
+  chartOfAccounts(): Promise<readonly LedgerAccount[]>;
+  /**
+   * The trial balance as of one day (ADR 0066 §1). Returned only when the
+   * lines read add up to the ledger's own totals row; whether debits equal
+   * credits is the caller's to show, not the adapter's to refuse.
+   */
+  trialBalance(asOf: string): Promise<TrialBalance>;
+  /**
+   * The general ledger over an inclusive window, by account (ADR 0066 §1).
+   * `options.accountIds` narrows it to those accounts; an empty list reads
+   * nothing and asks the ledger nothing. A window past
+   * `GENERAL_LEDGER_MAX_WINDOW_DAYS`, or a ledger with more lines than
+   * `GENERAL_LEDGER_MAX_LINES`, is refused whole — never returned in part.
+   */
+  generalLedger(window: LedgerWindow, options?: GeneralLedgerOptions): Promise<GeneralLedger>;
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { cents } from '@recouple/core-domain';
+import {
+  GENERAL_LEDGER_MAX_WINDOW_DAYS,
+  cents,
+  trialBalanceDifferenceCents,
+  windowDays,
+} from '@recouple/core-domain';
 import type {
   AccountingSource,
+  GeneralLedgerLine,
+  LedgerAccount,
   LedgerCredit,
   LedgerInvoice,
   LedgerPayment,
@@ -63,7 +70,11 @@ describe('AccountingSource', () => {
       | 'listInvoices'
       | 'listPayments'
       | 'listCredits'
-      | 'getInvoiceHistories';
+      | 'getInvoiceHistories'
+      // The books, read through and never written (ADR 0066 §1).
+      | 'chartOfAccounts'
+      | 'trialBalance'
+      | 'generalLedger';
     type Unexpected = Exclude<keyof AccountingSource, ReadOnlySurface>;
     const noWriteMethods: Unexpected[] = [];
     expect(noWriteMethods).toEqual([]);
@@ -186,6 +197,95 @@ describe('InMemoryAccountingSource', () => {
   it('stands in for the other ledgers behind the same port', () => {
     expect(new InMemoryAccountingSource({ kind: 'netsuite' }).kind).toBe('netsuite');
     expect(new InMemoryAccountingSource({ kind: 'xero' }).kind).toBe('xero');
+  });
+});
+
+describe('InMemoryAccountingSource, the books (ADR 0066 §1)', () => {
+  const posting = (
+    accountExternalId: string,
+    accountName: string,
+    date: string,
+    debit: number,
+    credit: number,
+  ): GeneralLedgerLine => ({
+    accountExternalId,
+    accountName,
+    date,
+    debitCents: cents(debit),
+    creditCents: cents(credit),
+  });
+  const receivable: LedgerAccount = {
+    sourceKind: 'qbo',
+    externalId: '84',
+    code: '1200',
+    name: 'Accounts Receivable',
+    fullyQualifiedName: 'Accounts Receivable',
+    accountType: 'Accounts Receivable',
+    active: true,
+  };
+  const source = new InMemoryAccountingSource({
+    accounts: [receivable],
+    trialBalanceLines: [
+      {
+        accountExternalId: '84',
+        accountName: 'Accounts Receivable',
+        debitCents: cents(50_000),
+        creditCents: cents(0),
+      },
+      {
+        accountExternalId: '79',
+        accountName: 'Sales',
+        debitCents: cents(0),
+        creditCents: cents(40_000),
+      },
+    ],
+    ledgerLines: [
+      posting('84', 'Accounts Receivable', '2026-08-31', 10_000, 0),
+      posting('97', 'Customer Deductions', '2026-09-01', 2_500, 0),
+      posting('84', 'Accounts Receivable', '2026-09-01', 0, 2_500),
+      posting('84', 'Accounts Receivable', '2026-09-30', 7_000, 0),
+      posting('84', 'Accounts Receivable', '2026-10-01', 9_000, 0),
+    ],
+  });
+  const september = { from: '2026-09-01', to: '2026-09-30' };
+
+  it('returns the chart whole', async () => {
+    expect(await source.chartOfAccounts()).toEqual([receivable]);
+    expect(await new InMemoryAccountingSource().chartOfAccounts()).toEqual([]);
+  });
+
+  it('totals each side of the trial balance and does not make them agree', async () => {
+    const tb = await source.trialBalance('2026-09-30');
+    expect(tb.asOf).toBe('2026-09-30');
+    expect(tb.lines).toHaveLength(2);
+    expect(tb.totalDebitCents).toBe(50_000);
+    expect(tb.totalCreditCents).toBe(40_000);
+    expect(trialBalanceDifferenceCents(tb)).toBe(10_000);
+  });
+
+  it('reads the general ledger inclusively at both ends, by account, in first-seen order', async () => {
+    const ledger = await source.generalLedger(september);
+    expect(ledger.window).toEqual(september);
+    expect(ledger.accounts.map((account) => [account.accountExternalId, account.lines.length])).toEqual([
+      ['97', 1],
+      ['84', 2],
+    ]);
+    expect(ledger.accounts[1]?.lines.map((line) => line.date)).toEqual(['2026-09-01', '2026-09-30']);
+  });
+
+  it('narrows to the accounts asked for, and reads nothing for none', async () => {
+    const only = await source.generalLedger(september, { accountIds: ['97'] });
+    expect(only.accounts.map((account) => account.accountExternalId)).toEqual(['97']);
+    expect((await source.generalLedger(september, { accountIds: [] })).accounts).toEqual([]);
+    expect((await source.generalLedger(september, { accountIds: ['12'] })).accounts).toEqual([]);
+  });
+
+  it('refuses a window longer than the port reads, as a real adapter does', async () => {
+    expect(windowDays({ from: '2026-03-29', to: '2026-09-30' })).toBe(GENERAL_LEDGER_MAX_WINDOW_DAYS);
+    await expect(source.generalLedger({ from: '2026-03-29', to: '2026-09-30' })).resolves.toBeDefined();
+    await expect(source.generalLedger({ from: '2026-03-28', to: '2026-09-30' })).rejects.toBeInstanceOf(
+      RangeError,
+    );
   });
 });
 
