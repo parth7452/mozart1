@@ -1,0 +1,180 @@
+{
+  "Header": {
+    "Time": "2026-09-30T09:12:45-07:00",
+    "ReportName": "TrialBalance",
+    "ReportBasis": "Accrual",
+    "StartPeriod": "2026-01-01",
+    "EndPeriod": "2026-09-30",
+    "SummarizeColumnsBy": "Total",
+    "Currency": "USD",
+    "Option": [
+      {
+        "Name": "NoReportData",
+        "Value": "false"
+      }
+    ]
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColTitle": "",
+        "ColType": "Account"
+      },
+      {
+        "ColTitle": "Debit",
+        "ColType": "Money"
+      },
+      {
+        "ColTitle": "Credit",
+        "ColType": "Money"
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "ColData": [
+          {
+            "value": "Checking",
+            "id": "35"
+          },
+          {
+            "value": "18250.40"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Accounts Receivable (A/R)",
+            "id": "84"
+          },
+          {
+            "value": "4130.25"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Deductions Receivable",
+            "id": "91"
+          },
+          {
+            "value": "1270.00"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Allowance for Doubtful Accounts",
+            "id": "92"
+          },
+          {
+            "value": ""
+          },
+          {
+            "value": "250.00"
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Opening Balance Equity",
+            "id": "33"
+          },
+          {
+            "value": ""
+          },
+          {
+            "value": "10000.00"
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Sales of Product Income",
+            "id": "79"
+          },
+          {
+            "value": ""
+          },
+          {
+            "value": "16935.75"
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Trade Deductions:Distributor Chargebacks",
+            "id": "96"
+          },
+          {
+            "value": "1770.00"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Customer Deductions",
+            "id": "97"
+          },
+          {
+            "value": "320.00"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "value": "Freight Out",
+            "id": "60"
+          },
+          {
+            "value": "1445.10"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "Summary": {
+          "ColData": [
+            {
+              "value": "TOTAL"
+            },
+            {
+              "value": "27185.75"
+            },
+            {
+              "value": "27185.75"
+            }
+          ]
+        },
+        "type": "Section",
+        "group": "GrandTotal"
+      }
+    ]
+  }
+}

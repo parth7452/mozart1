@@ -1,0 +1,230 @@
+{
+  "QueryResponse": {
+    "Account": [
+      {
+        "Name": "Checking",
+        "SubAccount": false,
+        "FullyQualifiedName": "Checking",
+        "Active": true,
+        "Classification": "Asset",
+        "AccountType": "Bank",
+        "AccountSubType": "Checking",
+        "AcctNum": "1000",
+        "CurrentBalance": 18250.4,
+        "CurrentBalanceWithSubAccounts": 18250.4,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "35",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Accounts Receivable (A/R)",
+        "SubAccount": false,
+        "FullyQualifiedName": "Accounts Receivable (A/R)",
+        "Active": true,
+        "Classification": "Asset",
+        "AccountType": "Accounts Receivable",
+        "AccountSubType": "AccountsReceivable",
+        "AcctNum": "1200",
+        "CurrentBalance": 4130.25,
+        "CurrentBalanceWithSubAccounts": 4130.25,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "84",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Deductions Receivable",
+        "SubAccount": false,
+        "FullyQualifiedName": "Deductions Receivable",
+        "Active": true,
+        "Classification": "Asset",
+        "AccountType": "Other Current Asset",
+        "AccountSubType": "OtherCurrentAssets",
+        "AcctNum": "1250",
+        "CurrentBalance": 1270,
+        "CurrentBalanceWithSubAccounts": 1270,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "91",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Allowance for Doubtful Accounts",
+        "SubAccount": false,
+        "FullyQualifiedName": "Allowance for Doubtful Accounts",
+        "Active": true,
+        "Classification": "Asset",
+        "AccountType": "Other Current Asset",
+        "AccountSubType": "AllowanceForBadDebts",
+        "AcctNum": "1290",
+        "CurrentBalance": -250,
+        "CurrentBalanceWithSubAccounts": -250,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "92",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Opening Balance Equity",
+        "SubAccount": false,
+        "FullyQualifiedName": "Opening Balance Equity",
+        "Active": true,
+        "Classification": "Equity",
+        "AccountType": "Equity",
+        "AccountSubType": "OpeningBalanceEquity",
+        "AcctNum": "3000",
+        "CurrentBalance": 10000,
+        "CurrentBalanceWithSubAccounts": 10000,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "33",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Sales of Product Income",
+        "SubAccount": false,
+        "FullyQualifiedName": "Sales of Product Income",
+        "Active": true,
+        "Classification": "Revenue",
+        "AccountType": "Income",
+        "AccountSubType": "SalesOfProductIncome",
+        "AcctNum": "4000",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "79",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Trade Deductions",
+        "SubAccount": false,
+        "FullyQualifiedName": "Trade Deductions",
+        "Active": true,
+        "Classification": "Revenue",
+        "AccountType": "Income",
+        "AccountSubType": "DiscountsRefundsGiven",
+        "AcctNum": "4900",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "95",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Distributor Chargebacks",
+        "SubAccount": true,
+        "ParentRef": {
+          "value": "95"
+        },
+        "FullyQualifiedName": "Trade Deductions:Distributor Chargebacks",
+        "Active": true,
+        "Classification": "Revenue",
+        "AccountType": "Income",
+        "AccountSubType": "DiscountsRefundsGiven",
+        "AcctNum": "4910",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "96",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Customer Deductions",
+        "SubAccount": false,
+        "FullyQualifiedName": "Customer Deductions",
+        "Active": true,
+        "Classification": "Expense",
+        "AccountType": "Expense",
+        "AccountSubType": "OtherMiscellaneousServiceCost",
+        "AcctNum": "6400",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "97",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Freight Out",
+        "SubAccount": false,
+        "FullyQualifiedName": "Freight Out",
+        "Active": true,
+        "Classification": "Expense",
+        "AccountType": "Expense",
+        "AccountSubType": "ShippingFreightDelivery",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "60",
+        "SyncToken": "0"
+      },
+      {
+        "Name": "Old Clearing",
+        "SubAccount": false,
+        "FullyQualifiedName": "Old Clearing",
+        "Active": false,
+        "Classification": "Asset",
+        "AccountType": "Bank",
+        "AccountSubType": "Checking",
+        "CurrentBalance": 0,
+        "CurrentBalanceWithSubAccounts": 0,
+        "CurrencyRef": {
+          "value": "USD",
+          "name": "United States Dollar"
+        },
+        "domain": "QBO",
+        "sparse": false,
+        "Id": "99",
+        "SyncToken": "0"
+      }
+    ],
+    "startPosition": 1,
+    "maxResults": 11
+  },
+  "time": "2026-09-30T09:12:44.118-07:00"
+}

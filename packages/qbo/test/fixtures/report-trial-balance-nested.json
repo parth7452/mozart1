@@ -1,0 +1,322 @@
+{
+  "Header": {
+    "Time": "2026-09-30T09:12:45-07:00",
+    "ReportName": "TrialBalance",
+    "ReportBasis": "Accrual",
+    "StartPeriod": "2026-01-01",
+    "EndPeriod": "2026-09-30",
+    "SummarizeColumnsBy": "Total",
+    "Currency": "USD",
+    "Option": [
+      {
+        "Name": "NoReportData",
+        "Value": "false"
+      }
+    ]
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColTitle": "",
+        "ColType": "Account"
+      },
+      {
+        "ColTitle": "Debit",
+        "ColType": "Money"
+      },
+      {
+        "ColTitle": "Credit",
+        "ColType": "Money"
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Assets"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                {
+                  "value": "Checking",
+                  "id": "35"
+                },
+                {
+                  "value": "18250.40"
+                },
+                {
+                  "value": ""
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": "4130.25"
+                },
+                {
+                  "value": ""
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "Header": {
+                "ColData": [
+                  {
+                    "value": "Other Current Assets"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "Rows": {
+                "Row": [
+                  {
+                    "ColData": [
+                      {
+                        "value": "Deductions Receivable",
+                        "id": "91"
+                      },
+                      {
+                        "value": "1270.00"
+                      },
+                      {
+                        "value": ""
+                      }
+                    ],
+                    "type": "Data"
+                  },
+                  {
+                    "ColData": [
+                      {
+                        "value": "Allowance for Doubtful Accounts",
+                        "id": "92"
+                      },
+                      {
+                        "value": ""
+                      },
+                      {
+                        "value": "250.00"
+                      }
+                    ],
+                    "type": "Data"
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total Other Current Assets"
+                  },
+                  {
+                    "value": "1270.00"
+                  },
+                  {
+                    "value": "250.00"
+                  }
+                ]
+              },
+              "type": "Section"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total Assets"
+            },
+            {
+              "value": "23650.65"
+            },
+            {
+              "value": "250.00"
+            }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Income"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                {
+                  "value": "Sales of Product Income",
+                  "id": "79"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "16935.75"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "Header": {
+                "ColData": [
+                  {
+                    "value": "Trade Deductions",
+                    "id": "95"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "Rows": {
+                "Row": [
+                  {
+                    "ColData": [
+                      {
+                        "value": "Distributor Chargebacks",
+                        "id": "96"
+                      },
+                      {
+                        "value": "1770.00"
+                      },
+                      {
+                        "value": ""
+                      }
+                    ],
+                    "type": "Data"
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total Trade Deductions"
+                  },
+                  {
+                    "value": "1770.00"
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "type": "Section"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total Income"
+            },
+            {
+              "value": "1770.00"
+            },
+            {
+              "value": "16935.75"
+            }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "ColData": [
+          {
+            "value": "Opening Balance Equity",
+            "id": "33"
+          },
+          {
+            "value": ""
+          },
+          {
+            "value": "10000.00"
+          }
+        ],
+        "type": "Data"
+      },
+      {
+        "ColData": [
+          {
+            "value": "Customer Deductions",
+            "id": "97"
+          },
+          {
+            "value": "320.00"
+          },
+          {
+            "value": ""
+          }
+        ],
+        "type": "Data"
+      },
+      {
+        "ColData": [
+          {
+            "value": "Freight Out",
+            "id": "60"
+          },
+          {
+            "value": "1445.10"
+          },
+          {
+            "value": ""
+          }
+        ],
+        "type": "Data"
+      },
+      {
+        "Summary": {
+          "ColData": [
+            {
+              "value": "TOTAL"
+            },
+            {
+              "value": "27185.75"
+            },
+            {
+              "value": "27185.75"
+            }
+          ]
+        },
+        "type": "Section",
+        "group": "GrandTotal"
+      }
+    ]
+  }
+}

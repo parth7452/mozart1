@@ -16,6 +16,7 @@ export * from './money';
 export * from './oauth';
 export * from './posting';
 export * from './reader';
+export * from './reports';
 export * from './setup';
 export * from './source';
 export * from './tokens';
