@@ -17,6 +17,7 @@ export * from './triage';
 export * from './thresholds';
 export * from './work-queue';
 export * from './payer-terms';
+export * from './payer-code-map';
 export * from './invariants/index';
 export * from './sheet-mapping';
 export * from './portal-terms';
