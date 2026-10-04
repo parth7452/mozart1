@@ -57,6 +57,7 @@ import type {
   PayerTotals,
   PlacedCase,
   RawPayerGroup,
+  DocumentCaseSuggestion,
 } from '@recouple/core-domain';
 import { evidenceOfDocuments, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
@@ -118,9 +119,12 @@ import {
   LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
+  evidenceSuggestionPayload,
+  type EvidenceSuggestion,
   type HumanDecisionRecord,
 } from '@recouple/pipeline';
 import { insertBlobOn, insertDocumentOn, insertUploadOn } from './document-rows';
+import { suggestionsForDocuments, UNATTACHED_DOCUMENT_IDS_SQL } from './document-match';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
@@ -481,6 +485,17 @@ export interface CaseSearchResult {
  */
 export const ATTACH_TARGETS_LIMIT = 250;
 export const ATTACH_TARGETS_MAX = 2_000;
+
+/** A suggested case, as the list shows a case, with why it was suggested. */
+export interface SuggestedCase extends DocumentCaseSuggestion {
+  readonly case: CaseSummary;
+}
+
+/** One unattached document's suggestions, strongest first (`suggestionsForUnattached`). */
+export interface UnattachedSuggestions {
+  readonly documentId: string;
+  readonly suggestions: readonly SuggestedCase[];
+}
 
 /** The cases a document read and on no case can be attached to (`attachTargets`). */
 export interface AttachTargets {
@@ -3472,7 +3487,11 @@ export class PostgresStore
     readonly deductionId: string;
     readonly documentId: string;
     readonly docType: DocType;
+    readonly suggestion?: EvidenceSuggestion;
   }): Promise<boolean> {
+    // Checked before anything is written: the event row is append-only, and a
+    // suggestion is kinds and a strength from closed sets, never page text.
+    const suggested = evidenceSuggestionPayload(input.suggestion);
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
         `insert into deduction_documents (org_id, deduction_id, document_id, role)
@@ -3495,10 +3514,76 @@ export class PostgresStore
             document_id: input.documentId,
             doc_type: input.docType,
             read_again: false,
+            ...suggested,
           }),
         ],
       );
       return true;
+    });
+  }
+
+  /**
+   * Which open case each document read and on no case probably belongs on —
+   * suggestions for a person to confirm, never links.
+   *
+   * One tenant transaction as `app_rw`: the unattached documents exactly as
+   * `unattachedDocuments(limit)` lists them (so the cost is bounded by what the
+   * page already shows), their stored fields, the open cases that carry one of
+   * their identifiers or amounts — identifiers mapped through
+   * `deduction_merges_current` like every identifier reader (ADR 0042) — and
+   * then `suggestCasesForDocument`, the one place the rule lives. Each
+   * suggested case comes back as the list shows a case (`toCaseSummary`), so
+   * the page can name it and group by its payer. A document with no
+   * suggestion is in the answer with none. Writes nothing.
+   */
+  async suggestionsForUnattached(limit = 50): Promise<readonly UnattachedSuggestions[]> {
+    assertUnattachedDocumentsQuery(limit);
+    return this.withTenant(async (client) => {
+      const { rows: documents } = await client.query<{ id: string }>(
+        UNATTACHED_DOCUMENT_IDS_SQL,
+        [limit],
+      );
+      const matched = await suggestionsForDocuments(
+        client,
+        documents.map((row) => row.id),
+      );
+      const caseIds = [...new Set(matched.flatMap((m) => m.suggestions.map((s) => s.caseId)))];
+      const summaries = new Map<string, CaseSummary>();
+      if (caseIds.length > 0) {
+        const { rows } = await client.query<CaseSummaryRow>(
+          `${CASE_SUMMARY_SELECT} where d.id = any($1::uuid[])`,
+          [caseIds],
+        );
+        for (const row of rows) summaries.set(row.id, toCaseSummary(row));
+      }
+      return matched.map((m) => ({
+        documentId: m.documentId,
+        suggestions: m.suggestions.map((suggestion) => {
+          const summary = summaries.get(suggestion.caseId);
+          // Read in this transaction a statement ago; a case that is not there
+          // now is a fault, not an answer to draw around.
+          if (summary === undefined) {
+            throw new Error(`suggested case ${suggestion.caseId} could not be read back`);
+          }
+          return { ...suggestion, case: summary };
+        }),
+      }));
+    });
+  }
+
+  /**
+   * What the product would suggest for this document and this case right now,
+   * or nothing — asked by the attach route when a person presses a suggested
+   * case's button, so the basis recorded on the event is one this code
+   * computed, never one the form carried.
+   */
+  async suggestionForAttach(
+    documentId: string,
+    deductionId: string,
+  ): Promise<DocumentCaseSuggestion | undefined> {
+    return this.withTenant(async (client) => {
+      const [matched] = await suggestionsForDocuments(client, [documentId]);
+      return matched?.suggestions.find((s) => s.caseId === deductionId);
     });
   }
 

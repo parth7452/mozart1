@@ -21,7 +21,7 @@
  */
 
 import type { DocType } from '@recouple/extraction';
-import type { EvidenceAttachStore } from './ports';
+import type { EvidenceAttachStore, EvidenceSuggestion } from './ports';
 import { CaseMergedAwayError } from './ports';
 import { CaseNotFoundError } from './steps';
 import { DocumentNotFoundError } from './jobs';
@@ -68,7 +68,15 @@ export interface AttachedEvidence {
  */
 export async function attachReadDocument(
   store: EvidenceAttachStore,
-  input: { readonly deductionId: string; readonly documentId: string },
+  input: {
+    readonly deductionId: string;
+    readonly documentId: string;
+    /**
+     * Set when the person pressed the button beside a suggested case: what the
+     * suggestion rested on, as constants, recorded on the event.
+     */
+    readonly suggestion?: EvidenceSuggestion;
+  },
 ): Promise<AttachedEvidence> {
   const target = await store.getCase(input.deductionId);
   if (target === undefined) throw new CaseNotFoundError(input.deductionId);
@@ -88,6 +96,7 @@ export async function attachReadDocument(
     deductionId: target.deductionId,
     documentId: input.documentId,
     docType: recorded.docType,
+    ...(input.suggestion !== undefined ? { suggestion: input.suggestion } : {}),
   });
 
   return {

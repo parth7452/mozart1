@@ -14,6 +14,7 @@ import { isSpreadsheetMime } from '@recouple/ingest';
 import { sheetExtractFor } from '../../../lib/sheet-extract-load';
 import { qboPostingFromEnv } from '../../../lib/qbo-posting';
 import { postingStoreFor } from '../../../lib/posting';
+import { unattachedWithSuggestions } from '../../../lib/document-suggestions';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,9 @@ export default async function CasePage({
         // `ATTACH_TARGETS_LIMIT`: a case past it is reached from its own page.
         // Asked only where the card that offers them is drawn — a member who
         // may write, on a case still open (a merged-away one is closed).
-        mayAct && !isClosed(summary.state) ? store.unattachedDocuments() : undefined,
+        // Each carries the cases suggested for it, so the ones that match this
+        // case are listed first and say what agreed.
+        mayAct && !isClosed(summary.state) ? unattachedWithSuggestions(store) : undefined,
         // The payer's reason code and reference, derived from the notices and
         // remittances linked to this case when it printed none of its own.
         store.payerTermsForCase(id),

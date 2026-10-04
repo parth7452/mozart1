@@ -606,6 +606,41 @@ an estimate no slow dense read has been timed against) fails the run where
 again. A delivery with no case to file on still answers
 `beingRead` and succeeds (`inngest-job.test.tsx`).
 
+**A read document suggests the case it belongs to; a person attaches it** (no
+ADR, no migration). Nothing said which case a document under "Read, not on a
+case" was for. `suggestCasesForDocument` (`core-domain/document-match.ts`) is
+the one rule, pure and property-tested: a document identifier equal to a case
+identifier of the same kind (claim, invoice, purchase order, shipment number)
+under `identifierMatchKey` is `exact` when one open case carries it and
+`ambiguous`, every case listed, when several do — an invoice number is matched
+here, unlike in `resolveIdentity`, because several cases on one invoice is an
+answer shown to a person rather than a merge. `probable` ranks below: the same
+payer (a debtor name a person gave, or the folded printed name) and an amount
+equal to the cent, or a message's unlabelled reference; a payer alone or an
+amount alone is nothing. A closed or merged-away case is never suggested.
+`DOCUMENT_MATCH_FIELDS` lists the schema paths per document type and
+`unattached-suggestions.test.ts` holds its keys to `DOC_TYPES`.
+`PostgresStore.suggestionsForUnattached(limit)` gathers the inputs in one
+tenant transaction as `app_rw`, for exactly the documents `unattachedDocuments`
+lists: their stored fields, and the open cases carrying one of their
+identifiers or amounts — `deduction_identifiers` and each case's `claim_id`
+mapped through `deduction_merges_current`, plus the purchase order and shipment
+numbers on documents already linked to the case. The SQL only narrows
+candidates; the rule runs in TypeScript. **Nothing is ever linked
+automatically**, because `deduction_documents` is append-only and a wrong
+attach cannot be undone: the list and a case's own page show the suggestion
+with its strength and an **Attach to this case** button, the picker stays as
+"or pick another case", and the list is grouped by the suggested case's payer
+(`retailerMatchKey`), "Unmatched" last. The button posts to
+`/documents/[id]/attach` with a `basis` field the route never records: it
+recomputes the suggestion (`suggestionForAttach`) and writes `suggested_by:
+'identifier_match'`, `strength` and `basis` on `evidence.attached` as kinds
+from closed sets (`assertEvidenceSuggestion`, checked again in the store before
+the insert), never an identifier or a sentence off the page. Whether an exact,
+unique match may ever attach by itself, and which probable rules stay, are the
+founder's; no rule strips a prefix or suffix from an invoice number, because
+the identity module knows none and a payer's numbering is data.
+
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
 came through (`web_upload`, `email_in`, `email_body`), `created_by` the

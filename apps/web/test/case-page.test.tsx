@@ -407,7 +407,9 @@ describe('the review page for a case older than the newest hundred', () => {
  */
 describe('the review page offers documents read and on no case', () => {
   const LOOSE_ID = 'eeeeeeee-1111-2222-3333-444444444444';
+  const MATCHED_ID = 'eeeeeeee-5555-2222-3333-444444444444';
   let asked = 0;
+  let suggestionsAsked = 0;
   const looseStore = {
     ...(store as unknown as Record<string, unknown>),
     async unattachedDocuments() {
@@ -419,6 +421,31 @@ describe('the review page offers documents read and on no case', () => {
           createdAt: '2026-09-23T15:56:16.000Z',
           docType: 'pod',
           confidence: 0.98,
+        },
+        // Older, so listed second by the store — and suggested for this case.
+        {
+          documentId: MATCHED_ID,
+          filename: 'invoice-44817.pdf',
+          createdAt: '2026-09-22T10:00:00.000Z',
+          docType: 'invoice',
+          confidence: 0.97,
+        },
+      ];
+    },
+    async suggestionsForUnattached() {
+      suggestionsAsked += 1;
+      return [
+        { documentId: LOOSE_ID, suggestions: [] },
+        {
+          documentId: MATCHED_ID,
+          suggestions: [
+            {
+              caseId: CASE_ID,
+              strength: 'exact',
+              basis: [{ kind: 'invoice_number', field: 'invoice_number', value: '44817' }],
+              case: summary,
+            },
+          ],
         },
       ];
     },
@@ -440,6 +467,21 @@ describe('the review page offers documents read and on no case', () => {
     expect(html).toContain('08_log-202.jpg');
     expect(html).toContain(`action="/documents/${LOOSE_ID}/attach"`);
     expect(html).toContain(`<input type="hidden" name="caseId" value="${CASE_ID}"/>`);
+  });
+
+  it('lists a document suggested for this case first, with what agreed', async () => {
+    suggestionsAsked = 0;
+    const html = renderToStaticMarkup(
+      await CasePage({ params: Promise.resolve({ id: CASE_ID }), searchParams: Promise.resolve({}) }),
+    );
+    expect(suggestionsAsked).toBe(1);
+    expect(html).toContain('Matches this case on invoice 44817 (exact)');
+    // Above the newer document nothing was suggested for.
+    expect(html.indexOf('invoice-44817.pdf')).toBeGreaterThan(-1);
+    expect(html.indexOf('invoice-44817.pdf')).toBeLessThan(html.indexOf('08_log-202.jpg'));
+    // Its button says the case was suggested; the other's does not.
+    expect(html.match(/name="basis"/g)).toHaveLength(1);
+    expect(html).toContain('<input type="hidden" name="basis" value="invoice_number"/>');
   });
 
   it('does not ask, or offer, on a closed case', async () => {

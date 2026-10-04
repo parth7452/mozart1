@@ -1,7 +1,16 @@
 import { isClosed } from '@recouple/core-domain';
 import type { DocumentHold, UnattachedDocument } from '@recouple/pipeline';
-import type { AttachTargets, CaseSummary } from '@recouple/store-postgres';
+import type { AttachTargets, CaseSummary, SuggestedCase } from '@recouple/store-postgres';
 import { confidencePercent, docTypeLabel, fieldLabel, money, unattachedCount } from '../lib/format';
+import {
+  SUGGESTIONS_SHOWN,
+  basisField,
+  groupByPayer,
+  suggestedCaseName,
+  suggestionLead,
+  suggestionReason,
+  type UnattachedDocumentWithSuggestions,
+} from '../lib/document-suggestions';
 import { emailLine } from './inbound-email';
 
 /**
@@ -25,15 +34,24 @@ import { emailLine } from './inbound-email';
  * a remittance whose reading has no lines: there is nothing to open, so the
  * page offers no button, and the document can still be attached as evidence.
  *
- * A pure function of what the store returned. The filename is the one piece of
- * somebody else's text here, and React escapes it. A hold's numbers are the
- * hold's own, formatted and never computed here.
+ * Where the store suggested a case for a document (`suggestionsForUnattached`),
+ * the suggestion comes first — "Matches case DN-2609-003 on invoice 44817
+ * (exact)" with **Attach to this case** — and the full picker stays beneath it
+ * as "or pick another case". Nothing is attached without that press, whatever
+ * the strength: a link cannot be undone, so an exact match is still a person's
+ * to confirm. The list is then grouped by the suggested case's payer, with the
+ * documents nothing was suggested for under "Unmatched" at the end.
+ *
+ * A pure function of what the store returned. The filename and a matched
+ * identifier are somebody else's text here, and React escapes them. A hold's
+ * numbers are the hold's own, formatted and never computed here.
  */
 export function UnattachedDocuments({
   documents,
   targets,
 }: {
-  documents: readonly UnattachedDocument[];
+  /** Each may carry `suggestions` (`withSuggestions`); without any, the list is flat. */
+  documents: readonly UnattachedDocumentWithSuggestions[];
   /**
    * The cases to choose from: the store's own read of every open case, most
    * urgent first (`attachTargets`) — not the case list's rows, which stop at
@@ -43,6 +61,7 @@ export function UnattachedDocuments({
 }) {
   if (documents.length === 0) return null;
   const open = targets.rows.filter((summary) => !isClosed(summary.state));
+  const groups = groupByPayer(documents);
 
   return (
     <div id="unattached-documents" className="card unattached">
@@ -71,76 +90,174 @@ export function UnattachedDocuments({
         <span>Received</span>
         <span>Attach to</span>
       </div>
-      <ul className="unattached-list">
-        {documents.map((document) => (
-          <li key={document.documentId} className="unattached-row">
-            <span className="unattached-name">{document.filename === '' ? '—' : document.filename}</span>
-            <span className="unattached-read">
-              {docTypeLabel(document.docType)}
-              {document.hold === undefined ? (
-                // How sure the classifier was, as the classification row
-                // recorded it — shown, never decided with here.
-                <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
-              ) : (
-                <span className="hold">{holdLine(document.hold)}</span>
-              )}
-              {document.email === undefined ? null : (
-                // What the email claimed about its sender (ADR 0047 §7): shown
-                // to the person deciding, and it decides nothing.
-                <span className="hold">{emailLine(document.email)}</span>
-              )}
-            </span>
-            <span className="unattached-received">
-              <span className="unattached-received-label">Received </span>
-              {document.createdAt.slice(0, 10)}
-            </span>
-            <div className="unattached-actions">
-              {document.hold?.reason === 'no_mapping' ? (
-                // A spreadsheet nobody mapped (ADR 0056): a person says which
-                // column is which, and its rows are read by code.
-                <a className="map-columns" href={`/documents/${document.documentId}/map`}>
-                  Map these columns
-                </a>
-              ) : null}
-              {document.hold !== undefined && mayOpenFrom(document.hold) ? (
-                // A POST, for the attach form's reason. It reads nothing:
-                // the case is opened from the reading already recorded.
-                <form
-                  action={`/documents/${document.documentId}/open-case`}
-                  method="post"
-                  className="open-held"
-                >
-                  <button type="submit">Open a case from it</button>
-                </form>
-              ) : null}
-              {open.length === 0 ? (
-                <span className="empty">No open case yet</span>
-              ) : (
-                // A POST, not a link: it writes to a case, and a thing that
-                // writes is not something a crawler or a prefetch may do by
-                // visiting a URL.
-                <form action={`/documents/${document.documentId}/attach`} method="post">
-                  <label className="sr-only" htmlFor={`attach-${document.documentId}`}>
-                    Case for {document.filename === '' ? 'this document' : document.filename}
-                  </label>
-                  <select id={`attach-${document.documentId}`} name="caseId" required defaultValue="">
-                    <option value="" disabled>
-                      Choose a case
-                    </option>
-                    {open.map((summary) => (
-                      <option key={summary.deductionId} value={summary.deductionId}>
-                        {caseLabel(summary)}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit">Attach</button>
-                </form>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {groups === undefined ? (
+        <ul className="unattached-list">
+          {documents.map((document) => (
+            <UnattachedRow key={document.documentId} document={document} open={open} />
+          ))}
+        </ul>
+      ) : (
+        groups.map((group) => (
+          <section
+            key={group.heading ?? 'unmatched'}
+            className="unattached-group"
+            aria-label={group.heading ?? 'Unmatched'}
+          >
+            {/* One heading per payer (`groupByPayer`), the unmatched last. */}
+            <h3 className="unattached-group-heading">
+              {group.heading ?? 'Unmatched'}{' '}
+              <span className="document-count">({group.documents.length.toLocaleString('en-US')})</span>
+            </h3>
+            {group.heading === undefined ? (
+              <p className="empty">No open case was suggested for these.</p>
+            ) : null}
+            <ul className="unattached-list">
+              {group.documents.map((document) => (
+                <UnattachedRow key={document.documentId} document={document} open={open} />
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
     </div>
+  );
+}
+
+/** One document's row: what it is, what it was read as, and where it can go. */
+function UnattachedRow({
+  document,
+  open,
+}: {
+  document: UnattachedDocumentWithSuggestions;
+  open: readonly CaseSummary[];
+}) {
+  const suggestions = document.suggestions ?? [];
+  return (
+    <li className="unattached-row">
+      <span className="unattached-name">{document.filename === '' ? '—' : document.filename}</span>
+      <span className="unattached-read">
+        {docTypeLabel(document.docType)}
+        {document.hold === undefined ? (
+          // How sure the classifier was, as the classification row
+          // recorded it — shown, never decided with here.
+          <span className="confidence"> · read at {confidencePercent(document.confidence)}</span>
+        ) : (
+          <span className="hold">{holdLine(document.hold)}</span>
+        )}
+        {document.email === undefined ? null : (
+          // What the email claimed about its sender (ADR 0047 §7): shown
+          // to the person deciding, and it decides nothing.
+          <span className="hold">{emailLine(document.email)}</span>
+        )}
+      </span>
+      <span className="unattached-received">
+        <span className="unattached-received-label">Received </span>
+        {document.createdAt.slice(0, 10)}
+      </span>
+      <div className="unattached-actions">
+        {document.hold?.reason === 'no_mapping' ? (
+          // A spreadsheet nobody mapped (ADR 0056): a person says which
+          // column is which, and its rows are read by code.
+          <a className="map-columns" href={`/documents/${document.documentId}/map`}>
+            Map these columns
+          </a>
+        ) : null}
+        {document.hold !== undefined && mayOpenFrom(document.hold) ? (
+          // A POST, for the attach form's reason. It reads nothing:
+          // the case is opened from the reading already recorded.
+          <form
+            action={`/documents/${document.documentId}/open-case`}
+            method="post"
+            className="open-held"
+          >
+            <button type="submit">Open a case from it</button>
+          </form>
+        ) : null}
+        <SuggestedCases document={document} suggestions={suggestions} />
+        {open.length === 0 ? (
+          <span className="empty">No open case yet</span>
+        ) : (
+          // A POST, not a link: it writes to a case, and a thing that
+          // writes is not something a crawler or a prefetch may do by
+          // visiting a URL.
+          <form action={`/documents/${document.documentId}/attach`} method="post">
+            {suggestions.length === 0 ? null : <span className="or-pick">or pick another case</span>}
+            <label className="sr-only" htmlFor={`attach-${document.documentId}`}>
+              Case for {document.filename === '' ? 'this document' : document.filename}
+            </label>
+            <select id={`attach-${document.documentId}`} name="caseId" required defaultValue="">
+              <option value="" disabled>
+                Choose a case
+              </option>
+              {open.map((summary) => (
+                <option key={summary.deductionId} value={summary.deductionId}>
+                  {caseLabel(summary)}
+                </option>
+              ))}
+            </select>
+            <button type="submit">Attach</button>
+          </form>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * The cases the store suggested for a document, strongest first, each with the
+ * one button that files it there.
+ *
+ * Every strength is labelled and every one needs the press: `exact` is one
+ * open case carrying an identifier the document prints, `ambiguous` is several
+ * carrying it, `probable` is the same payer and amount or an unlabelled
+ * reference. The case's name links to its page, so it can be looked at before
+ * a link that cannot be undone is made.
+ *
+ * The form posts to the attach route with the case preselected and a hidden
+ * `basis` naming the kinds that agreed. The route does not record that field:
+ * it recomputes the suggestion and records its own answer.
+ */
+function SuggestedCases({
+  document,
+  suggestions,
+}: {
+  document: UnattachedDocument;
+  suggestions: readonly SuggestedCase[];
+}) {
+  if (suggestions.length === 0) return null;
+  const ambiguous = suggestions.filter((s) => s.strength === 'ambiguous').length;
+  const shown = suggestions.slice(0, SUGGESTIONS_SHOWN);
+  const more = suggestions.length - shown.length;
+  return (
+    <ul className="suggested-cases">
+      {shown.map((suggestion) => (
+        <li key={suggestion.caseId} className={`suggested-case suggested-${suggestion.strength}`}>
+          <span className="suggested-line">
+            {suggestionLead(suggestion.strength)}{' '}
+            <a href={`/cases/${suggestion.caseId}`}>{suggestedCaseName(suggestion.case)}</a>{' '}
+            {suggestionReason(suggestion, ambiguous)}
+          </span>
+          <form action={`/documents/${document.documentId}/attach`} method="post">
+            <input type="hidden" name="caseId" value={suggestion.caseId} />
+            <input type="hidden" name="basis" value={basisField(suggestion.basis)} />
+            <button type="submit">
+              Attach to this case
+              <span className="sr-only">
+                {' '}
+                {suggestedCaseName(suggestion.case)}:{' '}
+                {document.filename === '' ? 'this document' : document.filename}
+              </span>
+            </button>
+          </form>
+        </li>
+      ))}
+      {more > 0 ? (
+        <li className="empty">
+          and {more.toLocaleString('en-US')} more possible {more === 1 ? 'case' : 'cases'} — pick from
+          the list
+        </li>
+      ) : null}
+    </ul>
   );
 }
 
@@ -173,29 +290,52 @@ export function offeredLine(listed: number, targets: AttachTargets): string {
  *
  * It posts to the same `/documents/[id]/attach` route as the list's picker,
  * with the case id the route would otherwise be chosen: one door, the same
- * checks, nothing read again. A pure function of what the store returned.
+ * checks, nothing read again. A document the store suggested this case for
+ * comes first and says what agreed, and its button carries the `basis` field
+ * the list's suggestion button does. A pure function of what the store returned.
  */
 export function AttachReadDocuments({
   deductionId,
   documents,
 }: {
   deductionId: string;
-  documents: readonly UnattachedDocument[];
+  /** Each may carry `suggestions` (`withSuggestions`). */
+  documents: readonly UnattachedDocumentWithSuggestions[];
 }) {
   if (documents.length === 0) return null;
+  // The documents the store suggested *this* case for rise to the top, in the
+  // store's order, each saying what agreed; the rest follow as they were.
+  const forThisCase = (document: UnattachedDocumentWithSuggestions) =>
+    (document.suggestions ?? []).find((s) => s.caseId === deductionId);
+  const ordered = [
+    ...documents.filter((document) => forThisCase(document) !== undefined),
+    ...documents.filter((document) => forThisCase(document) === undefined),
+  ];
   return (
     <div className="attach-read">
       <p className="hint">
         Or file a document that was already read and is on no case. It is not read again.
       </p>
       <ul className="attach-read-list">
-        {documents.map((document) => (
-          <li key={document.documentId}>
+        {ordered.map((document) => {
+          const suggestion = forThisCase(document);
+          const ambiguous = (document.suggestions ?? []).filter((s) => s.strength === 'ambiguous').length;
+          return (
+          <li key={document.documentId} className={suggestion === undefined ? undefined : 'suggested-here'}>
             <span className="mono">{document.filename === '' ? '—' : document.filename}</span>{' '}
             · {docTypeLabel(document.docType)} · received {document.createdAt.slice(0, 10)}
+            {suggestion === undefined ? null : (
+              <span className="suggested-line">
+                {' '}
+                · {thisCaseLead(suggestion.strength)} this case {suggestionReason(suggestion, ambiguous)}
+              </span>
+            )}
             {/* A POST, for the list's reason: it writes to a case. */}
             <form action={`/documents/${document.documentId}/attach`} method="post">
               <input type="hidden" name="caseId" value={deductionId} />
+              {suggestion === undefined ? null : (
+                <input type="hidden" name="basis" value={basisField(suggestion.basis)} />
+              )}
               <button type="submit">
                 Attach
                 <span className="sr-only">
@@ -205,10 +345,18 @@ export function AttachReadDocuments({
               </button>
             </form>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );
+}
+
+/** "Matches this case", "May match this case", "Possibly this case". */
+function thisCaseLead(strength: SuggestedCase['strength']): string {
+  if (strength === 'exact') return 'Matches';
+  if (strength === 'ambiguous') return 'May match';
+  return 'Possibly';
 }
 
 /**

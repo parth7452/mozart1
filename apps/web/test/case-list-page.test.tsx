@@ -16,6 +16,7 @@ import type {
   RetailerBoard,
   ReviewQueueRead,
   ReviewQueueRow,
+  UnattachedSuggestions,
 } from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { UNATTACHED_SHOWN } from '../lib/format';
@@ -45,6 +46,9 @@ const harness = vi.hoisted(() => ({
   /** Every `unattachedDocuments` call, for the same question about cost. */
   unattachedCalls: [] as unknown[],
   unattached: [] as UnattachedDocument[],
+  /** Every `suggestionsForUnattached` call: asked only when something is waiting. */
+  suggestionCalls: [] as unknown[],
+  suggestions: [] as UnattachedSuggestions[],
   /** Every `reviewQueue` call: asked for every member, with one `today`. */
   queueCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
   queue: { rows: [], total: 0, waitingOnRetailer: 0, limit: 500 } as ReviewQueueRead,
@@ -125,6 +129,10 @@ vi.mock('../lib/session', () => ({
       async unattachedDocuments(limit?: number) {
         harness.unattachedCalls.push(limit);
         return harness.unattached;
+      },
+      async suggestionsForUnattached(limit?: number) {
+        harness.suggestionCalls.push(limit);
+        return harness.suggestions;
       },
       async reviewQueue(options?: { today?: Date; limit?: number }) {
         harness.queueCalls.push(options);
@@ -263,6 +271,8 @@ describe('the case list page', () => {
       },
     ];
     harness.unattachedCalls = [];
+    harness.suggestionCalls = [];
+    harness.suggestions = [];
     harness.unattached = [
       {
         documentId: 'eeeeeeee-1111-2222-3333-444444444444',
@@ -379,10 +389,49 @@ describe('the case list page', () => {
     expect(html).not.toContain('Email that filed nothing');
   });
 
+  it('shows the case the store suggested for a document, with a button that files it there', async () => {
+    const suggested: CaseSummary = {
+      deductionId: 'aaaaaaaa-7777-2222-3333-444444444444',
+      state: 'classified',
+      claimId: 'DN-2609-003',
+      deductionAmountCents: 12_345,
+      debtorName: 'Kroger',
+      discoveredVia: 'notice',
+      documentCount: 1,
+      createdAt: '2026-09-20T09:00:00Z',
+    };
+    harness.attachTargets = { rows: [suggested], total: 1, limit: 250 };
+    harness.suggestions = [
+      {
+        documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+        suggestions: [
+          {
+            caseId: suggested.deductionId,
+            strength: 'exact',
+            basis: [{ kind: 'po_number', field: 'po_number', value: 'PO-771' }],
+            case: suggested,
+          },
+        ],
+      },
+    ];
+    const html = await render();
+
+    // Asked once, for the documents the list shows and no more.
+    expect(harness.suggestionCalls).toEqual([UNATTACHED_SHOWN]);
+    expect(html).toContain('Matches case');
+    expect(html).toContain('on purchase order PO-771 (exact)');
+    expect(html).toContain(`<input type="hidden" name="caseId" value="${suggested.deductionId}"/>`);
+    expect(html).toContain('<input type="hidden" name="basis" value="po_number"/>');
+    expect(html).toContain('Attach to this case');
+    expect(html).toContain('or pick another case');
+  });
+
   it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
     harness.unattached = [];
     const html = await render();
     expect(harness.unattachedCalls).toEqual([UNATTACHED_SHOWN]);
+    // Nor for suggestions: there is nothing to suggest a case for.
+    expect(harness.suggestionCalls).toEqual([]);
     expect(harness.attachCalls).toEqual([]);
     expect(html).not.toContain('Read, not on a case');
   });

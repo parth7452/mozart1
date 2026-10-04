@@ -75,7 +75,8 @@ import {
   WrongCaseStateError,
   WrongRoleError,
 } from '../ports';
-import type { ResultCell } from '../ports';
+import type { EvidenceSuggestion, ResultCell } from '../ports';
+import { evidenceSuggestionPayload } from '../ports';
 import type { SheetMapping } from '@recouple/core-domain';
 import type {
   ApprovalRecord,
@@ -957,6 +958,7 @@ export class InMemoryStore
     readonly deductionId: string;
     readonly documentId: string;
     readonly docType: DocType;
+    readonly suggestion?: EvidenceSuggestion;
   }): Promise<boolean> {
     const held = this.links.some(
       (l) => l.deductionId === input.deductionId && l.documentId === input.documentId,
@@ -967,7 +969,12 @@ export class InMemoryStore
       orgId: input.orgId,
       deductionId: input.deductionId,
       eventType: 'evidence.attached',
-      payload: { document_id: input.documentId, doc_type: input.docType, read_again: false },
+      payload: {
+        document_id: input.documentId,
+        doc_type: input.docType,
+        read_again: false,
+        ...evidenceSuggestionPayload(input.suggestion),
+      },
     });
     return true;
   }
