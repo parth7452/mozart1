@@ -103,7 +103,7 @@ export function BooksPage({
   const query = `from=${request.window.from}&to=${request.window.to}`;
   return (
     <WorkspaceShell viewer={viewer} section="books">
-      <main id="workspace-main" className="workspace-main">
+      <main id="workspace-main" className="workspace-main books-main">
         <div className="page-heading">
           <div>
             <p className="eyebrow">BOOKS, READ FROM QUICKBOOKS</p>
@@ -124,14 +124,20 @@ export function BooksPage({
         <section className="card connection" aria-label="Ledger window">
           <h2>General ledger window</h2>
           <form method="get" action="/books">
-            <label htmlFor="books-from">From</label>
-            <input id="books-from" type="date" name="from" defaultValue={request.window.from} />
-            <label htmlFor="books-to">To</label>
-            <input id="books-to" type="date" name="to" defaultValue={request.window.to} />
-            {request.scope === 'all' ? <input type="hidden" name="accounts" value="all" /> : null}
-            <button type="submit" className="primary">
-              Read this window
-            </button>
+            <div className="books-window">
+              <div>
+                <label htmlFor="books-from">From</label>
+                <input id="books-from" type="date" name="from" defaultValue={request.window.from} />
+              </div>
+              <div>
+                <label htmlFor="books-to">To</label>
+                <input id="books-to" type="date" name="to" defaultValue={request.window.to} />
+              </div>
+              {request.scope === 'all' ? <input type="hidden" name="accounts" value="all" /> : null}
+              <button type="submit" className="primary">
+                Read this window
+              </button>
+            </div>
           </form>
           <p className="empty">
             {request.window.from} to {request.window.to}, both days included. The default is the
@@ -268,8 +274,8 @@ function ChartTable({ chart, mapped }: { chart: BooksChart; mapped: boolean }) {
         “Looks like deductions” is a guess, by detail type ({DEDUCTION_ACCOUNT_SUBTYPES.join(', ')})
         or a name containing one of: {DEDUCTION_ACCOUNT_NAME_WORDS.join(', ')}.
       </p>
-      <div className="table-scroll">
-        <table className="cases">
+      <div className="table-scroll" role="region" aria-label="Chart of accounts" tabIndex={0}>
+        <table className="cases books-chart">
           <thead>
             <tr>
               <th scope="col">Code</th>
@@ -341,8 +347,8 @@ function TrialBalanceTable({ trialBalance }: { trialBalance: TrialBalance }) {
       {trialBalance.lines.length === 0 ? (
         <p className="empty">QuickBooks reported no balances for this period.</p>
       ) : (
-        <div className="table-scroll">
-          <table className="cases">
+        <div className="table-scroll" role="region" aria-label="Trial balance" tabIndex={0}>
+          <table className="cases books-trial">
             <thead>
               <tr>
                 <th scope="col">Account</th>
@@ -426,10 +432,10 @@ function LedgerAccountTable({ account }: { account: GeneralLedgerAccount }) {
   const shown = account.lines.slice(0, LEDGER_LINES_SHOWN_PER_ACCOUNT);
   return (
     <>
-      <h2 className="section">
+      <h3 className="section">
         {account.accountName} — {account.lines.length.toLocaleString('en-US')}{' '}
         {account.lines.length === 1 ? 'posting' : 'postings'}
-      </h2>
+      </h3>
       {account.lines.length > shown.length ? (
         <p className="notice bad" role="status">
           Showing the first {shown.length.toLocaleString('en-US')} of{' '}
@@ -437,8 +443,8 @@ function LedgerAccountTable({ account }: { account: GeneralLedgerAccount }) {
           the rest.
         </p>
       ) : null}
-      <div className="table-scroll">
-        <table className="cases">
+      <div className="table-scroll" role="region" aria-label={`${account.accountName} postings`} tabIndex={0}>
+        <table className="cases books-ledger">
           <thead>
             <tr>
               <th scope="col">Date</th>
@@ -541,8 +547,8 @@ function ReconciliationTable({
           Nothing to reconcile: no postings on those accounts and no cases in this window.
         </p>
       ) : (
-        <div className="table-scroll">
-          <table className="cases">
+        <div className="table-scroll" role="region" aria-label="Reconciliation" tabIndex={0}>
+          <table className="cases books-reconciliation">
             <thead>
               <tr>
                 <th scope="col">Result</th>

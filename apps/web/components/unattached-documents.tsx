@@ -322,14 +322,17 @@ export function AttachReadDocuments({
           const ambiguous = (document.suggestions ?? []).filter((s) => s.strength === 'ambiguous').length;
           return (
           <li key={document.documentId} className={suggestion === undefined ? undefined : 'suggested-here'}>
-            <span className="mono">{document.filename === '' ? '—' : document.filename}</span>{' '}
-            · {docTypeLabel(document.docType)} · received {document.createdAt.slice(0, 10)}
-            {suggestion === undefined ? null : (
-              <span className="suggested-line">
-                {' '}
-                · {thisCaseLead(suggestion.strength)} this case {suggestionReason(suggestion, ambiguous)}
+            <span className="attach-read-what">
+              <span className="mono">{document.filename === '' ? '—' : document.filename}</span>
+              <span className="attach-read-meta">
+                {docTypeLabel(document.docType)} · received {document.createdAt.slice(0, 10)}
               </span>
-            )}
+              {suggestion === undefined ? null : (
+                <span className="suggested-line">
+                  {thisCaseLead(suggestion.strength)} this case {suggestionReason(suggestion, ambiguous)}
+                </span>
+              )}
+            </span>
             {/* A POST, for the list's reason: it writes to a case. */}
             <form action={`/documents/${document.documentId}/attach`} method="post">
               <input type="hidden" name="caseId" value={deductionId} />

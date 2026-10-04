@@ -799,3 +799,79 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .suggested-exact .suggested-line { color: var(--ink); }
 .card.unattached .or-pick { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
 .attach-read-list .suggested-line { color: var(--ink); }
+
+/* Visual pass, 2026-10-04 (docs/plans/ui-review-polish/04-overnight-screens.md).
+   Layout only: no figure, order or behaviour is decided here. */
+
+/* The board's figures: a label that wraps ("Due in 14 days or overdue") no
+   longer pushes its own figure a line below its neighbours'. Labels sit on
+   one top line and figures on one bottom line, at every column count. */
+.board-figures > div { display: flex; flex-direction: column; justify-content: space-between; }
+.board-figures dd { white-space: nowrap; overflow-wrap: normal; }
+
+/* Read, not on a case. The "nothing suggested" line sits against its heading
+   like the payer groups' rows do, and on a narrow card "or pick another case"
+   takes its own line so the picker is not squeezed until its text is cut. */
+.card.unattached .unattached-group .empty { padding: 0 0 8px; }
+@container (max-width: 720px) {
+  .card.unattached .unattached-actions form { flex-wrap: wrap; }
+  .card.unattached .unattached-actions .or-pick { flex: 0 0 100%; }
+  .card.unattached .unattached-actions select { flex: 1 1 0; width: auto; }
+}
+
+/* A case's own page: a document read and on no case. The name, what it was
+   read as and what agreed stack on the left; the button is the card's own. */
+.attach-read-list li { flex-wrap: nowrap; align-items: center; gap: 12px; padding: 10px 0; }
+.attach-read-what { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.attach-read-meta { font-size: 12px; color: var(--ink-soft); }
+.attach-read-list .suggested-line { font-size: 12px; }
+.attach-read-list form { flex: none; }
+.attach-read-list button { padding: 6px 12px; font: inherit; font-size: 13px; background: white; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.attach-read-list button:hover { background: var(--bg); }
+.attach-read-list li.suggested-here button { border-color: #9eabb5; font-weight: 500; }
+
+/* Books (ADR 0066). The window's two dates and its button on one row; rows
+   as dense as the case list's; dates, document numbers, case names and money
+   never broken across lines; an account's postings in the same columns as
+   the next account's. */
+.books-window { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; margin-bottom: 14px; }
+.books-window > div { flex: 0 1 190px; min-width: 150px; }
+.books-window label { display: block; margin: 0; }
+.books-window button { flex: none; margin: 0; }
+.books-main .card.connection .table-scroll { margin-inline: -20px; }
+.books-main .card.connection .table-scroll:last-child { margin-bottom: -8px; }
+.books-main .table-scroll:focus-visible { outline: 2px solid #657b27; outline-offset: -2px; }
+.books-main table.cases td { padding-block: 12px; vertical-align: top; line-height: 1.5; }
+.books-main table.cases td.money, .books-main table.cases a { white-space: nowrap; }
+.books-main h3.section { margin: 22px 0 8px; font-size: 10px; font-weight: 600; letter-spacing: 1.1px; line-height: 1.6; text-transform: uppercase; color: #536176; }
+.books-main table.cases tfoot th { text-align: left; white-space: normal; }
+.books-chart td:first-child, .books-chart td:nth-child(5) { white-space: nowrap; }
+.books-chart .ledger-tag { display: inline-block; margin-right: 8px; white-space: nowrap; }
+table.cases.books-ledger { table-layout: fixed; min-width: 1040px; }
+.books-ledger th:nth-child(1) { width: 124px; }
+.books-ledger th:nth-child(2) { width: 124px; }
+.books-ledger th:nth-child(3) { width: 104px; }
+.books-ledger th:nth-child(4) { width: 16%; }
+.books-ledger th:nth-child(n+6) { width: 128px; }
+.books-ledger td { overflow-wrap: anywhere; }
+.books-ledger td:first-child { white-space: nowrap; }
+table.cases.books-reconciliation { min-width: 1040px; }
+table.cases.books-reconciliation th, table.cases.books-reconciliation td { padding-inline: 10px; }
+table.cases.books-reconciliation th { white-space: normal; vertical-align: bottom; }
+table.cases.books-reconciliation th:first-child, table.cases.books-reconciliation td:first-child { padding-left: 20px; }
+table.cases.books-reconciliation th:last-child, table.cases.books-reconciliation td:last-child { padding-right: 20px; }
+.books-reconciliation td:first-child { min-width: 120px; }
+.books-reconciliation td:nth-child(2) { min-width: 150px; }
+.books-reconciliation tr[data-reconciliation='case_only'] td:nth-last-child(2),
+.books-reconciliation tr[data-reconciliation='matched'] td:nth-last-child(2) { white-space: nowrap; }
+@media(max-width:760px) {
+  /* Three columns fit a phone: the totals are not scrolled out of sight. */
+  table.cases.books-trial { min-width: 0; }
+  table.cases.books-trial th, table.cases.books-trial td { padding-inline: 6px; }
+  .books-trial td:first-child, .books-trial tfoot th { overflow-wrap: anywhere; }
+  .books-trial td.money { font-size: 11px; }
+  table.cases.books-trial th:first-child, table.cases.books-trial td:first-child { padding-left: 16px; }
+  table.cases.books-trial th:last-child, table.cases.books-trial td:last-child { padding-right: 16px; }
+  .books-main .card.connection .table-scroll { margin-inline: -16px; }
+  .books-window > div { flex: 1 1 140px; }
+}

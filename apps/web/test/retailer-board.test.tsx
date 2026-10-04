@@ -98,7 +98,7 @@ const syscoCaps = raw(
   ],
 );
 const target = raw({ printedName: 'Target Corp' }, { closedCases: 1 });
-const unknown = raw({}, { openCases: 1, inDisputeCents: 30_000, oldestOpenDays: 3 }, [
+const unknown = raw({}, { openCases: 1, inDisputeCents: 30_000, oldestOpenDays: 0 }, [
   [30, summary('acac')],
 ]);
 
@@ -149,6 +149,9 @@ describe('the retailer board', () => {
     expect(w).toContain('Recovered $11,000.50');
     expect(w).toContain('Oldest open case opened 100 days ago.');
     expect(w).toContain('1 declined ($2,500.00), not counted as open.');
+    // A case opened today is said so, not as "0 days ago".
+    expect(text(section(html, 'Retailer unknown'))).toContain('Oldest open case opened today.');
+    expect(text(html)).not.toContain('opened 0 days ago');
 
     const t = text(section(html, 'Target Corp'));
     expect(t).toContain('Open 0');

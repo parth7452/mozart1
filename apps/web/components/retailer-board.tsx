@@ -121,9 +121,11 @@ function Group({
         <p className="board-notes">
           {totals.oldestOpenDays === undefined
             ? 'No open case.'
-            : `Oldest open case opened ${count(Math.max(0, totals.oldestOpenDays))} day${
-                totals.oldestOpenDays === 1 ? '' : 's'
-              } ago.`}
+            : totals.oldestOpenDays <= 0
+              ? 'Oldest open case opened today.'
+              : `Oldest open case opened ${count(totals.oldestOpenDays)} day${
+                  totals.oldestOpenDays === 1 ? '' : 's'
+                } ago.`}
           {totals.declinedCases > 0
             ? ` ${count(totals.declinedCases)} declined (${money(totals.declinedCents)}), not counted as open.`
             : null}
