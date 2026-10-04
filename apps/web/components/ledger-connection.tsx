@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { PostingConnectionSetup } from '../lib/posting-setup';
 import { PostingSettings } from './posting-settings';
 import { LEDGER_CONNECTION_DISABLED, LEDGER_SYNC_REFUSED } from '@recouple/pipeline';
@@ -113,6 +114,13 @@ export function LedgerConnectionPage({
             />
           )}
         </section>
+
+        {current === undefined ? null : (
+          <p className="empty" role="note">
+            This company&rsquo;s chart of accounts, trial balance and general ledger are on{' '}
+            <Link href="/books">Books</Link>, read from QuickBooks when the page is opened.
+          </p>
+        )}
 
         {posting === undefined ? null : <PostingSettings connections={posting} />}
 

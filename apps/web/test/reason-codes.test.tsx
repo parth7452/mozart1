@@ -21,7 +21,7 @@ import {
 } from '../lib/reason-code-words';
 
 /**
- * Settings → Reason codes (ADR 0066): the views, the page and its one write.
+ * Settings → Reason codes (ADR 0067): the views, the page and its one write.
  *
  * The views are pure functions of what the store returned. The write is a POST
  * in Settings → Team's shape: a cross-site request is refused before the

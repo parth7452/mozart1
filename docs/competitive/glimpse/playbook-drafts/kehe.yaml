@@ -21,6 +21,17 @@ drafted_from:
     source_url: https://endlesscommerce.com/playbook/kehe-and-unfi-deductions-codes-and-clocks/
     publisher: Endless Commerce (vendor), used only to corroborate
     captured_at: 2026-10-03
+  # Added 2026-10-04 (second pass over Glimpse's public posts):
+  - id: glimpse-kehe-policy
+    source_url: https://www.tryglimpse.com/post/kehe-new-policy-oct2025
+    publisher: Glimpse (tryglimpse.com), post by its CEO
+    published: 2025-11   # month, from page 3 of https://www.tryglimpse.com/resources
+    captured_at: 2026-10-04
+  - id: sps-distributors
+    source_url: https://www.spscommerce.com/community/articles/disputing-distributor-deductions-and-chargebacks
+    publisher: SPS Commerce (vendor), used only to corroborate
+    published: 2025-08-27
+    captured_at: 2026-10-04
 
 identity_signals:
   names_as_printed:
@@ -53,6 +64,15 @@ code_map:
       canonical_candidates: [compliance_late_delivery, compliance_label_barcode, compliance_pallet_spec, compliance_asn_missing]
       source: glimpse-kehe
   entries: []
+  fee_claims_other_vendor:   # added 2026-10-04; SPS's figures, not Glimpse's
+    - label: Inbound Fill Rate
+      amount_claim: "3% fee below 98%"
+      canonical_candidates: [compliance_otif]
+      source: sps-distributors
+    - label: Unsaleables processing
+      amount_claim: "$0.29/unit processing fee"
+      canonical_candidates: [return_handling_fee]
+      source: sps-distributors
 
 deadline_rules:
   - window_days: 180
@@ -62,6 +82,11 @@ deadline_rules:
     source: glimpse-kehe
     corroborated: endless-clocks ("180 days from the deduction date ... waived permanently"); sps-ksolve (KeHE "requiring suppliers to dispute within 180 days")
     note: "Three vendors agree; no KeHE primary text read. Which date 'the deduction' means on a KeHE remittance is not stated."
+  - rule: enforcement_history   # added 2026-10-04
+    glimpse_quote: "They've now removed the dispute option entirely for any deductions older than 6 months."
+    detail: "Glimpse says KeHE 'always had a 6-month dispute window in their terms, but they've been pretty lax about enforcing it', and that 'This affects everything—including shortages'"
+    source: glimpse-kehe-policy
+    note: "Dates the enforcement to autumn 2025 by the post's own slug (oct2025); the post gives no effective date and cites no KeHE notice"
 
 evidence_requirements:
   entries:
@@ -92,6 +117,11 @@ submission_channel:
     - kind: email
       address: null
       note: "No KeHE email channel is named by Glimpse; left out rather than guessed"
+    - kind: email   # added 2026-10-04, from SPS, not Glimpse
+      address: vendorperfromance@kehe.com
+      applies_to: "compliance fees (fill rate, on-time), after K-Solve"
+      source: sps-distributors
+      note: "Spelled as SPS prints it ('perfromance'), which reads as a typo in SPS's article. Not used until KeHE's own document gives the address."
   writes_by_us: none   # ADR 0057: read, never write
 
 auto_reversal_behavior: unknown

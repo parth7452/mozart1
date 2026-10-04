@@ -14,6 +14,7 @@ export function Wordmark() {
 export type WorkspaceSection =
   | 'deductions'
   | 'coverage'
+  | 'books'
   | 'quickbooks'
   | 'email'
   | 'portals'
@@ -118,6 +119,16 @@ export function WorkspaceShell({
               ◔
             </span>
             Coverage<span aria-hidden="true">↗</span>
+          </Link>
+          <Link
+            className={section === 'books' ? 'nav-item active' : 'nav-item'}
+            href="/books"
+            aria-current={section === 'books' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ≡
+            </span>
+            Books<span aria-hidden="true">↗</span>
           </Link>
           <Link
             className={section === 'quickbooks' ? 'nav-item active' : 'nav-item'}
@@ -234,6 +245,8 @@ export function WorkspaceShell({
               </>
             ) : section === 'coverage' ? (
               <Link href="/coverage">Coverage</Link>
+            ) : section === 'books' ? (
+              <Link href="/books">Books</Link>
             ) : (
               <Link href="/">Deductions</Link>
             )}

@@ -765,3 +765,37 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .team-members select { width: auto; margin-top: 0; padding: 6px 8px; font-size: 13px; }
 .team-members button, .card.team button { padding: 7px 12px; background: white; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 .card.team button:hover, .team-members button:hover { background: var(--bg); }
+
+/* The retailer board: a <details> per payer, its figures in the summary and
+   its most urgent cases underneath. No script; the summary is the control. */
+.board-group { border-top: 1px solid var(--line); }
+.board-group > summary { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(0, 3.4fr); gap: 16px; align-items: center; padding: 16px 24px; cursor: pointer; list-style: none; }
+.board-group > summary::-webkit-details-marker { display: none; }
+.board-group > summary:hover { background: #f7f9f5; }
+.board-group > summary:focus-visible { outline: 2px solid #657b27; outline-offset: -2px; }
+.board-who { min-width: 0; overflow-wrap: anywhere; }
+.board-who::before { content: '▸'; display: inline-block; width: 14px; color: var(--muted); font-size: 11px; }
+.board-group[open] > summary .board-who::before { content: '▾'; }
+.board-name { font-size: 14px; font-weight: 500; }
+.board-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: #f8efd9; color: #855e16; font-size: 10px; white-space: nowrap; }
+.board-figures { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.board-figures > div { min-width: 0; }
+.board-figures dt { font-size: 8px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-soft); }
+.board-figures dd { margin: 4px 0 0; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.board-figures .at-risk dd { color: var(--warn); }
+.board-figure-note { font-weight: 400; font-size: 11px; }
+.board-body { border-top: 1px solid var(--line); }
+.board-notes { margin: 0; padding: 12px 24px 0; font-size: 11px; color: var(--muted); line-height: 1.6; max-width: 820px; }
+.board-notes:last-of-type { padding-bottom: 12px; }
+.board-notes code { font-family: var(--mono); font-size: 11px; }
+@media(max-width:1200px) { .board-group > summary { grid-template-columns: 1fr; }.board-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media(max-width:760px) { .board-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Suggested cases on a document read and on no case (document-match). */
+.unattached-group-heading { margin: 18px 0 2px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.unattached-group .empty { padding: 0 0 6px; }
+.suggested-cases { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.suggested-case { display: grid; gap: 4px; }
+.suggested-line { font-size: 12px; line-height: 1.45; color: var(--ink-soft); }
+.suggested-exact .suggested-line { color: var(--ink); }
+.card.unattached .or-pick { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+.attach-read-list .suggested-line { color: var(--ink); }

@@ -1,5 +1,5 @@
 /**
- * Payer code mappings, on Postgres (ADR 0066, migration 0040).
+ * Payer code mappings, on Postgres (ADR 0067, migration 0040).
  *
  * One member of one tenant, as `app_rw` with that member's claims set
  * transaction-locally, in `PostgresTeamStore`'s shape. RLS decides whose rows

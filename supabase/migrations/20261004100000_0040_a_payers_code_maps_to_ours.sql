@@ -1,4 +1,4 @@
--- 0040 — a payer's reason code maps to ours as data (ADR 0066, proposed).
+-- 0040 — a payer's reason code maps to ours as data (ADR 0067, proposed).
 --
 -- What this does, and nothing else:
 --   1. payer_code_maps: one row says that, for one tenant and one debtor, a
@@ -59,7 +59,7 @@ create table if not exists payer_code_maps (
 
 comment on table payer_code_maps is
   'A payer''s printed reason code mapped to a canonical one, per tenant and '
-  'debtor, effective-dated, with its source and confidence (ADR 0066). '
+  'debtor, effective-dated, with its source and confidence (ADR 0067). '
   'Append-only: a correction is a new row with a later effective_from. '
   'app.payer_code_maps_as_of() says which row applies on a date.';
 
@@ -106,7 +106,7 @@ $$;
 
 comment on function app.member_is_owner_or_approver() is
   'Whether the caller is an owner or approver of the org their claims name. '
-  'Adding a payer code mapping is theirs (ADR 0066 §6). Not security definer: '
+  'Adding a payer code mapping is theirs (ADR 0067 §6). Not security definer: '
   'it reads the caller''s own membership under RLS, like app.member_is_owner().';
 
 revoke all on function app.member_is_owner_or_approver() from public;
@@ -193,7 +193,7 @@ as $$
 $$;
 
 comment on function app.payer_code_maps_as_of(date) is
-  'The payer code mappings in force on a date (ADR 0066 §4). Not security '
+  'The payer code mappings in force on a date (ADR 0067 §4). Not security '
   'definer: the caller''s RLS decides whose rows these are.';
 
 revoke all on function app.payer_code_maps_as_of(date) from public;

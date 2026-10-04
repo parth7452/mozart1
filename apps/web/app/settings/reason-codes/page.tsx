@@ -7,7 +7,7 @@ import { ReasonCodesPage } from '../../../components/reason-code-maps';
 export const dynamic = 'force-dynamic';
 
 /**
- * Settings → Reason codes: resolve the member, read, render (ADR 0066).
+ * Settings → Reason codes: resolve the member, read, render (ADR 0067).
  *
  * Every read is this tenant's through RLS, as the member signed in, and every
  * member sees the page; only an owner or approver is shown the form, and the

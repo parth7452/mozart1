@@ -10,7 +10,7 @@ import { REASON_CODES_PATH, type ReasonCodeNoticeKey } from './reason-code-words
 export { mayMapPayerCodes, REASON_CODES_PATH } from './reason-code-words';
 
 /**
- * Settings → Reason codes' server half (ADR 0066): the store, as the member
+ * Settings → Reason codes' server half (ADR 0067): the store, as the member
  * signed in, and the redirect its one write answers with.
  *
  * The write is a POST in Settings → Team's shape: `isCrossSite`,

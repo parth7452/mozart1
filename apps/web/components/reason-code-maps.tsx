@@ -28,7 +28,7 @@ import { WorkspaceShell } from './workspace-shell';
 import type { Viewer } from './case-list';
 
 /**
- * Reason-code reconciliation, as a person sees it (ADR 0066): what a payer's
+ * Reason-code reconciliation, as a person sees it (ADR 0067): what a payer's
  * printed code means in our taxonomy, per payer, as data the workspace
  * recorded with its source and confidence.
  *

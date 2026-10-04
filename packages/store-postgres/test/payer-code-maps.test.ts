@@ -16,7 +16,7 @@ import {
 } from '../src/payer-code-maps';
 
 /**
- * Payer code mappings (ADR 0066, migration 0040) through
+ * Payer code mappings (ADR 0067, migration 0040) through
  * `PostgresPayerCodeMapStore` as `app_rw`, with two tenants.
  *
  * Four things are held here that a list of strings or a suite of SQL cannot:

@@ -274,7 +274,7 @@ export interface CaseReviewProps {
   readonly payerTerms?: PayerTermsAnswer;
   /**
    * What the case's payer code maps to in the canonical taxonomy, from this
-   * workspace's own mappings (`payerCodeMappingForCase`, ADR 0066). Shown
+   * workspace's own mappings (`payerCodeMappingForCase`, ADR 0067). Shown
    * under the code and offered as the decide form's default; never applied.
    */
   readonly payerCodeMapping?: PayerCodeMappingAnswer | undefined;

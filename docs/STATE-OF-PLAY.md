@@ -13,6 +13,22 @@ anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
 Email-in went live on 2026-09-25: a notice emailed from Gmail to an issued
 address was held because it came by email, and a person opened its case.
 
+## 2026-10-04: the case list by payer
+
+Not merged, not deployed. No migration.
+
+- The case list opens with a board per retailer or distributor: each payer's
+  open and closed cases, cases awaiting approval, dollars in dispute, dollars
+  recovered, cases due within 14 days or overdue, and its most urgent cases in
+  the review queue's order. Dollars and counts only; no rate (ADR 0030).
+- A name no customer record answers to is its own group, marked "not matched",
+  with its other printed spellings. `pnpm link:retailer` is still how it is
+  linked; nothing in the app links one.
+- The review queue, the figures, the ledger and the documents are below it,
+  unchanged. Every member sees the board; it has no action on it.
+- Not looked at in a browser yet: the tests render the markup, nobody has seen
+  the layout on a screen or a phone.
+
 ## 2026-09-27: built overnight on PR #127
 
 Not merged, not deployed, no migration applied anywhere. Tests and typecheck
@@ -54,7 +70,7 @@ code reads the new table, so it must not be merged before the migration is on
 - `pnpm seed:payer-codes` proposes mappings from the Glimpse playbook drafts at
   low confidence. Dry-run unless `--write`. Nothing has been loaded.
 
-**Needs the founder:** accept or reject ADR 0066 (proposed); whether mappings
+**Needs the founder:** accept or reject ADR 0067 (proposed); whether mappings
 taken from Glimpse's guides may be loaded at low confidence or must wait for the
 customer's own confirmation; whether the decide form should start on the mapped
 reason; and what to do about payers whose codes embed a date or PO number
@@ -138,7 +154,9 @@ The gap between *it worked once* and *it works*:
 | **The review queue** (ADR 0043) | **The sweep is exercised.** Production's two ledger cases ($450.00 and $239.00) moved to `classified` on 2026-09-23 at 21:49 UTC, when the founder invoked the fan-out from the Inngest dashboard: the run logged `classified 2`, and each case carries one `case.classified` event. What would prove the rest: their case pages offering decide and decline, and one of them decided from the queue |
 | **Invited sign-in, and the claims guard** (ADR 0045, migration 0033; ADR 0051 §6, migration 0035) | 0033 was applied to `mozart-preview` and then production on 2026-09-24 and read back on both (md5, both functions still definer and pinned, same results and grants, a `sub`-only caller refused). The web half deployed on merge. ADR 0045's last two steps — a person invited from the dashboard, then sign-ups switched off — are superseded: on 2026-09-26 the founder switched "Allow new users to sign up" **on**, gated by three layers (ADR 0051 §6). The form asks the database (`app.address_is_invited()`) and lets the provider create an account only for an invited address, whose first email is the provider's "Confirm signup" and signs them in; every address still gets the same "sent" page, and an uninvited one gets `otp_disabled` whatever the switch says. A before-user-created hook (`hooks.before_user_created`) refuses an account for any address nobody invited on every path but the service-role admin create-user endpoint, the dashboard's "Send invitation" included, and never sees an account that already exists unconfirmed. `requireSession` refuses a session not made by an email link — a password sign-in included, which is what stops an invitee's address being pre-registered with an attacker's password — and signs out only that session. A person an owner adds on Settings → Team needs no dashboard invitation: their first link makes the account (its code expires five minutes after it was sent; a late click still confirms the address, and the next link works). **None of the three is live yet:** 0035 is not applied anywhere (`mozart-preview` first), the web change is unmerged, and the founder then enables the hook (Authentication → Hooks → Before User Created → Postgres → `hooks.before_user_created`). Until the hook is on, an anon-key holder can make an Auth user for any address; once it is, the operator finds those with ONBOARDING §2's supabase-only query and deletes them in the dashboard. What would prove it: a person added on Settings → Team signs in from the form with no dashboard step; an uninvited address gets the "sent" page and no account; a direct `/signup` for it is refused 403 by the hook; a password session is refused with `email_link_only` |
 | **The dense path** | A 42-row remittance is 63s of model time in the recorded cassettes; the Inngest job is the answer to that and has not yet been given one. Past about 120 rows a read is now re-asked in two-page parts (ADR 0053): the recorded 190-row advice read correctly in 344s, which is past the job's 300-second `maxDuration`, so the app does not page: production fails a remittance that dense loudly, with its cost recorded, until the founder chooses a proactive gate, a longer duration or a step per part. Nobody has sent one through production |
+| **The Books page** (ADR 0066, proposed) | `/books` reads a connected company's chart of accounts, trial balance and general ledger from QuickBooks as the page loads, stores nothing, and lists the ledger's postings on the deductions accounts beside our cases, matching only the same cents on the same day. Built and tested against hand-written fixtures and the in-memory source only: **QuickBooks has never been asked for either report by this code.** What would prove it: the page opened against the sandbox company and then the production one, each section reading; `pnpm qbo:verify --record` extended to record both reports beside the hand-written fixtures; a `read_only` member opening it with a stale token and being told to ask a writer, with no new `accounting_credentials` row |
 | **The classification floor** (ADR 0044) | A real notice or remittance classified below 0.950 is held in production — listed under "Read, not on a case" with its confidence, not read again on "Read again" — and "Open a case from it" opens its case with `confirmed_by` on `case.discovered` and no new `model_calls` row. Every real one read so far has been at 0.95 or above, so nothing in production has been held yet |
+| **Suggested cases for read documents** (no migration) | Built and tested, not deployed. A document under "Read, not on a case" shows the open case that carries its invoice, purchase order, shipment or claim number — exact, ambiguous or probable, labelled — with **Attach to this case**; the list is grouped by payer and a case's own page lists its matches first. Nothing attaches without the press, and `evidence.attached` records `suggested_by`, `strength` and `basis`. Proof: upload an invoice whose number an open case carries, see the suggestion, press it, and read the event's payload |
 
 Each row has a click-through in `docs/VERIFY-CHECKLIST.md`: the steps, what the
 screen should say, and the query or log line that proves it.
@@ -176,7 +194,9 @@ Against the build order in `CLAUDE.md`:
   sealed token store (ADR 0033), a window anchored on payments (ADR 0035), credit
   memos read as not cash (ADR 0036), short-pays opening cases, and a customer's
   owner connecting their own company from Settings → QuickBooks with every token
-  refresh serialized per company (ADR 0039, deployed 2026-09-23). Triage step
+  refresh serialized per company (ADR 0039, deployed 2026-09-23). The books
+  themselves — chart of accounts, trial balance, general ledger — are read
+  through on `/books` and not stored (ADR 0066, proposed). Triage step
   A is built (ADR 0043): the case list opens with a review queue over what the
   sync and the uploads open, most urgent first, and a ledger case can be
   decided the day it opens. Step B, a shadow-only model tier, is designed and

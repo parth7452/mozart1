@@ -1595,6 +1595,70 @@ after.
 
 ---
 
+## 12. Books: the chart, the trial balance and the ledger, read from QuickBooks
+
+ADR 0066 (proposed). Nothing on this page is stored and it has no action. It
+has been tested against hand-written fixtures only, so the first click below
+is the first time QuickBooks is asked for either report: **do it against the
+sandbox company first.**
+
+**12.1 The page reads.**
+
+- **Do:** signed in as an owner of a workspace with a connected company, open
+  **Books** in the sidebar.
+- **You should see:** four cards for the company. *Chart of accounts*, with a
+  code beside each account that has one and the accounts your account map
+  posts to marked "POSTING ACCOUNT". *Trial balance*, as of today, saying
+  either "In balance" with one figure or "Out of balance by" with the
+  difference. *General ledger*, for the last 35 days, for the receivable and
+  the deductions accounts. *Deductions reconciliation*.
+- **Compare with QuickBooks:** Reports → Trial Balance for this year to date:
+  the two totals are the page's. Reports → General Ledger for the same 35
+  days: pick one account and compare its postings and its last running
+  balance.
+- **If a card says it "could not be read":** note which card and the sentence.
+  "answered in a shape this page does not read" means the fixtures were wrong
+  about QuickBooks, and is the thing this step exists to find — the app's log
+  line beginning `[recouple] books:` names the error class. Send both.
+
+**12.2 Every account, and another window.**
+
+- **Do:** on the ledger card, **Show every account**. Then set **From** and
+  **To** to last month and press **Read this window**.
+- **You should see:** more accounts on the first; last month's postings on the
+  second, and the reconciliation's two dates changed with them. A window over
+  186 days falls back to the default and says so.
+
+**12.3 The reconciliation asserts only what is exact.**
+
+- **You should see:** "Matches case" only where a posting and a case have the
+  same amount on the same day. Everything else reads "In books, no case" or
+  "Case, not in books"; a near miss is listed under "Candidate, not asserted".
+- **Proof nothing was written:** run before and after opening the page; the
+  three counts do not change.
+
+  ```sql
+  select (select count(*) from deduction_events) as events,
+         (select count(*) from audit_log) as audit,
+         (select count(*) from accounting_credentials) as credentials;
+  ```
+
+  `credentials` may rise by one if the company's hourly token was due: that is
+  the one write a read can cause (ADR 0066 §2), the same as on Settings →
+  QuickBooks.
+
+**12.4 A read-only member.**
+
+- **Do:** signed in as a `read_only` member, open **Books**.
+- **You should see:** the same four cards, or — if the company's token was due
+  a refresh — "a read-only member's view cannot store one" on the chart card
+  and "was not read" on the rest. Open the page as an owner, then again as the
+  read-only member: it reads.
+- **Proof:** the `credentials` count above does not rise on the read-only
+  member's view.
+
+---
+
 ## Found while writing this
 
 Struck items are fixed; each says what fixed it, with a link where one PR

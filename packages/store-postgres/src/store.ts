@@ -29,6 +29,9 @@ import {
   evidenceChecklist,
   CLOSED_STATES,
   DUE_SOON_DAYS,
+  foldRetailerBoard,
+  RETAILER_BOARD_CASES_PER_GROUP,
+  retailerBoardTotals,
   identifierMatchKey,
   parseMoneyToCents,
   payerTermsFor,
@@ -50,6 +53,11 @@ import type {
   KnownDeduction,
   KnownIdentifier,
   EvidenceType,
+  PayerGroup,
+  PayerTotals,
+  PlacedCase,
+  RawPayerGroup,
+  DocumentCaseSuggestion,
 } from '@recouple/core-domain';
 import { evidenceOfDocuments, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
@@ -111,9 +119,12 @@ import {
   LineProvenanceUnknownError,
   UNREAD_DOCUMENTS_MAX_LIMIT,
   UPLOAD_SOURCES,
+  evidenceSuggestionPayload,
+  type EvidenceSuggestion,
   type HumanDecisionRecord,
 } from '@recouple/pipeline';
 import { insertBlobOn, insertDocumentOn, insertUploadOn } from './document-rows';
+import { suggestionsForDocuments, UNATTACHED_DOCUMENT_IDS_SQL } from './document-match';
 import * as workflow from './workflow';
 import { exactCents } from './workflow';
 import { COVERAGE_MONTHS_DEFAULT, readCoverageReport, type CoverageReport } from './coverage';
@@ -475,6 +486,17 @@ export interface CaseSearchResult {
 export const ATTACH_TARGETS_LIMIT = 250;
 export const ATTACH_TARGETS_MAX = 2_000;
 
+/** A suggested case, as the list shows a case, with why it was suggested. */
+export interface SuggestedCase extends DocumentCaseSuggestion {
+  readonly case: CaseSummary;
+}
+
+/** One unattached document's suggestions, strongest first (`suggestionsForUnattached`). */
+export interface UnattachedSuggestions {
+  readonly documentId: string;
+  readonly suggestions: readonly SuggestedCase[];
+}
+
 /** The cases a document read and on no case can be attached to (`attachTargets`). */
 export interface AttachTargets {
   /** The open cases offered, most urgent first, at most `limit` of them. */
@@ -482,6 +504,22 @@ export interface AttachTargets {
   /** Every open case, however many `rows` holds. */
   readonly total: number;
   readonly limit: number;
+}
+
+/** The most cases the board will list under one payer. */
+export const RETAILER_BOARD_CASES_PER_GROUP_MAX = 50;
+
+/** The case list's board, one group per payer (`retailerBoard`). */
+export interface RetailerBoard {
+  /**
+   * Matched payers by dollars in dispute, then unmatched names, then the cases
+   * with no name read (`foldRetailerBoard`).
+   */
+  readonly groups: readonly PayerGroup<CaseSummary>[];
+  /** The groups' figures added up: dollars and counts, never a rate (ADR 0030). */
+  readonly totals: PayerTotals;
+  /** How many cases each group lists at most. */
+  readonly casesPerGroup: number;
 }
 
 /**
@@ -895,6 +933,30 @@ interface CaseSummaryRow {
   document_count: number;
   declined: boolean;
 }
+
+/**
+ * One row of `retailerBoard`'s read: a payer's figures, and one of its listed
+ * cases or none. Every case column is null on a group with no case to list.
+ */
+type RetailerBoardRow = { [K in keyof CaseSummaryRow]: CaseSummaryRow[K] | null } & {
+  group_debtor_id: string | null;
+  group_debtor_name: string | null;
+  group_printed: string | null;
+  case_count: string;
+  open_cases: string;
+  closed_cases: string;
+  declined_cases: string;
+  awaiting_approval_cases: string;
+  in_dispute_cents: string;
+  group_recovered_cents: string;
+  recovered_unrecorded_cases: string;
+  group_declined_cents: string;
+  at_risk_cases: string;
+  at_risk_cents: string;
+  oldest_open_days: string | null;
+  listable_cases: string;
+  position: string | null;
+};
 
 /**
  * A case as the list and the case page show it, in SQL, with no `where`, order
@@ -3425,7 +3487,11 @@ export class PostgresStore
     readonly deductionId: string;
     readonly documentId: string;
     readonly docType: DocType;
+    readonly suggestion?: EvidenceSuggestion;
   }): Promise<boolean> {
+    // Checked before anything is written: the event row is append-only, and a
+    // suggestion is kinds and a strength from closed sets, never page text.
+    const suggested = evidenceSuggestionPayload(input.suggestion);
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ id: string }>(
         `insert into deduction_documents (org_id, deduction_id, document_id, role)
@@ -3448,10 +3514,76 @@ export class PostgresStore
             document_id: input.documentId,
             doc_type: input.docType,
             read_again: false,
+            ...suggested,
           }),
         ],
       );
       return true;
+    });
+  }
+
+  /**
+   * Which open case each document read and on no case probably belongs on —
+   * suggestions for a person to confirm, never links.
+   *
+   * One tenant transaction as `app_rw`: the unattached documents exactly as
+   * `unattachedDocuments(limit)` lists them (so the cost is bounded by what the
+   * page already shows), their stored fields, the open cases that carry one of
+   * their identifiers or amounts — identifiers mapped through
+   * `deduction_merges_current` like every identifier reader (ADR 0042) — and
+   * then `suggestCasesForDocument`, the one place the rule lives. Each
+   * suggested case comes back as the list shows a case (`toCaseSummary`), so
+   * the page can name it and group by its payer. A document with no
+   * suggestion is in the answer with none. Writes nothing.
+   */
+  async suggestionsForUnattached(limit = 50): Promise<readonly UnattachedSuggestions[]> {
+    assertUnattachedDocumentsQuery(limit);
+    return this.withTenant(async (client) => {
+      const { rows: documents } = await client.query<{ id: string }>(
+        UNATTACHED_DOCUMENT_IDS_SQL,
+        [limit],
+      );
+      const matched = await suggestionsForDocuments(
+        client,
+        documents.map((row) => row.id),
+      );
+      const caseIds = [...new Set(matched.flatMap((m) => m.suggestions.map((s) => s.caseId)))];
+      const summaries = new Map<string, CaseSummary>();
+      if (caseIds.length > 0) {
+        const { rows } = await client.query<CaseSummaryRow>(
+          `${CASE_SUMMARY_SELECT} where d.id = any($1::uuid[])`,
+          [caseIds],
+        );
+        for (const row of rows) summaries.set(row.id, toCaseSummary(row));
+      }
+      return matched.map((m) => ({
+        documentId: m.documentId,
+        suggestions: m.suggestions.map((suggestion) => {
+          const summary = summaries.get(suggestion.caseId);
+          // Read in this transaction a statement ago; a case that is not there
+          // now is a fault, not an answer to draw around.
+          if (summary === undefined) {
+            throw new Error(`suggested case ${suggestion.caseId} could not be read back`);
+          }
+          return { ...suggestion, case: summary };
+        }),
+      }));
+    });
+  }
+
+  /**
+   * What the product would suggest for this document and this case right now,
+   * or nothing — asked by the attach route when a person presses a suggested
+   * case's button, so the basis recorded on the event is one this code
+   * computed, never one the form carried.
+   */
+  async suggestionForAttach(
+    documentId: string,
+    deductionId: string,
+  ): Promise<DocumentCaseSuggestion | undefined> {
+    return this.withTenant(async (client) => {
+      const [matched] = await suggestionsForDocuments(client, [documentId]);
+      return matched?.suggestions.find((s) => s.caseId === deductionId);
     });
   }
 
@@ -4104,6 +4236,216 @@ export class PostgresStore
         total: rows.length === 0 ? 0 : exactCents(rows[0]?.total ?? '0', 'total'),
         limit,
       };
+    });
+  }
+
+  /**
+   * The case list's board: every payer this tenant has a case against — a
+   * retailer or a distributor — with its figures and its most urgent cases.
+   *
+   * One statement, one tenant transaction as `app_rw`, and no `org_id` of its
+   * own: RLS decides whose cases these are, for a `read_only` member as for
+   * anyone. Nothing is written and no column is added; every figure is counted
+   * or summed here from rows that already exist.
+   *
+   * A row comes back per debtor and, for the cases no debtor matched, per name
+   * exactly as printed; `foldRetailerBoard` then folds printed spellings by
+   * `retailerMatchKey` — which is written once, in `core-domain`, and never a
+   * second time in SQL — and orders the groups. What each figure counts:
+   *
+   *  - **open**: not in `CLOSED_STATES` and no decline names it — the case
+   *    list's own "open cases" (`caseMetrics`), and `DECLINED_SQL`, the queue's
+   *    predicate. **In dispute** is what those cases deducted.
+   *  - **closed**: won, lost, partial or written off. A case merged into
+   *    another is left out of the board altogether: it is not a deduction of
+   *    its own, and its survivor is counted (ADR 0042).
+   *  - **recovered**: `recovered_cents` on each closed case's latest
+   *    `outcome.recorded` event — the one place `recordOutcome` writes it. A
+   *    won or partial case with no readable amount there adds nothing and is
+   *    counted in `recoveredUnrecordedCases`, so the sum never passes for
+   *    complete when it is not.
+   *  - **declined**: cases a `declined_candidates` row names, and what those
+   *    rows recorded them as worth.
+   *  - **at risk**: queued (`QUEUED_SQL`: open, not yet filed) with a dispute
+   *    deadline at most `DUE_SOON_DAYS` after `today`, or already past — the
+   *    case list's "deadlines to watch", with its dollars.
+   *  - **oldest open**: whole days from the UTC day the oldest open case was
+   *    opened to `today`'s UTC day.
+   *
+   * The cases listed under a payer are the ones not closed, the review queue's
+   * first and in its order (`QUEUED_SQL`, `URGENCY_ORDER_SQL` — the one copy),
+   * then the filed and declined ones in the same order, as `attachTargets`
+   * lists them. At most `casesPerGroup` per payer; the group's `moreCases` says
+   * how many are left out. `today` is read as its UTC day, and the page passes
+   * the one it reads the queue with.
+   */
+  async retailerBoard(
+    options: { readonly today?: Date; readonly casesPerGroup?: number } = {},
+  ): Promise<RetailerBoard> {
+    const today = options.today ?? new Date();
+    const casesPerGroup = options.casesPerGroup ?? RETAILER_BOARD_CASES_PER_GROUP;
+    if (Number.isNaN(today.getTime())) {
+      throw new RangeError('the retailer board needs a real date for today');
+    }
+    if (
+      !Number.isInteger(casesPerGroup) ||
+      casesPerGroup < 0 ||
+      casesPerGroup > RETAILER_BOARD_CASES_PER_GROUP_MAX
+    ) {
+      throw new RangeError(
+        `the retailer board lists 0 to ${RETAILER_BOARD_CASES_PER_GROUP_MAX} cases per payer, ` +
+          `not ${String(casesPerGroup)}`,
+      );
+    }
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<RetailerBoardRow>(
+        `with c as (
+           select d.id, d.debtor_id, d.state, d.deduction_amount_cents,
+                  d.dispute_deadline, d.deduction_date,
+                  -- A debtor's cases are one group whatever each notice printed;
+                  -- only a case nobody matched is grouped by its printed name.
+                  case when d.debtor_id is null then d.retailer_name_as_printed end as printed,
+                  (d.created_at at time zone 'UTC')::date as created_on,
+                  d.state = any ($4::text[]) as closed,
+                  ${DECLINED_SQL} as declined,
+                  ${QUEUED_SQL} as queued,
+                  ${URGENCY_BUCKET_SQL} as bucket,
+                  (select case when e.payload->>'recovered_cents' ~ '^[0-9]{1,18}$'
+                               then (e.payload->>'recovered_cents')::bigint end
+                     from deduction_events e
+                    where e.deduction_id = d.id and e.event_type = 'outcome.recorded'
+                    order by e.id desc limit 1) as recovered_cents,
+                  (select coalesce(sum(k.estimated_recoverable_cents), 0)
+                     from declined_candidates k where k.deduction_id = d.id) as declined_cents
+             from deductions d
+            where d.state <> 'merged'
+         ),
+         agg as (
+           select c.debtor_id, c.printed,
+                  count(*) as case_count,
+                  count(*) filter (where not c.closed and not c.declined) as open_cases,
+                  count(*) filter (where c.closed) as closed_cases,
+                  count(*) filter (where c.declined) as declined_cases,
+                  count(*) filter (where c.state = 'awaiting_approval' and not c.declined)
+                    as awaiting_approval_cases,
+                  coalesce(sum(c.deduction_amount_cents)
+                    filter (where not c.closed and not c.declined), 0) as in_dispute_cents,
+                  coalesce(sum(c.recovered_cents) filter (where c.closed), 0) as recovered_cents,
+                  count(*) filter (where c.state in ('won', 'partial')
+                                     and c.recovered_cents is null) as recovered_unrecorded_cases,
+                  coalesce(sum(c.declined_cents) filter (where c.declined), 0) as declined_cents,
+                  count(*) filter (where c.queued and c.dispute_deadline <= $2::date + $3::int)
+                    as at_risk_cases,
+                  coalesce(sum(c.deduction_amount_cents)
+                    filter (where c.queued and c.dispute_deadline <= $2::date + $3::int), 0)
+                    as at_risk_cents,
+                  $2::date - min(c.created_on) filter (where not c.closed and not c.declined)
+                    as oldest_open_days,
+                  count(*) filter (where not c.closed) as listable_cases
+             from c
+            group by c.debtor_id, c.printed
+         ),
+         placed as (
+           select q.id, q.debtor_id, q.printed,
+                  row_number() over (order by q.queued desc, ${URGENCY_ORDER_SQL}) as position,
+                  row_number() over (partition by q.debtor_id, q.printed
+                                     order by q.queued desc, ${URGENCY_ORDER_SQL}) as place
+             from c q
+            where not q.closed
+         )
+         select a.debtor_id::text as group_debtor_id, g.display_name as group_debtor_name,
+                a.printed as group_printed,
+                a.case_count::text, a.open_cases::text, a.closed_cases::text,
+                a.declined_cases::text, a.awaiting_approval_cases::text,
+                a.in_dispute_cents::text, a.recovered_cents::text as group_recovered_cents,
+                a.recovered_unrecorded_cases::text, a.declined_cents::text as group_declined_cents,
+                a.at_risk_cases::text, a.at_risk_cents::text,
+                a.oldest_open_days::text, a.listable_cases::text,
+                p.position::text as position,
+                ${CASE_SUMMARY_COLUMNS}
+           from agg a
+           left join debtors g on g.id = a.debtor_id
+           left join placed p
+             on p.debtor_id is not distinct from a.debtor_id
+            and p.printed is not distinct from a.printed
+            and p.place <= $5
+           left join deductions d on d.id = p.id
+           left join debtors b on b.id = d.debtor_id
+          order by a.debtor_id nulls last, a.printed nulls last, p.position`,
+        [
+          [...NOT_QUEUED],
+          today.toISOString().slice(0, 10),
+          DUE_SOON_DAYS,
+          [...CLOSED_STATES],
+          casesPerGroup,
+        ],
+      );
+
+      const raw = new Map<
+        string,
+        { group: RawPayerGroup<CaseSummary>; cases: PlacedCase<CaseSummary>[] }
+      >();
+      for (const row of rows) {
+        // One aggregate row per (debtor, printed name), repeated on each of its
+        // listed cases. JSON, so a printed name cannot collide with a debtor id
+        // or with "nothing printed".
+        const key = JSON.stringify([row.group_debtor_id, row.group_printed]);
+        let entry = raw.get(key);
+        if (entry === undefined) {
+          if (row.group_debtor_id !== null && row.group_debtor_name === null) {
+            // RLS shows a tenant its own debtors; a case naming one it cannot
+            // see is a fault, and a group called nothing would hide it.
+            throw new Error(`debtor ${row.group_debtor_id} on a case is not readable`);
+          }
+          const cases: PlacedCase<CaseSummary>[] = [];
+          const oldest = row.oldest_open_days;
+          entry = {
+            cases,
+            group: {
+              ...(row.group_debtor_id !== null && row.group_debtor_name !== null
+                ? { debtor: { id: row.group_debtor_id, name: row.group_debtor_name } }
+                : {}),
+              ...(row.group_printed !== null ? { printedName: row.group_printed } : {}),
+              caseCount: exactCents(row.case_count, 'case_count'),
+              totals: {
+                openCases: exactCents(row.open_cases, 'open_cases'),
+                closedCases: exactCents(row.closed_cases, 'closed_cases'),
+                declinedCases: exactCents(row.declined_cases, 'declined_cases'),
+                awaitingApprovalCases: exactCents(
+                  row.awaiting_approval_cases,
+                  'awaiting_approval_cases',
+                ),
+                inDisputeCents: exactCents(row.in_dispute_cents, 'in_dispute_cents'),
+                recoveredCents: exactCents(row.group_recovered_cents, 'recovered_cents'),
+                recoveredUnrecordedCases: exactCents(
+                  row.recovered_unrecorded_cases,
+                  'recovered_unrecorded_cases',
+                ),
+                declinedCents: exactCents(row.group_declined_cents, 'declined_cents'),
+                atRiskCases: exactCents(row.at_risk_cases, 'at_risk_cases'),
+                atRiskCents: exactCents(row.at_risk_cents, 'at_risk_cents'),
+                ...(oldest !== null
+                  ? { oldestOpenDays: exactCents(oldest, 'oldest_open_days') }
+                  : {}),
+                listableCases: exactCents(row.listable_cases, 'listable_cases'),
+              },
+              cases,
+            },
+          };
+          raw.set(key, entry);
+        }
+        if (row.id !== null && row.position !== null) {
+          entry.cases.push({
+            position: exactCents(row.position, 'position'),
+            case: toCaseSummary(row as CaseSummaryRow),
+          });
+        }
+      }
+      const groups = foldRetailerBoard(
+        [...raw.values()].map((entry) => entry.group),
+        casesPerGroup,
+      );
+      return { groups, totals: retailerBoardTotals(groups), casesPerGroup };
     });
   }
 

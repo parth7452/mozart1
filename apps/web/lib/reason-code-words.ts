@@ -7,7 +7,7 @@ import {
 } from '@recouple/core-domain';
 
 /**
- * Settings → Reason codes' pure half (ADR 0066): who may add a mapping, the
+ * Settings → Reason codes' pure half (ADR 0067): who may add a mapping, the
  * words a mapping is shown in, the page's own notices, and the link that
  * prefills the form. No server imports, so the views and the routes share one
  * answer.

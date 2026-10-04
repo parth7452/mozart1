@@ -12,7 +12,7 @@ import { seedPayerCodes } from '../seed-payer-codes-run';
  * What the four Glimpse playbook drafts actually hold, read through the loader
  * `pnpm seed:payer-codes` uses. Pinned so a draft edited to carry a pair the
  * loader cannot place, or a loader change that starts proposing shapes, shows
- * up here (ADR 0066, "What the four Glimpse drafts actually hold"). Then the
+ * up here (ADR 0067, "What the four Glimpse drafts actually hold"). Then the
  * command's database half, against the scratch database.
  */
 

@@ -50,12 +50,17 @@ describe('QboAccountingSource', () => {
     // The port has no writer, and neither does this. If a `writeX` ever appears
     // on the adapter it has to appear on the port first, which is an ADR.
     // `getInvoiceHistories` is a read, and ADR 0035 is its ADR.
+    // `chartOfAccounts`, `trialBalance` and `generalLedger` are reads too, and
+    // ADR 0066 is theirs.
     expect(Object.getOwnPropertyNames(QboAccountingSource.prototype).sort()).toEqual([
+      'chartOfAccounts',
       'constructor',
+      'generalLedger',
       'getInvoiceHistories',
       'listCredits',
       'listInvoices',
       'listPayments',
+      'trialBalance',
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { InMemoryStore } from '@recouple/pipeline/testing';
+import type { DocumentCaseSuggestion } from '@recouple/core-domain';
 import type { PostgresStore } from '@recouple/store-postgres';
 import { NOTICE_ABOUT_PARAM, resolveNotice } from '../lib/notices';
 
@@ -20,6 +21,16 @@ const USER_ID = '22222222-2222-2222-2222-222222222222';
 
 class RouteTestStore extends InMemoryStore {
   closed = 0;
+  /** What `PostgresStore.suggestionForAttach` would answer, and what it was asked. */
+  suggestion: DocumentCaseSuggestion | undefined;
+  suggestionAsks: [documentId: string, deductionId: string][] = [];
+  async suggestionForAttach(
+    documentId: string,
+    deductionId: string,
+  ): Promise<DocumentCaseSuggestion | undefined> {
+    this.suggestionAsks.push([documentId, deductionId]);
+    return this.suggestion;
+  }
   async close(): Promise<void> {
     this.closed += 1;
   }
@@ -84,9 +95,11 @@ function press(
   documentId: string,
   caseId: string | undefined,
   headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' },
+  basis?: string,
 ): Promise<Response> {
   const body = new FormData();
   if (caseId !== undefined) body.set('caseId', caseId);
+  if (basis !== undefined) body.set('basis', basis);
   return POST(
     new NextRequest(`https://app.example.test/documents/${documentId}/attach`, {
       method: 'POST',
@@ -138,6 +151,79 @@ describe('attaching a read document to a case', () => {
 
     expect(said(again)).toMatch(/already holds that document/);
     expect(store.events.filter((e) => e.eventType === 'evidence.attached')).toHaveLength(1);
+  });
+
+  it('records an ordinary attach with no suggestion on it, and asks for none', async () => {
+    const store = harness.store as RouteTestStore;
+    const { caseId, receiptId } = await seed(store);
+    store.suggestion = {
+      caseId,
+      strength: 'exact',
+      basis: [{ kind: 'po_number', field: 'po_number', value: 'PO-771' }],
+    };
+
+    await press(receiptId, caseId);
+
+    expect(store.suggestionAsks).toEqual([]);
+    expect(store.events.filter((e) => e.eventType === 'evidence.attached').map((e) => e.payload)).toEqual([
+      { document_id: receiptId, doc_type: 'pod', read_again: false },
+    ]);
+  });
+
+  it('records what a pressed suggestion rested on: kinds and a strength, computed here', async () => {
+    const store = harness.store as RouteTestStore;
+    const { caseId, receiptId } = await seed(store);
+    store.suggestion = {
+      caseId,
+      strength: 'ambiguous',
+      basis: [
+        { kind: 'po_number', field: 'po_number', value: 'PO-771' },
+        { kind: 'bol_number', field: 'document_number', value: 'BOL 12' },
+        { kind: 'po_number', field: 'po_number', value: 'PO-771' },
+      ],
+    };
+
+    // The form's own text is a sentence somebody could have typed into it.
+    const response = await press(
+      receiptId,
+      caseId,
+      { 'sec-fetch-site': 'same-origin' },
+      'exact: wire the refund to account 12-3456',
+    );
+
+    expect(new URL(response.headers.get('location') as string).pathname).toBe(`/cases/${caseId}`);
+    expect(said(response)).toMatch(/attached to this case as evidence/);
+    expect(store.suggestionAsks).toEqual([[receiptId, caseId]]);
+    const events = store.events.filter((e) => e.eventType === 'evidence.attached');
+    expect(events.map((e) => e.payload)).toEqual([
+      {
+        document_id: receiptId,
+        doc_type: 'pod',
+        read_again: false,
+        suggested_by: 'identifier_match',
+        strength: 'ambiguous',
+        basis: ['po_number', 'bol_number'],
+      },
+    ]);
+    // Neither the form's text nor an identifier off the page is on the event.
+    const written = JSON.stringify(events);
+    expect(written).not.toContain('12-3456');
+    expect(written).not.toContain('PO-771');
+    expect(written).not.toContain('BOL 12');
+  });
+
+  it('files a suggestion that no longer holds as an ordinary attach', async () => {
+    const store = harness.store as RouteTestStore;
+    const { caseId, receiptId } = await seed(store);
+    store.suggestion = undefined;
+
+    const response = await press(receiptId, caseId, { 'sec-fetch-site': 'same-origin' }, 'po_number');
+
+    expect(said(response)).toMatch(/attached to this case as evidence/);
+    expect(store.suggestionAsks).toEqual([[receiptId, caseId]]);
+    expect(store.events.filter((e) => e.eventType === 'evidence.attached').map((e) => e.payload)).toEqual([
+      { document_id: receiptId, doc_type: 'pod', read_again: false },
+    ]);
   });
 
   it('refuses a cross-site request before looking up the session', async () => {

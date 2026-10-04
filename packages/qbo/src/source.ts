@@ -10,14 +10,20 @@
 
 import type {
   AccountingSource,
+  GeneralLedger,
+  GeneralLedgerOptions,
+  LedgerAccount,
   LedgerCredit,
   LedgerInvoice,
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  TrialBalance,
 } from '@recouple/adapters';
-import { QboClient, type QboConnectionConfig } from './client';
-import { QboMalformedResponse } from './errors';
+import { GENERAL_LEDGER_MAX_WINDOW_DAYS, windowDays } from '@recouple/core-domain';
+import { QBO_IDS_PER_QUERY, QboClient, assertWindowDate, type QboConnectionConfig } from './client';
+import { QboInvalidWindow, QboMalformedResponse } from './errors';
+import { assertQboId } from './ids';
 import {
   linkedTxnIds,
   resolveCreditApplications,
@@ -26,6 +32,12 @@ import {
   toLedgerPayment,
 } from './map';
 import { readString } from './reader';
+import {
+  GENERAL_LEDGER_COLUMNS,
+  parseGeneralLedgerReport,
+  parseTrialBalanceReport,
+  toLedgerAccount,
+} from './reports';
 
 export type QboAccountingSourceConfig = QboConnectionConfig;
 
@@ -126,6 +138,104 @@ export class QboAccountingSource implements AccountingSource {
 
     return { invoices, payments, credits };
   }
+
+  /**
+   * The whole chart of accounts, inactive accounts included, each with its
+   * code (ADR 0066 §1): posting setup's own read (`listAccountRows`, ADR 0063
+   * §1), so it is bounded the same way — `QboChartTooLarge` past the client's
+   * pages, never part of a chart.
+   */
+  async chartOfAccounts(): Promise<readonly LedgerAccount[]> {
+    const rows = await this.client.listAccountRows();
+    return rows.map((row, index) => toLedgerAccount(row, `Account[${index}]`));
+  }
+
+  /**
+   * The trial balance as of one day (ADR 0066 §1).
+   *
+   * QuickBooks reports a trial balance over a period: balance-sheet accounts
+   * at the period's end, income and expense accounts over the period. The
+   * period asked for is the calendar year to date (`trialBalancePeriodStart`)
+   * — a company on another fiscal year reads its income and expense from 1
+   * January, which is why the period QuickBooks reported comes back on the
+   * answer (`periodStart`) for a page to print rather than assume.
+   */
+  async trialBalance(asOf: string): Promise<TrialBalance> {
+    const day = assertWindowDate(asOf, 'to');
+    const body = await this.client.report('TrialBalance', {
+      start_date: trialBalancePeriodStart(day),
+      end_date: day,
+    });
+    return parseTrialBalanceReport(body, { asOf: day });
+  }
+
+  /**
+   * The general ledger over an inclusive window, by account (ADR 0066 §1).
+   *
+   * One request: the Reports API does not paginate. So the read is bounded
+   * before and after instead — a window past `GENERAL_LEDGER_MAX_WINDOW_DAYS`
+   * is `QboInvalidWindow` before anything is asked, and a report QuickBooks
+   * cut short, or one past `GENERAL_LEDGER_MAX_LINES`, is `QboReportTooLarge`
+   * (`reports.ts`). Never part of a ledger.
+   *
+   * `accountIds` are proven to be digits and sent as the report's `account`
+   * filter; an empty list asks QuickBooks nothing. Past `QBO_IDS_PER_QUERY`
+   * ids the whole ledger is read instead, so the URL stays a modest one.
+   * Either way only the accounts asked for are returned: QuickBooks prints a
+   * parent's section around a sub-account that was asked for, and that parent
+   * was not.
+   */
+  async generalLedger(
+    window: LedgerWindow,
+    options: GeneralLedgerOptions = {},
+  ): Promise<GeneralLedger> {
+    const from = assertWindowDate(window.from, 'from');
+    const to = assertWindowDate(window.to, 'to');
+    if (from > to) throw new QboInvalidWindow(`window runs backwards: from ${from} to ${to}`);
+    const asked = { from, to };
+    if (windowDays(asked) > GENERAL_LEDGER_MAX_WINDOW_DAYS) {
+      throw new QboInvalidWindow(
+        `a general ledger is read over at most ${GENERAL_LEDGER_MAX_WINDOW_DAYS} days, ` +
+          `and ${from} to ${to} is ${windowDays(asked)}`,
+      );
+    }
+
+    const wanted =
+      options.accountIds === undefined
+        ? undefined
+        : [...new Set(options.accountIds.map((id) => assertQboId(id)))];
+    if (wanted !== undefined && wanted.length === 0) {
+      return { sourceKind: 'qbo', window: asked, accounts: [] };
+    }
+
+    const body = await this.client.report('GeneralLedger', {
+      start_date: from,
+      end_date: to,
+      columns: GENERAL_LEDGER_COLUMNS.join(','),
+      ...(wanted !== undefined && wanted.length <= QBO_IDS_PER_QUERY
+        ? { account: wanted.join(',') }
+        : {}),
+    });
+    const ledger = parseGeneralLedgerReport(body, { window: asked });
+    if (wanted === undefined) return ledger;
+    const keep = new Set(wanted);
+    return {
+      ...ledger,
+      accounts: ledger.accounts.filter(
+        (account) => account.accountExternalId !== undefined && keep.has(account.accountExternalId),
+      ),
+    };
+  }
+}
+
+/**
+ * The first day of the period a trial balance as of `asOf` is asked over: 1
+ * January of that year. An assumption, written down as one — a company's
+ * fiscal year is its own, and QuickBooks knows it (`CompanyInfo`), which this
+ * adapter does not read yet (ADR 0066 §5).
+ */
+export function trialBalancePeriodStart(asOf: string): string {
+  return `${asOf.slice(0, 4)}-01-01`;
 }
 
 /**

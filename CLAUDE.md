@@ -194,7 +194,7 @@ append-only tables.
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes what a request brought: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Settings → QuickBooks is a GET that may write too, taking nothing from the request: on a deployment that posts, an owner's view reads each enabled connection's chart of accounts, with a map saved or without, and that read may refresh the company's token and store the rotated one (ADR 0063 §1). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each), and once an invitation commits it emails the person a branded invitation through the alerts' Resend account — no sign-in link in it, and a send that fails never undoes the invitation (ADR 0065); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them) |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them). The books (ADR 0066) are three more reads and no write: a report is read whole or refused (`QboReportTooLarge`, `QboMalformedResponse`), its totals are checked against its lines and never read as one, and an empty report needs the report's own `NoReportData` |
 | `portal` (ADR 0057; first live portal SAP Business Network, ADR 0062, paused 2026-09-29 before any run: `docs/plans/ariba-portal/STATUS.md`; UNFI paused) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
@@ -605,6 +605,41 @@ an estimate no slow dense read has been timed against) fails the run where
 `alert-on-failure` sees it, and the reviewer uploads the file to the case
 again. A delivery with no case to file on still answers
 `beingRead` and succeeds (`inngest-job.test.tsx`).
+
+**A read document suggests the case it belongs to; a person attaches it** (no
+ADR, no migration). Nothing said which case a document under "Read, not on a
+case" was for. `suggestCasesForDocument` (`core-domain/document-match.ts`) is
+the one rule, pure and property-tested: a document identifier equal to a case
+identifier of the same kind (claim, invoice, purchase order, shipment number)
+under `identifierMatchKey` is `exact` when one open case carries it and
+`ambiguous`, every case listed, when several do — an invoice number is matched
+here, unlike in `resolveIdentity`, because several cases on one invoice is an
+answer shown to a person rather than a merge. `probable` ranks below: the same
+payer (a debtor name a person gave, or the folded printed name) and an amount
+equal to the cent, or a message's unlabelled reference; a payer alone or an
+amount alone is nothing. A closed or merged-away case is never suggested.
+`DOCUMENT_MATCH_FIELDS` lists the schema paths per document type and
+`unattached-suggestions.test.ts` holds its keys to `DOC_TYPES`.
+`PostgresStore.suggestionsForUnattached(limit)` gathers the inputs in one
+tenant transaction as `app_rw`, for exactly the documents `unattachedDocuments`
+lists: their stored fields, and the open cases carrying one of their
+identifiers or amounts — `deduction_identifiers` and each case's `claim_id`
+mapped through `deduction_merges_current`, plus the purchase order and shipment
+numbers on documents already linked to the case. The SQL only narrows
+candidates; the rule runs in TypeScript. **Nothing is ever linked
+automatically**, because `deduction_documents` is append-only and a wrong
+attach cannot be undone: the list and a case's own page show the suggestion
+with its strength and an **Attach to this case** button, the picker stays as
+"or pick another case", and the list is grouped by the suggested case's payer
+(`retailerMatchKey`), "Unmatched" last. The button posts to
+`/documents/[id]/attach` with a `basis` field the route never records: it
+recomputes the suggestion (`suggestionForAttach`) and writes `suggested_by:
+'identifier_match'`, `strength` and `basis` on `evidence.attached` as kinds
+from closed sets (`assertEvidenceSuggestion`, checked again in the store before
+the insert), never an identifier or a sentence off the page. Whether an exact,
+unique match may ever attach by itself, and which probable rules stay, are the
+founder's; no rule strips a prefix or suffix from an invoice number, because
+the identity module knows none and a payer's numbering is data.
 
 **Where a document came from is recorded, not assumed.** `ingestDocument`
 writes an `uploads` row before it stores the bytes — `source` from the door it
@@ -1680,7 +1715,7 @@ and read back on both: the stored statement's md5 equals the file's; the
 function is unpinned. The security advisor shows only its old leaked-password
 notice.
 
-**A payer's reason code maps to ours as data** (ADR 0066, **proposed**;
+**A payer's reason code maps to ours as data** (ADR 0067, **proposed**;
 migration 0040, applied nowhere). `payer_code_maps` holds, per tenant and
 debtor, that a printed code means one canonical reason from a date on, with a
 source (`payer_guide_url`, `customer_confirmed`, `glimpse_guide`, `operator`),
@@ -1758,6 +1793,37 @@ row's status; it sends once, reads back and verifies, and a 5xx or timeout is
 an unknown outcome only a person retries. A payment is sent only after its
 entry verified. Nothing has posted to any QuickBooks company, sandbox included.
 
+**The books are read through, not stored** (ADR 0066, proposed; no migration).
+`AccountingSource` gains three reads — `chartOfAccounts`, `trialBalance(asOf)`
+and `generalLedger(window, { accountIds? })` — returning cents-based rows
+declared in `core-domain/src/books.ts`. For QuickBooks the chart is posting
+setup's own query with `AcctNum`, `Classification` and `CurrentBalance` read
+too, and the other two are the Reports API (`QboClient.report`), which does not
+paginate: a window past `GENERAL_LEDGER_MAX_WINDOW_DAYS` (186) is refused
+before a request, and a report Intuit cut short or one past
+`GENERAL_LEDGER_MAX_LINES` (20,000) is `QboReportTooLarge`, never part of a
+ledger. `packages/qbo/src/reports.ts` validates the envelope with zod and reads
+money through `parseMoneyToCents`; a `Summary`, a "Beginning Balance" row and
+the `GrandTotal` are never lines, and the lines read must add up to every
+total the report prints or the read is `QboMalformedResponse`. An empty report
+is returned only when its own `NoReportData` says so. A trial balance that
+does not balance is returned, and the page states the difference. `/books`
+(every member, no action, a GET form for the window) reads each enabled
+connection in the request as `app_rw` through the sealed token store, not
+gated on `QBO_POSTING`: the chart with the map's posting accounts marked, the
+trial balance as of today, the ledger for the trailing 35 days on the
+receivable, posting and deductions-like accounts (every account one link
+away), and a reconciliation of those postings against our cases
+(`PostgresBooksStore.casesInWindow`, `reconcileDeductions`) that asserts a
+match only on the same cents and the same day, one to one, and lists anything
+else as a candidate. A read may refresh the company's token, which the
+database stores only for a member it lets write, so the page asks
+`member_may_write()` and wraps a `read_only` member's token store in
+`withoutRefresh`: a stale token is refused before anything is sent to Intuit.
+A failure costs its section and is shown as a fixed sentence by error class.
+Fixtures are hand-written; neither report has been read from a real company.
+Keeping snapshots (ADR 0066 §4) is proposed and not built.
+
 **A portal is read, never written** (ADR 0057 and 0058, no
 migration). `@recouple/portal`: a recipe schema, a request guard
 (`decideRequest`) every request passes, and a read-only Playwright runner that
@@ -1769,3 +1835,29 @@ that records every request it receives, so each refusal test proves the
 forbidden request never arrived. Captures enter as `portal_fetch` (a snapshot
 through `acceptPortalSnapshot`, text/html with no script or form), and a notice
 or remittance so arrived is held `by_portal`. No real portal, no credentials.
+
+**The case list opens with a board per retailer or distributor** (no ADR, no
+migration). The founder asked for the dashboard by payer: a name, its figures,
+its cases. `PostgresStore.retailerBoard` is one statement as `app_rw` through
+RLS: a row per debtor and, for a case no debtor matched, per name exactly as
+printed, with open and closed cases, cases awaiting approval, dollars in
+dispute, dollars recovered (each closed case's latest `outcome.recorded`
+`recovered_cents`, the one place `recordOutcome` writes it), declines and their
+dollars, cases due within `DUE_SOON_DAYS` or overdue with their dollars, and the
+oldest open case's age. Open means not in `CLOSED_STATES` and not declined
+(`DECLINED_SQL`), the case list's own rule; a merged-away case is counted
+nowhere and its survivor once; a won or partial case with no readable amount
+adds nothing and is counted and said. `foldRetailerBoard` (`core-domain`,
+property-tested) folds printed spellings by `retailerMatchKey`, which is still
+written once and not in SQL, and orders the groups: matched by dollars in
+dispute, then unmatched, then "Retailer unknown". Under each payer are its
+cases that are not closed, the queue's first and in its order (`QUEUED_SQL`,
+`URGENCY_ORDER_SQL`), cut at `RETAILER_BOARD_CASES_PER_GROUP` with the rest
+counted and linked to the ledger's search; two spellings' lists are merged on
+the database's own position, so there is no second ordering rule, and
+`retailer-board.test.ts` holds each group to `rankForReview`.
+`components/retailer-board.tsx` is a `<details>` per payer with no script and no
+action, shown to every member; it shows dollars and counts and no rate (ADR
+0030). An unmatched group says `pnpm link:retailer` is what links it. The queue,
+the figures, the ledger and the documents follow it unchanged, under the same
+anchors, with `#retailers` added.

@@ -13,8 +13,10 @@ import type {
   CaseSummary,
   FiledNothingByAddress,
   PostgresStore,
+  RetailerBoard,
   ReviewQueueRead,
   ReviewQueueRow,
+  UnattachedSuggestions,
 } from '@recouple/store-postgres';
 import { UNREAD_AFTER_MINUTES } from '../lib/notices';
 import { UNATTACHED_SHOWN } from '../lib/format';
@@ -44,12 +46,34 @@ const harness = vi.hoisted(() => ({
   /** Every `unattachedDocuments` call, for the same question about cost. */
   unattachedCalls: [] as unknown[],
   unattached: [] as UnattachedDocument[],
+  /** Every `suggestionsForUnattached` call: asked only when something is waiting. */
+  suggestionCalls: [] as unknown[],
+  suggestions: [] as UnattachedSuggestions[],
   /** Every `reviewQueue` call: asked for every member, with one `today`. */
   queueCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
   queue: { rows: [], total: 0, waitingOnRetailer: 0, limit: 500 } as ReviewQueueRead,
   /** Every `caseTally` call: the figures, over every case, with the queue's today. */
   tallyCalls: [] as ({ today?: Date } | undefined)[],
   tally: [] as CaseStateTally[],
+  /** Every `retailerBoard` call: the board, for every member, with the queue's today. */
+  boardCalls: [] as ({ today?: Date; casesPerGroup?: number } | undefined)[],
+  board: {
+    groups: [],
+    totals: {
+      openCases: 0,
+      closedCases: 0,
+      declinedCases: 0,
+      awaitingApprovalCases: 0,
+      inDisputeCents: 0,
+      recoveredCents: 0,
+      recoveredUnrecordedCases: 0,
+      declinedCents: 0,
+      atRiskCases: 0,
+      atRiskCents: 0,
+      listableCases: 0,
+    },
+    casesPerGroup: 8,
+  } as RetailerBoard,
   /** Every `attachTargets` call: the open cases a loose document can go on. */
   attachCalls: [] as ({ today?: Date; limit?: number } | undefined)[],
   attachTargets: { rows: [], total: 0, limit: 250 } as AttachTargets,
@@ -106,6 +130,10 @@ vi.mock('../lib/session', () => ({
         harness.unattachedCalls.push(limit);
         return harness.unattached;
       },
+      async suggestionsForUnattached(limit?: number) {
+        harness.suggestionCalls.push(limit);
+        return harness.suggestions;
+      },
       async reviewQueue(options?: { today?: Date; limit?: number }) {
         harness.queueCalls.push(options);
         return harness.queue;
@@ -113,6 +141,10 @@ vi.mock('../lib/session', () => ({
       async caseTally(options?: { today?: Date }) {
         harness.tallyCalls.push(options);
         return harness.tally;
+      },
+      async retailerBoard(options?: { today?: Date; casesPerGroup?: number }) {
+        harness.boardCalls.push(options);
+        return harness.board;
       },
       async attachTargets(options?: { today?: Date; limit?: number }) {
         harness.attachCalls.push(options);
@@ -209,6 +241,8 @@ describe('the case list page', () => {
     };
     harness.tallyCalls = [];
     harness.tally = [];
+    harness.boardCalls = [];
+    harness.board = { ...harness.board, groups: [] };
     harness.attachCalls = [];
     harness.attachTargets = { rows: [], total: 0, limit: 250 };
     harness.searchCalls = [];
@@ -237,6 +271,8 @@ describe('the case list page', () => {
       },
     ];
     harness.unattachedCalls = [];
+    harness.suggestionCalls = [];
+    harness.suggestions = [];
     harness.unattached = [
       {
         documentId: 'eeeeeeee-1111-2222-3333-444444444444',
@@ -247,6 +283,53 @@ describe('the case list page', () => {
         confidence: 0.98,
       },
     ];
+  });
+
+  it('opens with the board by payer, read once for every member with the queue’s today', async () => {
+    const walmart: CaseSummary = {
+      ...listed('aaaaaaaa-7777-2222-3333-444444444444', 'APDP-7'),
+      debtorName: 'Walmart',
+    };
+    harness.board = {
+      ...harness.board,
+      groups: [
+        {
+          kind: 'matched',
+          key: 'debtor:dddddddd-7777-2222-3333-444444444444',
+          name: 'Walmart',
+          debtorId: 'dddddddd-7777-2222-3333-444444444444',
+          printedNames: [],
+          totals: { ...harness.board.totals, openCases: 1, inDisputeCents: 42_150, listableCases: 1 },
+          cases: [walmart],
+          moreCases: 0,
+        },
+      ],
+    };
+    for (const role of ['analyst', 'read_only']) {
+      harness.role = role;
+      harness.boardCalls = [];
+      harness.queueCalls = [];
+      const html = await render();
+
+      // One read, with the same `today` the queue was read with, and no limit
+      // of the page's own: the store's constant decides how many are listed.
+      expect(harness.boardCalls).toHaveLength(1);
+      expect(harness.boardCalls[0]?.today).toBeInstanceOf(Date);
+      expect(harness.boardCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
+      expect(harness.boardCalls[0]?.casesPerGroup).toBeUndefined();
+
+      // The board is the first section, above the queue, and the rest of the
+      // page is still there under the anchors a bookmark may hold.
+      const board = html.indexOf('id="retailers"');
+      const queue = html.indexOf('id="work-queue-title"');
+      const ledger = html.indexOf('id="ledger"');
+      expect(board).toBeGreaterThan(-1);
+      expect(board).toBeLessThan(queue);
+      expect(queue).toBeLessThan(ledger);
+      expect(html).toContain('href="#retailers"');
+      expect(html).toContain('href="/cases/aaaaaaaa-7777-2222-3333-444444444444"');
+      expect(html).toContain('href="/?q=Walmart#ledger"');
+    }
   });
 
   it('lists what was read and is on no case, with what it was read as', async () => {
@@ -306,10 +389,49 @@ describe('the case list page', () => {
     expect(html).not.toContain('Email that filed nothing');
   });
 
+  it('shows the case the store suggested for a document, with a button that files it there', async () => {
+    const suggested: CaseSummary = {
+      deductionId: 'aaaaaaaa-7777-2222-3333-444444444444',
+      state: 'classified',
+      claimId: 'DN-2609-003',
+      deductionAmountCents: 12_345,
+      debtorName: 'Kroger',
+      discoveredVia: 'notice',
+      documentCount: 1,
+      createdAt: '2026-09-20T09:00:00Z',
+    };
+    harness.attachTargets = { rows: [suggested], total: 1, limit: 250 };
+    harness.suggestions = [
+      {
+        documentId: 'eeeeeeee-1111-2222-3333-444444444444',
+        suggestions: [
+          {
+            caseId: suggested.deductionId,
+            strength: 'exact',
+            basis: [{ kind: 'po_number', field: 'po_number', value: 'PO-771' }],
+            case: suggested,
+          },
+        ],
+      },
+    ];
+    const html = await render();
+
+    // Asked once, for the documents the list shows and no more.
+    expect(harness.suggestionCalls).toEqual([UNATTACHED_SHOWN]);
+    expect(html).toContain('Matches case');
+    expect(html).toContain('on purchase order PO-771 (exact)');
+    expect(html).toContain(`<input type="hidden" name="caseId" value="${suggested.deductionId}"/>`);
+    expect(html).toContain('<input type="hidden" name="basis" value="po_number"/>');
+    expect(html).toContain('Attach to this case');
+    expect(html).toContain('or pick another case');
+  });
+
   it('asks for no cases to attach to when nothing is waiting to be attached', async () => {
     harness.unattached = [];
     const html = await render();
     expect(harness.unattachedCalls).toEqual([UNATTACHED_SHOWN]);
+    // Nor for suggestions: there is nothing to suggest a case for.
+    expect(harness.suggestionCalls).toEqual([]);
     expect(harness.attachCalls).toEqual([]);
     expect(html).not.toContain('Read, not on a case');
   });

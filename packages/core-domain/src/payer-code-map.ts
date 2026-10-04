@@ -1,5 +1,5 @@
 /**
- * A payer's printed reason code mapped to a canonical one (ADR 0066).
+ * A payer's printed reason code mapped to a canonical one (ADR 0067).
  *
  * The mapping itself is tenant data in `payer_code_maps`: a row per tenant,
  * debtor, code and start date, with a source, a confidence and an author.

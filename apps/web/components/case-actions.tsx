@@ -71,7 +71,7 @@ export interface CaseActionsProps {
    */
   readonly postsFound?: boolean;
   /**
-   * The reason this case's payer code maps to (ADR 0066), with the code and
+   * The reason this case's payer code maps to (ADR 0067), with the code and
    * where the mapping came from. The decide form starts on it when it is one
    * the form offers, and says so. A default only: the person still chooses,
    * and nothing is decided by a mapping.

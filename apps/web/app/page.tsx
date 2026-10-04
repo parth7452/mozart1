@@ -7,6 +7,7 @@ import { ledgerFilterFrom } from '../lib/case-presentation';
 import { inboundEmailFromEnv, inboundStoreFor } from '../lib/inbound';
 import { viewerOf } from '../lib/viewer';
 import { UNATTACHED_SHOWN } from '../lib/format';
+import { unattachedWithSuggestions } from '../lib/document-suggestions';
 import { withPayerReasonCodes } from '../lib/payer-terms';
 
 export const dynamic = 'force-dynamic';
@@ -52,7 +53,9 @@ export default async function CaseListPage({
     // Read and on no case: evidence uploaded here opens nothing of its own,
     // and until this list it appeared nowhere. Asked only for a member who
     // could attach one, for the reason the unread documents are.
-    const unattached = mayUpload ? await store.unattachedDocuments(UNATTACHED_SHOWN) : undefined;
+    // Each with the open case it probably belongs on, when one carries an
+    // identifier it prints — a suggestion beside a button, never a link made.
+    const unattached = mayUpload ? await unattachedWithSuggestions(store, UNATTACHED_SHOWN) : undefined;
     // Emails that left nothing to read (ADR 0047 §11), for the same members.
     const inbound = inboundEmailFromEnv();
     const filedNothing = mayUpload
@@ -67,6 +70,9 @@ export default async function CaseListPage({
         // The figures are over every case, not the newest hundred in `cases`:
         // the same RLS, counted by state, and the queue's today for deadlines.
         tally={await store.caseTally({ today })}
+        // The same cases by payer, for every member and with the queue's
+        // today: one read, and the board only formats what it returns.
+        board={await store.retailerBoard({ today })}
         // Every member, `read_only` included: the queue is a reading of cases
         // they can already see, and it offers no action of its own.
         queue={{

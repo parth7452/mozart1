@@ -2,7 +2,7 @@
  * The canonical reason-code taxonomy.
  *
  * Retailer-specific codes never appear here — they map onto these via
- * `payer_code_maps`, tenant data (ADR 0066, `payer-code-map.ts`). That table's
+ * `payer_code_maps`, tenant data (ADR 0067, `payer-code-map.ts`). That table's
  * check constraint lists these codes, so adding one needs a migration, and
  * `payer-code-maps.test.ts` fails until it has one. The list is deliberately capped
  * well under the decision provider's 255-option ceiling; if it ever approaches

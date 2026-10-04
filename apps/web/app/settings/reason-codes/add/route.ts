@@ -20,7 +20,7 @@ import {
 const CODE_FIELD_MAX = 200;
 
 /**
- * Adds one payer code mapping (ADR 0066): for one of this workspace's payers,
+ * Adds one payer code mapping (ADR 0067): for one of this workspace's payers,
  * a printed code means one canonical reason from a date on.
  *
  * The author is the session's member and never a form field: the database

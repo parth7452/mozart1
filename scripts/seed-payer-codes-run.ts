@@ -1,5 +1,5 @@
 /**
- * The database half of `pnpm seed:payer-codes` (ADR 0066), apart from the
+ * The database half of `pnpm seed:payer-codes` (ADR 0067), apart from the
  * command line so `scripts/test/seed-payer-codes.test.ts` can run it against
  * the scratch database. `seed-payer-codes.ts` says what the command is for.
  */

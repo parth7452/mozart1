@@ -165,6 +165,26 @@ export class QboChartTooLarge extends QboError {
   }
 }
 
+/**
+ * A report that cannot be read whole (ADR 0066 §1). The Reports API does not
+ * paginate: `cut_short` is QuickBooks itself stopping at its cell limit and
+ * saying so inside the report, `too_many_lines` is a general ledger with more
+ * postings than `GENERAL_LEDGER_MAX_LINES`. Either way nothing is returned —
+ * a ledger read in part shows an account as quieter than it is — and the
+ * answer is a shorter window or fewer accounts. Carries no number out of the
+ * customer's books.
+ */
+export class QboReportTooLarge extends QboError {
+  override name = 'QboReportTooLarge';
+  constructor(readonly reason: 'cut_short' | 'too_many_lines') {
+    super(
+      reason === 'cut_short'
+        ? 'QuickBooks cut the report short at its own size limit'
+        : 'the report has more lines than one read returns',
+    );
+  }
+}
+
 /** What is compared when an account setup created is read back (ADR 0063 §2). */
 export type AccountReadBackField = 'Id' | 'Name' | 'AccountType' | 'Active';
 

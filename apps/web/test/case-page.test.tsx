@@ -182,7 +182,7 @@ vi.mock('../lib/workflow', async (importOriginal) => ({
 }));
 
 /**
- * What the case's payer code maps to (ADR 0066), as the page's second store
+ * What the case's payer code maps to (ADR 0067), as the page's second store
  * answers it. `no_code` unless a describe below says otherwise; every call is
  * recorded with the identity the store was made for and the terms it was
  * handed.
@@ -428,7 +428,9 @@ describe('the review page for a case older than the newest hundred', () => {
  */
 describe('the review page offers documents read and on no case', () => {
   const LOOSE_ID = 'eeeeeeee-1111-2222-3333-444444444444';
+  const MATCHED_ID = 'eeeeeeee-5555-2222-3333-444444444444';
   let asked = 0;
+  let suggestionsAsked = 0;
   const looseStore = {
     ...(store as unknown as Record<string, unknown>),
     async unattachedDocuments() {
@@ -440,6 +442,31 @@ describe('the review page offers documents read and on no case', () => {
           createdAt: '2026-09-23T15:56:16.000Z',
           docType: 'pod',
           confidence: 0.98,
+        },
+        // Older, so listed second by the store — and suggested for this case.
+        {
+          documentId: MATCHED_ID,
+          filename: 'invoice-44817.pdf',
+          createdAt: '2026-09-22T10:00:00.000Z',
+          docType: 'invoice',
+          confidence: 0.97,
+        },
+      ];
+    },
+    async suggestionsForUnattached() {
+      suggestionsAsked += 1;
+      return [
+        { documentId: LOOSE_ID, suggestions: [] },
+        {
+          documentId: MATCHED_ID,
+          suggestions: [
+            {
+              caseId: CASE_ID,
+              strength: 'exact',
+              basis: [{ kind: 'invoice_number', field: 'invoice_number', value: '44817' }],
+              case: summary,
+            },
+          ],
         },
       ];
     },
@@ -461,6 +488,21 @@ describe('the review page offers documents read and on no case', () => {
     expect(html).toContain('08_log-202.jpg');
     expect(html).toContain(`action="/documents/${LOOSE_ID}/attach"`);
     expect(html).toContain(`<input type="hidden" name="caseId" value="${CASE_ID}"/>`);
+  });
+
+  it('lists a document suggested for this case first, with what agreed', async () => {
+    suggestionsAsked = 0;
+    const html = renderToStaticMarkup(
+      await CasePage({ params: Promise.resolve({ id: CASE_ID }), searchParams: Promise.resolve({}) }),
+    );
+    expect(suggestionsAsked).toBe(1);
+    expect(html).toContain('Matches this case on invoice 44817 (exact)');
+    // Above the newer document nothing was suggested for.
+    expect(html.indexOf('invoice-44817.pdf')).toBeGreaterThan(-1);
+    expect(html.indexOf('invoice-44817.pdf')).toBeLessThan(html.indexOf('08_log-202.jpg'));
+    // Its button says the case was suggested; the other's does not.
+    expect(html.match(/name="basis"/g)).toHaveLength(1);
+    expect(html).toContain('<input type="hidden" name="basis" value="invoice_number"/>');
   });
 
   it('does not ask, or offer, on a closed case', async () => {
@@ -485,7 +527,7 @@ describe('the review page offers documents read and on no case', () => {
 });
 
 /**
- * The payer's code beside what this workspace mapped it to (ADR 0066): read by
+ * The payer's code beside what this workspace mapped it to (ADR 0067): read by
  * the page as the member signed in, shown under the code, and offered as the
  * decide form's starting reason. Shown, never applied.
  */

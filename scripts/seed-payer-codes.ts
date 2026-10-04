@@ -1,6 +1,6 @@
 /**
  * Propose payer code mappings from a playbook draft, and load them only when
- * told to (ADR 0066).
+ * told to (ADR 0067).
  *
  *   pnpm seed:payer-codes --from docs/competitive/glimpse/playbook-drafts/chewy.yaml
  *

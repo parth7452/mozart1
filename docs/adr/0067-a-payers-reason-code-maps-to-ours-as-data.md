@@ -1,4 +1,4 @@
-# 0066 — A payer's reason code maps to ours as data
+# 0067 — A payer's reason code maps to ours as data
 
 - Status: **Proposed** 2026-10-04. Not accepted. Built on branch
   `overnight/payer-code-map` so the decision can be looked at running;

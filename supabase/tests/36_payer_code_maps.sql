@@ -1,4 +1,4 @@
-\echo '-- 36 a payer''s reason code maps to ours as data (ADR 0066)'
+\echo '-- 36 a payer''s reason code maps to ours as data (ADR 0067)'
 begin;
 do $test$
 declare

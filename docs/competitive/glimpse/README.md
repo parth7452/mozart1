@@ -122,6 +122,15 @@ pre-deduction tier schedule, and which Walgreens address takes a post-audit
 dispute). Both versions are recorded and neither is used. A competitor's blog
 is a lead on where a payer's rule lives, not the rule.
 
+Second pass, 2026-10-04: every page of their blog list was read. Glimpse
+publishes a guide for six payers and no more; Walmart and PetSmart are now
+drafted beside the first four, and the KeHE and Chewy drafts carry what two
+older posts add. Three more conflicts were recorded (two Walmart codes, the
+Walmart chargeback window, and Glimpse's two different Chewy windows).
+`playbook-drafts/README.md` lists what Glimpse says about every other payer
+it names, which is a logo or a sentence. `PRODUCT-TEARDOWN.md` is the product
+capability by capability, against ours.
+
 ## 7. What this adds to STRATEGY.md
 
 - Pet and beauty are their growth verticals; foodservice and the broker
@@ -136,6 +145,34 @@ is a lead on where a payer's rule lives, not the rule.
   QuickBooks read and a gated, unposted write-back (ADR 0060); the
   "I just click match" experience is the part we do not have.
 
+What the teardown changes (`PRODUCT-TEARDOWN.md`, 2026-10-04):
+
+- **Their public playbooks do not cover the first pilot.** No convenience
+  distributor or chain appears in a guide or as a connector, and foodservice
+  and K-12 not at all. Frazil's payer rules have to come from Frazil's own
+  agreements, so the Oct 14 call is a document-collection call first
+  (`docs/onboarding/leads/frazil.md`).
+- **A deadline computed from the payer's rule is the first thing to build**
+  (teardown row 13). "Files before the window closes" is their whole promise,
+  and our cases carry a deadline only when a page prints one. Rules as
+  effective-dated data, shown as "by rule, not printed", need an ADR and no
+  migration.
+- **They take the customer's own portal password; we should ask for a
+  separate read-only user** (rows 2 and 3). Their setup is "Authenticate with
+  your retailer portal credentials". Our read-only guard is a difference a
+  customer's controller can check. Which we ask for is the founder's call.
+- **Do not build a portal connector for the pilot.** Nothing public says
+  which distributors Frazil uses. For the largest candidate, McLane, a
+  dispute goes by email to the Accounts Payable address on McLane's own
+  supplier page (per SPS Commerce's reading of McLane's vendor guide), so the
+  work would be the packet and the fields that email must carry.
+- **The weekly email is part of their product, and people write it** (row
+  22). Customers quote it more than any screen. For the pilot the founder
+  writes it from the payer board; a product email needs an ADR.
+- **Their claims about human review disagree with each other** across 2025
+  and 2026 posts (teardown §4), and their onboarding figure ranges from "days"
+  to 45 days by page (§3). Neither is a number to quote against.
+
 ## Sources
 
 Glimpse: homepage, `/post/seriesa`, `/post/glimpse-ai-disputing-agents`,
@@ -147,3 +184,6 @@ Glimpse: homepage, `/post/seriesa`, `/post/glimpse-ai-disputing-agents`,
 party: TechCrunch 2026-03-25, 8VC, YC company page, toolradar.com,
 settle.com partner directory (404 at read time), SPS Commerce and Endless
 Commerce for corroboration only. All read 2026-10-03.
+
+Second pass, read 2026-10-04: the sources listed at the foot of
+`PRODUCT-TEARDOWN.md` and in each new draft's `drafted_from`.
