@@ -27,6 +27,8 @@ export function centsAsText(amount: number): string {
   if (!Number.isSafeInteger(amount) || amount < 0) {
     throw new RangeError('a money field shows non-negative integer cents');
   }
-  const whole = Math.trunc(amount / 100);
-  return `${whole}.${String(amount % 100).padStart(2, '0')}`;
+  // Integer arithmetic only: the remainder first, so the division is exact.
+  const fraction = amount % 100;
+  const whole = (amount - fraction) / 100;
+  return `${whole}.${String(fraction).padStart(2, '0')}`;
 }
