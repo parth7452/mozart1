@@ -13,6 +13,36 @@ anomalies, where the first run (2026-09-22) found nothing and eight anomalies.
 Email-in went live on 2026-09-25: a notice emailed from Gmail to an issued
 address was held because it came by email, and a person opened its case.
 
+## 2026-10-05: the accountant edits the settlement entry before it is approved
+
+Not merged, not deployed. **Migration 0041 is not applied anywhere**, and the
+PR is not to be merged before it is (ADR 0068, proposed).
+
+- On a case, where posting to QuickBooks is on, the draft-accounting card now
+  holds a form: say how the case settled, and the journal entry it implies is
+  shown with your own QuickBooks accounts. A member who may write can move a
+  line to another account, split it across the empty rows, and type a memo of
+  up to 500 characters on any line, then press **Prepare the settlement for
+  approval**.
+- The Accounts Receivable line cannot be changed, and no line may be put on
+  another receivable, a payable or a bank account. An entry that does not
+  balance is not prepared: it comes back with both totals stated.
+- A second person — never the preparer — sees exactly those lines, what was
+  edited ("account on line 1, memo on line 1"), and the one button. Yes posts
+  that entry to QuickBooks; there is no button that posts anything else.
+- Preparing again before it is approved replaces the settlement; the earlier
+  one stays on the record. Once approved, nothing more can be prepared for the
+  case: a posted entry is corrected in QuickBooks.
+- The found entry at filing is unchanged and not editable.
+- Nothing has been posted to any QuickBooks company. The first posting is
+  `docs/VERIFY-CHECKLIST.md` §13.
+- Not looked at in a browser: the tests render the markup, nobody has seen the
+  form on a screen or a phone.
+
+**Needs the founder:** apply migration 0041 (`mozart-preview`, then
+production); accept or change ADR 0068's four choices (which accounts a line
+may use, 500 characters, who may edit, whether amounts may change); then §13.
+
 ## 2026-10-04: the case list by payer
 
 Not merged, not deployed. No migration.

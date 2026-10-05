@@ -76,7 +76,8 @@ Nothing else is needed.
 Do **2** first (sign-in; it needs migration 0035 and the hook, see its
 *Before you start*), then **4** (make the test workspace), then **2.7**,
 **3**, **1**, **6**, **7**, **8**, **9**, **10** and **11**. **5** waits for your Postmark
-setup; see its first step.
+setup; see its first step. **13** is last and stands alone: it needs migration
+0041 and writes to QuickBooks.
 
 The fixture files mentioned below are synthetic test documents. Download each
 one from GitHub while you are signed in: open the link, then click **Download
@@ -1656,6 +1657,141 @@ sandbox company first.**
   read-only member: it reads.
 - **Proof:** the `credentials` count above does not rise on the read-only
   member's view.
+
+---
+
+## 13. First posting: a settlement you edited, approved by a second person, in QuickBooks
+
+ADR 0060 and ADR 0068. **This makes a real journal entry in a real QuickBooks
+company.** Nothing has ever been posted by this product, to a sandbox or
+anywhere else (ADR 0060 §5's sandbox run was waived), so this is the first
+time the posting path meets QuickBooks. Do it on the Recouple workspace, on a
+small case, and reverse the entry in QuickBooks afterwards (13.7).
+
+**Before you start**
+
+- Migration 0041 is applied to production and the change that carries ADR
+  0068 is deployed. Without 0041 the Prepare button fails.
+- `QBO_POSTING` is `1` in Vercel Production; Settings → QuickBooks shows
+  posting **on** for the company and an account map saved. All three are
+  already so.
+- You need **two people** in the workspace: one who prepares (any member who
+  may write) and one who approves (an owner or an approver). The same person
+  cannot do both; the database refuses it.
+- Pick the case: one that **has a QuickBooks invoice** behind it (a case the
+  ledger sync opened shows its invoice id already), with a small amount. Use
+  **Lost** for this first posting: it is one journal entry of two lines — a
+  debit to an expense account and a credit to Deductions Receivable — with no
+  payment and no line on Accounts Receivable. Note the case's id from its
+  address (`/cases/<case id>`).
+
+**13.1 See the entry before anything is written.**
+
+- **Do:** as the preparer, open the case. In **Draft accounting entries**,
+  under *Settlement entry for QuickBooks*, choose **Lost — written off**,
+  leave Recovered at `0.00`, check the QuickBooks invoice id, and press **Show
+  the entry to edit**.
+- **You should see:** two lines with your own QuickBooks account names, the
+  case's amount as a debit on the first and a credit on the second, three
+  empty rows, "Balances", and nothing saved yet. The address now carries the
+  choice (`so=lost…`): this step only reads your chart of accounts.
+- **If it says the chart could not be read:** nothing was changed. Open
+  Settings → QuickBooks, check the company is connected, and try again.
+
+**13.2 Edit a memo and prepare.**
+
+- **Do:** on line 1, type a memo — `First posting test, to be reversed`. Leave
+  the accounts and amounts as they are. Press **Prepare the settlement for
+  approval**.
+- **You should see:** "the settlement is prepared; a second person approves it
+  before anything is posted". Under **QuickBooks postings** the two lines are
+  listed with your memo and "**Edited:** memo on line 1", and — because you
+  prepared it — no approve button.
+- **Try, if you like:** before preparing, change line 1's debit by a cent and
+  press Prepare. It comes back with "Does not balance" and both totals, and
+  your memo gone from the form: a memo is never put in an address.
+- **Proof it is stored and nothing was sent:**
+
+  ```sql
+  select l.line_no, l.account_external_id, l.account_name_as_reported,
+         l.debit_cents, l.credit_cents, l.memo
+    from settlement_lines l join decisions d on d.id = l.decision_id
+   where d.deduction_id = '<case id>'
+   order by d.created_at, l.line_no;
+
+  select count(*) from writebacks where deduction_id = '<case id>';   -- 0
+  ```
+
+**13.3 The second person approves.**
+
+- **Do:** signed in as the other member (owner or approver), open the same
+  case. Read the lines under **QuickBooks postings**: the accounts, the
+  amounts, the memo, and what was edited. Press **Approve the settlement and
+  post it to QuickBooks**.
+- **You should see:** "the settlement is approved and its posting is queued
+  for QuickBooks", and a row "Journal entry, $…: pending".
+- **This is the one-way step.** After it, nothing more can be prepared for
+  this case.
+
+**13.4 Watch the job.**
+
+- **Do:** in the Inngest dashboard, open the function **Post one approved
+  write-back to QuickBooks** (`post-writeback`) and its latest run.
+- **You should see:** the run **Completed**, one step. The app's log line
+  reads `[recouple] post-writeback: succeeded, writeback <id> … qbo <number>`.
+- **If the run Failed:** you will get the failure email (§10). Reload the
+  case: the row says **failed** and offers **Check QuickBooks and retry**.
+  Press it once. It looks in QuickBooks for the entry first and sends again
+  only if nothing there carries it. Send the log line beginning
+  `[recouple] post-writeback: failed` — its last word is the reason.
+
+**13.5 Read the entry in QuickBooks.**
+
+- **Do:** reload the case; the row reads "Journal entry, $…: succeeded
+  (QuickBooks <number>)". In QuickBooks, search for the journal number
+  beginning `RC` (it is in the SQL below as `reference`), or open
+  `https://qbo.intuit.com/app/journal?txnId=<number>`.
+- **You should see:** a journal entry dated the day it was approved; line 1 a
+  debit to your expense account with **your memo as its description**; line 2
+  a credit to Deductions Receivable; the customer named on both; and the memo
+  at the foot reading `Case <case id> | … | RC…`.
+
+**13.6 The SQL that proves it.**
+
+```sql
+select w.id, w.method, w.status, w.qbo_txn_id, w.amount_cents,
+       w.request_id = w.id::text as request_id_is_the_row_id,
+       'RC' || substr(replace(w.id::text, '-', ''), 1, 19) as reference,
+       w.lines
+  from writebacks w
+ where w.deduction_id = '<case id>';
+
+select event_type, payload
+  from deduction_events
+ where deduction_id = '<case id>'
+   and event_type in ('settlement.prepared', 'approval.granted',
+                      'writeback.queued', 'writeback.attempted')
+ order by id;
+```
+
+- **You should see:** one `journal_entry` row with `status = succeeded`, a
+  `qbo_txn_id`, `request_id_is_the_row_id = true`, and `lines` equal to the
+  two stored lines (account ids, sides and cents; **no memo**). The events
+  end with `writeback.attempted` saying `"status": "succeeded"`, and no event
+  contains your memo.
+
+**13.7 Reverse it in QuickBooks.**
+
+- **Do:** in QuickBooks, open the journal entry and choose **More → Reverse**
+  (or Delete). We never delete or reverse anything in QuickBooks ourselves
+  (ADR 0060 §7).
+- **Why:** on a test case whose found entry was never posted, Deductions
+  Receivable was never debited, so this credit leaves that account lower by
+  the case's amount until it is reversed.
+
+**What to send back:** the sentence shown after 13.2 and 13.3, the run's
+status in 13.4, a screenshot of the entry in 13.5, and the first query's
+result in 13.6.
 
 ---
 

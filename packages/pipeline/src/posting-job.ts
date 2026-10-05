@@ -8,7 +8,9 @@
  * and the row is `pending`. It sends once: a failure after sending is an
  * unknown outcome, recorded `failed`, and only a person retries it. A Payment
  * is sent only after its journal entry verified. Nothing here reads a
- * document; every amount is `draftEntries` output in integer cents.
+ * document; every amount is integer cents — the lines a settlement decision
+ * was prepared and approved with when it carries them (ADR 0068), and
+ * `draftEntries` output otherwise.
  */
 
 import { draftEntries, type Cents, type ReasonFamily } from '@recouple/core-domain';
@@ -16,6 +18,7 @@ import {
   QboRequestFailed,
   buildFoundEntry,
   buildSettlementEntry,
+  buildStoredSettlementEntry,
   buildZeroPayment,
   postingReference,
   verifyReadBack,
@@ -24,6 +27,7 @@ import {
   type Posting,
   type PostingLine,
   type QboWriteEntity,
+  type StoredPostingLine,
 } from '@recouple/qbo';
 
 export interface PostingWriteback {
@@ -39,6 +43,13 @@ export interface PostingWriteback {
   readonly postingEnabled: boolean;
   readonly amountCents: Cents;
   readonly lines: readonly PostingLine[] | undefined;
+  /**
+   * The settlement decision's own lines, memos included (ADR 0068 §6). When
+   * present the entry is exactly these and nothing is computed; absent — a
+   * found entry, or a settlement prepared before lines were stored — the
+   * entry is `draftEntries` and the map, as ADR 0060 built it.
+   */
+  readonly settlementLines?: readonly StoredPostingLine[] | undefined;
   readonly caseAmountCents: Cents;
   readonly family: ReasonFamily | undefined;
   readonly outcome: 'won' | 'partial' | 'lost' | 'declined' | undefined;
@@ -268,6 +279,10 @@ function buildPosting(row: PostingWriteback, invoiceId: string, customerId: stri
       journalEntryId: row.journalEntryId as string,
       amountCents: row.amountCents,
     });
+  }
+  if (row.schemaId === 'S' && row.settlementLines !== undefined) {
+    // What was approved, sent as it was approved: never recomputed.
+    return buildStoredSettlementEntry({ ...common, lines: row.settlementLines });
   }
   const entries = draftEntries({
     amountCents: row.caseAmountCents,

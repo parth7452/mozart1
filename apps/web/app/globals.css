@@ -875,3 +875,29 @@ table.cases.books-reconciliation th:last-child, table.cases.books-reconciliation
   .books-main .card.connection .table-scroll { margin-inline: -16px; }
   .books-window > div { flex: 1 1 140px; }
 }
+
+/* The settlement entry (ADR 0068): the prepare form inside the draft-accounting
+   card, and the stored lines the approver reads. Wide rows scroll in place
+   rather than pushing the review column out. */
+.settlement-editor { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.settlement-editor h4 { margin: 0 0 8px; font-size: 14px; }
+.settlement-editor form, .settlement-stored { overflow-x: auto; }
+.settlement-choose { display: grid; gap: 6px; max-width: 360px; margin-bottom: 12px; }
+.settlement-choose label { font-size: 13px; color: var(--ink-soft); }
+.settlement-choose button { justify-self: start; margin-top: 6px; }
+table.settlement-lines { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-bottom: 10px; }
+table.settlement-lines th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+}
+table.settlement-lines td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.settlement-lines tfoot td, table.settlement-lines tfoot th { border-bottom: none; font-weight: 600; }
+table.settlement-lines select { max-width: 260px; }
+table.settlement-lines td.money input { text-align: right; font-variant-numeric: tabular-nums; }
+table.settlement-lines td .hint { display: inline; margin: 0; }
+.settlement-problems { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 8px; background: #fdeceb; color: var(--bad); font-size: 13.5px; }
+.settlement-edited { margin: 0 0 10px; font-size: 13.5px; }
+.settlement-editor [role='alert'] { color: var(--bad); }

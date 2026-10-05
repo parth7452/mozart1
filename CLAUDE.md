@@ -194,7 +194,7 @@ append-only tables.
 | `web` (apps/) | Supabase Auth for identity only; every read goes through `PostgresStore` as `app_rw`. The service-role key appears nowhere. Views in `components/` are pure functions of what the store returned; `app/` reads and renders them. `/settings/quickbooks/callback` is the one GET that writes what a request brought: it cannot use `isCrossSite`, so the state cookie is its CSRF defence (ADR 0039). Settings → QuickBooks is a GET that may write too, taking nothing from the request: on a deployment that posts, an owner's view reads each enabled connection's chart of accounts, with a map saved or without, and that read may refresh the company's token and store the rotated one (ADR 0063 §1). Stored bytes reach a browser only when the document scanned clean: `/api/document/[id]` and the packet's zip read them through `servableDocument`, which decides and fetches in one repeatable-read transaction and never selects a refused document's bytes (the zip also asks every enclosure up front, in one `documentsServing` query), and answer an infected document, or one with no verdict or only `error`, with a 409 saying which — never the filename — while RLS's 404 stays first; the one exception is a ledger extract, `erp_sync` by its own `uploads` row, which our code wrote and nothing scans (`servingRefusal`). The case page says so in place of the embed, the link and the zip. Settings → Team changes people only through `app.invite_member`, `app.change_member_role` and `app.remove_member` (definer, owner-only, bounded by the caller's claims, one audit row each), and once an invitation commits it emails the person a branded invitation through the alerts' Resend account — no sign-in link in it, and a send that fails never undoes the invitation (ADR 0065); a trigger refuses leaving a workspace with no owner on every path. Sign-ups are on at the provider (founder, 2026-09-26), gated three ways (ADR 0051 §6): the login form sets `shouldCreateUser` to `app.address_is_invited()`'s answer and says "sent" to every address; the `hooks.before_user_created` Auth hook (own schema, `supabase_auth_admin` only, enabled by the founder in the dashboard) refuses any account for an address nobody invited; and `requireSession` refuses, before resolving anyone, a session whose verified token's `amr` is not all `otp`/`magiclink`/`email/signup` — a password session above all, which is how a pre-registered invitee account would be taken over. Never loosen that allowlist to fix a lockout without an ADR |
 | `playbooks` (Phase 2) | Versioned, effective-dated, every fact carries provenance |
 | `rules` (Phase 5) | JDM validation + backtest + shadow before promotion; auto-demote on precision drop |
-| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them). The books (ADR 0066) are three more reads and no write: a report is read whole or refused (`QboReportTooLarge`, `QboMalformedResponse`), its totals are checked against its lines and never read as one, and an empty report needs the report's own `NoReportData` |
+| `qbo` (Phase 4) | Idempotent `Request-Id`, proactive token rotation, persist the rotated refresh token every cycle. A refresh holds the company's lock (`QboTokenStore.withRefreshLock`) and re-reads the tokens under it, because Intuit kills the old refresh token on use (ADR 0039). An error from Intuit names its OAuth error code at most — never a body, a code or a token. Posting (ADR 0060) is off unless `QBO_POSTING=1` **and** the connection is enabled **and** its owner's `posting_enabled` is on; a writeback is written once and sent once with its own id as `Request-Id`; a 5xx or timeout is an unknown outcome that only a person retries, never the job; a payment only after its entry read back verified. A settlement decision that carries its own lines is posted from them and never recomputed (ADR 0068, `buildStoredSettlementEntry`); a line's memo is a person's typing and goes to the line's `Description` and nowhere else. The second write is `QboClient.createAccount` (ADR 0063): setup's two fixed accounts and nothing else, only on an owner's press, under a `Request-Id` derived from the connection, the row and the attempt — the same request when it is sent again after no answer came, a new one after an answer — read back before it counts, and never made again while one setup recorded for the row is still in the chart. A settings request reads a chart in two pages at most (`QboChartTooLarge` past them). The books (ADR 0066) are three more reads and no write: a report is read whole or refused (`QboReportTooLarge`, `QboMalformedResponse`), its totals are checked against its lines and never read as one, and an empty report needs the report's own `NoReportData` |
 | `portal` (ADR 0057; first live portal SAP Business Network, ADR 0062, paused 2026-09-29 before any run: `docs/plans/ariba-portal/STATUS.md`; UNFI paused) | Read, never write. Every request goes through `decideRequest`, redirects and dismiss clicks included; a refused navigation or submission ends the run; no WebSockets, never `setInputFiles`; a challenge or terms dialog stops for a person. Captures ingest as `portal_fetch` and a notice or remittance is held `by_portal`. Tested only against the local fixture portal |
 | `billing` (Phase 4) | Integer cents; only *attributable* recoveries are billable |
 
@@ -1853,3 +1853,50 @@ a phone, an account's postings share columns with the next account's, and
 dates, case names and money never break across lines. No number, order, read
 or behaviour changed. `docs/plans/ui-review-polish/04-overnight-screens.md`
 has each defect with before and after, and what was seen and left alone.
+
+**A settlement's journal lines are what the approver approves** (ADR 0068,
+proposed; migration 0041, **not applied anywhere**). The settlement entry's
+lines were computed when the approval's `writebacks` row was written and again
+by the job, so an accountant could change the outcome and the map and never a
+line. A settlement decision (schema `S`) is now prepared **with** its lines, in
+`settlement_lines`: `(org_id, decision_id)` to `decisions` (which gains
+`unique (org_id, id)`), `line_no` 1 to 20, the account's id and its name and
+type as the chart reported them, `debit_cents`/`credit_cents` bigint with
+exactly one side, a memo of at most 500 characters, append-only, RLS, `app_rw`
+SELECT and INSERT. A separate table could be added to after the approver
+looked, so the decision pins its own count: `result.line_count`, and
+`app.settlement_lines_are_whole()` — run at commit by two deferred constraint
+triggers, one on `settlement_lines` and one on `decisions` — refuses a
+decision with no count that has a line, one whose lines are not exactly
+1..count, and one whose debits and credits differ by a cent. A line names its
+author, who is the decision's preparer, and none is added once an approval
+exists. **An edit is a new decision, never an update**: before approval the
+case's latest `S` decision is its settlement and `approveSettlement` refuses
+an earlier one (`superseded`); after approval `prepareSettlementDecision`
+refuses the case (`SettlementAlreadyApprovedError`), because `writebacks` is
+unique per decision and a second approved decision would post a second entry.
+Both take the case's row lock. `validateSettlementLines` (`core-domain`, pure,
+property-tested) is what a person may change: any active account of a chart
+the store reads live, except that the Accounts Receivable lines are the case's
+(same account, side and cents as computed — the payment application depends on
+them), no line is on a second receivable, a payable or a bank account
+(`SETTLEMENT_REFUSED_ACCOUNT_TYPES`), and the entry moves no more than the
+computed one. The write-off in `writeoffs` stays `A − R` from the outcome.
+**Posting sends the stored lines**: the `writebacks` row copies them (ids,
+sides, cents — never a memo), the job builds the entry from them and never
+calls `draftEntries` for such a decision, and the read-back compares account,
+side and cents with them; the memo is not compared, since it carries no money.
+A decision with no lines — one prepared before 0041, and every found entry,
+which hangs off the dispute decision and stays computed — is posted as ADR
+0060 built it. On the case page the draft-accounting card holds the prepare
+form: how it settled is chosen first by a GET, and only then is the chart read
+(through the Books read, `withoutRefresh` for a member the database would not
+store a refresh for); the lines are a POST, amounts go through
+`parseMoneyToCents`, there is no script, and a refused form comes back with
+its accounts and amounts in the address and **its memos left out of it**. The
+approver sees the stored lines and what differs from the computed ones.
+Suite 37 and `settlement-lines.test.ts` read all of it back. Nothing has
+posted to any QuickBooks company yet; `docs/VERIFY-CHECKLIST.md` §13 is the
+first posting's click-through. Which accounts a line may use, the memo's
+length and who may edit are the founder's (ADR 0068, *What the founder
+decides*).

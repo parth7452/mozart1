@@ -28,6 +28,8 @@ import { CasePostingCard } from './case-posting';
 import type { CasePosting } from '@recouple/store-postgres';
 import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
 import { DraftJournal } from './draft-journal';
+import { SettlementEditorForm } from './settlement-editor';
+import type { SettlementEditor } from '../lib/settlement-editor';
 import { CaseTimeline } from './case-timeline';
 import { DisputeDeadline } from './dispute-deadline';
 import { CaseMergeNotes, DuplicateNotice } from './possible-duplicates';
@@ -317,6 +319,11 @@ export interface CaseReviewProps {
   readonly noticeAbout?: readonly string[] | undefined;
   /** The case's QuickBooks postings, only on a deployment that posts (ADR 0060). */
   readonly posting?: CasePosting | undefined;
+  /**
+   * The settlement entry's prepare form (ADR 0068 §7), when this viewer may
+   * prepare one here; absent, the draft-accounting card has no form.
+   */
+  readonly settlementEditor?: SettlementEditor | undefined;
 }
 
 /**
@@ -353,6 +360,7 @@ export function CaseReview({
   notice,
   noticeAbout,
   posting,
+  settlementEditor,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -734,6 +742,11 @@ export function CaseReview({
               declined={declined}
               family={workflow?.decision ? familyOf(workflow.decision.reason) : undefined}
               printedReasonCode={summary.reasonCodeAsPrinted ?? undefined}
+              editor={
+                settlementEditor === undefined ? undefined : (
+                  <SettlementEditorForm deductionId={summary.deductionId} editor={settlementEditor} />
+                )
+              }
             />
             {posting === undefined ? null : (
               <CasePostingCard
