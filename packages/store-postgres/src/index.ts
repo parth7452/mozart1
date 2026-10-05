@@ -43,3 +43,4 @@ export {
   SUGGESTION_CANDIDATES_LIMIT,
   type DocumentSuggestions,
 } from './document-match';
+export * from './payer-code-maps';

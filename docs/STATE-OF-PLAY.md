@@ -81,6 +81,31 @@ whether and when to apply 0036 and 0037 (`mozart-preview` first); for posting,
 an account map, a sandbox trial and setting `QBO_POSTING`; for portals, which
 portal first (0058 proposes UNFI) and where its credentials live.
 
+## 2026-10-04: reason-code reconciliation, built overnight
+
+Not merged, not deployed. It carries migration 0040, applied nowhere, and the
+code reads the new table, so it must not be merged before the migration is on
+`mozart-preview` and then production.
+
+- A workspace's owner or approver records what a payer's printed reason code
+  means in our taxonomy, per payer, with a start date, a source and a
+  confidence (Settings → Reason codes). A mapping is never edited; a later one
+  takes over.
+- The same page lists every payer code on the workspace's cases that has no
+  mapping, with how many cases print it and what they add up to, each with a
+  link that prefills the form.
+- A case page shows what its payer code maps to and where the mapping came
+  from, or that there is none yet. The decide form starts on the mapped reason;
+  a person still chooses.
+- `pnpm seed:payer-codes` proposes mappings from the Glimpse playbook drafts at
+  low confidence. Dry-run unless `--write`. Nothing has been loaded.
+
+**Needs the founder:** accept or reject ADR 0067 (proposed); whether mappings
+taken from Glimpse's guides may be loaded at low confidence or must wait for the
+customer's own confirmation; whether the decide form should start on the mapped
+reason; and what to do about payers whose codes embed a date or PO number
+(UNFI's `MCB20260901`), which an exact match cannot map.
+
 ## Live in production
 
 Verified on the deployed app, not only in tests:

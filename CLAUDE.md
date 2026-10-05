@@ -1721,6 +1721,32 @@ and read back on both: the stored statement's md5 equals the file's; the
 function is unpinned. The security advisor shows only its old leaked-password
 notice.
 
+**A payer's reason code maps to ours as data** (ADR 0067, **proposed**;
+migration 0040, applied nowhere). `payer_code_maps` holds, per tenant and
+debtor, that a printed code means one canonical reason from a date on, with a
+source (`payer_guide_url`, `customer_confirmed`, `glimpse_guide`, `operator`),
+a confidence and the member who recorded it. Every row is a tenant's; there is
+no shared map. Append-only on 0004's pattern, RLS, `app_rw` SELECT and INSERT,
+the insert policy an owner or approver writing as themselves
+(`app.member_is_owner_or_approver()`, plus 0031's authorship trigger), and a
+composite key to the tenant's own debtor. A code is matched exactly after one
+normalisation (`normalisePayerCode`: trim, collapse whitespace, uppercase),
+never by prefix and never by a model. Which row applies on a date is
+`app.payer_code_maps_as_of()` (the view `payer_code_maps_current` is that at
+`current_date`) and `resolveCanonicalCode` in `core-domain`, held to one answer
+by `payer-code-maps.test.ts`, which also holds the constraint's code list equal
+to `CANONICAL_REASON_CODES` both ways; suite 36 reads the end state back. The
+case page shows "Payer code X → reason (mapped by source, confidence)" as of
+the deduction's date, or "no mapping yet", and the decide form starts on the
+mapped reason where it offers that code; nothing is written to a case and a
+person still chooses. Settings → Reason codes lists the mappings in force,
+adds one, and lists every payer code on the tenant's cases with no mapping,
+with its case count and dollars. `pnpm seed:payer-codes` proposes rows from a
+Glimpse playbook draft at `glimpse_guide`/`low` and is dry-run unless `--write`:
+Chewy's draft holds sixteen pairs, UNFI's holds only shapes (`MCB(yyyymmdd)`),
+which an exact match cannot map, and KeHE's and Walgreens' hold none. The code
+reads the new table, so it is not to be deployed before 0040 is applied.
+
 **A ledger case shows the payer's terms** (no ADR, no migration).
 `payerTermsFor` (`core-domain`) derives a case's reason code and deduction
 reference at read time from the notices and remittances linked to it and to the

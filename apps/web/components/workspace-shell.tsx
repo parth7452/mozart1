@@ -18,7 +18,8 @@ export type WorkspaceSection =
   | 'quickbooks'
   | 'email'
   | 'portals'
-  | 'team';
+  | 'team'
+  | 'reason-codes';
 
 /**
  * The other workspaces this person belongs to, as buttons that POST to
@@ -169,6 +170,16 @@ export function WorkspaceShell({
             </span>
             Team<span aria-hidden="true">↗</span>
           </Link>
+          <Link
+            className={section === 'reason-codes' ? 'nav-item active' : 'nav-item'}
+            href="/settings/reason-codes"
+            aria-current={section === 'reason-codes' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ⇢
+            </span>
+            Reason codes<span aria-hidden="true">↗</span>
+          </Link>
         </nav>
         <div className="sidebar-bottom">
           <div className="control-note">
@@ -225,6 +236,12 @@ export function WorkspaceShell({
                 <span>Settings</span>
                 <span className="breadcrumb-divider">/</span>
                 <Link href="/settings/team">Team</Link>
+              </>
+            ) : section === 'reason-codes' ? (
+              <>
+                <span>Settings</span>
+                <span className="breadcrumb-divider">/</span>
+                <Link href="/settings/reason-codes">Reason codes</Link>
               </>
             ) : section === 'coverage' ? (
               <Link href="/coverage">Coverage</Link>
