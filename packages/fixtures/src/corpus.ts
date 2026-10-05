@@ -23,6 +23,7 @@ import { emailBodyDocuments } from './email-body';
 import { logisticsDocuments } from './logistics';
 import { customerDocuments } from './customer';
 import { formatsDocuments } from './formats';
+import { naturalDocuments } from './natural';
 import { pendingDocuments } from './pending';
 import { publicDocuments } from './public';
 
@@ -216,6 +217,7 @@ export function everyDocument(): readonly FixtureDocument[] {
     ...logisticsDocuments(),
     ...customerDocuments(),
     ...formatsDocuments(),
+    ...naturalDocuments(),
     ...publicDocuments(),
   ];
 }

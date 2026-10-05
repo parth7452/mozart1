@@ -91,5 +91,8 @@
       "classificationAccuracy": 1,
       "documents": 10
     }
+  },
+  "pendingSuites": {
+    "natural": "not yet recorded: 6 fixture documents, no cassettes. `pnpm record:cassettes --suite natural` needs ANTHROPIC_API_KEY, and REDUCTO_API_KEY for any document with no text layer."
   }
 }

@@ -5,6 +5,7 @@ export * from './expected';
 export * from './scans';
 export * from './dense';
 export * from './formats';
+export * from './natural';
 export * from './email-body';
 export * from './review';
 export * from './logistics';
