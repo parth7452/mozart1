@@ -1,6 +1,6 @@
 # 0068 — A settlement's journal lines are what the approver approves
 
-- Status: proposed (2026-10-05). Built on `overnight/editable-settlement`.
+- Status: **accepted** by the founder on 2026-10-05. Built on `overnight/editable-settlement`.
   Migration 0041 is not applied anywhere; the PR that carries it is not to be
   merged before the founder applies it to `mozart-preview` and then production.
 - Date: 2026-10-05
