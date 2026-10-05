@@ -19,11 +19,11 @@ the live state during a session.*
 
 | # | Deliverable | Owner | Status |
 | --- | --- | --- | --- |
-| P1 | `natural` fixture pack: UNFI-style advice, MCB backup, KeHE-style detail, deal confirmation, BOL, POD | Claude | Not started |
+| P1 | `natural` fixture pack: UNFI-style advice, MCB backup, KeHE-style detail, deal confirmation, BOL, POD | Claude | **Built 2026-10-05** (`packages/fixtures/src/natural.ts`, suite `natural`, no cassettes yet) |
 | P2 | Record the `natural` cassettes (spends ~$0.50) | Founder's go, Claude runs | Waits on P1 and the go |
-| P3 | Beachhead codes on the decide form | Claude | Not started |
-| P4 | UNFI and KeHE seed code maps as documents | Claude | Not started |
-| P5 | `Harborline Foods` demo workspace populated on production | Founder | Waits on P1, P3 |
+| P3 | Beachhead codes on the decide form | Claude | **Covered on main**: the decide form offers every taxonomy code, grouped by family (`DISPUTE_REASONS`, `case-actions.tsx`); slotting, new-item and recall-disposal codes remain taxonomy gaps for Phase 2 draft D |
+| P4 | UNFI and KeHE seed code maps as documents | Claude | **Covered on main**: `docs/competitive/glimpse/playbook-drafts/unfi.yaml` and `kehe.yaml` (Glimpse-sourced drafts, 2026-10-03) plus the seed list in `docs/plans/unfi-portal/research.md` |
+| P5 | `Harborline Foods` demo workspace populated on production | Founder | Waits on P2 (a recorded read proves the pack before it is shown) |
 | P6 | A QuickBooks Online trial company connected to the demo workspace | Founder | Waits on P5 |
 | P7 | Custom SMTP for sign-in mail, tested with an outside address | Founder | Not started; unknown state |
 | P8 | A workspace per lead, made the morning of the call | Founder | Waits on P7 |
