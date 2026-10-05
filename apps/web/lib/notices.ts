@@ -1123,6 +1123,47 @@ export const NOTICES = {
     tone: 'bad',
     text: 'this case\'s settlement is already approved, so nothing more is prepared for it; a posted entry is corrected in QuickBooks',
   },
+  // --- a posting that did not go (ADR 0069) -----------------------------------
+  settle_invoice_not_found: {
+    tone: 'bad',
+    text: 'your QuickBooks company has no invoice with that number or id, so nothing was prepared — check the invoice number in QuickBooks and prepare it again',
+  },
+  settle_invoice_ambiguous: {
+    tone: 'bad',
+    text: 'more than one invoice in your QuickBooks company matches that number, so nothing was prepared — enter the QuickBooks id of the one you mean',
+  },
+  settle_invoice_unreadable: {
+    tone: 'bad',
+    text: 'your QuickBooks invoices could not be read, so the invoice could not be checked and nothing was prepared — try again in a minute',
+  },
+  posting_voided: {
+    tone: 'good',
+    text: 'that posting is voided — nothing reached QuickBooks, and the case can be settled again below',
+  },
+  posting_void_role: {
+    tone: 'bad',
+    text: 'an owner or an approver voids a posting',
+  },
+  posting_void_maybe_sent: {
+    tone: 'bad',
+    text: 'that posting may have reached QuickBooks, so it was not voided — use Check QuickBooks and retry, which reads QuickBooks first',
+  },
+  posting_void_in_ledger: {
+    tone: 'bad',
+    text: 'QuickBooks holds an entry carrying this posting\'s reference, so it was not voided — use Check QuickBooks and retry',
+  },
+  posting_void_unreadable: {
+    tone: 'bad',
+    text: 'QuickBooks could not be read to confirm nothing was posted, so nothing was voided — try again in a minute',
+  },
+  posting_void_refused: {
+    tone: 'bad',
+    text: 'that posting is not one that can be voided, so nothing changed',
+  },
+  writeback_voided: {
+    tone: 'bad',
+    text: 'that posting was voided and is never sent',
+  },
   settle_superseded: {
     tone: 'bad',
     text: 'that settlement was replaced by a newer one before it was approved, so nothing was approved — the newer one is shown below',

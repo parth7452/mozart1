@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 const built = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const invoiceRows = vi.hoisted(() => ({ rows: [] as unknown[] }));
 
 vi.mock('@recouple/qbo', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@recouple/qbo')>();
@@ -22,6 +23,9 @@ vi.mock('@recouple/qbo', async (importOriginal) => {
       }
       async listAccounts() {
         return [];
+      }
+      async queryByIds() {
+        return invoiceRows.rows;
       }
     },
   };
@@ -80,5 +84,22 @@ describe('how long a request to QuickBooks may wait', () => {
       expect(Object.hasOwn(config, 'timeoutMs')).toBe(false);
       expect(Object.hasOwn(config, 'maxPages')).toBe(false);
     }
+  });
+});
+
+describe("the posting job's read of an invoice's customer (ADR 0069 §2)", () => {
+  it('answers undefined for an id QuickBooks has no invoice for, rather than a malformed response', async () => {
+    // Production, 2026-10-05: the settlement named 120324, a number printed on
+    // a notice. QuickBooks answered no rows, and reading `rows[0]` threw
+    // QboMalformedResponse before anything was recorded.
+    invoiceRows.rows = [];
+    const client = qboPostingFromEnv(POSTING)?.clientFor(IDENTITY, CONNECTION);
+    await expect(client?.invoiceCustomer('120324')).resolves.toBeUndefined();
+  });
+
+  it('answers the customer of an invoice QuickBooks has', async () => {
+    invoiceRows.rows = [{ Id: '71', CustomerRef: { value: '58' } }];
+    const client = qboPostingFromEnv(POSTING)?.clientFor(IDENTITY, CONNECTION);
+    await expect(client?.invoiceCustomer('71')).resolves.toBe('58');
   });
 });

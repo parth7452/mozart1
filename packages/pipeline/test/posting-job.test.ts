@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { cents, draftEntries, REASON_FAMILIES } from '@recouple/core-domain';
+import { cents, draftEntries, nothingWasSent, REASON_FAMILIES } from '@recouple/core-domain';
 import { QboRequestFailed, entryLines, type JsonObject, type LedgerAccountMap } from '@recouple/qbo';
 import {
   PostingRefusedError,
   WritebackFailedError,
+  WritebackNotSentError,
   postWritebackJob,
   type PostingAttempt,
   type PostingLedgerClient,
@@ -157,6 +158,77 @@ describe('post-writeback', () => {
       reason: 'lines_changed',
     });
     expect(h.posts).toHaveLength(0);
+  });
+
+  describe('a failure before the send is recorded as one (ADR 0069 §2)', () => {
+    it('records an invoice QuickBooks does not have as failed, nothing sent — production, 2026-10-05', async () => {
+      // The settlement named 120324, the number printed on the notice. No
+      // attempt was recorded, so the row stayed pending with nothing said.
+      for (const retry of [false, true]) {
+        const h = harness(foundRow({ invoiceId: '120324' }), { invoiceCustomer: async () => undefined });
+        const failure = await postWritebackJob(h.deps, { writebackId, retry }).catch((e: unknown) => e);
+        expect(failure).toBeInstanceOf(WritebackNotSentError);
+        expect(failure).toBeInstanceOf(PostingRefusedError);
+        expect(failure).toMatchObject({ reason: 'invoice_not_found' });
+        expect(h.attempts).toEqual([{ writebackId, status: 'failed', reason: 'invoice_not_found' }]);
+        expect(h.posts).toHaveLength(0);
+      }
+    });
+
+    it('records a lookup that threw by its status and fault code, never its message', async () => {
+      const h = harness(foundRow(), {
+        invoiceCustomer: async () => {
+          throw new QboRequestFailed('Acme Foods invoice body', 500, { Error: [{ code: '6000', Detail: 'Acme' }] });
+        },
+      });
+      await expect(postWritebackJob(h.deps, { writebackId })).rejects.toMatchObject({
+        reason: 'invoice_lookup_failed',
+      });
+      expect(h.attempts).toEqual([
+        { writebackId, status: 'failed', reason: 'invoice_lookup_failed', httpStatus: 500, faultCode: '6000' },
+      ]);
+      expect(JSON.stringify(h.attempts)).not.toMatch(/Acme/);
+      expect(h.posts).toHaveLength(0);
+    });
+
+    it('records a row with no invoice, an entry that will not build, and lines that changed', async () => {
+      const none = harness(foundRow({ invoiceId: undefined }));
+      await expect(postWritebackJob(none.deps, { writebackId })).rejects.toMatchObject({ reason: 'no_invoice' });
+      expect(none.attempts).toEqual([{ writebackId, status: 'failed', reason: 'no_invoice' }]);
+
+      const unbuildable = harness(foundRow(), { invoiceCustomer: async () => 'not an id' });
+      await expect(postWritebackJob(unbuildable.deps, { writebackId })).rejects.toMatchObject({
+        reason: 'build_failed',
+      });
+      expect(unbuildable.attempts).toEqual([{ writebackId, status: 'failed', reason: 'build_failed' }]);
+
+      const changed = harness(foundRow({ lines: [] }));
+      await expect(postWritebackJob(changed.deps, { writebackId })).rejects.toBeInstanceOf(WritebackNotSentError);
+      expect(changed.attempts).toEqual([{ writebackId, status: 'failed', reason: 'lines_changed' }]);
+      for (const h of [none, unbuildable, changed]) expect(h.posts).toHaveLength(0);
+    });
+
+    it('every reason it records before the send is one the page reads as nothing sent', async () => {
+      const h = harness(foundRow(), { invoiceCustomer: async () => undefined });
+      await postWritebackJob(h.deps, { writebackId }).catch(() => undefined);
+      expect(nothingWasSent(h.attempts.map((a) => a.reason))).toBe(true);
+      const unknown = harness(foundRow(), {
+        post: async () => {
+          throw new QboRequestFailed('timeout', 0, undefined);
+        },
+      });
+      await postWritebackJob(unknown.deps, { writebackId }).catch(() => undefined);
+      expect(nothingWasSent(unknown.attempts.map((a) => a.reason))).toBe(false);
+    });
+
+    it('never sends a voided row, and records nothing about it', async () => {
+      const h = harness(foundRow({ voided: true }));
+      await expect(postWritebackJob(h.deps, { writebackId, retry: true })).rejects.toMatchObject({
+        reason: 'voided',
+      });
+      expect(h.attempts).toEqual([]);
+      expect(h.posts).toHaveLength(0);
+    });
   });
 
   it('sends a payment only after its journal entry verified', async () => {

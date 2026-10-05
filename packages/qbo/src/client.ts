@@ -12,7 +12,14 @@
 
 import { randomUUID } from 'node:crypto';
 import type { LedgerWindow } from '@recouple/adapters';
-import { DateParseError, parsePrintedDate } from '@recouple/core-domain';
+import {
+  DateParseError,
+  LEDGER_INVOICE_ID,
+  STATED_INVOICE,
+  parsePrintedDate,
+  type LedgerInvoiceMatches,
+  type LedgerInvoiceRef,
+} from '@recouple/core-domain';
 import {
   QboAccountReadBackError,
   QboAuthError,
@@ -26,7 +33,7 @@ import {
 import { defaultFetch, request, retryAfterMs, summarise, type FetchLike } from './http';
 import { assertQboId } from './ids';
 import { exchangeIntuitToken } from './oauth';
-import { describe, isJsonObject, readArray, readObject, type JsonObject } from './reader';
+import { describe, isJsonObject, readArray, readObject, readString, type JsonObject } from './reader';
 import type { QboReportName } from './reports';
 import {
   SETUP_ACCOUNTS,
@@ -385,6 +392,44 @@ export class QboClient {
     return readArray(queryResponse[entity], `QueryResponse.${entity}`).map((row, index) =>
       readObject(row, `QueryResponse.${entity}[${index}]`),
     );
+  }
+
+  /**
+   * The invoices a person's text could name (ADR 0069 §1): the one whose
+   * internal `Id` it is, when it is digits, and every one whose `DocNumber`
+   * is exactly it. Two reads and no write. The text is spliced into a query,
+   * so it is held to `STATED_INVOICE` first — no quote, no backslash, one
+   * line. An invoice QuickBooks does not have is simply not in the answer.
+   */
+  async findInvoices(stated: string): Promise<LedgerInvoiceMatches> {
+    if (!STATED_INVOICE.test(stated)) {
+      throw new QboMalformedResponse('an invoice is named by an id or its printed number', 'invoice');
+    }
+    const ref = (row: JsonObject, path: string): LedgerInvoiceRef => {
+      const docNumber = row['DocNumber'];
+      return {
+        id: assertQboId(readString(row, 'Id', path)),
+        docNumber: typeof docNumber === 'string' && docNumber !== '' ? docNumber : undefined,
+      };
+    };
+    let byId: LedgerInvoiceRef | undefined;
+    if (LEDGER_INVOICE_ID.test(stated)) {
+      const [row] = await this.queryByIds('Invoice', [stated]);
+      if (row !== undefined) {
+        byId = ref(row, 'Invoice[0]');
+        if (byId.id !== stated) {
+          throw new QboMalformedResponse('asked for one invoice by id and got another', 'Invoice[0].Id');
+        }
+      }
+    }
+    const numbered = await this.queryAll('Invoice', `DocNumber = '${stated}'`);
+    return {
+      byId,
+      // QuickBooks compares case-insensitively; a number is the one stated only exactly.
+      byDocNumber: numbered
+        .map((row, index) => ref(row, `Invoice[${index}]`))
+        .filter((invoice) => invoice.docNumber === stated),
+    };
   }
 
   /**

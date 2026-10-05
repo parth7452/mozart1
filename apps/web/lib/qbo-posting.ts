@@ -1,3 +1,4 @@
+import type { LedgerInvoiceMatches } from '@recouple/core-domain';
 import {
   QboClient,
   readObject,
@@ -57,6 +58,16 @@ export interface QboPoster {
    * client cannot be built. Only `setUpPosting` calls it, and only with one of
    * `SETUP_ACCOUNTS` and the request id its request row was recorded under.
    */
+  /**
+   * What the company holds for the invoice a person named — by internal id
+   * and by printed number — read live when a settlement is prepared (ADR 0069
+   * §1), or nothing if a client cannot be built. Two reads, no write.
+   */
+  invoiceLookupFor(
+    identity: { readonly orgId: string; readonly userId: string },
+    connection: { readonly connectionId: string; readonly realmId: string },
+    options?: QboRequestOptions,
+  ): ((stated: string) => Promise<LedgerInvoiceMatches>) | undefined;
   accountCreatorFor(
     identity: { readonly orgId: string; readonly userId: string },
     connection: { readonly connectionId: string; readonly realmId: string },
@@ -118,6 +129,10 @@ export function qboPostingFromEnv(environment: EnvVars = process.env): QboPoster
         ? undefined
         : (spec, requestId) => client.createAccount(spec, requestId);
     },
+    invoiceLookupFor(identity, connection, options) {
+      const client = qboClientFor(identity, connection, options);
+      return client === undefined ? undefined : (stated) => client.findInvoices(stated);
+    },
     clientFor(identity, connection) {
       const client = qboClientFor(identity, connection);
       if (client === undefined) return undefined;
@@ -127,6 +142,9 @@ export function qboPostingFromEnv(environment: EnvVars = process.env): QboPoster
         findByReference: (entity, reference) => client.findByReference(entity, reference),
         async invoiceCustomer(invoiceId) {
           const rows = await client.queryByIds('Invoice', [invoiceId]);
+          // An id QuickBooks does not have is an answer, not a malformed one:
+          // the job records it as `invoice_not_found` (ADR 0069 §2).
+          if (rows[0] === undefined) return undefined;
           const invoice = readObject(rows[0], 'Invoice');
           return readString(readObject(invoice['CustomerRef'], 'CustomerRef'), 'value', 'CustomerRef');
         },

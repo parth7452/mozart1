@@ -24,3 +24,4 @@ export * from './invariants/index';
 export * from './sheet-mapping';
 export * from './portal-terms';
 export * from './document-match';
+export * from './posting-status';

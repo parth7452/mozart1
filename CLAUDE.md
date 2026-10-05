@@ -1900,3 +1900,34 @@ posted to any QuickBooks company yet; `docs/VERIFY-CHECKLIST.md` §13 is the
 first posting's click-through. Which accounts a line may use, the memo's
 length and who may edit are the founder's (ADR 0068, *What the founder
 decides*).
+
+**A posting that never went is said so, and can be voided** (ADR 0069,
+proposed; no migration). The first posting ever attempted (production,
+2026-10-05) sent nothing and said nothing: the prepare form took `120324`,
+the invoice number printed on a notice, as a QuickBooks id; the job's
+`invoiceCustomer` got no rows and threw `QboMalformedResponse` before the
+send and outside every `try` that records an attempt, so the row stayed
+`pending`, the page offered nothing, and ADR 0068 refused a second
+settlement. Three fixes. **The invoice is resolved when the settlement is
+prepared**: `prepareSettlementDecision` takes a required `findInvoice`,
+`QboClient.findInvoices` reads the text as an `Id` and as a `DocNumber`, and
+`resolveStatedInvoice` (`core-domain`) takes exactly one invoice or refuses
+by name (`invoice_not_found`, `invoice_ambiguous`), except that a case's own
+`ledger_invoice_id` is taken by id; what is stored as `result.invoice_id` is
+the id QuickBooks reported, never the text stated. **A failure before the
+send is a recorded attempt** with a reason from `NOTHING_SENT_REASONS`
+(`WritebackNotSentError`), and the case page says "not sent — nothing reached
+QuickBooks" apart from "outcome unknown", in fixed wording keyed on the
+reason constant. **A person can retry or void**: a journal entry `pending`
+with nothing recorded for `STUCK_PENDING_MINUTES` gets "Check QuickBooks and
+retry" (the job reads QuickBooks by reference before it sends), and an owner
+or approver may void an approved settlement's posting
+(`/cases/[id]/void-posting`, `voidSettlementPosting`): one append-only
+`settlement.posting_voided` event, refused unless every recorded attempt on
+every row sent nothing **and** QuickBooks, asked by each row's reference,
+holds nothing — never for an unknown outcome. A voided decision no longer
+counts as the case's approved settlement, so a new one is prepared, approved
+and posted under its own row; the job and `requeueWriteback` refuse a voided
+row. Void is the store's and the job's rule, not the database's; a voided
+settlement's `writeoffs` row stays, and any future reader of `writeoffs` must
+leave out a decision carrying that event.

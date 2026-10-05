@@ -130,20 +130,31 @@ export default async function CasePage({
       posting?.connection !== undefined &&
       posting.connection.postingEnabled &&
       posting.connection.hasMap &&
-      posting.settlement?.approved !== true &&
+      // An approved settlement whose posting was voided is set aside: the
+      // case takes a new one (ADR 0069 §3).
+      (posting.settlement?.approved !== true || posting.settlement.voided === true) &&
       mayAct
     ) {
       const connectionId = posting.connection.connectionId;
       const connection = (await postingStore.postingConnections()).find((c) => c.connectionId === connectionId);
       const declined = summary.declined === true || workflow?.decline !== undefined;
-      const prepared = posting.settlement;
+      const voided = posting.settlement?.voided === true ? posting.settlement : undefined;
+      const prepared = voided === undefined ? posting.settlement : undefined;
       const defaults: SettlementDefaults =
-        prepared !== undefined
+        voided !== undefined
+          ? {
+              outcome: voided.outcome,
+              recoveredCents: voided.recoveredCents,
+              family: voided.family,
+              // Never the voided settlement's invoice: it may be why it failed.
+              invoiceId: posting.ledgerInvoiceId,
+            }
+          : prepared !== undefined
           ? {
               outcome: prepared.outcome,
               recoveredCents: prepared.recoveredCents,
               family: prepared.family,
-              invoiceId: prepared.invoiceId,
+              invoiceId: prepared.invoiceNumber ?? prepared.invoiceId,
             }
           : {
               outcome: declined ? 'declined' : workflow?.outcome?.outcome,

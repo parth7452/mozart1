@@ -20,6 +20,12 @@ const describeDb = connectionString === undefined ? describe.skip : describe;
  * against a real database: the store's checks, and the database's own where
  * the store is stepped around.
  */
+/** A ledger that holds the invoice whose id was stated, and no other. */
+const invoiceById = async (stated: string) => ({
+  byId: { id: stated, docNumber: undefined },
+  byDocNumber: [],
+});
+
 describeDb("a settlement's lines are what the approver approves", () => {
   const admin = new Pool({ connectionString });
   const config = { connectionString: connectionString as string };
@@ -110,6 +116,7 @@ describeDb("a settlement's lines are what the approver approves", () => {
       recoveredCents: cents(0),
       family: 'shortage',
       invoiceId: '71',
+      findInvoice: invoiceById,
       ...(lines === undefined ? {} : { lines: { connectionId, lines, readChart } }),
     });
 
@@ -277,6 +284,7 @@ describeDb("a settlement's lines are what the approver approves", () => {
         recoveredCents: cents(0),
         family: 'shortage',
         invoiceId: '71',
+        findInvoice: invoiceById,
         lines: {
           connectionId,
           lines: edited,
@@ -387,6 +395,7 @@ describeDb("a settlement's lines are what the approver approves", () => {
         recoveredCents: cents(0),
         family: 'shortage',
         invoiceId: '71',
+        findInvoice: invoiceById,
         lines: { connectionId, lines: edited, readChart },
       }),
     ).rejects.toBeInstanceOf(PostingDecisionError);

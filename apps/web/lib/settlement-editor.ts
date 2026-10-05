@@ -1,4 +1,5 @@
 import {
+  STATED_INVOICE,
   JournalInputError,
   MoneyError,
   REASON_FAMILIES,
@@ -26,6 +27,8 @@ import {
   type SettlementOutcome,
 } from '@recouple/store-postgres';
 import { booksSourcesFromEnv, type BooksSources } from './books';
+import { qboPostingFromEnv, type QboPoster } from './qbo-posting';
+import type { InvoiceLookup } from '@recouple/store-postgres';
 import { SETTLE_PARAMS, centsAsText, lineField } from './settlement-fields';
 
 export { SETTLE_PARAMS, centsAsText, lineField } from './settlement-fields';
@@ -54,7 +57,11 @@ export interface SettlementChoice {
   readonly outcome: SettlementOutcome;
   readonly recoveredCents: Cents;
   readonly family: ReasonFamily | undefined;
-  /** The ledger's id for the short-paid invoice. */
+  /**
+   * The short-paid invoice as a person stated it: the ledger's id or the
+   * number printed on it. Resolved against the ledger when the settlement is
+   * prepared (ADR 0069 §1); never used as an id before that.
+   */
   readonly invoiceId: string;
 }
 
@@ -66,7 +73,6 @@ export interface SettlementDefaults {
   readonly invoiceId: string | undefined;
 }
 
-const LEDGER_ID = /^[0-9]{1,20}$/;
 const ACCOUNT_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 const CENTS = /^[0-9]{1,15}$/;
 
@@ -83,7 +89,7 @@ function isFamily(value: unknown): value is ReasonFamily {
 /**
  * How the case settled, from what a form or an address stated. `undefined`
  * when nothing was stated; `'invalid'` when something was and it cannot be
- * read — an outcome that is not one, an invoice id that is not digits, a
+ * read — an outcome that is not one, an invoice that is not an id or a printed number, a
  * figure the money parser will not read, a family that does not exist.
  */
 export function settlementChoiceFrom(fields: {
@@ -98,7 +104,7 @@ export function settlementChoiceFrom(fields: {
   );
   if (!stated) return undefined;
   if (!isOutcome(outcome)) return 'invalid';
-  if (typeof invoiceId !== 'string' || !LEDGER_ID.test(invoiceId.trim())) return 'invalid';
+  if (typeof invoiceId !== 'string' || !STATED_INVOICE.test(invoiceId.trim())) return 'invalid';
   if (family !== undefined && family !== null && family !== '' && !isFamily(family)) return 'invalid';
   let recoveredCents: Cents = cents(0);
   if (typeof recovered === 'string' && recovered.trim() !== '') {
@@ -235,6 +241,42 @@ export function settlementChartReader(
         `[recouple] settlement: chart not read (${name}), connection ${connection.connectionId} org ${identity.orgId}`,
       );
       throw new SettlementChartUnreadableError('unreadable');
+    }
+  };
+}
+
+export class SettlementInvoiceUnreadableError extends Error {
+  override readonly name = 'SettlementInvoiceUnreadableError';
+  constructor(readonly reason: 'not_configured' | 'unreadable' | 'may_not_write') {
+    super(`the ledger's invoices could not be read: ${reason}`);
+  }
+}
+
+/**
+ * Reads what the connected company holds for the invoice a person named, for
+ * `prepareSettlementDecision` (ADR 0069 §1). A failure is logged by class
+ * name and ids — never the text stated, which may be off a document — and
+ * thrown as `SettlementInvoiceUnreadableError`.
+ */
+export function settlementInvoiceLookup(
+  identity: Identity,
+  connection: { readonly connectionId: string; readonly realmId: string },
+  poster: Pick<QboPoster, 'invoiceLookupFor'> | undefined = qboPostingFromEnv(),
+): InvoiceLookup {
+  return async (stated) => {
+    const lookup = poster?.invoiceLookupFor(identity, connection, {
+      timeoutMs: 10_000,
+      maxPages: 2,
+    });
+    if (lookup === undefined) throw new SettlementInvoiceUnreadableError('not_configured');
+    try {
+      return await lookup(stated);
+    } catch (error) {
+      const name = error instanceof Error ? error.name : typeof error;
+      console.error(
+        `[recouple] settlement: invoice not read (${name}), connection ${connection.connectionId} org ${identity.orgId}`,
+      );
+      throw new SettlementInvoiceUnreadableError('unreadable');
     }
   };
 }

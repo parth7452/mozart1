@@ -240,6 +240,67 @@ describe('QboClient writes', () => {
     expect(new URL(recorder.calls[0]!.url).searchParams.get('query')).toMatch(/PaymentRefNum = 'RC/);
   });
 
+  describe('findInvoices (ADR 0069 §1)', () => {
+    const answers = (byId: unknown[], byNumber: unknown[]) =>
+      recordingFetch((call) =>
+        jsonResponse({
+          QueryResponse: {
+            Invoice: (new URL(call.url).searchParams.get('query') ?? '').includes('Id in') ? byId : byNumber,
+          },
+        }),
+      );
+    const queries = (recorder: { calls: readonly { url: string }[] }) =>
+      recorder.calls.map((call) => new URL(call.url).searchParams.get('query'));
+
+    it('reads digits both as an id and as a printed number', async () => {
+      // Production, 2026-10-05: no invoice has the id 120324; one prints it.
+      const recorder = answers([], [{ Id: '3391', DocNumber: '120324' }]);
+      const client = new QboClient(configFor(recorder.fetchImpl));
+      await expect(client.findInvoices('120324')).resolves.toEqual({
+        byId: undefined,
+        byDocNumber: [{ id: '3391', docNumber: '120324' }],
+      });
+      expect(queries(recorder)).toEqual([
+        expect.stringMatching(/^select \* from Invoice where Id in \('120324'\) /),
+        expect.stringMatching(/^select \* from Invoice where DocNumber = '120324' /),
+      ]);
+    });
+
+    it('reads text that is not digits as a printed number only, and keeps only an exact match', async () => {
+      const recorder = answers([], [{ Id: '5', DocNumber: 'INV-7' }, { Id: '6', DocNumber: 'inv-7' }, { Id: '7' }]);
+      const client = new QboClient(configFor(recorder.fetchImpl));
+      await expect(client.findInvoices('INV-7')).resolves.toEqual({
+        byId: undefined,
+        byDocNumber: [{ id: '5', docNumber: 'INV-7' }],
+      });
+      expect(recorder.calls).toHaveLength(1);
+    });
+
+    it('answers an invoice found by its id', async () => {
+      const recorder = answers([{ Id: '71', DocNumber: '1040' }], []);
+      const client = new QboClient(configFor(recorder.fetchImpl));
+      await expect(client.findInvoices('71')).resolves.toEqual({
+        byId: { id: '71', docNumber: '1040' },
+        byDocNumber: [],
+      });
+    });
+
+    it('sends nothing for text that could leave the quoted literal', async () => {
+      const recorder = answers([], []);
+      const client = new QboClient(configFor(recorder.fetchImpl));
+      for (const bad of ["1' or '1'='1", 'a\\b', '', 'x'.repeat(22)]) {
+        await expect(client.findInvoices(bad)).rejects.toThrow(/invoice/);
+      }
+      expect(recorder.calls).toHaveLength(0);
+    });
+
+    it('refuses an answer by id that is another invoice', async () => {
+      const recorder = answers([{ Id: '72' }], []);
+      const client = new QboClient(configFor(recorder.fetchImpl));
+      await expect(client.findInvoices('71')).rejects.toThrow(/another/);
+    });
+  });
+
   it('reads account types live by id', async () => {
     const recorder = recordingFetch(() =>
       jsonResponse({
