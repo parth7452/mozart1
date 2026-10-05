@@ -60,6 +60,12 @@ export interface FixtureDocument {
      */
     | 'formats'
     /**
+     * The natural channel: a coded direct deposit advice, its MCB backup, a
+     * second distributor's deduction detail export, the signed deal, and the
+     * shortage's BOL and POD — one case, HL-NAT-001 (`natural.ts`).
+     */
+    | 'natural'
+    /**
      * Real documents from public records, with ExtractBench's verified answers
      * (`public.ts`): the only suite nobody wrote. `public_scanned` is the same
      * source read through OCR.

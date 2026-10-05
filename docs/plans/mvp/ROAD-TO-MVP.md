@@ -25,6 +25,13 @@ Four milestones get there. Each has a go/no-go a person can check.
 
 ## M0: live in production. Done.
 
+Since 2026-09-30, also on main: a board per retailer or distributor at the
+top of the case list, a Books page reading a connected company's chart,
+trial balance and general ledger (ADR 0066 §1–3), a read document suggesting
+the case it belongs to, an invitation email (ADR 0065), and payer playbook
+drafts for UNFI, KeHE, Walmart, Chewy, PetSmart and Walgreens mined from
+Glimpse's public guides (`docs/competitive/glimpse/`).
+
 Verified on the deployed app, not only in tests (`docs/STATE-OF-PLAY.md`):
 
 - Sign-in by magic link, invitation only, owner-managed team (ADR 0051).
@@ -52,9 +59,9 @@ through UNFI and KeHE will not recognise itself in it.
 
 | Item | State |
 | --- | --- |
-| A demo workspace that reads as a natural/specialty food brand: a UNFI-style deduction remittance (MCB, promo billback `-111`, spoilage, fill-rate fee), a KeHE-style chargeback, the deal sheet they came from, and the backup | **Not done.** The `formats` suite has a broadline chargeback statement and an EDI 812 printout; nothing UNFI- or KeHE-shaped exists |
+| A demo workspace that reads as a natural/specialty food brand: a UNFI-style deduction remittance (MCB, promo billback `-111`, spoilage, fill-rate fee), a KeHE-style chargeback, the deal sheet they came from, and the backup | **Documents built** (suite `natural`, 2026-10-05), **not recorded** (P2 waits on the founder's go) and **not loaded** into a workspace (P5) |
 | A QuickBooks sandbox company connected to that workspace with matching short-pays, so "connect your books and we show you what you are sitting on" is demonstrable live | **Not done** as a demo; the connect flow and sync are live |
-| Beachhead reason codes on the decide form (MCB, deviated-pricing billback, promo allowance, spoilage/unsaleables, fill rate, new-item fee) | **Partly.** Eleven pilot codes are on the form (E5); the foodservice and natural-channel vocabulary is named as absent in Phase 2 draft D |
+| Beachhead reason codes on the decide form (MCB, deviated-pricing billback, promo allowance, spoilage/unsaleables, fill rate, new-item fee) | **Done** (main, 2026-10-04): every taxonomy code is on the form, grouped by family. Slotting, new-item and recall-disposal fees are still taxonomy gaps (Phase 2 draft D) |
 | A 30-minute call script and the materials (this plan's `docs/onboarding/PRE-SELL-CALL.md`) | **Done in this PR** |
 | A one-page data-handling note naming the sub-processors | **Not done** (pilot README, Friday list) |
 | Custom SMTP for sign-in mail, so a lead's first link arrives (pilot B5) | **Unknown.** Not recorded as done anywhere |

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -31,8 +31,23 @@ function cassette(key: string): Cassette {
 const value = (field: { value: unknown } | undefined): string | undefined =>
   typeof field?.value === 'string' ? field.value : undefined;
 
+/**
+ * Suites the committed baseline names as not yet recorded. A notice in one of
+ * them has no cassette until `pnpm record:cassettes` is run for it, and is left
+ * out here only while it has none; every other notice must have one, so a
+ * missing cassette in a recorded suite still fails.
+ */
+const baselinePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'baseline.json');
+const pendingSuites = new Set(
+  Object.keys(
+    (JSON.parse(readFileSync(baselinePath, 'utf8')) as { pendingSuites?: Record<string, string> })
+      .pendingSuites ?? {},
+  ),
+);
+
 const notices = everyDocument()
   .filter((d) => d.docType === 'deduction_notice')
+  .filter((d) => !pendingSuites.has(d.suite) || existsSync(path.join(cassetteDir, `${d.key}.json`)))
   .map((d) => ({ key: d.key, recorded: cassette(d.key) }));
 
 describe('the recorded notices and a deduction’s own number', () => {

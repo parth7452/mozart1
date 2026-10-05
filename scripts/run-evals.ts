@@ -233,6 +233,7 @@ const SUITE_LABELS: Record<string, string> = {
   logistics: 'one freight case across five documents — does the argument hold',
   customer: 'simulated camera pages — does a staffing or freight case survive one',
   formats: 'merged cells and an EDI 812 printout — the distributor formats nothing else covers',
+  natural: 'a coded direct deposit advice, MCB backup and deal — the natural channel a brand receives',
   public: 'real public records nobody wrote for us — does it read a page it has never seen',
   public_scanned: 'the same records scanned or degraded, read through OCR',
 };
@@ -253,6 +254,7 @@ const SUITE_ORDER = [
   'logistics',
   'customer',
   'formats',
+  'natural',
   'public',
   'public_scanned',
 ];

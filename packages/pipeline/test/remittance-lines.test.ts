@@ -249,6 +249,24 @@ describe('a remittance line opens a case', () => {
     expect(read.opened[0]?.deductionAmountCents).toBe(80_000);
   });
 
+  it('opens three cases from the natural-channel advice, one per coded short-pay', async () => {
+    // The document the pre-sell call uploads live (`natural.ts`): five invoices,
+    // three short-paid by `(Invoice#)-111`, `MCB(yyyymmdd)` and `AVL(PO#)`.
+    const { deps, stored } = await harness();
+    const dda = fixture('natural-dda-remittance');
+
+    const read = await openCasesFromRemittance(stored, extractionOf(remittanceFrom(dda)), deps);
+
+    expect(outcomes(read.lines)).toEqual({ opened: 3, not_short_paid: 2 });
+    expect(
+      read.opened.map((c) => [c.claimId, c.deductionAmountCents, c.reasonCodeAsPrinted]),
+    ).toEqual([
+      ['EFT-0091827:HF-30418', 21_600, 'HF-30418-111'],
+      ['EFT-0091827:HF-30421', 54_000, 'MCB20260815'],
+      ['EFT-0091827:HF-30425', 15_000, 'AVL4180311'],
+    ]);
+  });
+
   it('records how the amount was arrived at, because the row cannot show it', async () => {
     const { store, deps, stored } = await harness();
     const log = fixture('log-202-remittance-advice');
