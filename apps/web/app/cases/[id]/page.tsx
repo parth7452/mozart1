@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { evidenceChecklist, isClosed } from '@recouple/core-domain';
+import { cents, evidenceChecklist, familyOf, isClosed } from '@recouple/core-domain';
 import { evidenceOfDocuments } from '@recouple/extraction';
 import { reconcileCase } from '@recouple/pipeline';
 import { requireSession } from '../../../lib/session';
@@ -15,6 +15,12 @@ import { sheetExtractFor } from '../../../lib/sheet-extract-load';
 import { qboPostingFromEnv } from '../../../lib/qbo-posting';
 import { postingStoreFor } from '../../../lib/posting';
 import { unattachedWithSuggestions } from '../../../lib/document-suggestions';
+import {
+  settlementChartReader,
+  settlementEditorFor,
+  type SettlementDefaults,
+  type SettlementEditor,
+} from '../../../lib/settlement-editor';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,10 +52,21 @@ export default async function CasePage({
     upload?: string;
     action?: string;
     about?: string | string[];
+    // The settlement editor's own parameters (`SETTLE_PARAMS`): how the case
+    // settled, and the lines a refused form sent back. Each is validated
+    // where it is read, and none of them is ever a memo.
+    so?: string | string[];
+    sr?: string | string[];
+    sf?: string | string[];
+    si?: string | string[];
+    sl?: string | string[];
+    sp?: string | string[];
+    se?: string | string[];
   }>;
 }) {
   const { id } = await params;
-  const { decline, upload, action, about } = await searchParams;
+  const query = await searchParams;
+  const { decline, upload, action, about } = query;
   // The strict pattern, the same one every route here uses. `[0-9a-f-]{36}`
   // accepts `------------------------------------`, which is not a UUID and
   // reaches Postgres as a 500 rather than a 404.
@@ -99,7 +116,59 @@ export default async function CasePage({
       ]);
     // Read only where the deployment posts at all (`QBO_POSTING`, ADR 0060 §5):
     // elsewhere the card, the retry and the posting approve label do not exist.
-    const posting = qboPostingFromEnv() === undefined ? undefined : await postingStoreFor(session).postingForCase(id);
+    const postingStore = qboPostingFromEnv() === undefined ? undefined : postingStoreFor(session);
+    const posting = postingStore === undefined ? undefined : await postingStore.postingForCase(id);
+
+    // The settlement entry's prepare form (ADR 0068 §7): for a member who may
+    // write, where posting is live and the settlement is not yet approved.
+    // The chart of accounts is read only once somebody has said how the case
+    // settled — never on an ordinary view of the page — and a refresh that
+    // read causes is allowed only for a member the database lets write.
+    let settlementEditor: SettlementEditor | undefined;
+    if (
+      postingStore !== undefined &&
+      posting?.connection !== undefined &&
+      posting.connection.postingEnabled &&
+      posting.connection.hasMap &&
+      posting.settlement?.approved !== true &&
+      mayAct
+    ) {
+      const connectionId = posting.connection.connectionId;
+      const connection = (await postingStore.postingConnections()).find((c) => c.connectionId === connectionId);
+      const declined = summary.declined === true || workflow?.decline !== undefined;
+      const prepared = posting.settlement;
+      const defaults: SettlementDefaults =
+        prepared !== undefined
+          ? {
+              outcome: prepared.outcome,
+              recoveredCents: prepared.recoveredCents,
+              family: prepared.family,
+              invoiceId: prepared.invoiceId,
+            }
+          : {
+              outcome: declined ? 'declined' : workflow?.outcome?.outcome,
+              recoveredCents: declined
+                ? cents(0)
+                : workflow?.outcome === undefined
+                  ? undefined
+                  : cents(workflow.outcome.recoveredCents),
+              family: workflow?.decision ? familyOf(workflow.decision.reason) : undefined,
+              invoiceId: posting.ledgerInvoiceId,
+            };
+      settlementEditor = await settlementEditorFor({
+        deductionId: id,
+        amountCents: summary.deductionAmountCents,
+        params: query,
+        defaults,
+        settlement: prepared,
+        connection,
+        mayAct,
+        readChartFor: (c) => async () =>
+          settlementChartReader({ orgId: session.org.orgId, userId: session.userId }, c, {
+            mayRefresh: await postingStore.memberMayWrite(),
+          })(),
+      });
+    }
 
     // Computed, never stored (ADR 0059). The first set starts 2000-01-01, so
     // a decision's own date always resolves one.
@@ -141,6 +210,7 @@ export default async function CasePage({
         notice={decline ?? upload ?? action}
         noticeAbout={aboutFrom(about)}
         posting={posting}
+        settlementEditor={settlementEditor}
       />
     );
   } finally {

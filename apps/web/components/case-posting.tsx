@@ -1,8 +1,7 @@
-import { REASON_FAMILIES, formatCents } from '@recouple/core-domain';
-import type { CasePosting, SettlementOutcome } from '@recouple/store-postgres';
-
-/** The store's `SETTLEMENT_OUTCOMES`, as a type-only import keeps pg out of the view. */
-const SETTLEMENT_OUTCOMES: readonly SettlementOutcome[] = ['won', 'partial', 'lost', 'declined'];
+import { formatCents } from '@recouple/core-domain';
+import type { CasePosting } from '@recouple/store-postgres';
+import { SETTLE_PARAMS } from '../lib/settlement-fields';
+import { StoredSettlementLines } from './settlement-editor';
 
 const METHOD_LABEL = {
   journal_entry: 'Journal entry',
@@ -11,9 +10,12 @@ const METHOD_LABEL = {
 
 /**
  * The case's postings to QuickBooks (ADR 0060): each writeback row and what
- * became of it, a retry for any that failed or wait, and moment 2 — preparing
- * a settlement and, for a second person, approving it. Rendered only on a
- * deployment that posts at all; the database is the referee for every act.
+ * became of it, a retry for any that failed or wait, and moment 2's approval:
+ * the settlement a person prepared, line by line as it will be posted, what
+ * they changed from the computed entry, and — for a second person — the one
+ * button (ADR 0068). Preparing it is the draft-accounting card's form.
+ * Rendered only on a deployment that posts at all; the database is the
+ * referee for every act.
  */
 export function CasePostingCard({
   deductionId,
@@ -69,15 +71,29 @@ export function CasePostingCard({
         </ul>
       )}
 
+      {settlement !== undefined ? (
+        <div className="settlement-prepared">
+          <p className="hint">
+            Settlement {settlement.approved ? 'approved' : 'prepared'}: {settlement.outcome},{' '}
+            {formatCents(settlement.recoveredCents)} recovered, invoice{' '}
+            <span className="mono">{settlement.invoiceId}</span>.
+          </p>
+          {settlement.lines === undefined ? (
+            <p className="hint">
+              This settlement was prepared without journal lines of its own, so the computed entry
+              is what is posted.
+            </p>
+          ) : (
+            <StoredSettlementLines lines={settlement.lines} computed={settlement.computedLines} />
+          )}
+        </div>
+      ) : null}
+
       {live && settlement !== undefined && !settlement.approved ? (
         mayApprove && settlement.preparedBy !== viewerUserId ? (
           <form action={`/cases/${deductionId}/settle`} method="post">
             <input type="hidden" name="intent" value="approve" />
             <input type="hidden" name="decisionId" value={settlement.decisionId} />
-            <p className="hint">
-              Settlement prepared: {settlement.outcome}, {formatCents(settlement.recoveredCents)} recovered,
-              invoice <span className="mono">{settlement.invoiceId}</span>.
-            </p>
             <button className="primary" type="submit">
               Approve the settlement and post it to QuickBooks
             </button>
@@ -91,38 +107,13 @@ export function CasePostingCard({
         )
       ) : null}
 
-      {live && mayAct && settlement === undefined ? (
-        <form action={`/cases/${deductionId}/settle`} method="post">
-          <input type="hidden" name="intent" value="prepare" />
-          <label htmlFor="settle-outcome">How it settled</label>
-          <select id="settle-outcome" name="outcome" required>
-            {SETTLEMENT_OUTCOMES.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="settle-recovered">Recovered</label>
-          <input id="settle-recovered" name="recovered" placeholder="$0.00" />
-          <label htmlFor="settle-family">Reason family</label>
-          <select id="settle-family" name="family">
-            <option value="">unclassified</option>
-            {REASON_FAMILIES.map((f) => (
-              <option key={f} value={f}>
-                {f.replace(/_/g, ' ')}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="settle-invoice">QuickBooks invoice id</label>
-          <input
-            id="settle-invoice"
-            name="invoiceId"
-            required
-            pattern="[0-9]{1,20}"
-            defaultValue={posting.ledgerInvoiceId ?? ''}
-          />
-          <button type="submit">Prepare the settlement</button>
-        </form>
+      {live && mayAct && settlement !== undefined && !settlement.approved ? (
+        <p className="hint">
+          <a href={`/cases/${deductionId}?${SETTLE_PARAMS.again}=1#settlement`}>
+            Prepare it again with different lines
+          </a>{' '}
+          — the lines above are not changed; a new settlement replaces this one.
+        </p>
       ) : null}
     </div>
   );

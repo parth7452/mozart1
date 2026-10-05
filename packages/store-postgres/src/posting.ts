@@ -291,18 +291,18 @@ export interface CasePosting {
         readonly recoveredCents: Cents;
         readonly invoiceId: string;
         readonly approved: boolean;
-        readonly family: ReasonFamily | undefined;
+        readonly family?: ReasonFamily | undefined;
         /**
          * The lines the decision was prepared with (ADR 0068), or nothing for a
          * decision that carries none and is posted from the computed lines.
          */
-        readonly lines: readonly StoredSettlementLine[] | undefined;
+        readonly lines?: readonly StoredSettlementLine[] | undefined;
         /**
          * What `draftEntries` and the connection's map in force now would post
          * for this decision: what the stored lines are compared with. Nothing
          * when no one connection has a map.
          */
-        readonly computedLines: readonly SettlementLine[] | undefined;
+        readonly computedLines?: readonly SettlementLine[] | undefined;
       }
     | undefined;
 }

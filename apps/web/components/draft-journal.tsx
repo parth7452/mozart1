@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   JournalInputError,
   MoneyError,
@@ -41,7 +42,12 @@ function Entry({ entry }: { entry: DraftEntry }) {
 
 /**
  * The journal entries a case implies, as drafts. A pure function of its
- * props: nothing is posted, and there is no action here.
+ * props: nothing is posted, and it has no action of its own.
+ *
+ * `editor`, when the page hands one in, is the settlement entry's prepare
+ * form (ADR 0068 §7), drawn inside this card: the drafts above it stay what
+ * they were, computed and unposted, and the form is where a person turns the
+ * settlement's lines into something a second person approves.
  */
 export function DraftJournal(props: {
   amountCents: number;
@@ -50,6 +56,7 @@ export function DraftJournal(props: {
   declined: boolean;
   family?: ReasonFamily | undefined;
   printedReasonCode?: string | undefined;
+  editor?: ReactNode;
 }) {
   const outcome = props.declined ? 'declined' : props.outcome;
   let body;
@@ -102,13 +109,15 @@ export function DraftJournal(props: {
         Draft accounting entries <span className="badge">Draft — not posted</span>
       </h3>
       <p>
-        Nothing is posted to your books. Posting needs its own decision record. Accounts are
-        suggested defaults.
+        {props.editor === undefined || props.editor === null
+          ? 'Nothing is posted to your books. Posting needs its own decision record. Accounts are suggested defaults.'
+          : 'Nothing below is posted. The entries are drafts under suggested account names; the settlement entry at the foot of this card is the one you can edit, with your own QuickBooks accounts, and it is posted only after a second person approves it.'}
       </p>
       {props.family === undefined ? (
         <p>The expense account is chosen once a reason is decided.</p>
       ) : null}
       {body}
+      {props.editor ?? null}
     </section>
   );
 }

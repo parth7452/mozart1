@@ -1110,6 +1110,23 @@ export const NOTICES = {
     tone: 'good',
     text: 'the settlement is approved and its posting is queued for QuickBooks',
   },
+  // --- a settlement's lines (ADR 0068) ----------------------------------------
+  settle_lines_refused: {
+    tone: 'bad',
+    text: 'that entry was not prepared — what is wrong with it is listed above the lines below. Nothing was saved; memos have to be typed again',
+  },
+  settle_chart_unreadable: {
+    tone: 'bad',
+    text: 'your QuickBooks chart of accounts could not be read, so the entry could not be checked and nothing was prepared — try again in a minute',
+  },
+  settle_already_approved: {
+    tone: 'bad',
+    text: 'this case\'s settlement is already approved, so nothing more is prepared for it; a posted entry is corrected in QuickBooks',
+  },
+  settle_superseded: {
+    tone: 'bad',
+    text: 'that settlement was replaced by a newer one before it was approved, so nothing was approved — the newer one is shown below',
+  },
   writeback_retried: {
     tone: 'good',
     text: 'QuickBooks will be checked for this posting first, and it is sent again only if nothing there carries it',

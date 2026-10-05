@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { REASON_FAMILIES, parseMoneyToCents, type Cents, type ReasonFamily } from '@recouple/core-domain';
+import { JournalInputError, MoneyError, type Cents, type SettlementLineProblem } from '@recouple/core-domain';
 import {
   PostingStoreError,
-  SETTLEMENT_OUTCOMES,
+  SettlementAlreadyApprovedError,
   SettlementApprovalRefusedError,
-  type SettlementOutcome,
+  SettlementLinesRefusedError,
 } from '@recouple/store-postgres';
 import { requireSession } from '../../../../lib/session';
 import { mayWrite } from '../../../../lib/pipeline';
@@ -12,27 +12,29 @@ import { isCrossSite, isUuid, refuseCrossSite } from '../../../../lib/request';
 import { backToCase, mayApprove } from '../../../../lib/workflow';
 import { qboPostingFromEnv } from '../../../../lib/qbo-posting';
 import { postingStoreFor, queueDecisionPostings } from '../../../../lib/posting';
-
-const LEDGER_ID = /^[0-9]{1,20}$/;
-
-function isOutcome(value: unknown): value is SettlementOutcome {
-  return typeof value === 'string' && (SETTLEMENT_OUTCOMES as readonly string[]).includes(value);
-}
-
-function isFamily(value: unknown): value is ReasonFamily {
-  return typeof value === 'string' && (REASON_FAMILIES as readonly string[]).includes(value);
-}
+import {
+  SettlementChartUnreadableError,
+  postedLinesFrom,
+  settlementChartReader,
+  settlementChoiceFrom,
+  settlementEditorPath,
+} from '../../../../lib/settlement-editor';
 
 /**
  * Moment 2 (ADR 0060 §2): how a case settled, in the books.
  *
  * `intent=prepare` records a person's schema `S` decision — the outcome, what
- * was recovered, the family, and the ledger invoice. `intent=approve` is a
- * second person's approval of it (never the preparer: the database's
- * separation of duties, unchanged), a `writeback` approval and a `writeoff`
- * one when the entry writes anything off, and then the rows and the queue.
- * Nothing here computes an amount the store does not check against
- * `draftEntries`.
+ * was recovered, the family, the ledger invoice, and the journal lines the
+ * form carried (ADR 0068): amounts read by `parseMoneyToCents`, accounts
+ * checked by the store against a chart it reads live, so an account id a
+ * form was tampered with is refused like any other the chart does not
+ * report. A refused form goes back to the editor with its accounts and
+ * amounts echoed and its memos left out of the address. `intent=approve` is
+ * a second person's approval of the case's latest settlement (never the
+ * preparer: the database's separation of duties, unchanged), a `writeback`
+ * approval and a `writeoff` one when the outcome writes anything off, and
+ * then the rows and the queue. Nothing here computes an amount the store
+ * does not check.
  */
 export async function POST(
   request: NextRequest,
@@ -54,35 +56,72 @@ export async function POST(
 
   if (intent === 'prepare') {
     if (!mayWrite(session.org.role)) return back('settle_role');
-    const outcome = form.get('outcome');
-    const family = form.get('family');
-    const invoiceId = form.get('invoiceId');
-    const recovered = form.get('recovered');
-    if (!isOutcome(outcome) || typeof invoiceId !== 'string' || !LEDGER_ID.test(invoiceId.trim())) {
-      return back('settle_invalid');
-    }
-    if (family !== null && family !== '' && !isFamily(family)) return back('settle_invalid');
-    let recoveredCents: Cents;
-    try {
-      recoveredCents =
-        typeof recovered === 'string' && recovered.trim() !== ''
-          ? parseMoneyToCents(recovered.trim())
-          : (0 as Cents);
-    } catch {
-      // A figure the money parser will not read is a refusal, said as one.
-      return back('settle_invalid');
+    // A figure the money parser will not read is a refusal, said as one.
+    const choice = settlementChoiceFrom({
+      outcome: form.get('outcome'),
+      recovered: form.get('recovered'),
+      family: form.get('family'),
+      invoiceId: form.get('invoiceId'),
+    });
+    if (choice === undefined || choice === 'invalid') return back('settle_invalid');
+
+    // The connection is the workspace's, never the form's.
+    const ready = await store.postingForCase(id);
+    const connection =
+      ready.connection === undefined || !ready.connection.postingEnabled || !ready.connection.hasMap
+        ? undefined
+        : (await store.postingConnections()).find((c) => c.connectionId === ready.connection?.connectionId);
+    if (connection === undefined) return back('posting_off');
+
+    const posted = postedLinesFrom(form);
+    // Back to the form with what was entered: accounts and cents, never a memo.
+    const backToEditor = (problems: readonly SettlementLineProblem[]): NextResponse =>
+      NextResponse.redirect(
+        new URL(
+          settlementEditorPath(id, choice, {
+            lines: posted.echo,
+            problems,
+            notice: 'settle_lines_refused',
+          }),
+          request.url,
+        ),
+        { status: 303 },
+      );
+    if (posted.unreadable.length > 0) {
+      return backToEditor(posted.unreadable.map((lineNo) => ({ code: 'not_integer_cents', lineNo })));
     }
     try {
       await store.prepareSettlementDecision({
         deductionId: id,
         preparedBy: session.userId,
-        outcome,
-        recoveredCents,
-        family: isFamily(family) ? family : undefined,
-        invoiceId: invoiceId.trim(),
+        outcome: choice.outcome,
+        recoveredCents: choice.recoveredCents,
+        family: choice.family,
+        invoiceId: choice.invoiceId,
+        lines: {
+          connectionId: connection.connectionId,
+          lines: posted.lines,
+          // A token refresh this read causes is stored only for a member the
+          // database lets write; for anyone else the read refuses to refresh.
+          readChart: settlementChartReader(
+            { orgId: session.org.orgId, userId: session.userId },
+            connection,
+            { mayRefresh: await store.memberMayWrite() },
+          ),
+        },
       });
     } catch (cause) {
-      if (cause instanceof PostingStoreError || cause instanceof RangeError) return back('settle_invalid');
+      if (cause instanceof SettlementLinesRefusedError) return backToEditor(cause.problems);
+      if (cause instanceof SettlementChartUnreadableError) return back('settle_chart_unreadable');
+      if (cause instanceof SettlementAlreadyApprovedError) return back('settle_already_approved');
+      if (
+        cause instanceof PostingStoreError ||
+        cause instanceof RangeError ||
+        cause instanceof JournalInputError ||
+        cause instanceof MoneyError
+      ) {
+        return back('settle_invalid');
+      }
       throw cause;
     }
     return back('settle_prepared');
@@ -111,7 +150,9 @@ export async function POST(
             ? 'settle_is_preparer'
             : cause.reason === 'role'
               ? 'settle_role'
-              : 'settle_duplicate',
+              : cause.reason === 'superseded'
+                ? 'settle_superseded'
+                : 'settle_duplicate',
         );
       }
       throw cause;
