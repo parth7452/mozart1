@@ -254,3 +254,107 @@ describe('post-writeback', () => {
     });
   });
 });
+
+/**
+ * ADR 0068 §6: a settlement decision that carries its own lines is posted
+ * from them. The computed entry for this case would be Dr 200 (shortage
+ * write-off) / Cr 90; the stored lines send the write-off somewhere else.
+ */
+describe('post-writeback, a settlement with stored lines', () => {
+  const stored = [
+    { accountId: '300', side: 'Debit' as const, amountCents: cents(30_000), memo: 'Agreed with the buyer' },
+    { accountId: '305', side: 'Debit' as const, amountCents: cents(20_000) },
+    { accountId: '90', side: 'Credit' as const, amountCents: amount },
+  ];
+  const rowCopy = stored.map(({ accountId, side, amountCents }) => ({ accountId, side, amountCents }));
+
+  function settlementRow(overrides: Partial<PostingWriteback> = {}): PostingWriteback {
+    return foundRow({
+      schemaId: 'S',
+      outcome: 'lost',
+      recoveredCents: cents(0),
+      lines: rowCopy,
+      settlementLines: stored,
+      ...overrides,
+    });
+  }
+
+  const sentLines = (body: JsonObject | undefined) =>
+    ((body?.['Line'] ?? []) as JsonObject[]).map((line) => {
+      const detail = line['JournalEntryLineDetail'] as JsonObject;
+      return [
+        (detail['AccountRef'] as JsonObject)['value'],
+        detail['PostingType'],
+        line['Amount'],
+        line['Description'],
+      ];
+    });
+
+  it('sends the stored lines in order with their memos, never the computed ones', async () => {
+    const h = harness(settlementRow());
+    await expect(postWritebackJob(h.deps, { writebackId })).resolves.toMatchObject({ status: 'succeeded' });
+    expect(h.posts).toHaveLength(1);
+    const ours = h.posts[0]?.body['PrivateNote'];
+    expect(sentLines(h.posts[0]?.body)).toEqual([
+      ['300', 'Debit', '300.00', 'Agreed with the buyer'],
+      ['305', 'Debit', '200.00', ours],
+      ['90', 'Credit', '500.00', ours],
+    ]);
+    // The account `draftEntries` and the map would have used is not in it.
+    expect(JSON.stringify(h.posts[0]?.body)).not.toContain('"value":"200"');
+    expect(h.attempts).toEqual([{ writebackId, status: 'succeeded', qboTxnId: '301', reason: 'sent' }]);
+  });
+
+  it('ignores a map that has changed since: the stored lines are what was approved', async () => {
+    const h = harness(settlementRow({ map: { ...map, deductionsReceivableAccountId: '91', unclassifiedWriteoff: '1' } }));
+    await postWritebackJob(h.deps, { writebackId });
+    expect(sentLines(h.posts[0]?.body).map(([account]) => account)).toEqual(['300', '305', '90']);
+  });
+
+  it('refuses before sending when the stored lines differ from the row\'s copy', async () => {
+    const h = harness(settlementRow({ lines: [rowCopy[0]!, { ...rowCopy[1]!, accountId: '306' }, rowCopy[2]!] }));
+    await expect(postWritebackJob(h.deps, { writebackId })).rejects.toMatchObject({ reason: 'lines_changed' });
+    expect(h.posts).toHaveLength(0);
+    const computed = harness(
+      settlementRow({ lines: entryLines(draftEntries({ amountCents: amount, outcome: 'lost', family: 'shortage' }), map, ['written_off']) }),
+    );
+    await expect(postWritebackJob(computed.deps, { writebackId })).rejects.toMatchObject({ reason: 'lines_changed' });
+    expect(computed.posts).toHaveLength(0);
+  });
+
+  it('reads back against the stored lines: QuickBooks holding another account is a mismatch', async () => {
+    const h = harness(settlementRow(), {
+      getById: async (_entity, id) => {
+        const got = echo(id, h.posts[0]?.body) as { Line: Array<{ JournalEntryLineDetail: { AccountRef: { value: string } } }> };
+        got.Line[0]!.JournalEntryLineDetail.AccountRef.value = '200';
+        return got as unknown as JsonObject;
+      },
+    });
+    await expect(postWritebackJob(h.deps, { writebackId })).rejects.toMatchObject({ reason: 'readback_mismatch' });
+    expect(h.attempts).toEqual([
+      { writebackId, status: 'failed', reason: 'readback_mismatch', mismatch: ['Line[0].AccountRef'] },
+    ]);
+  });
+
+  it('never puts a memo in what it records about an attempt', async () => {
+    const h = harness(settlementRow(), {
+      getById: async () => ({ Id: '301', TxnDate: '2026-01-01', Line: [] }),
+    });
+    await expect(postWritebackJob(h.deps, { writebackId })).rejects.toBeInstanceOf(WritebackFailedError);
+    expect(JSON.stringify(h.attempts)).not.toContain('Agreed');
+  });
+
+  it('a settlement with no stored lines is posted from the computed ones, as before', async () => {
+    const lines = entryLines(
+      draftEntries({ amountCents: amount, outcome: 'lost', recoveredCents: cents(0), family: 'shortage' }),
+      map,
+      ['recovered', 'written_off'],
+    );
+    const h = harness(settlementRow({ settlementLines: undefined, lines }));
+    await postWritebackJob(h.deps, { writebackId });
+    expect(sentLines(h.posts[0]?.body).map(([account, side]) => [account, side])).toEqual([
+      ['200', 'Debit'],
+      ['90', 'Credit'],
+    ]);
+  });
+});

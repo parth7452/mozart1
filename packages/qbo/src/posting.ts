@@ -39,6 +39,15 @@ export interface PostingLine {
   readonly amountCents: Cents;
 }
 
+/**
+ * A line of a settlement decision's stored entry (ADR 0068): what a person
+ * prepared and a second person approved. The memo is text that person typed;
+ * it becomes the line's `Description` and is carried nowhere else.
+ */
+export interface StoredPostingLine extends PostingLine {
+  readonly memo?: string | undefined;
+}
+
 export interface JournalEntryPosting {
   readonly entity: 'JournalEntry';
   readonly customerId: string;
@@ -115,6 +124,34 @@ export function buildSettlementEntry(
 }
 
 /**
+ * The settlement posting for a decision that carries its own lines (ADR 0068
+ * §6): exactly those lines, in their order, and nothing computed. A line's
+ * memo is its `Description`; a line without one keeps the posting memo, and
+ * the entry's `PrivateNote` is always ours. Balanced, or refused.
+ */
+export function buildStoredSettlementEntry(
+  input: Common & { readonly lines: readonly StoredPostingLine[] },
+): JournalEntryPosting {
+  if (input.lines.length < 2) {
+    throw new PostingInputError('a stored settlement entry has at least two lines');
+  }
+  const lines: PostingLine[] = [];
+  const memos: Array<string | undefined> = [];
+  for (const line of input.lines) {
+    if (line.side !== 'Debit' && line.side !== 'Credit') {
+      throw new PostingInputError('a stored line is a Debit or a Credit');
+    }
+    if (!Number.isSafeInteger(line.amountCents) || line.amountCents <= 0) {
+      throw new PostingInputError('a stored line posts positive integer cents');
+    }
+    lines.push({ accountId: assertQboId(line.accountId), side: line.side, amountCents: line.amountCents });
+    memos.push(line.memo === undefined || line.memo === '' ? undefined : line.memo);
+  }
+  assertBalanced(lines);
+  return journalEntry(input, lines, memos);
+}
+
+/**
  * The zero-total Payment that applies our found entry's credit to the
  * short-paid invoice, so aging does not show both.
  */
@@ -161,12 +198,19 @@ function buildEntry(
   input: Common & { readonly entries: readonly DraftEntry[]; readonly map: LedgerAccountMap },
   stages: readonly JournalStage[],
 ): JournalEntryPosting {
+  return journalEntry(input, entryLines(input.entries, input.map, stages), []);
+}
+
+/** One JournalEntry body: every line names the customer; `memos[i]` describes line `i`. */
+function journalEntry(
+  input: Common,
+  lines: readonly PostingLine[],
+  memos: readonly (string | undefined)[],
+): JournalEntryPosting {
   const customerId = assertQboId(input.customerId);
   const txnDate = assertDay(input.approvedOn);
   const reference = postingReference(input.writebackId);
   const memo = postingMemo(input.caseId, input.family, reference);
-
-  const lines = entryLines(input.entries, input.map, stages);
 
   return {
     entity: 'JournalEntry',
@@ -179,9 +223,9 @@ function buildEntry(
       TxnDate: txnDate,
       DocNumber: reference,
       PrivateNote: memo,
-      Line: lines.map((line) => ({
+      Line: lines.map((line, index) => ({
         Amount: centsToQboAmount(line.amountCents),
-        Description: memo,
+        Description: memos[index] ?? memo,
         DetailType: 'JournalEntryLineDetail',
         JournalEntryLineDetail: {
           PostingType: line.side,
@@ -215,12 +259,16 @@ export function entryLines(
   if (lines.length === 0) {
     throw new PostingInputError(`no draft lines for ${stages.join(', ')}`);
   }
+  assertBalanced(lines);
+  return lines;
+}
+
+function assertBalanced(lines: readonly PostingLine[]): void {
   const debits = sumCents(lines.filter((l) => l.side === 'Debit').map((l) => l.amountCents));
   const credits = sumCents(lines.filter((l) => l.side === 'Credit').map((l) => l.amountCents));
   if (debits !== credits) {
     throw new PostingInputError(`the entry does not balance: ${debits} debit, ${credits} credit`);
   }
-  return lines;
 }
 
 /** The stages a settlement entry carries (ADR 0060 §1). */

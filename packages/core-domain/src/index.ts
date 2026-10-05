@@ -13,6 +13,7 @@ export * from './evidence-requirements';
 export * from './reason-words';
 export * from './short-pay';
 export * from './settlement';
+export * from './settlement-lines';
 export * from './state-machine';
 export * from './triage';
 export * from './thresholds';

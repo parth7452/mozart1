@@ -7,21 +7,31 @@
  * `writeoffs` row exists only under an `approvals` row for its decision, and a
  * succeeded posting is final. This file adds the checks only it can make: the
  * account types a map names (read live by the caller), the amounts a row
- * carries (from `draftEntries` and nothing else), and that a write-off equals
- * the entry's expense debit.
+ * carries (from `draftEntries`, or from the lines a settlement decision was
+ * prepared with — ADR 0068), and that a write-off equals what the case's
+ * outcome left unrecovered.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
   REASON_FAMILIES,
+  diffSettlementLines,
   draftEntries,
   familyOf,
   isCanonicalReasonCode,
+  settlementLinesFrom,
   sumCents,
   cents,
+  validateSettlementLines,
   type Cents,
   type ReasonFamily,
+  type SettlementAccountPolicy,
+  type SettlementChartAccount,
+  type SettlementLine,
+  type SettlementLineInput,
+  type SettlementLineProblem,
+  type StoredSettlementLine,
 } from '@recouple/core-domain';
 import {
   SETUP_ROWS,
@@ -33,6 +43,7 @@ import {
   type LedgerAccountMap,
   type PostingLine,
   type SetupRow,
+  type StoredPostingLine,
 } from '@recouple/qbo';
 import { OwnerRequiredError } from './connections';
 import {
@@ -60,6 +71,39 @@ export const MAP_ACCOUNT_TYPES = {
   deductionsReceivable: ['Other Current Asset'],
   writeoff: ['Expense', 'Other Expense'],
 } as const;
+
+/**
+ * The account types no line of an edited settlement entry may be on (ADR 0068
+ * §4): a payable wants a vendor where every line of ours names the customer,
+ * and an entry that touched a bank account would invent a receipt or a
+ * payment (ADR 0060 §1). The founder's to change — this list and
+ * `settlementAccountPolicy` are the whole rule about accounts.
+ */
+export const SETTLEMENT_REFUSED_ACCOUNT_TYPES = ['Accounts Payable', 'Bank'] as const;
+
+/**
+ * Which accounts an edited settlement line may use, for a tenant's map: any
+ * active account of the chart, except that the receivable lines stay the
+ * map's own and no line is on a refused type.
+ */
+export function settlementAccountPolicy(map: LedgerAccountMap): SettlementAccountPolicy {
+  return {
+    receivableAccountId: map.arAccountId,
+    receivableAccountTypes: MAP_ACCOUNT_TYPES.ar,
+    refusedAccountTypes: SETTLEMENT_REFUSED_ACCOUNT_TYPES,
+  };
+}
+
+/** Reads the connection's chart of accounts live, inactive accounts included. */
+export type SettlementChartReader = () => Promise<readonly SettlementChartAccount[]>;
+
+/** The lines a person prepared a settlement with, and how their accounts are checked. */
+export interface SettlementLinesInput {
+  /** The connection whose map and chart the lines are checked against. */
+  readonly connectionId: string;
+  readonly lines: readonly SettlementLineInput[];
+  readonly readChart: SettlementChartReader;
+}
 
 /** Reads each account's `AccountType` live; an id QuickBooks lacks is absent. */
 export type AccountTypeReader = (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>;
@@ -89,6 +133,29 @@ export class PostingConnectionNotFoundError extends PostingStoreError {
 
 export class PostingDecisionError extends PostingStoreError {
   override readonly name = 'PostingDecisionError';
+}
+
+/** Edited lines `validateSettlementLines` refused (ADR 0068 §4). Codes and line numbers only. */
+export class SettlementLinesRefusedError extends PostingStoreError {
+  override readonly name = 'SettlementLinesRefusedError';
+  constructor(readonly problems: readonly SettlementLineProblem[]) {
+    super(
+      `the settlement's lines were refused: ${problems
+        .map((p) => (p.lineNo === undefined ? p.code : `${p.code} (line ${p.lineNo})`))
+        .join(', ')}`,
+    );
+  }
+}
+
+/**
+ * The case's settlement is already approved (ADR 0068 §3): a second approved
+ * decision would post a second entry, so nothing more is prepared.
+ */
+export class SettlementAlreadyApprovedError extends PostingStoreError {
+  override readonly name = 'SettlementAlreadyApprovedError';
+  constructor(readonly deductionId: string) {
+    super(`case ${deductionId} already has an approved settlement`);
+  }
 }
 
 export class WritebackNotApprovedError extends PostingStoreError {
@@ -126,6 +193,12 @@ export interface SettlementResult {
   readonly family: ReasonFamily | null;
   readonly invoice_id: string;
   readonly payment_id?: string;
+  /**
+   * How many `settlement_lines` rows the decision was prepared with (ADR 0068
+   * §2). The database holds the lines to exactly this count at commit; a
+   * decision without it carries no lines and is posted from the computed ones.
+   */
+  readonly line_count?: number;
 }
 
 /** A settlement approval refused by the database's separation of duties. */
@@ -133,7 +206,7 @@ export class SettlementApprovalRefusedError extends PostingStoreError {
   override readonly name = 'SettlementApprovalRefusedError';
   constructor(
     readonly decisionId: string,
-    readonly reason: 'preparer' | 'role' | 'duplicate',
+    readonly reason: 'preparer' | 'role' | 'duplicate' | 'superseded',
   ) {
     super(`settlement approval refused for decision ${decisionId}: ${reason}`);
   }
@@ -218,6 +291,18 @@ export interface CasePosting {
         readonly recoveredCents: Cents;
         readonly invoiceId: string;
         readonly approved: boolean;
+        readonly family: ReasonFamily | undefined;
+        /**
+         * The lines the decision was prepared with (ADR 0068), or nothing for a
+         * decision that carries none and is posted from the computed lines.
+         */
+        readonly lines: readonly StoredSettlementLine[] | undefined;
+        /**
+         * What `draftEntries` and the connection's map in force now would post
+         * for this decision: what the stored lines are compared with. Nothing
+         * when no one connection has a map.
+         */
+        readonly computedLines: readonly SettlementLine[] | undefined;
       }
     | undefined;
 }
@@ -250,6 +335,11 @@ export interface WritebackToPost {
   readonly postingEnabled: boolean;
   readonly amountCents: Cents;
   readonly lines: readonly PostingLine[] | undefined;
+  /**
+   * A settlement decision's own lines, memos included (ADR 0068 §6): when
+   * present the entry is built from these and nothing is computed.
+   */
+  readonly settlementLines: readonly StoredPostingLine[] | undefined;
   readonly caseAmountCents: Cents;
   readonly family: ReasonFamily | undefined;
   readonly outcome: SettlementOutcome | undefined;
@@ -748,6 +838,18 @@ export class PostgresPostingStore {
    * Moment 2's decision (ADR 0060 §2): a human `S` decision naming the
    * outcome, what was recovered, the family and the invoice picked from a live
    * read. Checked against `draftEntries` before it is written.
+   *
+   * With `lines` it also carries the journal lines the preparer chose (ADR
+   * 0068): checked by `validateSettlementLines` against the connection's map
+   * in force and a chart of accounts read live through `readChart` — the name
+   * and type stored on each line are the chart's, never the caller's — and
+   * written in the decision's own transaction, where the database holds them
+   * to the decision's `line_count` and to balance at commit. Without `lines`
+   * the decision carries none and is posted from the computed lines.
+   *
+   * A case whose settlement is already approved takes no further decision
+   * (`SettlementAlreadyApprovedError`); before that, a new decision supersedes
+   * the earlier one.
    */
   async prepareSettlementDecision(input: {
     readonly deductionId: string;
@@ -757,6 +859,7 @@ export class PostgresPostingStore {
     readonly family: ReasonFamily | undefined;
     readonly invoiceId: string;
     readonly paymentId?: string;
+    readonly lines?: SettlementLinesInput;
   }): Promise<{ readonly decisionId: string }> {
     if (input.preparedBy !== this.tenant.userId) {
       throw new PostingDecisionError('a settlement decision is prepared by the caller');
@@ -769,6 +872,9 @@ export class PostgresPostingStore {
     }
     const invoiceId = assertQboId(input.invoiceId);
     const paymentId = input.paymentId === undefined ? undefined : assertQboId(input.paymentId);
+    // Read before the transaction opens: a call to the accounting system is
+    // not made while the case's row is locked.
+    const chart = input.lines === undefined ? undefined : await input.lines.readChart();
 
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ amount: string }>(
@@ -781,21 +887,59 @@ export class PostgresPostingStore {
       }
       // Refuses what the books could not hold: more recovered than deducted,
       // a lost case that recovered something, a won case short of the whole.
-      draftEntries({
+      const entries = draftEntries({
         amountCents: exact(found.amount, 'deduction_amount_cents'),
         recoveredCents: input.recoveredCents,
         outcome: input.outcome,
         family: input.family,
       });
+      // Under the case's row lock, so an approval of an earlier decision and
+      // this one cannot interleave (ADR 0068 §3).
+      const approved = await client.query(
+        `select 1 from decisions d
+           join approvals a on a.decision_id = d.id and a.action_type = 'writeback'
+          where d.deduction_id = $1 and d.schema_id = $2 limit 1`,
+        [input.deductionId, SETTLEMENT_SCHEMA_ID],
+      );
+      if (approved.rows.length > 0) throw new SettlementAlreadyApprovedError(input.deductionId);
+
+      let lines: readonly StoredSettlementLine[] | undefined;
+      let edited = false;
+      if (input.lines !== undefined && chart !== undefined) {
+        await this.connectionRow(client, input.lines.connectionId);
+        const mapRow = await readLatestMap(client, input.lines.connectionId);
+        if (mapRow === undefined) throw new AccountMapRequiredError(input.lines.connectionId);
+        const map = toMap(mapRow);
+        const computed = settlementLinesFrom(entries, map, {
+          includeFound: input.outcome === 'declined',
+        });
+        const verdict = validateSettlementLines(input.lines.lines, chart, {
+          computed,
+          policy: settlementAccountPolicy(map),
+        });
+        if (!verdict.ok) throw new SettlementLinesRefusedError(verdict.problems);
+        lines = verdict.lines;
+        edited = diffSettlementLines(lines, computed).length > 0;
+      }
+
       const result: SettlementResult = {
         outcome: input.outcome,
         recovered_cents: input.recoveredCents,
         family: input.family ?? null,
         invoice_id: invoiceId,
         ...(paymentId !== undefined ? { payment_id: paymentId } : {}),
+        ...(lines !== undefined ? { line_count: lines.length } : {}),
       };
+      // The lines are part of what was decided, so they are part of the hash.
       const stateHash = createHash('sha256')
-        .update(JSON.stringify({ deduction: input.deductionId, amount: found.amount, result }))
+        .update(
+          JSON.stringify({
+            deduction: input.deductionId,
+            amount: found.amount,
+            result,
+            ...(lines !== undefined ? { lines } : {}),
+          }),
+        )
         .digest();
       const inserted = await client.query<{ id: string }>(
         `insert into decisions
@@ -826,22 +970,67 @@ export class PostgresPostingStore {
       );
       const decisionId = inserted.rows[0]?.id;
       if (decisionId === undefined) throw new Error('insert into decisions returned no row');
+      for (const line of lines ?? []) {
+        try {
+          await client.query(
+            `insert into settlement_lines
+               (org_id, decision_id, line_no, account_external_id, account_name_as_reported,
+                account_type_as_reported, debit_cents, credit_cents, memo, created_by)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              this.tenant.orgId,
+              decisionId,
+              line.lineNo,
+              line.accountExternalId,
+              line.accountNameAsReported,
+              line.accountTypeAsReported,
+              line.debitCents,
+              line.creditCents,
+              line.memo ?? null,
+              input.preparedBy,
+            ],
+          );
+        } catch (error) {
+          // A shape the database refuses that the rule above let through (a
+          // character its memo check reads as a control character, a name
+          // past its bound): refused by line number, nothing written.
+          if (sqlState(error) === '23514') {
+            throw new PostingDecisionError(
+              `line ${line.lineNo} of the settlement was refused by the database's own checks`,
+            );
+          }
+          throw error;
+        }
+      }
+      // Counts and a flag: never an account's name, and never a memo.
       await appendEvent(client, this.tenant, input.deductionId, 'settlement.prepared', {
         decision_id: decisionId,
         schema_id: SETTLEMENT_SCHEMA_ID,
         outcome: input.outcome,
         recovered_cents: input.recoveredCents,
         prepared_by: input.preparedBy,
+        ...(lines !== undefined ? { line_count: lines.length, lines_edited: edited } : {}),
       });
       return { decisionId };
     });
   }
 
   /**
+   * The lines a settlement decision was prepared with, in order (ADR 0068):
+   * empty for a decision that carries none, and for one this tenant cannot
+   * see.
+   */
+  async settlementLinesFor(decisionId: string): Promise<readonly StoredSettlementLine[]> {
+    return this.withTenant((client) => readStoredLines(client, decisionId));
+  }
+
+  /**
    * The `writebacks` row for one entity, inserted `pending` with
-   * `request_id` = its own id before anything is sent. Its lines and amount
-   * come from `draftEntries` and the map latest at the writeback approval; a
-   * second press is refused by `unique (decision_id, method)`.
+   * `request_id` = its own id before anything is sent. A settlement decision
+   * that carries its own lines (ADR 0068) gives the row exactly those; any
+   * other decision's lines and amount come from `draftEntries` and the map
+   * latest at the writeback approval. A second press is refused by
+   * `unique (decision_id, method)`.
    */
   async insertWriteback(input: {
     readonly decisionId: string;
@@ -862,7 +1051,9 @@ export class PostgresPostingStore {
       let lines: readonly PostingLine[] | null = null;
       let amount: Cents;
       if (input.method === 'journal_entry') {
-        lines = linesFor(facts, map);
+        const stored =
+          facts.schemaId === SETTLEMENT_SCHEMA_ID ? await readStoredLines(client, input.decisionId) : [];
+        lines = stored.length > 0 ? stored.map(toPostingLine) : linesFor(facts, map);
         amount = sumCents(lines.filter((l) => l.side === 'Debit').map((l) => l.amountCents));
       } else {
         if (facts.schemaId === SETTLEMENT_SCHEMA_ID && facts.outcome !== 'declined') {
@@ -1018,6 +1209,10 @@ export class PostgresPostingStore {
           where decision_id = $1 and method = 'journal_entry' and status = 'succeeded'`,
         [row.decision_id],
       );
+      const stored =
+        facts.schemaId === SETTLEMENT_SCHEMA_ID && row.method === 'journal_entry'
+          ? await readStoredLines(client, row.decision_id)
+          : [];
       return {
         writebackId: row.id,
         deductionId: facts.deductionId,
@@ -1032,6 +1227,13 @@ export class PostgresPostingStore {
         postingEnabled: row.posting_enabled === true && row.enabled === true,
         amountCents: exact(row.amount_cents, 'amount_cents'),
         lines: row.lines ?? undefined,
+        settlementLines:
+          stored.length === 0
+            ? undefined
+            : stored.map((line) => ({
+                ...toPostingLine(line),
+                ...(line.memo !== undefined ? { memo: line.memo } : {}),
+              })),
         caseAmountCents: facts.caseAmountCents,
         family: facts.family,
         outcome: facts.outcome,
@@ -1049,6 +1251,7 @@ export class PostgresPostingStore {
    * settlement decision, and a `writeoff` approval with it when the entry
    * writes anything off. One transaction. Separation of duties is the
    * database's, unchanged: the preparer is refused as on every approval.
+   * What is approved is the decision, and so the lines it pins (ADR 0068).
    */
   async approveSettlement(decisionId: string): Promise<{
     readonly deductionId: string;
@@ -1058,6 +1261,18 @@ export class PostgresPostingStore {
       const facts = await readDecisionFacts(client, decisionId);
       if (facts.schemaId !== SETTLEMENT_SCHEMA_ID) {
         throw new PostingDecisionError('only a settlement decision is approved here');
+      }
+      // The case's settlement is its latest decision; one prepared since
+      // supersedes this one (ADR 0068 §3). Under the case's row lock, which
+      // `prepareSettlementDecision` takes too.
+      await client.query(`select 1 from deductions where id = $1 for update`, [facts.deductionId]);
+      const latest = await client.query<{ id: string }>(
+        `select id from decisions where deduction_id = $1 and schema_id = $2
+          order by created_at desc, id desc limit 1`,
+        [facts.deductionId, SETTLEMENT_SCHEMA_ID],
+      );
+      if (latest.rows[0]?.id !== decisionId) {
+        throw new SettlementApprovalRefusedError(decisionId, 'superseded');
       }
       const writeoffCents = expenseDebit(facts);
       const actions: Array<'writeback' | 'writeoff'> =
@@ -1205,6 +1420,28 @@ export class PostgresPostingStore {
         [deductionId, SETTLEMENT_SCHEMA_ID],
       );
       const latest = settlement.rows[0];
+      const storedLines = latest === undefined ? [] : await readStoredLines(client, latest.id);
+      const mapNow = only === undefined ? undefined : await readLatestMap(client, only.id);
+      let computedLines: readonly SettlementLine[] | undefined;
+      if (latest !== undefined && mapNow !== undefined) {
+        const amount = await client.query<{ amount: string }>(
+          `select deduction_amount_cents::text as amount from deductions where id = $1`,
+          [deductionId],
+        );
+        const caseAmount = amount.rows[0]?.amount;
+        if (caseAmount !== undefined) {
+          computedLines = settlementLinesFrom(
+            draftEntries({
+              amountCents: exact(caseAmount, 'deduction_amount_cents'),
+              recoveredCents: cents(latest.result.recovered_cents),
+              outcome: latest.result.outcome,
+              family: latest.result.family ?? undefined,
+            }),
+            toMap(mapNow),
+            { includeFound: latest.result.outcome === 'declined' },
+          );
+        }
+      }
       return {
         connection:
           only === undefined
@@ -1230,6 +1467,9 @@ export class PostgresPostingStore {
                 recoveredCents: cents(latest.result.recovered_cents),
                 invoiceId: latest.result.invoice_id,
                 approved: latest.approved,
+                family: latest.result.family ?? undefined,
+                lines: storedLines.length === 0 ? undefined : storedLines,
+                computedLines,
               },
       };
     });
@@ -1381,6 +1621,58 @@ async function readMapAt(
     [connectionId, approvedAt],
   );
   return rows[0];
+}
+
+async function readLatestMap(client: PoolClient, connectionId: string): Promise<MapRow | undefined> {
+  const { rows } = await client.query<MapRow>(
+    `select id, ar_account_id, deductions_receivable_account_id, writeoff_by_family,
+            unclassified_writeoff
+       from ledger_account_maps
+      where connection_id = $1
+      order by seq desc
+      limit 1`,
+    [connectionId],
+  );
+  return rows[0];
+}
+
+/** A decision's `settlement_lines`, in `line_no` order, through RLS. */
+async function readStoredLines(
+  client: PoolClient,
+  decisionId: string,
+): Promise<readonly StoredSettlementLine[]> {
+  const { rows } = await client.query<{
+    line_no: number;
+    account_external_id: string;
+    account_name_as_reported: string;
+    account_type_as_reported: string;
+    debit_cents: string;
+    credit_cents: string;
+    memo: string | null;
+  }>(
+    `select line_no, account_external_id, account_name_as_reported, account_type_as_reported,
+            debit_cents::text as debit_cents, credit_cents::text as credit_cents, memo
+       from settlement_lines
+      where decision_id = $1
+      order by line_no`,
+    [decisionId],
+  );
+  return rows.map((row) => ({
+    lineNo: row.line_no,
+    accountExternalId: row.account_external_id,
+    accountNameAsReported: row.account_name_as_reported,
+    accountTypeAsReported: row.account_type_as_reported,
+    debitCents: exact(row.debit_cents, 'debit_cents'),
+    creditCents: exact(row.credit_cents, 'credit_cents'),
+    memo: row.memo ?? undefined,
+  }));
+}
+
+/** A stored line as the posting names it: account, side, cents — never its memo. */
+function toPostingLine(line: StoredSettlementLine): PostingLine {
+  return line.debitCents > 0
+    ? { accountId: line.accountExternalId, side: 'Debit', amountCents: line.debitCents }
+    : { accountId: line.accountExternalId, side: 'Credit', amountCents: line.creditCents };
 }
 
 async function approvalAt(
