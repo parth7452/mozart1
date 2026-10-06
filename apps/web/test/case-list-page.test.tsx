@@ -285,7 +285,7 @@ describe('the case list page', () => {
     ];
   });
 
-  it('opens with the board by payer, read once for every member with the queue’s today', async () => {
+  it('keeps payer grouping beside the ledger, read once for every member with the queue’s today', async () => {
     const walmart: CaseSummary = {
       ...listed('aaaaaaaa-7777-2222-3333-444444444444', 'APDP-7'),
       debtorName: 'Walmart',
@@ -318,14 +318,15 @@ describe('the case list page', () => {
       expect(harness.boardCalls[0]?.today).toBe(harness.queueCalls[0]?.today);
       expect(harness.boardCalls[0]?.casesPerGroup).toBeUndefined();
 
-      // The board is the first section, above the queue, and the rest of the
-      // page is still there under the anchors a bookmark may hold.
+      // Attention comes first; payer grouping remains available beside the
+      // ledger under the same anchor a bookmark may hold.
       const board = html.indexOf('id="retailers"');
       const queue = html.indexOf('id="work-queue-title"');
       const ledger = html.indexOf('id="ledger"');
       expect(board).toBeGreaterThan(-1);
-      expect(board).toBeLessThan(queue);
       expect(queue).toBeLessThan(ledger);
+      expect(ledger).toBeLessThan(board);
+      expect(html).toContain('Group deductions by retailer');
       expect(html).toContain('href="#retailers"');
       expect(html).toContain('href="/cases/aaaaaaaa-7777-2222-3333-444444444444"');
       expect(html).toContain('href="/?q=Walmart#ledger"');
@@ -499,7 +500,7 @@ describe('the case list page', () => {
       const today = harness.queueCalls[0]?.today;
       expect(today).toBeInstanceOf(Date);
       expect(Number.isNaN(today?.getTime())).toBe(false);
-      expect(html).toContain('What to work on next');
+      expect(html).toContain('Needs attention');
       expect(html).toContain('KS-40112');
       expect(html).toContain('1 case needs a person · 2 filed, waiting on the retailer');
     }

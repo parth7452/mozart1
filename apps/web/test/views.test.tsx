@@ -434,7 +434,7 @@ describe('the case list', () => {
     expect(form).toContain('action="/#ledger"');
     expect(html).toContain('id="ledger"');
     expect(html).toContain('name="q"');
-    expect(html).toContain('placeholder="Search claim, invoice or customer…"');
+    expect(html).toContain('placeholder="Claim, invoice, or retailer"');
     expect(html).toContain('name="state"');
     // Every state, from `CASE_STATES`, though the one row here is `classified`.
     for (const state of CASE_STATES) {

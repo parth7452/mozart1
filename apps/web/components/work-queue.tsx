@@ -117,17 +117,20 @@ export function WorkQueue({
     <section className="card ledger queue" aria-labelledby="work-queue-title">
       <div className="ledger-heading">
         <div>
-          <h2 id="work-queue-title">What to work on next</h2>
+          <p className="eyebrow">START HERE</p>
+          <h2 id="work-queue-title">Needs attention</h2>
           <p className="ledger-summary">
             {needText} · {waitingText}
           </p>
-          <p className={unknownDeadlines > 0 ? 'queue-unknown has-unknown' : 'queue-unknown'}>
-            {unknownDeadlines.toLocaleString('en-US')} deadline
-            {unknownDeadlines === 1 ? '' : 's'} unknown in the displayed queue.
-            {ranked.length < queue.total ? ' More cases are outside this view.' : null}
-          </p>
+          {unknownDeadlines > 0 ? (
+            <p className="queue-unknown has-unknown">
+              {unknownDeadlines.toLocaleString('en-US')} deadline
+              {unknownDeadlines === 1 ? '' : 's'} unknown in the displayed queue.
+              {ranked.length < queue.total ? ' More cases are outside this view.' : null}
+            </p>
+          ) : null}
         </div>
-        <span className="ledger-tag">REVIEW QUEUE</span>
+        <span className="ledger-tag">MOST URGENT FIRST</span>
       </div>
       {ranked.length === 0 ? (
         <p className="empty">
@@ -142,10 +145,9 @@ export function WorkQueue({
               a deadline, a step in words — so a screen reader is not asked to
               match cells to headers, and a phone can stack the row. */}
           <div className="queue-columns" aria-hidden="true">
-            <span>Customer / retailer</span>
-            <span>Claim</span>
+            <span>Case</span>
             <span className="money">Deducted</span>
-            <span>When</span>
+            <span>Timing</span>
             <span>Next step</span>
           </div>
           {QUEUE_BUCKETS.map((bucket) => {
@@ -191,6 +193,7 @@ export function WorkQueue({
                           {who.matched ? null : <span className="unmatched">not matched</span>}
                         </span>
                         <span className="queue-claim">
+                          <span className="queue-field-label">Claim</span>
                           <span className="mono">{row.case.claimId ?? row.case.deductionId.slice(0, 8)}</span>
                           {row.case.invoiceNumber === undefined ? null : (
                             <span className="unmatched">invoice {row.case.invoiceNumber}</span>
@@ -203,9 +206,11 @@ export function WorkQueue({
                           )}
                         </span>
                         <span className="queue-amount">
+                          <span className="queue-field-label">Deducted</span>
                           {money(row.case.deductionAmountCents)}
                         </span>
                         <span className="queue-due">
+                          <span className="queue-field-label">Timing</span>
                           {when.tone === undefined ? (
                             <span className="queue-when">{when.label}</span>
                           ) : (
@@ -213,11 +218,15 @@ export function WorkQueue({
                           )}
                         </span>
                         <span className="queue-step">
+                          <span className="queue-field-label">Next step</span>
                           {step === WAITING_FOR_ANOTHER_APPROVER ? (
                             <span className="queue-waiting">{step}</span>
                           ) : (
                             <span className={`pill step-${row.nextStep}`}>{step}</span>
                           )}
+                          <Link href={`/cases/${row.case.deductionId}`} className="queue-open">
+                            Open case <span aria-hidden="true">→</span>
+                          </Link>
                         </span>
                       </li>
                     );

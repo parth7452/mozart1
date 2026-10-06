@@ -33,13 +33,14 @@ export function CaseTable({
   return (
     <>
       <form className="table-tools" role="search" method="get" action="/#ledger">
+        <span className="table-tools-title">Search the ledger</span>
         <label className="search-control">
           <span aria-hidden="true">⌕</span>
           <span className="sr-only">Search deductions</span>
           <input
             type="search"
             name="q"
-            placeholder="Search claim, invoice or customer…"
+            placeholder="Claim, invoice, or retailer"
             defaultValue={filter.query ?? ''}
             maxLength={CASE_SEARCH_QUERY_MAX}
           />
@@ -128,9 +129,9 @@ export function CaseRow({
   const who = retailer(row, '—');
   const claim = row.claimId ?? row.deductionId.slice(0, 8);
   return (
-    <tr>
+    <tr className={payer ? 'case-row' : 'case-row no-payer'}>
       {payer ? (
-        <td>
+        <td data-label="Retailer">
           <Link
             href={`/cases/${row.deductionId}`}
             className="customer-name case-name-link"
@@ -145,7 +146,7 @@ export function CaseRow({
           {who.matched ? null : <span className="unmatched">not matched</span>}
         </td>
       ) : null}
-      <td>
+      <td data-label="Claim">
         {payer ? (
           <span className="mono case-claim">{claim}</span>
         ) : (
@@ -159,8 +160,8 @@ export function CaseRow({
           </div>
         )}
       </td>
-      <td className="money">{money(row.deductionAmountCents)}</td>
-      <td>
+      <td className="money" data-label="Deducted">{money(row.deductionAmountCents)}</td>
+      <td data-label="State">
         <span className={`pill state-${row.state}`}>
           {stateLabel(row.state)}
         </span>
@@ -168,10 +169,10 @@ export function CaseRow({
             declined case reads as a `classified` one waiting. */}
         {row.declined === true ? <span className="pill declined">declined</span> : null}
       </td>
-      <td className="evidence-count">
+      <td className="evidence-count" data-label="Evidence">
         {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}
       </td>
-      <td>
+      <td data-label="Deadline">
         {due === undefined ? (
           '—'
         ) : (

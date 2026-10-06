@@ -133,7 +133,7 @@ describe('the retailer board', () => {
       'Target Corp',
       'Retailer unknown',
     ]);
-    expect(html).toContain('id="retailers"');
+    expect(html).toContain('id="retailer-board"');
     expect(text(html)).toContain(
       '4 payers · $46,911.00 in dispute across 7 cases · $11,000.50 recovered',
     );
@@ -302,7 +302,7 @@ describe('the ledger’s rows after sharing one with the board', () => {
       <CaseTable cases={[row]} matching={1} filter={{}} todayISO={today.toISOString()} />,
     );
     expect(html).toContain(
-      `<td><a class="customer-name case-name-link" href="/cases/${row.deductionId}">Walmart</a></td>`,
+      `<td data-label="Retailer"><a class="customer-name case-name-link" href="/cases/${row.deductionId}">Walmart</a></td>`,
     );
     expect(html).toContain('<span class="mono case-claim">CLM-aaaa</span>');
     expect(html).toContain('invoice INV-1');
