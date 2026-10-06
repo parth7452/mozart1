@@ -1479,6 +1479,35 @@ describe('the review page for a case a remittance line opened', () => {
     expect(html).toContain('2 other lines are other invoices');
   });
 
+  it('keeps the decision and reconciliation visible before the original document, with fields in document disclosures', () => {
+    const html = render({
+      reconciliation: {
+        ...matches,
+        findings: [{ code: 'shortage_unsupported', severity: 'warning', message: 'Printed PO does not match.' }],
+      },
+    });
+    expect(html.indexOf('id="case-decision"')).toBeLessThan(html.indexOf('id="case-evidence"'));
+    expect(html.indexOf('Printed PO does not match.')).toBeLessThan(html.indexOf('id="case-evidence"'));
+    expect(html.indexOf('id="case-documents"')).toBeGreaterThan(html.indexOf('id="case-evidence"'));
+    expect(html).toContain('<details class="card case-document-card"');
+    expect(html).toContain('extracted fields</span>');
+    expect(html).toContain('p1:');
+    expect(html.indexOf('id="case-accounting"')).toBeGreaterThan(html.indexOf('id="case-documents"'));
+  });
+
+  it('opens a document with failed verification and labels unchecked fields separately', () => {
+    const html = render({
+      fields: [
+        field({ fieldPath: 'deduction_total', quoteVerified: false }),
+        field({ fieldPath: 'claim_id', quoteVerified: null }),
+      ],
+    });
+    expect(html).toContain('<details class="card case-document-card" open="">');
+    expect(html).toContain('1 failed verification');
+    expect(html).toContain('1 not checked');
+    expect(html).toContain('amount not on page');
+  });
+
   it('shows every line when the case’s own cannot be placed', () => {
     // Two lines answering to one invoice, or none: hiding a line we could not
     // place is worse than showing one too many.

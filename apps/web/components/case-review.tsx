@@ -451,12 +451,134 @@ export function CaseReview({
           </div>
         </div>
         <nav className="case-jump" aria-label="Case sections">
-          <a href="#case-evidence">Evidence</a>
           <a href="#case-decision">Decision</a>
+          <a href="#case-evidence">Original document</a>
+          <a href="#case-documents">Extracted fields</a>
+          <a href="#case-accounting">Accounting</a>
           <a href="#case-history">History</a>
         </nav>
-        <div className="review">
-          <div>
+        <div className="review case-review-layout">
+          <div className="case-review-priority">
+            {/* What the last action came back saying — a decline recorded, a
+                duplicate claim the upload route sent us here to explain. Same
+                treatment as the case list's, because it is the same kind of
+                answer, and in the tone the notice carries: a packet assembled
+                and a packet refused are not the same news, and both in red
+                taught a reviewer to read red as "ignore me". */}
+            {said === undefined ? null : (
+              <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
+            )}
+
+            <div id="case-decision" className="case-section-heading">
+              <p className="eyebrow">REVIEW WORK</p>
+              <h2>Decision</h2>
+              <p>Review the deadline, evidence and actions available for this case. <a href="#case-evidence">Check the original document</a> before deciding.</p>
+            </div>
+            <EvidenceChecklistPanel checklist={evidenceChecklist} documents={documents} />
+
+            {findings.length > 0 || line !== undefined ? (
+              <div className="card" style={{ marginTop: 18 }}>
+                <h2 className="section" style={{ marginTop: 0 }}>
+                  What the documents say together
+                </h2>
+                {/* The claim's own arithmetic before anything is compared with
+                    it: a remittance prints the short-pay twice, and the two have
+                    to agree (ADR 0040). Computed in cents by reconcile, only
+                    formatted here. */}
+                {line === undefined ? null : (
+                  <p className="line-check">
+                    <span className={`mark ${line.tone}`}>{line.verdict}</span> {line.sentence}
+                  </p>
+                )}
+                <ul className="findings">
+                  {/* Not keyed by code alone: one message can move two
+                      appointments, and a reading of LOG-001's does, so two
+                      findings share `appointment_superseded`. The order is
+                      reconcile's own and stable, so the position disambiguates. */}
+                  {findings.map((finding, index) => (
+                    <li key={`${finding.code}:${index}`}>
+                      <span
+                        className={`mark ${finding.severity === 'info' ? 'unchecked' : 'unverified'}`}
+                      >
+                        {finding.severity.replace(/_/g, ' ')}
+                      </span>{' '}
+                      {finding.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <CaseMergeNotes deductionId={summary.deductionId} merges={merges} mayAct={mayAct} />
+
+            {/* Not on a case merged into another (ADR 0042): the database
+                refuses the link, and it would refuse it after the read had
+                been paid for. Evidence belongs on the case it was merged
+                into, which the banner above links to. */}
+            {mayAct && summary.state !== 'merged' ? (
+              <div className="card" style={{ marginTop: 18 }}>
+                <h2 className="section" style={{ marginTop: 0 }}>
+                  Add evidence
+                </h2>
+                <p className="hint">
+                  What would prove this deduction wrong — the delivery receipt, the signed
+                  agreement, the invoice they short-paid. It is read the same way the notice was,
+                  and attached to this case.
+                </p>
+                <MultiUpload
+                  attachToCase={summary.deductionId}
+                  inputId="evidence-file"
+                  buttonLabel="Attach to this case"
+                  notices={browserUploadNotices()}
+                />
+                <AttachReadDocuments deductionId={summary.deductionId} documents={attachable ?? []} />
+              </div>
+            ) : null}
+
+            <DuplicateNotice
+              deductionId={summary.deductionId}
+              pairs={duplicates ?? []}
+              mayAct={mayAct}
+            />
+
+            {/* A declined case is not being fought, so it is not asked for a
+                deadline to fight it by; one a person already entered is
+                still said. */}
+            <DisputeDeadline
+              deductionId={summary.deductionId}
+              state={summary.state}
+              disputeDeadline={summary.disputeDeadline}
+              deadlineSet={workflow?.deadlineSet}
+              mayAct={mayAct && !declined}
+              today={today}
+            />
+
+            <CaseActions
+              deductionId={summary.deductionId}
+              state={summary.state}
+              workflow={workflow}
+              declined={declined}
+              mayAct={mayAct}
+              mayApprove={mayApprove}
+              viewerUserId={viewerUserId}
+              filenames={filenames}
+              unservable={unservable}
+              postsFound={
+                posting?.connection?.postingEnabled === true &&
+                posting.connection.hasMap &&
+                posting.ledgerInvoiceId !== undefined
+              }
+              suggestedReason={
+                payerCodeMapping?.kind === 'mapped'
+                  ? {
+                      code: payerCodeMapping.map.canonicalCode,
+                      payerCode: payerCodeMapping.payerCode,
+                      provenance: mappingWords(payerCodeMapping.map).provenance,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <div className="case-review-original">
             <div id="case-evidence" className="card">
               <h2 className="section" style={{ marginTop: 0 }}>
                 Original deduction document
@@ -595,53 +717,32 @@ export function CaseReview({
               )}
             </div>
 
-            <EvidenceChecklistPanel checklist={evidenceChecklist} documents={documents} />
-
-            {findings.length > 0 || line !== undefined ? (
-              <div className="card" style={{ marginTop: 18 }}>
-                <h2 className="section" style={{ marginTop: 0 }}>
-                  What the documents say together
-                </h2>
-                {/* The claim's own arithmetic before anything is compared with
-                    it: a remittance prints the short-pay twice, and the two have
-                    to agree (ADR 0040). Computed in cents by reconcile, only
-                    formatted here. */}
-                {line === undefined ? null : (
-                  <p className="line-check">
-                    <span className={`mark ${line.tone}`}>{line.verdict}</span> {line.sentence}
-                  </p>
-                )}
-                <ul className="findings">
-                  {/* Not keyed by code alone: one message can move two
-                      appointments, and a reading of LOG-001's does, so two
-                      findings share `appointment_superseded`. The order is
-                      reconcile's own and stable, so the position disambiguates. */}
-                  {findings.map((finding, index) => (
-                    <li key={`${finding.code}:${index}`}>
-                      <span
-                        className={`mark ${finding.severity === 'info' ? 'unchecked' : 'unverified'}`}
-                      >
-                        {finding.severity.replace(/_/g, ' ')}
-                      </span>{' '}
-                      {finding.message}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
           </div>
-
-          <div>
+          <section id="case-documents" className="case-review-full case-document-section" aria-labelledby="case-documents-heading">
+            <div className="case-section-heading">
+              <p className="eyebrow">SUPPORTING EVIDENCE</p>
+              <h2 id="case-documents-heading">Extracted document fields</h2>
+              <p>Open a document to review its extracted values, verification and source quotes.</p>
+            </div>
             {cards.map(({ documentId, notice, fields: documentFields }) => {
               const { shown, otherLines } = notice
                 ? fieldsOfThisLine(documentFields, summary)
                 : { shown: documentFields, otherLines: 0 };
+              const failedChecks = shown.filter((field) => field.quoteVerified === false).length;
+              const unchecked = shown.filter((field) => field.quoteVerified === null).length;
               return (
-                <div className="card" key={documentId} style={{ marginBottom: 18 }}>
-                  <h2 className="section" style={{ marginTop: 0 }}>
-                    {(documentFields[0]?.docType ?? 'document').replace(/_/g, ' ')} ·{' '}
-                    <span className="mono">{documentFields[0]?.filename}</span>
-                  </h2>
+                <details className="card case-document-card" key={documentId} open={failedChecks > 0}>
+                  <summary>
+                    <span className="case-document-title">
+                      {(documentFields[0]?.docType ?? 'document').replace(/_/g, ' ')} ·{' '}
+                      <span className="mono">{documentFields[0]?.filename}</span>
+                    </span>
+                    <span className="case-document-count">
+                      {shown.length} extracted fields
+                      {failedChecks > 0 ? <span className="case-document-alert"> · {failedChecks} failed verification</span> : null}
+                      {unchecked > 0 ? <span> · {unchecked} not checked</span> : null}
+                    </span>
+                  </summary>
                   {otherLines === 0 ? null : (
                     <p className="hint">
                       This case&rsquo;s line only. The advice&rsquo;s {otherLines} other line
@@ -666,94 +767,16 @@ export function CaseReview({
                       );
                     })}
                   </dl>
-                </div>
+                </details>
               );
             })}
 
-            {/* What the last action came back saying — a decline recorded, a
-                duplicate claim the upload route sent us here to explain. Same
-                treatment as the case list's, because it is the same kind of
-                answer, and in the tone the notice carries: a packet assembled
-                and a packet refused are not the same news, and both in red
-                taught a reviewer to read red as "ignore me". */}
-            {said === undefined ? null : (
-              <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
-            )}
-
-            <div id="case-decision" className="case-section-heading">
-              <p className="eyebrow">REVIEW WORK</p>
-              <h2>Decision</h2>
-              <p>Review the deadline, evidence and actions available for this case.</p>
+          </section>
+          <section id="case-accounting" className="case-review-full case-accounting-section" aria-labelledby="case-accounting-heading">
+            <div className="case-section-heading">
+              <p className="eyebrow">FINANCIAL RECORD</p>
+              <h2 id="case-accounting-heading">Accounting</h2>
             </div>
-            <CaseMergeNotes deductionId={summary.deductionId} merges={merges} mayAct={mayAct} />
-
-            {/* Not on a case merged into another (ADR 0042): the database
-                refuses the link, and it would refuse it after the read had
-                been paid for. Evidence belongs on the case it was merged
-                into, which the banner above links to. */}
-            {mayAct && summary.state !== 'merged' ? (
-              <div className="card" style={{ marginTop: 18 }}>
-                <h2 className="section" style={{ marginTop: 0 }}>
-                  Add evidence
-                </h2>
-                <p className="hint">
-                  What would prove this deduction wrong — the delivery receipt, the signed
-                  agreement, the invoice they short-paid. It is read the same way the notice was,
-                  and attached to this case.
-                </p>
-                <MultiUpload
-                  attachToCase={summary.deductionId}
-                  inputId="evidence-file"
-                  buttonLabel="Attach to this case"
-                  notices={browserUploadNotices()}
-                />
-                <AttachReadDocuments deductionId={summary.deductionId} documents={attachable ?? []} />
-              </div>
-            ) : null}
-
-            <DuplicateNotice
-              deductionId={summary.deductionId}
-              pairs={duplicates ?? []}
-              mayAct={mayAct}
-            />
-
-            {/* A declined case is not being fought, so it is not asked for a
-                deadline to fight it by; one a person already entered is
-                still said. */}
-            <DisputeDeadline
-              deductionId={summary.deductionId}
-              state={summary.state}
-              disputeDeadline={summary.disputeDeadline}
-              deadlineSet={workflow?.deadlineSet}
-              mayAct={mayAct && !declined}
-              today={today}
-            />
-
-            <CaseActions
-              deductionId={summary.deductionId}
-              state={summary.state}
-              workflow={workflow}
-              declined={declined}
-              mayAct={mayAct}
-              mayApprove={mayApprove}
-              viewerUserId={viewerUserId}
-              filenames={filenames}
-              unservable={unservable}
-              postsFound={
-                posting?.connection?.postingEnabled === true &&
-                posting.connection.hasMap &&
-                posting.ledgerInvoiceId !== undefined
-              }
-              suggestedReason={
-                payerCodeMapping?.kind === 'mapped'
-                  ? {
-                      code: payerCodeMapping.map.canonicalCode,
-                      payerCode: payerCodeMapping.payerCode,
-                      provenance: mappingWords(payerCodeMapping.map).provenance,
-                    }
-                  : undefined
-              }
-            />
             <DraftJournal
               amountCents={summary.deductionAmountCents}
               outcome={workflow?.outcome?.outcome}
@@ -777,6 +800,15 @@ export function CaseReview({
               />
             )}
 
+          </section>
+          <section className="case-review-full case-resolution-section" aria-label="Other resolution">
+            {mayAct && summary.state === 'classified' && workflow?.decision === undefined && !declined ? (
+              <div className="case-section-heading">
+                <p className="eyebrow">ALTERNATIVE RESOLUTION</p>
+                <h2>Decline this case</h2>
+                <p>Record why this deduction will not be disputed.</p>
+              </div>
+            ) : null}
             {/* Fighting and declining are the two answers to the same
                 question, so they are offered together and only while the
                 question is open. Once a decision is recorded the case has left
@@ -833,6 +865,8 @@ export function CaseReview({
               </div>
             ) : null}
 
+          </section>
+          <div className="case-review-full case-history-section">
             <section id="case-history" aria-label="History">
               <CaseTimeline
                 workflow={workflow}
