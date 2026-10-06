@@ -33,13 +33,14 @@ export function CaseTable({
   return (
     <>
       <form className="table-tools" role="search" method="get" action="/#ledger">
+        <span className="table-tools-title">Search the ledger</span>
         <label className="search-control">
           <span aria-hidden="true">⌕</span>
           <span className="sr-only">Search deductions</span>
           <input
             type="search"
             name="q"
-            placeholder="Search claim, invoice or customer…"
+            placeholder="Claim, invoice, or retailer"
             defaultValue={filter.query ?? ''}
             maxLength={CASE_SEARCH_QUERY_MAX}
           />
@@ -89,6 +90,49 @@ export function CaseTable({
           </tbody>
         </table>
       </div>
+      <ol className="mobile-case-list" aria-label="Deductions">
+        {cases.map((row) => {
+          const who = retailer(row, '—');
+          const claim = row.claimId ?? row.deductionId.slice(0, 8);
+          const due = deadline(row.disputeDeadline, today);
+          return (
+            <li key={row.deductionId} className="mobile-case-card">
+              <div>
+                <span className="mobile-case-label">Retailer</span>
+                <Link href={`/cases/${row.deductionId}`} className="case-name-link">
+                  {who.name === '—' ? claim : who.name}
+                </Link>
+                {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
+                {who.matched ? null : <span className="unmatched">not matched</span>}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Deducted</span>
+                <strong>{money(row.deductionAmountCents)}</strong>
+              </div>
+              <div>
+                <span className="mobile-case-label">Claim</span>
+                <span className="mono">{claim}</span>
+                {row.invoiceNumber === undefined ? null : (
+                  <span className="unmatched">invoice {row.invoiceNumber}</span>
+                )}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Evidence</span>
+                <span>{row.documentCount} doc{row.documentCount === 1 ? '' : 's'}</span>
+              </div>
+              <div>
+                <span className="mobile-case-label">State</span>
+                <span className={`pill state-${row.state}`}>{stateLabel(row.state)}</span>
+                {row.declined === true ? <span className="pill declined">declined</span> : null}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Deadline</span>
+                {due === undefined ? '—' : <span className={`pill ${due.tone}`}>{due.label}</span>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
       {cases.length === 0 ? (
         <div className="empty filter-empty">
           <strong>No matching deductions</strong>

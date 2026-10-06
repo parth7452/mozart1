@@ -226,7 +226,7 @@ export function RetailerBoard({ board, today }: { board: RetailerBoardRead; toda
   const { groups, totals } = board;
   const open = openPayerGroups(groups);
   return (
-    <section id="retailers" className="card ledger board" aria-labelledby="retailer-board-title">
+    <section id="retailer-board" className="card ledger board" aria-labelledby="retailer-board-title">
       <div className="ledger-heading">
         <div>
           <h2 id="retailer-board-title">By retailer or distributor</h2>

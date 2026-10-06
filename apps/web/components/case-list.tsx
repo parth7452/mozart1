@@ -172,7 +172,7 @@ export function CaseList({
       <main id="workspace-main" className="workspace-main dashboard-main">
         <div className="page-heading dashboard-heading">
           <div>
-            <p className="eyebrow">YOUR WORKSPACE</p>
+            <p className="eyebrow">CASE WORKSPACE</p>
             <h1>Deductions</h1>
             <p className="page-description">
               {queue.read.total === 0
@@ -180,9 +180,9 @@ export function CaseList({
                 : `${queue.read.total.toLocaleString('en-US')} ${queue.read.total === 1 ? 'case needs' : 'cases need'} attention.`}
             </p>
             <nav className="dashboard-jump" aria-label="On this page">
-              <a href="#retailers">By retailer</a>
-              <a href="#work-queue-title">Review queue</a>
+              <a href="#work-queue-title">Needs attention</a>
               <a href="#ledger">All deductions</a>
+              <a href="#retailers">By retailer</a>
               {mayUpload ? <a href="#documents">Documents</a> : null}
             </nav>
           </div>
@@ -195,7 +195,6 @@ export function CaseList({
         {said === undefined ? null : (
           <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
         )}
-        <RetailerBoard board={board} today={today} />
         <WorkQueue queue={queue.read} today={today} viewer={queue.viewer} />
         <section className="metrics" aria-label="Deduction overview">
           <div className="metric featured">
@@ -229,10 +228,11 @@ export function CaseList({
             <span className="metric-note">Due within {DUE_SOON_DAYS} days or overdue · unfiled</span>
           </div>
         </section>
-        <section id="ledger" className="card ledger" aria-label="Deduction ledger">
+        <section id="ledger" className="card ledger" aria-label="All deductions">
           <div className="ledger-heading">
             <div>
-              <h2>Deduction ledger</h2>
+              <p className="eyebrow">FIND A CASE</p>
+              <h2>All deductions</h2>
               <p className="ledger-summary">
                 {metrics.caseCount === 0
                   ? 'No cases yet'
@@ -259,11 +259,24 @@ export function CaseList({
             />
           )}
         </section>
+        <details id="retailers" className="retailer-disclosure">
+          <summary>
+            <span>
+              <strong>Group deductions by retailer</strong>
+              <small>Compare each payer&rsquo;s open cases, deadlines, and recovery.</small>
+            </span>
+            <span className="retailer-disclosure-count">
+              {board.groups.length.toLocaleString('en-US')} payer
+              {board.groups.length === 1 ? '' : 's'}
+            </span>
+          </summary>
+          <RetailerBoard board={board} today={today} />
+        </details>
         {mayUpload ? (
           <section id="documents" className="documents-area" aria-labelledby="documents-title">
             <div className="documents-heading">
               <div>
-                <p className="eyebrow">FILE AND ORGANIZE</p>
+                <p className="eyebrow">INTAKE AND ORGANIZATION</p>
                 <h2 id="documents-title">Documents</h2>
               </div>
               <p>{unattachedCount((unattached ?? []).length)} awaiting a case</p>

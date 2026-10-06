@@ -133,7 +133,7 @@ describe('the retailer board', () => {
       'Target Corp',
       'Retailer unknown',
     ]);
-    expect(html).toContain('id="retailers"');
+    expect(html).toContain('id="retailer-board"');
     expect(text(html)).toContain(
       '4 payers · $46,911.00 in dispute across 7 cases · $11,000.50 recovered',
     );
