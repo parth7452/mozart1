@@ -14,6 +14,7 @@ import {
   WriteoffAmountMismatchError,
   type AccountTypeReader,
   PostingDecisionError,
+  type InvoiceLookup,
 } from '../src/posting';
 import { withLedgerAccountLock } from '../src/ledger-lock';
 import { closeAllPools, PostgresStore } from '../src/store';
@@ -27,6 +28,12 @@ const describeDb = connectionString === undefined ? describe.skip : describe;
  * database is the referee for owner-only writes and the approval gate; this
  * asks that the store's own checks and translations line up with it.
  */
+/** A ledger that holds the invoice whose id was stated, and no other. */
+const invoiceById = async (stated: string) => ({
+  byId: { id: stated, docNumber: undefined },
+  byDocNumber: [],
+});
+
 describeDb('posting a deduction to QuickBooks, the store half', () => {
   const admin = new Pool({ connectionString });
   const config = { connectionString: connectionString as string };
@@ -236,6 +243,7 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
       recoveredCents: cents(20_000),
       family: 'shortage',
       invoiceId: '71',
+      findInvoice: invoiceById,
     });
     const workflow = await new PostgresStore(config, { orgId, userId: analystId }).getWorkflow(caseId);
     expect(workflow?.decision?.decisionId).toBe(disputeId);
@@ -269,6 +277,7 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
       recoveredCents: cents(0),
       family: 'shortage',
       invoiceId: '71',
+      findInvoice: invoiceById,
     });
     await expect(as(analystId).approveSettlement(decisionId)).rejects.toMatchObject({
       name: 'SettlementApprovalRefusedError',
@@ -640,5 +649,286 @@ describeDb('posting a deduction to QuickBooks, the store half', () => {
         },
       },
     ]);
+  });
+
+  describe('an invoice is resolved, and a posting that never went can be voided (ADR 0069)', () => {
+    /** A case opened from an uploaded notice: no ledger invoice id of its own. */
+    async function noticeCase(): Promise<string> {
+      const id = randomUUID();
+      await admin.query(
+        `insert into deductions (id, org_id, claim_id, deduction_amount_cents) values ($1,$2,$3,$4)`,
+        [id, orgId, `NOTICE-${id.slice(0, 8)}`, amount],
+      );
+      return id;
+    }
+    const lostOn = (deductionId: string, invoiceId: string, findInvoice: InvoiceLookup) =>
+      as(analystId).prepareSettlementDecision({
+        deductionId,
+        preparedBy: analystId,
+        outcome: 'lost',
+        recoveredCents: cents(0),
+        family: 'shortage',
+        invoiceId,
+        findInvoice,
+      });
+    const decisionsOn = async (deductionId: string) =>
+      (
+        await admin.query(
+          `select result from decisions where deduction_id = $1 and schema_id = 'S' order by created_at, id`,
+          [deductionId],
+        )
+      ).rows.map((row) => row.result as Record<string, unknown>);
+    const byNumber =
+      (...ids: string[]): InvoiceLookup =>
+      async (stated) => ({ byId: undefined, byDocNumber: ids.map((id) => ({ id, docNumber: stated })) });
+
+    it('stores the internal id of the one invoice that prints the number stated, never the number', async () => {
+      const id = await noticeCase();
+      await lostOn(id, '120324', byNumber('3391'));
+      expect(await decisionsOn(id)).toMatchObject([{ invoice_id: '3391', invoice_number: '120324' }]);
+      expect((await as(analystId).postingForCase(id)).settlement).toMatchObject({
+        invoiceId: '3391',
+        invoiceNumber: '120324',
+      });
+    });
+
+    it('prepares nothing for a number no invoice or several invoices carry, or when the ledger cannot be read', async () => {
+      const id = await noticeCase();
+      await expect(lostOn(id, '120324', byNumber())).rejects.toMatchObject({
+        name: 'SettlementInvoiceRefusedError',
+        reason: 'invoice_not_found',
+      });
+      await expect(lostOn(id, '120324', byNumber('5', '6'))).rejects.toMatchObject({
+        reason: 'invoice_ambiguous',
+      });
+      await expect(
+        lostOn(id, '120324', async () => {
+          throw new Error('QuickBooks is down');
+        }),
+      ).rejects.toThrow('QuickBooks is down');
+      let asked = 0;
+      await expect(
+        lostOn(id, "1' or '1'='1", async () => {
+          asked += 1;
+          return { byId: undefined, byDocNumber: [] };
+        }),
+      ).rejects.toBeInstanceOf(PostingDecisionError);
+      expect(asked).toBe(0);
+      expect(await decisionsOn(id)).toEqual([]);
+    });
+
+    it('keeps a ledger-opened case on its own invoice id when another invoice prints the same digits', async () => {
+      // `caseId` carries ledger_invoice_id 71 from the sync.
+      const before = (await decisionsOn(caseId)).length;
+      const found: InvoiceLookup = async () => ({
+        byId: { id: '71', docNumber: '1040' },
+        byDocNumber: [{ id: '9', docNumber: '71' }],
+      });
+      // Already approved in an earlier test, so it is refused for that — after
+      // the invoice read, and never as ambiguous.
+      await expect(lostOn(caseId, '71', found)).rejects.toMatchObject({ name: 'SettlementAlreadyApprovedError' });
+      expect((await decisionsOn(caseId)).length).toBe(before);
+      const fresh = await noticeCase();
+      await admin.query(
+        `insert into deduction_identifiers (org_id, deduction_id, source, identifier_kind, identifier)
+         values ($1,$2,'erp_sync','ledger_invoice_id','88')`,
+        [orgId, fresh],
+      );
+      await lostOn(fresh, '88', async () => ({
+        byId: { id: '88', docNumber: '1040' },
+        byDocNumber: [{ id: '9', docNumber: '88' }],
+      }));
+      expect(await decisionsOn(fresh)).toMatchObject([{ invoice_id: '88', invoice_number: '1040' }]);
+      // The same digits on a case that is not the ledger's own are two invoices.
+      const notice = await noticeCase();
+      await expect(
+        lostOn(notice, '88', async () => ({
+          byId: { id: '88', docNumber: '1040' },
+          byDocNumber: [{ id: '9', docNumber: '88' }],
+        })),
+      ).rejects.toMatchObject({ reason: 'invoice_ambiguous' });
+    });
+
+    it('voids a posting that never reached the ledger, and the case is then settled again', async () => {
+      // Production, 2026-10-05: an approved settlement naming 120324 as an id.
+      const id = await noticeCase();
+      const { decisionId } = await lostOn(id, '120324', invoiceById);
+      await as(approverId).approveSettlement(decisionId);
+      await as(approverId).insertWriteoff({ decisionId, amountCents: cents(amount) });
+      const { writebackId } = await as(approverId).insertWriteback({
+        decisionId,
+        method: 'journal_entry',
+        connectionId,
+      });
+      const nothing = async () => true;
+      const voidAs = (userId: string, ledgerHoldsNothing: () => Promise<boolean> = nothing) =>
+        as(userId).voidSettlementPosting({ decisionId, ledgerHoldsNothing });
+      const row = async () => (await as(analystId).postingForCase(id)).writebacks[0];
+
+      // Pending, nothing recorded: not provably unsent, so not voidable.
+      expect(await row()).toMatchObject({ status: 'pending', attempts: 0, nothingSent: false, stale: false, voided: false });
+      await expect(voidAs(approverId)).rejects.toMatchObject({ name: 'SettlementVoidRefusedError', reason: 'not_failed' });
+
+      // The job runs again and records what it found before sending.
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'invoice_not_found' });
+      expect(await row()).toMatchObject({
+        status: 'failed',
+        attempts: 1,
+        lastReason: 'invoice_not_found',
+        nothingSent: true,
+      });
+      // Still approved, so still nothing more is prepared for it.
+      await expect(lostOn(id, '120324', byNumber('3391'))).rejects.toMatchObject({
+        name: 'SettlementAlreadyApprovedError',
+      });
+
+      // The ledger holding something under the reference refuses the void.
+      await expect(voidAs(approverId, async () => false)).rejects.toMatchObject({ reason: 'in_ledger' });
+      await expect(
+        voidAs(approverId, async () => {
+          throw new Error('QuickBooks is down');
+        }),
+      ).rejects.toThrow('QuickBooks is down');
+      expect((await as(analystId).postingForCase(id)).settlement?.voided).toBe(false);
+
+      const asked: unknown[] = [];
+      await expect(
+        as(approverId).voidSettlementPosting({
+          decisionId,
+          ledgerHoldsNothing: async (rows) => {
+            asked.push(rows);
+            return true;
+          },
+        }),
+      ).resolves.toEqual({ deductionId: id, writebackIds: [writebackId] });
+      expect(asked).toEqual([[{ writebackId, method: 'journal_entry' }]]);
+
+      // One event, naming who; no row changed or removed.
+      const { rows: events } = await admin.query(
+        `select payload, created_by from deduction_events where deduction_id = $1 and event_type = $2`,
+        [id, 'settlement.posting_voided'],
+      );
+      expect(events).toEqual([
+        {
+          payload: { decision_id: decisionId, writeback_ids: [writebackId], voided_by: approverId },
+          created_by: approverId,
+        },
+      ]);
+      const { rows: kept } = await admin.query(
+        `select (select count(*)::int from approvals where decision_id = $1) as approvals,
+                (select count(*)::int from writeoffs where decision_id = $1) as writeoffs,
+                (select status from writebacks where id = $2) as status`,
+        [decisionId, writebackId],
+      );
+      expect(kept).toEqual([{ approvals: 2, writeoffs: 1, status: 'failed' }]);
+
+      // Voided once, never sent, never requeued.
+      await expect(voidAs(approverId)).rejects.toMatchObject({ reason: 'already_voided' });
+      await expect(as(analystId).requeueWriteback(writebackId)).rejects.toBeInstanceOf(PostingDecisionError);
+      expect(await as(approverId).writebackForPosting(writebackId)).toMatchObject({ voided: true, status: 'failed' });
+      const seen = await as(analystId).postingForCase(id);
+      expect(seen.writebacks[0]).toMatchObject({ voided: true });
+      expect(seen.settlement).toMatchObject({ decisionId, approved: true, voided: true });
+
+      // The case is settled again, on the invoice the ledger really holds.
+      const again = await lostOn(id, '120324', byNumber('3391'));
+      expect(again.decisionId).not.toBe(decisionId);
+      await as(approverId).approveSettlement(again.decisionId);
+      const second = await as(approverId).insertWriteback({
+        decisionId: again.decisionId,
+        method: 'journal_entry',
+        connectionId,
+      });
+      expect(await as(approverId).writebackForPosting(second.writebackId)).toMatchObject({
+        voided: false,
+        status: 'pending',
+        invoiceId: '3391',
+      });
+      expect((await as(analystId).postingForCase(id)).settlement).toMatchObject({
+        decisionId: again.decisionId,
+        approved: true,
+        voided: false,
+      });
+      // And the new one being approved, the case again takes no other.
+      await expect(lostOn(id, '120324', byNumber('3391'))).rejects.toMatchObject({
+        name: 'SettlementAlreadyApprovedError',
+      });
+    });
+
+    it('never voids an unknown outcome, a success, or a settlement nobody approved', async () => {
+      const id = await noticeCase();
+      const { decisionId } = await lostOn(id, '120324', invoiceById);
+      let asked = 0;
+      const voidIt = () =>
+        as(approverId).voidSettlementPosting({
+          decisionId,
+          ledgerHoldsNothing: async () => {
+            asked += 1;
+            return true;
+          },
+        });
+      await expect(voidIt()).rejects.toMatchObject({ reason: 'not_approved' });
+      await as(approverId).approveSettlement(decisionId);
+      const { writebackId } = await as(approverId).insertWriteback({
+        decisionId,
+        method: 'journal_entry',
+        connectionId,
+      });
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'invoice_lookup_failed' });
+      await as(analystId).requeueWriteback(writebackId);
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'unknown_outcome' });
+      expect((await as(analystId).postingForCase(id)).writebacks[0]).toMatchObject({
+        attempts: 2,
+        lastReason: 'unknown_outcome',
+        nothingSent: false,
+      });
+      await expect(voidIt()).rejects.toMatchObject({ reason: 'maybe_sent' });
+      // A later attempt that sent nothing does not make the earlier one safe.
+      await as(analystId).requeueWriteback(writebackId);
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'invoice_not_found' });
+      await expect(voidIt()).rejects.toMatchObject({ reason: 'maybe_sent' });
+      await as(analystId).requeueWriteback(writebackId);
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'succeeded', qboTxnId: '301', reason: 'sent' });
+      await expect(voidIt()).rejects.toMatchObject({ reason: 'posted' });
+      expect(asked).toBe(0);
+      await expect(
+        as(approverId).voidSettlementPosting({ decisionId: randomUUID(), ledgerHoldsNothing: async () => true }),
+      ).rejects.toMatchObject({ reason: 'not_found' });
+    });
+
+    it('calls a pending row stale only once nothing has been recorded about it for a while', async () => {
+      const id = await noticeCase();
+      const { decisionId } = await lostOn(id, '120324', invoiceById);
+      await as(approverId).approveSettlement(decisionId);
+      const { writebackId } = await as(approverId).insertWriteback({
+        decisionId,
+        method: 'journal_entry',
+        connectionId,
+      });
+      const stale = async () => (await as(analystId).postingForCase(id)).writebacks[0]?.stale;
+      expect(await stale()).toBe(false);
+      // Aged by the table's owner with triggers off for this transaction
+      // alone: the only way a test has to make time pass.
+      const client = await admin.connect();
+      try {
+        await client.query('begin');
+        await client.query(`set local session_replication_role = replica`);
+        await client.query(`update writebacks set created_at = now() - interval '10 minutes' where id = $1`, [
+          writebackId,
+        ]);
+        await client.query(
+          `update deduction_events set observed_at = now() - interval '10 minutes' where deduction_id = $1`,
+          [id],
+        );
+        await client.query('commit');
+      } finally {
+        client.release();
+      }
+      expect(await stale()).toBe(true);
+      // A retry asked for just now is activity: not stale again until it too goes quiet.
+      await as(approverId).recordWritebackAttempt({ writebackId, status: 'failed', reason: 'unknown_outcome' });
+      await as(analystId).requeueWriteback(writebackId);
+      expect(await stale()).toBe(false);
+    });
   });
 });

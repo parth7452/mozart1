@@ -4,6 +4,7 @@ import {
   PostingStoreError,
   SettlementAlreadyApprovedError,
   SettlementApprovalRefusedError,
+  SettlementInvoiceRefusedError,
   SettlementLinesRefusedError,
 } from '@recouple/store-postgres';
 import { requireSession } from '../../../../lib/session';
@@ -14,17 +15,20 @@ import { qboPostingFromEnv } from '../../../../lib/qbo-posting';
 import { postingStoreFor, queueDecisionPostings } from '../../../../lib/posting';
 import {
   SettlementChartUnreadableError,
+  SettlementInvoiceUnreadableError,
   postedLinesFrom,
   settlementChartReader,
   settlementChoiceFrom,
   settlementEditorPath,
+  settlementInvoiceLookup,
 } from '../../../../lib/settlement-editor';
 
 /**
  * Moment 2 (ADR 0060 §2): how a case settled, in the books.
  *
  * `intent=prepare` records a person's schema `S` decision — the outcome, what
- * was recovered, the family, the ledger invoice, and the journal lines the
+ * was recovered, the family, the ledger invoice (looked up in the company by
+ * id or printed number and stored as its internal id, ADR 0069), and the journal lines the
  * form carried (ADR 0068): amounts read by `parseMoneyToCents`, accounts
  * checked by the store against a chart it reads live, so an account id a
  * form was tampered with is refused like any other the chart does not
@@ -87,6 +91,9 @@ export async function POST(
         ),
         { status: 303 },
       );
+    // A read of QuickBooks may refresh the company's token, which the
+    // database stores only for a member it lets write.
+    const mayRefresh = await store.memberMayWrite();
     if (posted.unreadable.length > 0) {
       return backToEditor(posted.unreadable.map((lineNo) => ({ code: 'not_integer_cents', lineNo })));
     }
@@ -98,6 +105,15 @@ export async function POST(
         recoveredCents: choice.recoveredCents,
         family: choice.family,
         invoiceId: choice.invoiceId,
+        // The invoice is resolved against the company to its internal id:
+        // what a person typed, or a document printed, is never used as one.
+        // No lookup at all for a member the database would not let write:
+        // it has no read that cannot refresh, and they could prepare nothing.
+        findInvoice: mayRefresh
+          ? settlementInvoiceLookup({ orgId: session.org.orgId, userId: session.userId }, connection)
+          : async () => {
+              throw new SettlementInvoiceUnreadableError('may_not_write');
+            },
         lines: {
           connectionId: connection.connectionId,
           lines: posted.lines,
@@ -106,13 +122,21 @@ export async function POST(
           readChart: settlementChartReader(
             { orgId: session.org.orgId, userId: session.userId },
             connection,
-            { mayRefresh: await store.memberMayWrite() },
+            { mayRefresh },
           ),
         },
       });
     } catch (cause) {
       if (cause instanceof SettlementLinesRefusedError) return backToEditor(cause.problems);
       if (cause instanceof SettlementChartUnreadableError) return back('settle_chart_unreadable');
+      if (cause instanceof SettlementInvoiceUnreadableError) {
+        return back(cause.reason === 'may_not_write' ? 'settle_role' : 'settle_invoice_unreadable');
+      }
+      if (cause instanceof SettlementInvoiceRefusedError) {
+        return back(
+          cause.reason === 'invoice_ambiguous' ? 'settle_invoice_ambiguous' : 'settle_invoice_not_found',
+        );
+      }
       if (cause instanceof SettlementAlreadyApprovedError) return back('settle_already_approved');
       if (
         cause instanceof PostingStoreError ||

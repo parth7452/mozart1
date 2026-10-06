@@ -5,15 +5,18 @@ import {
   REASON_FAMILIES,
   cents,
   draftEntries,
+  resolveStatedInvoice,
   settlementLinesFrom,
   validateSettlementLines,
   type LedgerAccount,
+  type LedgerInvoiceMatches,
   type SettlementLineInput,
   type StoredSettlementLine,
 } from '@recouple/core-domain';
 import {
   SettlementAlreadyApprovedError,
   SettlementApprovalRefusedError,
+  SettlementInvoiceRefusedError,
   SettlementLinesRefusedError,
   settlementAccountPolicy,
   type CasePosting,
@@ -79,6 +82,9 @@ const harness = vi.hoisted(() => ({
   chart: 'ok' as 'ok' | 'throws' | 'not_configured',
   chartReads: [] as Array<{ mayRefresh: boolean }>,
   prepareError: undefined as Error | undefined,
+  /** What the company holds for the invoice stated; `'throws'` is QuickBooks failing. */
+  invoices: 'by_id' as 'by_id' | 'none' | 'two' | 'by_number' | 'throws' | 'not_configured',
+  invoiceLookups: [] as string[],
   approveError: undefined as Error | undefined,
 }));
 
@@ -108,10 +114,16 @@ const postingStore = {
     outcome: 'won' | 'partial' | 'lost' | 'declined';
     recoveredCents: number;
     family: (typeof REASON_FAMILIES)[number] | undefined;
+    invoiceId: string;
+    findInvoice: (stated: string) => Promise<LedgerInvoiceMatches>;
     lines?: { connectionId: string; lines: readonly SettlementLineInput[]; readChart: SettlementChartReader };
   }) {
     if (input.lines === undefined) throw new Error('the route always sends lines');
     const chart = await input.lines.readChart();
+    // The store's own rule over the ledger's answer (ADR 0069 §1).
+    const resolved = resolveStatedInvoice(input.invoiceId, await input.findInvoice(input.invoiceId), '71');
+    if (!resolved.ok) throw new SettlementInvoiceRefusedError(resolved.reason);
+    harness.calls.push(['resolvedInvoice', resolved.invoice.id]);
     if (harness.prepareError !== undefined) throw harness.prepareError;
     const computed = settlementLinesFrom(
       draftEntries({
@@ -128,7 +140,7 @@ const postingStore = {
       policy: settlementAccountPolicy(MAP),
     });
     if (!verdict.ok) throw new SettlementLinesRefusedError(verdict.problems);
-    harness.calls.push(['prepareSettlementDecision', { ...input, lines: { ...input.lines, readChart: undefined } }, verdict.lines]);
+    harness.calls.push(['prepareSettlementDecision', { ...input, findInvoice: undefined, lines: { ...input.lines, readChart: undefined } }, verdict.lines]);
     return { decisionId: DECISION_ID };
   },
   async approveSettlement(decisionId: string) {
@@ -151,7 +163,32 @@ vi.mock('../lib/session', () => ({
 }));
 vi.mock('../lib/pipeline', () => ({ mayWrite: (role: string) => role !== 'read_only' }));
 vi.mock('../lib/qbo-posting', () => ({
-  qboPostingFromEnv: () => (harness.posting ? {} : undefined),
+  qboPostingFromEnv: () =>
+    harness.posting
+      ? {
+          invoiceLookupFor: () =>
+            harness.invoices === 'not_configured'
+              ? undefined
+              : async (stated: string) => {
+                  harness.invoiceLookups.push(stated);
+                  if (harness.invoices === 'throws') throw new Error('Intuit said: invoice for Acme Foods, token abc123');
+                  if (harness.invoices === 'none') return { byId: undefined, byDocNumber: [] };
+                  if (harness.invoices === 'by_number') {
+                    return { byId: undefined, byDocNumber: [{ id: '3391', docNumber: stated }] };
+                  }
+                  if (harness.invoices === 'two') {
+                    return {
+                      byId: undefined,
+                      byDocNumber: [
+                        { id: '3391', docNumber: stated },
+                        { id: '3392', docNumber: stated },
+                      ],
+                    };
+                  }
+                  return { byId: { id: stated, docNumber: undefined }, byDocNumber: [] };
+                },
+        }
+      : undefined,
 }));
 vi.mock('../lib/posting', () => ({
   postingStoreFor: () => postingStore,
@@ -257,6 +294,8 @@ beforeEach(() => {
   harness.casePosting = ready();
   harness.connections = [CONNECTION];
   harness.chart = 'ok';
+  harness.invoices = 'by_id';
+  harness.invoiceLookups = [];
   harness.chartReads = [];
   harness.prepareError = undefined;
   harness.approveError = undefined;
@@ -381,7 +420,7 @@ describe('the editor the page builds', () => {
     const editor = await settlementEditorFor(editorInput());
     expect(editor).toMatchObject({ kind: 'choose', invalid: false, supersedes: false });
     expect(harness.chartReads).toEqual([]);
-    const garbled = await settlementEditorFor(editorInput({ params: { so: 'lost', si: 'seventy-one' } }));
+    const garbled = await settlementEditorFor(editorInput({ params: { so: 'lost', si: "71' or '1'='1" } }));
     expect(garbled).toMatchObject({ kind: 'choose', invalid: true });
     expect(harness.chartReads).toEqual([]);
   });
@@ -665,6 +704,64 @@ describe('POST /cases/[id]/settle, intent=prepare', () => {
     expect(harness.chartReads).toEqual([{ mayRefresh: true }]);
   });
 
+  describe('the invoice a person names (ADR 0069 §1)', () => {
+    const stating = (invoice: string) => ({ ...prepareForm(edited), invoiceId: invoice });
+    const resolved = () => harness.calls.filter(([name]) => name === 'resolvedInvoice').map(([, id]) => id);
+
+    it('resolves a printed invoice number to the one QuickBooks invoice that carries it', async () => {
+      // Production, 2026-10-05: 120324 was the number printed on the notice,
+      // and it was stored and later sent to QuickBooks as an internal id.
+      harness.invoices = 'by_number';
+      const response = await settle(post(stating('120324')), params);
+      expect(location(response).searchParams.get('action')).toBe('settle_prepared');
+      expect(harness.invoiceLookups).toEqual(['120324']);
+      expect(resolved()).toEqual(['3391']);
+    });
+
+    it('refuses a number QuickBooks has no invoice for, by name, and prepares nothing', async () => {
+      harness.invoices = 'none';
+      const response = await settle(post(stating('120324')), params);
+      expect(location(response).searchParams.get('action')).toBe('settle_invoice_not_found');
+      expect(prepared()).toEqual([]);
+    });
+
+    it('refuses a number two invoices carry rather than picking one', async () => {
+      harness.invoices = 'two';
+      const response = await settle(post(stating('INV-1001')), params);
+      expect(location(response).searchParams.get('action')).toBe('settle_invoice_ambiguous');
+      expect(prepared()).toEqual([]);
+    });
+
+    it('says the invoices could not be read, and puts nothing QuickBooks said anywhere', async () => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      for (const failing of ['throws', 'not_configured'] as const) {
+        harness.invoices = failing;
+        const response = await settle(post(stating('INV-1001')), params);
+        expect(location(response).searchParams.get('action')).toBe('settle_invoice_unreadable');
+        expect(response.headers.get('location')).not.toMatch(/Acme|abc123/);
+      }
+      expect(JSON.stringify(logged.mock.calls)).not.toMatch(/Acme|abc123|INV-1001/);
+      expect(prepared()).toEqual([]);
+      logged.mockRestore();
+    });
+
+    it('refuses text that could leave a quoted literal before anything is read', async () => {
+      for (const invoice of ["1' or '1'='1", 'a\\b', '', 'x'.repeat(22)]) {
+        const response = await settle(post(stating(invoice)), params);
+        expect(location(response).searchParams.get('action')).toBe('settle_invalid');
+      }
+      expect(harness.invoiceLookups).toEqual([]);
+    });
+
+    it('looks nothing up for a member the database would not let write, and prepares nothing', async () => {
+      harness.mayWrite = false;
+      const response = await settle(post(stating('120324')), params);
+      expect(location(response).searchParams.get('action')).toBe('settle_role');
+      expect(harness.invoiceLookups).toEqual([]);
+      expect(prepared()).toEqual([]);
+    });
+  });
+
   it('takes the connection from the workspace, never from the form', async () => {
     await settle(post({ ...prepareForm(edited), connectionId: '00000000-0000-4000-8000-000000000000' }), params);
     expect((prepared()[0]?.[1] as { lines: { connectionId: string } }).lines.connectionId).toBe(CONNECTION_ID);
@@ -766,7 +863,7 @@ describe('POST /cases/[id]/settle, intent=prepare', () => {
   });
 
   it('an invalid choice is refused before anything is read', async () => {
-    const response = await settle(post(prepareForm(edited, { invoiceId: 'INV-71' })), params);
+    const response = await settle(post(prepareForm(edited, { invoiceId: "INV'71" })), params);
     expect(location(response).searchParams.get('action')).toBe('settle_invalid');
     expect(harness.calls).toEqual([]);
     expect(harness.chartReads).toEqual([]);

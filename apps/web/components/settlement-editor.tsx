@@ -98,14 +98,20 @@ function ChooseForm({
           </option>
         ))}
       </select>
-      <label htmlFor="settle-invoice">QuickBooks invoice id</label>
+      <label htmlFor="settle-invoice">Invoice number, as QuickBooks has it</label>
       <input
         id="settle-invoice"
         name={SETTLE_PARAMS.invoice}
         required
-        pattern="[0-9]{1,20}"
+        maxLength={21}
+        pattern="[A-Za-z0-9][A-Za-z0-9 ._/#\-]{0,20}"
+        aria-describedby="settle-invoice-hint"
         defaultValue={defaults.invoiceId ?? ''}
       />
+      <p className="hint" id="settle-invoice-hint">
+        It is looked up in your QuickBooks company when the entry is prepared, and must match
+        exactly one invoice there.
+      </p>
       <button type="submit">{label}</button>
     </form>
   );

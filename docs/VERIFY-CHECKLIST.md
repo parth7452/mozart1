@@ -1678,8 +1678,12 @@ small case, and reverse the entry in QuickBooks afterwards (13.7).
 - You need **two people** in the workspace: one who prepares (any member who
   may write) and one who approves (an owner or an approver). The same person
   cannot do both; the database refuses it.
-- Pick the case: one that **has a QuickBooks invoice** behind it (a case the
-  ledger sync opened shows its invoice id already), with a small amount. Use
+- Pick the case: one that **has a QuickBooks invoice** behind it, with a
+  small amount. A case the ledger sync opened shows its invoice already; for
+  any other, have the invoice's number as QuickBooks shows it — it is looked
+  up in your company when you prepare, and must match exactly one invoice
+  there (ADR 0069). A number printed on a deduction notice is the payer's and
+  may not be yours. Use
   **Lost** for this first posting: it is one journal entry of two lines — a
   debit to an expense account and a credit to Deductions Receivable — with no
   payment and no line on Accounts Receivable. Note the case's id from its
@@ -1689,8 +1693,8 @@ small case, and reverse the entry in QuickBooks afterwards (13.7).
 
 - **Do:** as the preparer, open the case. In **Draft accounting entries**,
   under *Settlement entry for QuickBooks*, choose **Lost — written off**,
-  leave Recovered at `0.00`, check the QuickBooks invoice id, and press **Show
-  the entry to edit**.
+  leave Recovered at `0.00`, enter the invoice number as QuickBooks has it,
+  and press **Show the entry to edit**.
 - **You should see:** two lines with your own QuickBooks account names, the
   case's amount as a debit on the first and a credit on the second, three
   empty rows, "Balances", and nothing saved yet. The address now carries the
@@ -1794,6 +1798,45 @@ status in 13.4, a screenshot of the entry in 13.5, and the first query's
 result in 13.6.
 
 ---
+
+**13.8 If a posting did not go (ADR 0069).**
+
+Under **QuickBooks postings** each row now says what became of it:
+
+- **"not sent — nothing reached QuickBooks"**, with the reason. Nothing was
+  posted. If the reason is the invoice, an owner or an approver presses
+  **Void this posting and settle the case again**: QuickBooks is checked once
+  more for an entry carrying the posting's reference, and only if it holds
+  none is the settlement set aside. Then prepare the settlement again with the
+  right invoice number and have a second person approve it.
+- **"waiting — no result recorded"** after about five minutes. Press **Check
+  QuickBooks and retry**: QuickBooks is read first, and the entry is sent only
+  if nothing there carries it.
+- **"outcome unknown — it may have reached QuickBooks"**. Never void this.
+  Press **Check QuickBooks and retry**; it finds the entry if it was posted.
+- **If preparing says QuickBooks has no invoice with that number**, or that
+  more than one matches: nothing was prepared. Look the invoice up in
+  QuickBooks and enter its number, or its QuickBooks id when two share one.
+
+The stuck row from 2026-10-05 (`writebacks` 5be2d862-5266-4b74-bc5b-3fcd5bcc3dff),
+after this change is deployed:
+
+1. Open its case. The row reads "waiting — no result recorded". Press
+   **Check QuickBooks and retry**.
+2. Reload after a few seconds. It reads "not sent — nothing reached
+   QuickBooks. QuickBooks has no invoice with the id this settlement names."
+3. As an owner or an approver, press **Void this posting and settle the case
+   again**. You should see "that posting is voided".
+4. In **Draft accounting entries**, prepare the settlement again with the
+   invoice's number as QuickBooks shows it; a second person approves it.
+
+  ```sql
+  select event_type, payload->>'reason' as reason, observed_at
+    from deduction_events
+   where payload->>'writeback_id' = '5be2d862-5266-4b74-bc5b-3fcd5bcc3dff'
+      or event_type = 'settlement.posting_voided'
+   order by id;
+  ```
 
 ## Found while writing this
 

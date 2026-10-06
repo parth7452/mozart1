@@ -13,7 +13,12 @@
  * `draftEntries` output otherwise.
  */
 
-import { draftEntries, type Cents, type ReasonFamily } from '@recouple/core-domain';
+import {
+  draftEntries,
+  type Cents,
+  type NothingSentReason,
+  type ReasonFamily,
+} from '@recouple/core-domain';
 import {
   QboRequestFailed,
   buildFoundEntry,
@@ -58,6 +63,11 @@ export interface PostingWriteback {
   readonly approvedOn: string;
   readonly map: LedgerAccountMap;
   readonly journalEntryId: string | undefined;
+  /**
+   * The decision's posting was voided by a person after it provably never
+   * reached the ledger (ADR 0069 §3): it is never sent.
+   */
+  readonly voided?: boolean | undefined;
 }
 
 export interface PostingAttempt {
@@ -81,8 +91,11 @@ export interface PostingLedgerClient {
   getById(entity: QboWriteEntity, id: string): Promise<JsonObject>;
   /** What carries our reference in QuickBooks: read before a person's retry sends. */
   findByReference(entity: QboWriteEntity, reference: string): Promise<readonly JsonObject[]>;
-  /** The invoice's `CustomerRef`, read live: text off a page never picks it. */
-  invoiceCustomer(invoiceId: string): Promise<string>;
+  /**
+   * The invoice's `CustomerRef`, read live: text off a page never picks it.
+   * `undefined` when the ledger has no invoice with that id.
+   */
+  invoiceCustomer(invoiceId: string): Promise<string | undefined>;
 }
 
 export interface PostingJobDeps {
@@ -104,17 +117,36 @@ export const POSTING_REFUSALS = [
   'no_invoice',
   'entry_not_verified',
   'lines_changed',
+  'invoice_not_found',
+  'invoice_lookup_failed',
+  'build_failed',
+  'voided',
 ] as const;
 export type PostingRefusal = (typeof POSTING_REFUSALS)[number];
 
 /** Refused before anything was sent. Settled: repeating it answers the same. */
 export class PostingRefusedError extends Error {
-  override readonly name = 'PostingRefusedError';
+  override readonly name: string = 'PostingRefusedError';
   constructor(
     readonly writebackId: string,
     readonly reason: PostingRefusal,
   ) {
     super(`writeback ${writebackId} was not posted: ${reason}`);
+  }
+}
+
+/**
+ * Ended before anything was sent, and recorded so (ADR 0069 §2): the row is
+ * `failed` with a reason from `NOTHING_SENT_REASONS`, which is what lets a
+ * person see it and void it. A refusal like any other to a caller.
+ */
+export class WritebackNotSentError extends PostingRefusedError {
+  override readonly name: string = 'WritebackNotSentError';
+  constructor(
+    writebackId: string,
+    override readonly reason: NothingSentReason,
+  ) {
+    super(writebackId, reason);
   }
 }
 
@@ -159,18 +191,45 @@ export async function postWritebackJob(
     return { status: 'already_succeeded', writebackId, qboTxnId: row.qboTxnId };
   }
   if (!row.postingEnabled) refuse('posting_disabled');
+  if (row.voided === true) refuse('voided');
   if (row.status !== 'pending') refuse('not_pending');
-  if (row.invoiceId === undefined) return refuse('no_invoice');
   if (row.method === 'payment_application' && row.journalEntryId === undefined) {
     refuse('entry_not_verified');
   }
   const client = deps.clientFor({ connectionId: row.connectionId, realmId: row.realmId });
   if (client === undefined) return refuse('no_client');
 
-  const customerId = await client.invoiceCustomer(row.invoiceId);
-  const posting = buildPosting(row, row.invoiceId, customerId);
+  // From here to the send, a failure is recorded on the row with a reason
+  // that says nothing was sent — ids, a status and a class of failure, never
+  // a body or a message — so the row is not left `pending` with nothing said.
+  const notSent = async (reason: NothingSentReason, error?: unknown): Promise<never> => {
+    const { httpStatus, faultCode } = failureOf(error);
+    await deps.store.recordWritebackAttempt({
+      writebackId,
+      status: 'failed',
+      reason,
+      ...(httpStatus !== undefined ? { httpStatus } : {}),
+      ...(faultCode !== undefined ? { faultCode } : {}),
+    });
+    throw new WritebackNotSentError(writebackId, reason);
+  };
+  const invoiceId = row.invoiceId;
+  if (invoiceId === undefined) return notSent('no_invoice');
+  let customerId: string | undefined;
+  try {
+    customerId = await client.invoiceCustomer(invoiceId);
+  } catch (error) {
+    return notSent('invoice_lookup_failed', error);
+  }
+  if (customerId === undefined) return notSent('invoice_not_found');
+  let posting: Posting;
+  try {
+    posting = buildPosting(row, invoiceId, customerId);
+  } catch {
+    return notSent('build_failed');
+  }
   if (posting.entity === 'JournalEntry' && !sameLines(posting.lines, row.lines)) {
-    refuse('lines_changed');
+    return notSent('lines_changed');
   }
 
   if (input.retry === true) {

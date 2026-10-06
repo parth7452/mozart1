@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { cents } from '@recouple/core-domain';
-import { SettlementApprovalRefusedError, type CasePosting } from '@recouple/store-postgres';
+import {
+  SettlementApprovalRefusedError,
+  SettlementVoidRefusedError,
+  type CasePosting,
+  type LedgerHoldsNothing,
+  type VoidRefusal,
+} from '@recouple/store-postgres';
 
 /**
  * ADR 0060's web half: the settings switch and map, moment 1's one button,
@@ -26,6 +32,11 @@ const harness = vi.hoisted(() => ({
   queued: [] as unknown[],
   casePosting: undefined as unknown,
   approveSettlementError: undefined as Error | undefined,
+  mayWrite: true,
+  /** What QuickBooks holds under a posting's reference: rows, or a failure. */
+  ledger: 'empty' as 'empty' | 'holds' | 'throws' | 'no_client',
+  referencesAsked: [] as Array<[string, string]>,
+  voidRefusal: undefined as string | undefined,
 }));
 
 function ready(overrides: Partial<CasePosting> = {}): CasePosting {
@@ -54,6 +65,23 @@ const postingStore = {
   async insertWriteoff(input: unknown) {
     harness.calls.push(['insertWriteoff', input]);
     return { writeoffId: 'x' };
+  },
+  async memberMayWrite() {
+    return harness.mayWrite;
+  },
+  async postingConnections() {
+    return [{ connectionId: CONNECTION_ID, realmId: '9130' }];
+  },
+  async voidSettlementPosting(input: { decisionId: string; ledgerHoldsNothing: LedgerHoldsNothing }) {
+    if (harness.voidRefusal !== undefined) {
+      throw new SettlementVoidRefusedError(input.decisionId, harness.voidRefusal as VoidRefusal);
+    }
+    const nothing = await input.ledgerHoldsNothing([
+      { writebackId: WRITEBACK_ID, method: 'journal_entry' },
+    ]);
+    if (!nothing) throw new SettlementVoidRefusedError(input.decisionId, 'in_ledger');
+    harness.calls.push(['voidSettlementPosting', input.decisionId]);
+    return { deductionId: CASE_ID, writebackIds: [WRITEBACK_ID] };
   },
   async requeueWriteback(writebackId: string) {
     harness.calls.push(['requeueWriteback', writebackId]);
@@ -86,7 +114,22 @@ vi.mock('../lib/pipeline', () => ({
 }));
 
 vi.mock('../lib/qbo-posting', () => ({
-  qboPostingFromEnv: () => (harness.posting ? { clientFor: () => undefined, accountTypesFor: () => undefined } : undefined),
+  qboPostingFromEnv: () =>
+    harness.posting
+      ? {
+          accountTypesFor: () => undefined,
+          clientFor: () =>
+            harness.ledger === 'no_client'
+              ? undefined
+              : {
+                  findByReference: async (entity: string, reference: string) => {
+                    harness.referencesAsked.push([entity, reference]);
+                    if (harness.ledger === 'throws') throw new Error('Intuit said: Acme Foods, token abc123');
+                    return harness.ledger === 'holds' ? [{ Id: '301' }] : [];
+                  },
+                },
+        }
+      : undefined,
 }));
 
 vi.mock('../lib/posting', () => ({
@@ -104,6 +147,7 @@ vi.mock('../lib/posting', () => ({
 const { POST: approve } = await import('../app/cases/[id]/approve/route');
 const { POST: settle } = await import('../app/cases/[id]/settle/route');
 const { POST: retry } = await import('../app/cases/[id]/retry-writeback/route');
+const { POST: voidPosting } = await import('../app/cases/[id]/void-posting/route');
 const { POST: toggle } = await import('../app/settings/quickbooks/posting/route');
 const { POST: saveMap } = await import('../app/settings/quickbooks/account-map/route');
 const { CaseActions } = await import('../components/case-actions');
@@ -129,6 +173,10 @@ beforeEach(() => {
   harness.queued = [];
   harness.casePosting = ready();
   harness.approveSettlementError = undefined;
+  harness.mayWrite = true;
+  harness.ledger = 'empty';
+  harness.referencesAsked = [];
+  harness.voidRefusal = undefined;
 });
 
 describe('every posting POST refuses cross-site', () => {
@@ -136,6 +184,7 @@ describe('every posting POST refuses cross-site', () => {
     ['approve', () => approve(post('/cases/x/approve', {}, 'cross-site'), params)],
     ['settle', () => settle(post('/cases/x/settle', {}, 'cross-site'), params)],
     ['retry', () => retry(post('/cases/x/retry-writeback', {}, 'cross-site'), params)],
+    ['void', () => voidPosting(post('/cases/x/void-posting', {}, 'cross-site'), params)],
     ['switch', () => toggle(post('/settings/quickbooks/posting', {}, 'cross-site'))],
     ['map', () => saveMap(post('/settings/quickbooks/account-map', {}, 'cross-site'))],
   ])('%s', async (_name, call) => {
@@ -272,7 +321,26 @@ describe('Check QuickBooks and retry', () => {
     method: 'journal_entry' as const,
     qboTxnId: undefined,
     amountCents: cents(50_000),
+    attempts: 0,
+    lastReason: undefined,
+    nothingSent: false,
+    stale: false,
+    voided: false,
   };
+  const card = (posting: CasePosting, mayApprove = true): string =>
+    renderToStaticMarkup(
+      <CasePostingCard deductionId={CASE_ID} posting={posting} mayAct mayApprove={mayApprove} viewerUserId={USER_ID} />,
+    );
+  const approvedSettlement = {
+    decisionId: DECISION_ID,
+    preparedBy: '99999999-9999-4999-8999-999999999999',
+    outcome: 'lost' as const,
+    recoveredCents: cents(0),
+    invoiceId: '120324',
+    approved: true,
+  };
+  /** Production's row once the job has run again: failed before anything was sent. */
+  const neverSent = { ...row, status: 'failed' as const, attempts: 1, lastReason: 'invoice_not_found', nothingSent: true };
 
   it('puts a failed row back and queues it to read back first', async () => {
     harness.casePosting = ready({ writebacks: [{ ...row, status: 'failed' }] });
@@ -300,5 +368,122 @@ describe('Check QuickBooks and retry', () => {
       />,
     );
     expect(html).toContain('Check QuickBooks and retry');
+  });
+
+  it('says nothing was sent, and why, in fixed wording — apart from an unknown outcome', () => {
+    const notSent = card(ready({ writebacks: [neverSent] }));
+    expect(notSent).toContain('not sent — nothing reached QuickBooks');
+    expect(notSent).toContain('QuickBooks has no invoice with the id this settlement names.');
+    expect(notSent).not.toContain('outcome unknown');
+
+    const unknown = card(
+      ready({ writebacks: [{ ...row, status: 'failed', attempts: 1, lastReason: 'unknown_outcome' }] }),
+    );
+    expect(unknown).toContain('outcome unknown — it may have reached QuickBooks');
+    expect(unknown).not.toContain('nothing reached QuickBooks');
+
+    // A reason this build does not know is never printed as it came.
+    const odd = card(ready({ writebacks: [{ ...row, status: 'failed', attempts: 1, lastReason: 'Acme <b>Foods</b>' }] }));
+    expect(odd).not.toContain('Acme');
+  });
+
+  it('offers the retry on a journal entry that has waited with nothing recorded, and not on a fresh one', () => {
+    // Production's row as it stands: pending, no attempt ever recorded.
+    const stuck = card(ready({ writebacks: [{ ...row, status: 'pending', stale: true }] }));
+    expect(stuck).toContain('waiting — no result recorded');
+    expect(stuck).toContain('Check QuickBooks and retry');
+    expect(card(ready({ writebacks: [{ ...row, status: 'pending' }] }))).not.toContain('<button');
+  });
+
+  it('queues a stuck pending row to read QuickBooks back first, without touching the row', async () => {
+    harness.casePosting = ready({ writebacks: [{ ...row, status: 'pending', stale: true }] });
+    const response = await retry(post('/', { writebackId: WRITEBACK_ID }), params);
+    expect(notice(response)).toBe('writeback_retried');
+    expect(harness.calls.map(([name]) => name)).not.toContain('requeueWriteback');
+    expect(harness.queued).toEqual([{ writebackId: WRITEBACK_ID, connectionId: CONNECTION_ID, retry: true }]);
+  });
+
+  it('never queues a voided row', async () => {
+    harness.casePosting = ready({ writebacks: [{ ...neverSent, voided: true }] });
+    const response = await retry(post('/', { writebackId: WRITEBACK_ID }), params);
+    expect(notice(response)).toBe('writeback_voided');
+    expect(harness.queued).toEqual([]);
+    const html = card(ready({ writebacks: [{ ...neverSent, voided: true }], settlement: { ...approvedSettlement, voided: true } }));
+    expect(html).toContain('voided — never sent');
+    expect(html).not.toContain('<button');
+  });
+
+  describe('Void this posting (ADR 0069 §3)', () => {
+    const voidIt = () => voidPosting(post('/', { decisionId: DECISION_ID }), params);
+    beforeEach(() => {
+      harness.casePosting = ready({ writebacks: [neverSent], settlement: approvedSettlement });
+    });
+
+    it('the card offers it only where nothing was sent, and only to someone who may approve', () => {
+      const posting = ready({ writebacks: [neverSent], settlement: approvedSettlement });
+      expect(card(posting)).toContain('Void this posting and settle the case again');
+      expect(card(posting, false)).not.toContain('Void this posting and settle the case again');
+      expect(card(posting, false)).toContain('An owner or an approver can void it');
+      const unknown = ready({
+        writebacks: [{ ...row, status: 'failed', attempts: 1, lastReason: 'unknown_outcome' }],
+        settlement: approvedSettlement,
+      });
+      expect(card(unknown)).not.toContain('Void this posting');
+      const stuck = ready({ writebacks: [{ ...row, status: 'pending', stale: true }], settlement: approvedSettlement });
+      expect(card(stuck)).not.toContain('Void this posting');
+    });
+
+    it('reads QuickBooks by the row\u2019s reference, then voids', async () => {
+      const response = await voidIt();
+      expect(notice(response)).toBe('posting_voided');
+      expect(harness.referencesAsked).toHaveLength(1);
+      expect(harness.referencesAsked[0]?.[0]).toBe('JournalEntry');
+      expect(harness.referencesAsked[0]?.[1]).toMatch(/^RC[0-9a-f]{19}$/);
+      expect(harness.calls.at(-1)).toEqual(['voidSettlementPosting', DECISION_ID]);
+    });
+
+    it('is an owner\u2019s or an approver\u2019s, whom the database still lets write', async () => {
+      harness.role = 'analyst';
+      expect(notice(await voidIt())).toBe('posting_void_role');
+      harness.role = 'approver';
+      harness.mayWrite = false;
+      expect(notice(await voidIt())).toBe('posting_void_role');
+      expect(harness.referencesAsked).toEqual([]);
+      expect(harness.calls.map(([name]) => name)).not.toContain('voidSettlementPosting');
+    });
+
+    it('voids nothing when QuickBooks holds the entry, cannot be read, or has no client', async () => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      harness.ledger = 'holds';
+      expect(notice(await voidIt())).toBe('posting_void_in_ledger');
+      harness.ledger = 'throws';
+      const unreadable = await voidIt();
+      expect(notice(unreadable)).toBe('posting_void_unreadable');
+      harness.ledger = 'no_client';
+      expect(notice(await voidIt())).toBe('posting_void_unreadable');
+      expect(JSON.stringify(logged.mock.calls) + (unreadable.headers.get('location') ?? '')).not.toMatch(/Acme|abc123/);
+      expect(harness.calls.map(([name]) => name)).not.toContain('voidSettlementPosting');
+      logged.mockRestore();
+    });
+
+    it.each([
+      ['maybe_sent', 'posting_void_maybe_sent'],
+      ['posted', 'posting_void_maybe_sent'],
+      ['not_failed', 'posting_void_refused'],
+      ['already_voided', 'posting_void_refused'],
+    ])('answers the store\u2019s refusal %s as %s', async (reason, expected) => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      harness.voidRefusal = reason;
+      expect(notice(await voidIt())).toBe(expected);
+      logged.mockRestore();
+    });
+
+    it('refuses a decision that is not this case\u2019s, and a deployment that does not post', async () => {
+      expect(
+        notice(await voidPosting(post('/', { decisionId: '00000000-0000-4000-8000-000000000000' }), params)),
+      ).toBe('posting_void_refused');
+      harness.posting = false;
+      expect(notice(await voidIt())).toBe('posting_off');
+    });
   });
 });

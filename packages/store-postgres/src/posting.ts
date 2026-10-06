@@ -16,15 +16,21 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
   REASON_FAMILIES,
+  STATED_INVOICE,
+  STUCK_PENDING_MINUTES,
   diffSettlementLines,
   draftEntries,
   familyOf,
   isCanonicalReasonCode,
+  nothingWasSent,
+  resolveStatedInvoice,
   settlementLinesFrom,
   sumCents,
   cents,
   validateSettlementLines,
   type Cents,
+  type InvoiceRefusal,
+  type LedgerInvoiceMatches,
   type ReasonFamily,
   type SettlementAccountPolicy,
   type SettlementChartAccount,
@@ -158,6 +164,52 @@ export class SettlementAlreadyApprovedError extends PostingStoreError {
   }
 }
 
+/**
+ * The invoice a person named is not exactly one invoice in the connected
+ * ledger (ADR 0069 §1). Nothing was prepared.
+ */
+export class SettlementInvoiceRefusedError extends PostingStoreError {
+  override readonly name = 'SettlementInvoiceRefusedError';
+  constructor(readonly reason: InvoiceRefusal) {
+    super(`the settlement names no single ledger invoice: ${reason}`);
+  }
+}
+
+/** Reads what the connected ledger holds for the invoice a person named. */
+export type InvoiceLookup = (stated: string) => Promise<LedgerInvoiceMatches>;
+
+export const SETTLEMENT_VOIDED_EVENT = 'settlement.posting_voided';
+
+export const VOID_REFUSALS = [
+  'not_found',
+  'not_approved',
+  'already_voided',
+  'posted',
+  'not_failed',
+  'maybe_sent',
+  'in_ledger',
+] as const;
+export type VoidRefusal = (typeof VOID_REFUSALS)[number];
+
+/** A settlement's posting was not voided (ADR 0069 §3). Nothing was written. */
+export class SettlementVoidRefusedError extends PostingStoreError {
+  override readonly name = 'SettlementVoidRefusedError';
+  constructor(
+    readonly decisionId: string,
+    readonly reason: VoidRefusal,
+  ) {
+    super(`the posting of settlement ${decisionId} was not voided: ${reason}`);
+  }
+}
+
+/**
+ * Asks the ledger whether it holds anything carrying these rows' references.
+ * `true` only when it was read and holds nothing for any of them.
+ */
+export type LedgerHoldsNothing = (
+  rows: readonly { readonly writebackId: string; readonly method: WritebackMethod }[],
+) => Promise<boolean>;
+
 export class WritebackNotApprovedError extends PostingStoreError {
   override readonly name = 'WritebackNotApprovedError';
   constructor(readonly decisionId: string, readonly action: 'writeback' | 'writeoff') {
@@ -191,7 +243,10 @@ export interface SettlementResult {
   readonly outcome: SettlementOutcome;
   readonly recovered_cents: number;
   readonly family: ReasonFamily | null;
+  /** The ledger's internal id, resolved against the ledger when prepared (ADR 0069 §1). */
   readonly invoice_id: string;
+  /** The number the ledger prints on that invoice, as the ledger reported it. */
+  readonly invoice_number?: string;
   readonly payment_id?: string;
   /**
    * How many `settlement_lines` rows the decision was prepared with (ADR 0068
@@ -275,6 +330,18 @@ export interface CaseWriteback {
   readonly status: 'pending' | 'succeeded' | 'failed';
   readonly qboTxnId: string | undefined;
   readonly amountCents: Cents | undefined;
+  /** How many attempts are recorded, and the latest one's reason constant. */
+  readonly attempts: number;
+  readonly lastReason: string | undefined;
+  /**
+   * `failed`, with at least one attempt, every one of which ended before the
+   * send (`nothingWasSent`): nothing reached the ledger from our records.
+   */
+  readonly nothingSent: boolean;
+  /** `pending` with nothing recorded for `STUCK_PENDING_MINUTES`. */
+  readonly stale: boolean;
+  /** Its decision's posting was voided (ADR 0069 §3): never sent. */
+  readonly voided: boolean;
 }
 
 export interface CasePosting {
@@ -290,7 +357,14 @@ export interface CasePosting {
         readonly outcome: SettlementOutcome;
         readonly recoveredCents: Cents;
         readonly invoiceId: string;
+        /** The number the ledger prints on that invoice, when it was recorded. */
+        readonly invoiceNumber?: string | undefined;
         readonly approved: boolean;
+        /**
+         * Approved, and its posting then voided (ADR 0069 §3): the case takes
+         * a new settlement, and this one is never posted.
+         */
+        readonly voided?: boolean | undefined;
         readonly family?: ReasonFamily | undefined;
         /**
          * The lines the decision was prepared with (ADR 0068), or nothing for a
@@ -350,6 +424,7 @@ export interface WritebackToPost {
   readonly map: LedgerAccountMap;
   /** For a payment: the same decision's journal entry, when it succeeded. */
   readonly journalEntryId: string | undefined;
+  readonly voided: boolean;
 }
 
 export interface WritebackAttempt {
@@ -857,7 +932,13 @@ export class PostgresPostingStore {
     readonly outcome: SettlementOutcome;
     readonly recoveredCents: Cents;
     readonly family: ReasonFamily | undefined;
+    /**
+     * What the person stated for the invoice: the ledger's id or the number
+     * printed on it. Never stored as an id; `findInvoice` resolves it.
+     */
     readonly invoiceId: string;
+    /** The connected ledger's answer for that text, read live (ADR 0069 §1). */
+    readonly findInvoice: InvoiceLookup;
     readonly paymentId?: string;
     readonly lines?: SettlementLinesInput;
   }): Promise<{ readonly decisionId: string }> {
@@ -870,11 +951,15 @@ export class PostgresPostingStore {
     if (input.family !== undefined && !REASON_FAMILIES.includes(input.family)) {
       throw new PostingDecisionError(`unknown reason family ${String(input.family)}`);
     }
-    const invoiceId = assertQboId(input.invoiceId);
+    const statedInvoice = input.invoiceId.trim();
+    if (!STATED_INVOICE.test(statedInvoice)) {
+      throw new PostingDecisionError('an invoice is named by its ledger id or its printed number');
+    }
     const paymentId = input.paymentId === undefined ? undefined : assertQboId(input.paymentId);
     // Read before the transaction opens: a call to the accounting system is
     // not made while the case's row is locked.
     const chart = input.lines === undefined ? undefined : await input.lines.readChart();
+    const invoicesFound = await input.findInvoice(statedInvoice);
 
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{ amount: string }>(
@@ -898,10 +983,35 @@ export class PostgresPostingStore {
       const approved = await client.query(
         `select 1 from decisions d
            join approvals a on a.decision_id = d.id and a.action_type = 'writeback'
-          where d.deduction_id = $1 and d.schema_id = $2 limit 1`,
-        [input.deductionId, SETTLEMENT_SCHEMA_ID],
+          where d.deduction_id = $1 and d.schema_id = $2
+            and not exists (
+              select 1 from deduction_events v
+               where v.deduction_id = d.deduction_id and v.event_type = $3
+                 and v.payload->>'decision_id' = d.id::text)
+          limit 1`,
+        [input.deductionId, SETTLEMENT_SCHEMA_ID, SETTLEMENT_VOIDED_EVENT],
       );
       if (approved.rows.length > 0) throw new SettlementAlreadyApprovedError(input.deductionId);
+
+      // The id posting will use is the ledger's own answer, never the text
+      // stated: a number printed on a document is not an id (ADR 0069 §1).
+      const ledgerInvoice = await client.query<{ identifier: string }>(
+        `select identifier from deduction_identifiers
+          where deduction_id = $1 and identifier_kind = 'ledger_invoice_id'
+          order by identifier limit 1`,
+        [input.deductionId],
+      );
+      const resolved = resolveStatedInvoice(
+        statedInvoice,
+        invoicesFound,
+        ledgerInvoice.rows[0]?.identifier,
+      );
+      if (!resolved.ok) throw new SettlementInvoiceRefusedError(resolved.reason);
+      const invoiceId = assertQboId(resolved.invoice.id);
+      const invoiceNumber =
+        resolved.invoice.docNumber !== undefined && STATED_INVOICE.test(resolved.invoice.docNumber)
+          ? resolved.invoice.docNumber
+          : undefined;
 
       let lines: readonly StoredSettlementLine[] | undefined;
       let edited = false;
@@ -927,6 +1037,7 @@ export class PostgresPostingStore {
         recovered_cents: input.recoveredCents,
         family: input.family ?? null,
         invoice_id: invoiceId,
+        ...(invoiceNumber !== undefined ? { invoice_number: invoiceNumber } : {}),
         ...(paymentId !== undefined ? { payment_id: paymentId } : {}),
         ...(lines !== undefined ? { line_count: lines.length } : {}),
       };
@@ -1242,6 +1353,7 @@ export class PostgresPostingStore {
         approvedOn: approvedAt.toISOString().slice(0, 10),
         map: toMap(mapRow),
         journalEntryId: entry.rows[0]?.qbo_txn_id ?? undefined,
+        voided: await decisionIsVoided(client, facts.deductionId, row.decision_id),
       };
     });
   }
@@ -1314,13 +1426,17 @@ export class PostgresPostingStore {
     return this.withTenant(async (client) => {
       const { rows } = await client.query<{
         deduction_id: string;
+        decision_id: string;
         connection_id: string | null;
         status: string;
-      }>(`select deduction_id, connection_id, status from writebacks where id = $1 for update`, [
+      }>(`select deduction_id, decision_id, connection_id, status from writebacks where id = $1 for update`, [
         writebackId,
       ]);
       const row = rows[0];
       if (row === undefined || row.connection_id === null) throw new WritebackNotFoundError(writebackId);
+      if (await decisionIsVoided(client, row.deduction_id, row.decision_id)) {
+        throw new PostingDecisionError(`writeback ${writebackId} was voided and is never sent`);
+      }
       if (row.status !== 'failed') {
         throw new PostingDecisionError(`writeback ${writebackId} is ${row.status}, not failed`);
       }
@@ -1330,6 +1446,86 @@ export class PostgresPostingStore {
       });
       await client.query(`update writebacks set status = 'pending' where id = $1`, [writebackId]);
       return { deductionId: row.deduction_id, connectionId: row.connection_id };
+    });
+  }
+
+  /**
+   * Voids the posting of an approved settlement that never reached the ledger
+   * (ADR 0069 §3), so the case can be settled again. One append-only event;
+   * no row is changed or removed, and the approval and the failed `writebacks`
+   * rows stay on the record.
+   *
+   * Refused unless every row of the decision is provably unsent: none
+   * succeeded, the journal entry is `failed`, every recorded attempt on every
+   * row ended before the send, and the ledger — asked before the case's row
+   * is locked, never while it is — holds nothing carrying their references.
+   * An unknown outcome is never voided. The checks on our own rows are made
+   * again under the lock a retry and a prepare take.
+   */
+  async voidSettlementPosting(input: {
+    readonly decisionId: string;
+    readonly ledgerHoldsNothing: LedgerHoldsNothing;
+  }): Promise<{ readonly deductionId: string; readonly writebackIds: readonly string[] }> {
+    const refuse = (reason: VoidRefusal): never => {
+      throw new SettlementVoidRefusedError(input.decisionId, reason);
+    };
+    const check = async (
+      client: PoolClient,
+      lock: boolean,
+    ): Promise<{
+      deductionId: string;
+      rows: readonly { writebackId: string; method: WritebackMethod }[];
+    }> => {
+      const decision = await client.query<{ deduction_id: string; approved: boolean }>(
+        `select d.deduction_id,
+                exists (select 1 from approvals a
+                         where a.decision_id = d.id and a.action_type = 'writeback') as approved
+           from decisions d where d.id = $1 and d.schema_id = $2`,
+        [input.decisionId, SETTLEMENT_SCHEMA_ID],
+      );
+      const found = decision.rows[0];
+      if (found === undefined) return refuse('not_found');
+      if (lock) {
+        await client.query(`select 1 from deductions where id = $1 for update`, [found.deduction_id]);
+      }
+      if (!found.approved) refuse('not_approved');
+      if (await decisionIsVoided(client, found.deduction_id, input.decisionId)) refuse('already_voided');
+      const { rows } = await client.query<{ id: string; method: WritebackMethod; status: string }>(
+        `select id, method, status from writebacks where decision_id = $1
+          order by created_at, id${lock ? ' for update' : ''}`,
+        [input.decisionId],
+      );
+      if (rows.some((row) => row.status === 'succeeded')) refuse('posted');
+      const entry = rows.find((row) => row.method === 'journal_entry');
+      if (entry === undefined || entry.status !== 'failed') refuse('not_failed');
+      const attempts = await readAttempts(client, found.deduction_id);
+      for (const row of rows) {
+        const reasons = attempts.filter((a) => a.writebackId === row.id).map((a) => a.reason);
+        // The entry must have failed before its send; any other row must
+        // either never have been tried or have failed the same way.
+        if (row.id === entry?.id ? !nothingWasSent(reasons) : reasons.length > 0 && !nothingWasSent(reasons)) {
+          refuse('maybe_sent');
+        }
+      }
+      return {
+        deductionId: found.deduction_id,
+        rows: rows.map((row) => ({ writebackId: row.id, method: row.method })),
+      };
+    };
+
+    const before = await this.withTenant((client) => check(client, false));
+    if ((await input.ledgerHoldsNothing(before.rows)) !== true) refuse('in_ledger');
+    return this.withTenant(async (client) => {
+      const now = await check(client, true);
+      const writebackIds = now.rows.map((row) => row.writebackId);
+      // A row added since the ledger was asked was not asked about.
+      if (writebackIds.join() !== before.rows.map((row) => row.writebackId).join()) refuse('maybe_sent');
+      await appendEvent(client, this.tenant, now.deductionId, SETTLEMENT_VOIDED_EVENT, {
+        decision_id: input.decisionId,
+        writeback_ids: writebackIds,
+        voided_by: this.tenant.userId,
+      });
+      return { deductionId: now.deductionId, writebackIds };
     });
   }
 
@@ -1394,10 +1590,17 @@ export class PostgresPostingStore {
         status: 'pending' | 'succeeded' | 'failed';
         qbo_txn_id: string | null;
         amount_cents: string | null;
+        stale: boolean;
       }>(
-        `select id, decision_id, connection_id, method, status, qbo_txn_id, amount_cents::text
-           from writebacks where deduction_id = $1 order by created_at, id`,
-        [deductionId],
+        `select w.id, w.decision_id, w.connection_id, w.method, w.status, w.qbo_txn_id,
+                w.amount_cents::text,
+                greatest(w.created_at, coalesce((
+                  select max(e.observed_at) from deduction_events e
+                   where e.deduction_id = w.deduction_id
+                     and e.payload->>'writeback_id' = w.id::text), w.created_at))
+                  < now() - make_interval(mins => $2) as stale
+           from writebacks w where w.deduction_id = $1 order by w.created_at, w.id`,
+        [deductionId, STUCK_PENDING_MINUTES],
       );
       const invoice = await client.query<{ identifier: string }>(
         `select identifier from deduction_identifiers
@@ -1420,6 +1623,13 @@ export class PostgresPostingStore {
         [deductionId, SETTLEMENT_SCHEMA_ID],
       );
       const latest = settlement.rows[0];
+      const attempts = await readAttempts(client, deductionId);
+      const voided = await client.query<{ decision_id: string | null }>(
+        `select payload->>'decision_id' as decision_id from deduction_events
+          where deduction_id = $1 and event_type = $2`,
+        [deductionId, SETTLEMENT_VOIDED_EVENT],
+      );
+      const voidedDecisions = new Set(voided.rows.map((row) => row.decision_id));
       const storedLines = latest === undefined ? [] : await readStoredLines(client, latest.id);
       const mapNow = only === undefined ? undefined : await readLatestMap(client, only.id);
       let computedLines: readonly SettlementLine[] | undefined;
@@ -1448,15 +1658,23 @@ export class PostgresPostingStore {
             ? undefined
             : { connectionId: only.id, postingEnabled: only.posting_enabled, hasMap: only.has_map },
         ledgerInvoiceId: invoice.rows[0]?.identifier,
-        writebacks: writebacks.rows.map((row) => ({
-          writebackId: row.id,
-          decisionId: row.decision_id,
-          connectionId: row.connection_id ?? undefined,
-          method: row.method,
-          status: row.status,
-          qboTxnId: row.qbo_txn_id ?? undefined,
-          amountCents: row.amount_cents === null ? undefined : exact(row.amount_cents, 'amount_cents'),
-        })),
+        writebacks: writebacks.rows.map((row) => {
+          const reasons = attempts.filter((a) => a.writebackId === row.id).map((a) => a.reason);
+          return {
+            writebackId: row.id,
+            decisionId: row.decision_id,
+            connectionId: row.connection_id ?? undefined,
+            method: row.method,
+            status: row.status,
+            qboTxnId: row.qbo_txn_id ?? undefined,
+            amountCents: row.amount_cents === null ? undefined : exact(row.amount_cents, 'amount_cents'),
+            attempts: reasons.length,
+            lastReason: reasons[reasons.length - 1],
+            nothingSent: row.status === 'failed' && nothingWasSent(reasons),
+            stale: row.status === 'pending' && row.stale,
+            voided: voidedDecisions.has(row.decision_id),
+          };
+        }),
         settlement:
           latest === undefined
             ? undefined
@@ -1466,7 +1684,9 @@ export class PostgresPostingStore {
                 outcome: latest.result.outcome,
                 recoveredCents: cents(latest.result.recovered_cents),
                 invoiceId: latest.result.invoice_id,
+                invoiceNumber: latest.result.invoice_number,
                 approved: latest.approved,
+                voided: voidedDecisions.has(latest.id),
                 family: latest.result.family ?? undefined,
                 lines: storedLines.length === 0 ? undefined : storedLines,
                 computedLines,
@@ -1688,6 +1908,35 @@ async function approvalAt(
   const row = rows[0];
   if (row === undefined) throw new WritebackNotApprovedError(decisionId, action);
   return new Date(row.approved_at);
+}
+
+/** Whether a person voided this decision's posting (ADR 0069 §3). */
+async function decisionIsVoided(
+  client: PoolClient,
+  deductionId: string,
+  decisionId: string,
+): Promise<boolean> {
+  const { rows } = await client.query(
+    `select 1 from deduction_events
+      where deduction_id = $1 and event_type = $2 and payload->>'decision_id' = $3 limit 1`,
+    [deductionId, SETTLEMENT_VOIDED_EVENT, decisionId],
+  );
+  return rows.length > 0;
+}
+
+/** Every recorded posting attempt on a case, oldest first: the row and its reason constant. */
+async function readAttempts(
+  client: PoolClient,
+  deductionId: string,
+): Promise<readonly { readonly writebackId: string | null; readonly reason: string | undefined }[]> {
+  const { rows } = await client.query<{ writeback_id: string | null; reason: string | null }>(
+    `select payload->>'writeback_id' as writeback_id, payload->>'reason' as reason
+       from deduction_events
+      where deduction_id = $1 and event_type = 'writeback.attempted'
+      order by id`,
+    [deductionId],
+  );
+  return rows.map((row) => ({ writebackId: row.writeback_id, reason: row.reason ?? undefined }));
 }
 
 async function readDecisionFacts(client: PoolClient, decisionId: string): Promise<DecisionFacts> {

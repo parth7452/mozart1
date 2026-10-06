@@ -37,6 +37,8 @@ export async function POST(
   const store = postingStoreFor(session);
   const row = (await store.postingForCase(id)).writebacks.find((w) => w.writebackId === writebackId);
   if (row === undefined || row.status === 'succeeded') return back('writeback_not_retryable');
+  // A voided posting is never sent (ADR 0069 §3); the job refuses it too.
+  if (row.voided) return back('writeback_voided');
 
   let connectionId: string;
   try {

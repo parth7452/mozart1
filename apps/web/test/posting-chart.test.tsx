@@ -67,6 +67,7 @@ function posterFor(reads: Record<string, Read>): QboPoster {
   };
   return {
     clientFor: refuse,
+    invoiceLookupFor: refuse,
     accountTypesFor: refuse,
     accountCreatorFor: refuse,
     accountsFor(_identity, { connectionId }, options) {
