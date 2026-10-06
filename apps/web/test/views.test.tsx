@@ -436,6 +436,11 @@ describe('the case list', () => {
     expect(html).toContain('name="q"');
     expect(html).toContain('placeholder="Claim, invoice, or retailer"');
     expect(html).toContain('name="state"');
+    // The narrow layout has real text labels in its case list; CSS-generated
+    // labels would disappear for readers that do not expose styled content.
+    expect(html).toContain('class="mobile-case-list"');
+    expect(html).toContain('<span class="mobile-case-label">Deducted</span>');
+    expect(html).toContain('<span class="mobile-case-label">Evidence</span>');
     // Every state, from `CASE_STATES`, though the one row here is `classified`.
     for (const state of CASE_STATES) {
       expect(html).toContain(`<option value="${state}">${state.replace(/_/g, ' ')}</option>`);

@@ -851,6 +851,7 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
 .dashboard-main table.cases th:nth-child(6) { width: 15%; }
 .dashboard-main table.cases td.money { font-variant-numeric: tabular-nums; }
 .dashboard-main .table-foot { padding-block: 12px; }
+.mobile-case-list { display: none; }
 .retailer-disclosure { margin: 0 0 30px; scroll-margin-top: 20px; }
 .retailer-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 7px; background: #f8faf8; cursor: pointer; list-style: none; }
 .retailer-disclosure > summary::-webkit-details-marker { display: none; }
@@ -894,22 +895,14 @@ table.cases tr.has-note:hover, table.cases tr.has-note:hover + tr.run-note { bac
   .dashboard-main .search-submit { grid-column: 2; }
   .dashboard-main .table-tools .text-button { grid-column: 1; }
   .dashboard-main .results-count { grid-column: 1 / -1; }
-  .dashboard-main .table-scroll { overflow: visible; }
-  .dashboard-main table.cases, .dashboard-main table.cases tbody { display: block; width: 100%; min-width: 0; }
-  .dashboard-main table.cases thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-  .dashboard-main table.cases tr { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px 16px; border-top: 1px solid var(--line); padding: 15px 16px; }
-  .dashboard-main table.cases td, .dashboard-main table.cases td:first-child, .dashboard-main table.cases td:last-child { display: block; padding: 0; min-width: 0; border: 0; }
-  .dashboard-main table.cases td::before { content: attr(data-label); display: block; margin-bottom: 3px; color: var(--muted); font-size: 9px; font-weight: 500; letter-spacing: .5px; text-transform: uppercase; }
-  .dashboard-main table.cases td[data-label="Retailer"] { grid-column: 1; grid-row: 1; }
-  .dashboard-main table.cases td[data-label="Deducted"] { grid-column: 2; grid-row: 1; text-align: right; white-space: normal; }
-  .dashboard-main table.cases td[data-label="Claim"] { grid-column: 1; grid-row: 2; }
-  .dashboard-main table.cases td[data-label="Evidence"] { grid-column: 2; grid-row: 2; text-align: right; }
-  .dashboard-main table.cases td[data-label="State"] { grid-column: 1; grid-row: 3; }
-  .dashboard-main table.cases td[data-label="Deadline"] { grid-column: 2; grid-row: 3; text-align: right; }
-  .dashboard-main table.cases .no-payer td[data-label="Claim"] { grid-row: 1; }
-  .dashboard-main table.cases .no-payer td[data-label="State"] { grid-row: 2; }
-  .dashboard-main table.cases .no-payer td[data-label="Evidence"] { grid-row: 2; }
-  .dashboard-main table.cases .no-payer td[data-label="Deadline"] { grid-column: 1 / -1; grid-row: 3; text-align: left; }
+  .dashboard-main #ledger .table-scroll { display: none; }
+  .dashboard-main .mobile-case-list { display: block; list-style: none; margin: 0; padding: 0; }
+  .dashboard-main .mobile-case-card { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px 16px; padding: 15px 16px; border-top: 1px solid var(--line); font-size: 12px; }
+  .dashboard-main .mobile-case-card > div { min-width: 0; overflow-wrap: anywhere; }
+  .dashboard-main .mobile-case-card .mobile-case-right { text-align: right; }
+  .dashboard-main .mobile-case-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; font-weight: 500; letter-spacing: .5px; text-transform: uppercase; }
+  .dashboard-main .mobile-case-card strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dashboard-main .mobile-case-card .pill { display: inline-block; }
   .retailer-disclosure > summary { flex-wrap: wrap; }
   .retailer-disclosure-count { margin-left: 0; }
   .documents-area { padding-top: 22px; }

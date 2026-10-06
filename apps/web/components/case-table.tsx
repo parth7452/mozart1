@@ -90,6 +90,49 @@ export function CaseTable({
           </tbody>
         </table>
       </div>
+      <ol className="mobile-case-list" aria-label="Deductions">
+        {cases.map((row) => {
+          const who = retailer(row, '—');
+          const claim = row.claimId ?? row.deductionId.slice(0, 8);
+          const due = deadline(row.disputeDeadline, today);
+          return (
+            <li key={row.deductionId} className="mobile-case-card">
+              <div>
+                <span className="mobile-case-label">Retailer</span>
+                <Link href={`/cases/${row.deductionId}`} className="case-name-link">
+                  {who.name === '—' ? claim : who.name}
+                </Link>
+                {who.name === '—' ? <span className="unmatched">— no name read</span> : null}
+                {who.matched ? null : <span className="unmatched">not matched</span>}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Deducted</span>
+                <strong>{money(row.deductionAmountCents)}</strong>
+              </div>
+              <div>
+                <span className="mobile-case-label">Claim</span>
+                <span className="mono">{claim}</span>
+                {row.invoiceNumber === undefined ? null : (
+                  <span className="unmatched">invoice {row.invoiceNumber}</span>
+                )}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Evidence</span>
+                <span>{row.documentCount} doc{row.documentCount === 1 ? '' : 's'}</span>
+              </div>
+              <div>
+                <span className="mobile-case-label">State</span>
+                <span className={`pill state-${row.state}`}>{stateLabel(row.state)}</span>
+                {row.declined === true ? <span className="pill declined">declined</span> : null}
+              </div>
+              <div className="mobile-case-right">
+                <span className="mobile-case-label">Deadline</span>
+                {due === undefined ? '—' : <span className={`pill ${due.tone}`}>{due.label}</span>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
       {cases.length === 0 ? (
         <div className="empty filter-empty">
           <strong>No matching deductions</strong>
@@ -129,9 +172,9 @@ export function CaseRow({
   const who = retailer(row, '—');
   const claim = row.claimId ?? row.deductionId.slice(0, 8);
   return (
-    <tr className={payer ? 'case-row' : 'case-row no-payer'}>
+    <tr>
       {payer ? (
-        <td data-label="Retailer">
+        <td>
           <Link
             href={`/cases/${row.deductionId}`}
             className="customer-name case-name-link"
@@ -146,7 +189,7 @@ export function CaseRow({
           {who.matched ? null : <span className="unmatched">not matched</span>}
         </td>
       ) : null}
-      <td data-label="Claim">
+      <td>
         {payer ? (
           <span className="mono case-claim">{claim}</span>
         ) : (
@@ -160,8 +203,8 @@ export function CaseRow({
           </div>
         )}
       </td>
-      <td className="money" data-label="Deducted">{money(row.deductionAmountCents)}</td>
-      <td data-label="State">
+      <td className="money">{money(row.deductionAmountCents)}</td>
+      <td>
         <span className={`pill state-${row.state}`}>
           {stateLabel(row.state)}
         </span>
@@ -169,10 +212,10 @@ export function CaseRow({
             declined case reads as a `classified` one waiting. */}
         {row.declined === true ? <span className="pill declined">declined</span> : null}
       </td>
-      <td className="evidence-count" data-label="Evidence">
+      <td className="evidence-count">
         {row.documentCount} doc{row.documentCount === 1 ? '' : 's'}
       </td>
-      <td data-label="Deadline">
+      <td>
         {due === undefined ? (
           '—'
         ) : (

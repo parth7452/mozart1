@@ -122,8 +122,8 @@ export function WorkQueue({
           <p className="ledger-summary">
             {needText} · {waitingText}
           </p>
-          {unknownDeadlines > 0 ? (
-            <p className="queue-unknown has-unknown">
+          {unknownDeadlines > 0 || ranked.length < queue.total ? (
+            <p className={unknownDeadlines > 0 ? 'queue-unknown has-unknown' : 'queue-unknown'}>
               {unknownDeadlines.toLocaleString('en-US')} deadline
               {unknownDeadlines === 1 ? '' : 's'} unknown in the displayed queue.
               {ranked.length < queue.total ? ' More cases are outside this view.' : null}

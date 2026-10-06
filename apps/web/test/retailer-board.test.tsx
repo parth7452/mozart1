@@ -302,7 +302,7 @@ describe('the ledger’s rows after sharing one with the board', () => {
       <CaseTable cases={[row]} matching={1} filter={{}} todayISO={today.toISOString()} />,
     );
     expect(html).toContain(
-      `<td data-label="Retailer"><a class="customer-name case-name-link" href="/cases/${row.deductionId}">Walmart</a></td>`,
+      `<td><a class="customer-name case-name-link" href="/cases/${row.deductionId}">Walmart</a></td>`,
     );
     expect(html).toContain('<span class="mono case-claim">CLM-aaaa</span>');
     expect(html).toContain('invoice INV-1');
