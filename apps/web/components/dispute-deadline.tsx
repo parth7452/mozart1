@@ -1,4 +1,6 @@
 import { isClosed, type CaseState } from '@recouple/core-domain';
+import type { DisputeWindowAnswer } from '@recouple/store-postgres';
+import { windowBasis, windowSourceWords } from '../lib/dispute-window-words';
 import {
   DEADLINE_BASIS_MAX_LENGTH,
   MAX_ENTERED_DEADLINE_DAYS,
@@ -34,6 +36,7 @@ export function DisputeDeadline({
   deadlineSet,
   mayAct,
   today,
+  disputeWindow,
 }: {
   readonly deductionId: string;
   readonly state: CaseState;
@@ -43,6 +46,12 @@ export function DisputeDeadline({
   readonly deadlineSet: DeadlineSetRecord | undefined;
   readonly mayAct: boolean;
   readonly today: Date;
+  /**
+   * The payer's dispute window on the deduction date (ADR 0071). With no
+   * deadline on the case, it is said and prefills the form; a person still
+   * records it. Never written by this view.
+   */
+  readonly disputeWindow?: DisputeWindowAnswer | undefined;
 }) {
   if (deadlineSet !== undefined) {
     return (
@@ -53,6 +62,7 @@ export function DisputeDeadline({
     );
   }
   if (disputeDeadline !== undefined || !mayAct || isClosed(state)) return null;
+  const window = disputeWindow?.kind === 'window' ? disputeWindow : undefined;
 
   return (
     <div className="card act" style={{ marginTop: 18 }}>
@@ -64,6 +74,12 @@ export function DisputeDeadline({
         know the payer&rsquo;s window, enter the date it closes and where that comes from. It is
         recorded with your name, and it cannot be changed here once entered.
       </p>
+      {window === undefined ? null : (
+        <p className="hint payer-window">
+          Payer window: {window.window.windowDays} days from the deduction date → {window.deadline} (
+          {windowSourceWords(window.window)}, {window.window.confidence})
+        </p>
+      )}
       <form action={`/cases/${deductionId}/deadline`} method="post">
         <label htmlFor="dispute-deadline">The date the dispute window closes</label>
         <input
@@ -73,6 +89,7 @@ export function DisputeDeadline({
           required
           min={isoDaysFrom(today, -1)}
           max={isoDaysFrom(today, MAX_ENTERED_DEADLINE_DAYS)}
+          {...(window === undefined ? {} : { defaultValue: window.deadline })}
         />
 
         <label htmlFor="deadline-basis">Based on</label>
@@ -83,6 +100,7 @@ export function DisputeDeadline({
           required
           maxLength={DEADLINE_BASIS_MAX_LENGTH}
           placeholder="Sysco vendor agreement: 60 days from deduction date"
+          {...(window === undefined ? {} : { defaultValue: windowBasis(window.window) })}
         />
 
         <button className="primary" type="submit">

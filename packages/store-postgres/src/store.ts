@@ -19,7 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient } from 'pg';
-import { SheetMappingSchema, type SheetMapping } from '@recouple/core-domain';
+import { deadlineFromWindow, isIsoDate, SheetMappingSchema, type SheetMapping } from '@recouple/core-domain';
 import type { CellType } from '@recouple/ingest';
 import type { ResultCell } from '@recouple/pipeline';
 import {
@@ -2157,6 +2157,16 @@ export class PostgresStore
       );
     }
 
+    // A payer's dispute window fills in a deadline the caller did not give
+    // (ADR 0071 §3): only with a debtor and a deduction date, from the window
+    // in force on that date. A printed or typed deadline always wins, and a
+    // case that already exists is never touched.
+    const derived =
+      input.disputeDeadline === undefined && debtorId !== undefined && input.deductionDate !== undefined
+        ? await this.derivedDeadline(client, debtorId, input.deductionDate)
+        : undefined;
+    const disputeDeadline = input.disputeDeadline ?? derived?.deadline;
+
     // A failed statement aborts the whole transaction, and the lookup that
     // explains the failure is itself a statement. The savepoint is what lets
     // us ask the question rather than hand back a bare driver error.
@@ -2176,7 +2186,7 @@ export class PostgresStore
           input.retailerName ?? null,
           input.deductionAmountCents ?? 1,
           input.deductionDate ?? null,
-          input.disputeDeadline ?? null,
+          disputeDeadline ?? null,
           // `coalesce` rather than a default in TypeScript: the column's
           // default is what says a case nobody labelled was named by a notice,
           // and there should be one place that says so (migration 0022).
@@ -2191,6 +2201,14 @@ export class PostgresStore
     await client.query('release savepoint before_open_case');
     const row = rows[0];
     if (row === undefined) throw new Error('insert into deductions returned no row');
+
+    if (derived !== undefined) {
+      await client.query(
+        `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+         values ($1, $2, 'case.deadline_derived', $3::jsonb, now())`,
+        [input.orgId, row.id, JSON.stringify(derived)],
+      );
+    }
 
     // The claim id, said in the place every later source will say its own
     // name (ADR 0025). Same transaction as the `deductions` row on purpose:
@@ -2251,13 +2269,58 @@ export class PostgresStore
         ? { deductionAmountCents: input.deductionAmountCents }
         : {}),
       ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
-      ...(input.disputeDeadline !== undefined
-        ? { disputeDeadline: input.disputeDeadline }
-        : {}),
+      ...(disputeDeadline !== undefined ? { disputeDeadline } : {}),
       discoveredVia: input.discoveredVia ?? 'notice',
       ...(input.reasonCodeAsPrinted !== undefined
         ? { reasonCodeAsPrinted: input.reasonCodeAsPrinted }
         : {}),
+    };
+  }
+
+  /**
+   * The deadline a payer's window gives a deduction taken on `deductionDate`,
+   * with the facts `case.deadline_derived` records, or undefined when no
+   * window is in force on that date (or the date is not a real date).
+   */
+  private async derivedDeadline(
+    client: PoolClient,
+    debtorId: string,
+    deductionDate: string,
+  ): Promise<
+    | {
+        window_id: string;
+        window_days: number;
+        measured_from: string;
+        effective_from: string;
+        source: string;
+        confidence: string;
+        deadline: string;
+      }
+    | undefined
+  > {
+    if (!isIsoDate(deductionDate)) return undefined;
+    const { rows } = await client.query<{
+      id: string;
+      window_days: number;
+      measured_from: string;
+      effective_from: string;
+      source: string;
+      confidence: string;
+    }>(
+      `select id, window_days, measured_from, effective_from::text as effective_from, source, confidence
+         from app.payer_dispute_windows_as_of($1::date) where debtor_id = $2`,
+      [deductionDate, debtorId],
+    );
+    const w = rows[0];
+    if (w === undefined) return undefined;
+    return {
+      window_id: w.id,
+      window_days: w.window_days,
+      measured_from: w.measured_from,
+      effective_from: w.effective_from,
+      source: w.source,
+      confidence: w.confidence,
+      deadline: deadlineFromWindow(deductionDate, w.window_days),
     };
   }
 
@@ -2431,8 +2494,9 @@ export class PostgresStore
         ...(entry.endRetailerDebtorId !== undefined
           ? { end_retailer_debtor_id: entry.endRetailerDebtorId }
           : {}),
-        // No payer window is held as data yet; a person sets the deadline.
-        deadline: 'no_payer_window_on_record',
+        // A payer window in force on the deduction date filled the deadline
+        // in (ADR 0071, `case.deadline_derived`); else a person sets it.
+        deadline: opened.disputeDeadline !== undefined ? 'payer_window' : 'no_payer_window_on_record',
       });
       if (entry.notes !== undefined) {
         await event('case.note_added', { note: entry.notes, by: enteredBy });

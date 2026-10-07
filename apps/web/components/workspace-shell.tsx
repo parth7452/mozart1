@@ -19,7 +19,8 @@ export type WorkspaceSection =
   | 'email'
   | 'portals'
   | 'team'
-  | 'reason-codes';
+  | 'reason-codes'
+  | 'dispute-windows';
 
 /**
  * The other workspaces this person belongs to, as buttons that POST to
@@ -180,6 +181,16 @@ export function WorkspaceShell({
             </span>
             Reason codes<span aria-hidden="true">↗</span>
           </Link>
+          <Link
+            className={section === 'dispute-windows' ? 'nav-item active' : 'nav-item'}
+            href="/settings/dispute-windows"
+            aria-current={section === 'dispute-windows' ? 'page' : undefined}
+          >
+            <span className="nav-grid" aria-hidden="true">
+              ⧗
+            </span>
+            Dispute windows<span aria-hidden="true">↗</span>
+          </Link>
         </nav>
         <div className="sidebar-bottom">
           <div className="control-note">
@@ -242,6 +253,12 @@ export function WorkspaceShell({
                 <span>Settings</span>
                 <span className="breadcrumb-divider">/</span>
                 <Link href="/settings/reason-codes">Reason codes</Link>
+              </>
+            ) : section === 'dispute-windows' ? (
+              <>
+                <span>Settings</span>
+                <span className="breadcrumb-divider">/</span>
+                <Link href="/settings/dispute-windows">Dispute windows</Link>
               </>
             ) : section === 'coverage' ? (
               <Link href="/coverage">Coverage</Link>

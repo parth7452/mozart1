@@ -15,6 +15,7 @@ import { sheetExtractFor } from '../../../lib/sheet-extract-load';
 import { qboPostingFromEnv } from '../../../lib/qbo-posting';
 import { postingStoreFor } from '../../../lib/posting';
 import { payerCodeMapStoreFor } from '../../../lib/reason-code-maps';
+import { disputeWindowStoreFor } from '../../../lib/dispute-windows';
 import { unattachedWithSuggestions } from '../../../lib/document-suggestions';
 import {
   settlementChartReader,
@@ -120,10 +121,13 @@ export default async function CasePage({
     // What the payer's code maps to in this workspace's own mappings, on the
     // day the deduction was taken (ADR 0067). After the terms, because a case
     // with no code of its own takes the one its documents agree on.
-    const payerCodeMapping = await payerCodeMapStoreFor({
-      orgId: session.org.orgId,
-      userId: session.userId,
-    }).payerCodeMappingForCase(id, payerTerms);
+    const identity = { orgId: session.org.orgId, userId: session.userId };
+    // And the payer's dispute window on the deduction date (ADR 0071), which
+    // the deadline form offers when the case has none.
+    const [payerCodeMapping, disputeWindow] = await Promise.all([
+      payerCodeMapStoreFor(identity).payerCodeMappingForCase(id, payerTerms),
+      disputeWindowStoreFor(identity).disputeWindowForCase(id),
+    ]);
     // Read only where the deployment posts at all (`QBO_POSTING`, ADR 0060 §5):
     // elsewhere the card, the retry and the posting approve label do not exist.
     const postingStore = qboPostingFromEnv() === undefined ? undefined : postingStoreFor(session);
@@ -216,6 +220,7 @@ export default async function CasePage({
         summary={summary}
         payerTerms={payerTerms}
         payerCodeMapping={payerCodeMapping}
+        disputeWindow={disputeWindow}
         evidenceChecklist={evidence}
         documents={documents}
         fields={fields}

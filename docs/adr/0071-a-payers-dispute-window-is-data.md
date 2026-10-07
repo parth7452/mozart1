@@ -49,8 +49,10 @@ recording for the same dates.
 ### 2. Which window applies on a date
 
 `app.payer_dispute_windows_as_of(as_of date)` answers, per debtor, the row in
-force on that date by 0040's rule for code maps (effective range covers the
-date; among those the latest `effective_from`, then the latest `created_at`).
+force on that date: its effective range covers the date, and among those the
+latest `effective_from`, then the latest `created_at`, then the `id` (unlike
+`payer_code_maps`, two rows may share a start date, since a later recording
+for the same dates is the correction).
 `resolveDisputeWindow` in `core-domain` is the same rule in TypeScript, and a
 test holds the two to one answer. `deadlineFromWindow(deductionDate, days)` adds
 calendar days to an ISO date, pure and property-tested.
@@ -63,7 +65,8 @@ a held document a person opens — gets it from one place: when the caller gave
 no deadline, the case has a debtor and a deduction date, and a window is in
 force on the deduction date, `dispute_deadline` is set to
 `deadlineFromWindow` and a `case.deadline_derived` event records
-`{ window_id, window_days, measured_from, effective_from, source, confidence }`
+`{ window_id, window_days, measured_from, effective_from, source, confidence,
+deadline }`
 in the same transaction. **A printed deadline always wins**, and a person's
 `case.deadline_set` later wins as it does today.
 
