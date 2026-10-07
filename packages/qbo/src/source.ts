@@ -18,9 +18,10 @@ import type {
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  ProfitAndLoss,
   TrialBalance,
 } from '@recouple/adapters';
-import { GENERAL_LEDGER_MAX_WINDOW_DAYS, windowDays } from '@recouple/core-domain';
+import { GENERAL_LEDGER_MAX_WINDOW_DAYS, SIZING_WINDOW_DAYS, windowDays } from '@recouple/core-domain';
 import { QBO_IDS_PER_QUERY, QboClient, assertWindowDate, type QboConnectionConfig } from './client';
 import { QboInvalidWindow, QboMalformedResponse } from './errors';
 import { assertQboId } from './ids';
@@ -35,6 +36,7 @@ import { readString } from './reader';
 import {
   GENERAL_LEDGER_COLUMNS,
   parseGeneralLedgerReport,
+  parseProfitAndLossReport,
   parseTrialBalanceReport,
   toLedgerAccount,
 } from './reports';
@@ -225,6 +227,35 @@ export class QboAccountingSource implements AccountingSource {
         (account) => account.accountExternalId !== undefined && keep.has(account.accountExternalId),
       ),
     };
+  }
+
+  /**
+   * The profit and loss over an inclusive window, one total column (ADR 0073).
+   *
+   * One request, bounded before it is sent: a window past `SIZING_WINDOW_DAYS`
+   * is `QboInvalidWindow` and QuickBooks is asked nothing. The accounting
+   * basis is not sent, so QuickBooks answers in the company's own default and
+   * says which (`basis`); `summarize_column_by=Total` asks for one money
+   * column rather than one a month. What comes back is read whole or refused
+   * (`parseProfitAndLossReport`).
+   */
+  async profitAndLoss(window: LedgerWindow): Promise<ProfitAndLoss> {
+    const from = assertWindowDate(window.from, 'from');
+    const to = assertWindowDate(window.to, 'to');
+    if (from > to) throw new QboInvalidWindow(`window runs backwards: from ${from} to ${to}`);
+    const asked = { from, to };
+    if (windowDays(asked) > SIZING_WINDOW_DAYS) {
+      throw new QboInvalidWindow(
+        `a profit and loss is read over at most ${SIZING_WINDOW_DAYS} days, ` +
+          `and ${from} to ${to} is ${windowDays(asked)}`,
+      );
+    }
+    const body = await this.client.report('ProfitAndLoss', {
+      start_date: from,
+      end_date: to,
+      summarize_column_by: 'Total',
+    });
+    return parseProfitAndLossReport(body, { window: asked });
   }
 }
 

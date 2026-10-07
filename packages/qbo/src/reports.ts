@@ -1,7 +1,8 @@
 /**
  * Reading QuickBooks' Reports API and its chart of accounts into the port's
  * books rows (ADR 0066 §1): `TrialBalance`, `GeneralLedger`, and an `Account`
- * row with its code.
+ * row with its code — and `ProfitAndLoss`, read to size the deductions beside
+ * sales (ADR 0073).
  *
  * Nothing here does I/O. Each function takes what QuickBooks already answered
  * and returns typed, cents-based rows or throws `QboMalformedResponse` naming
@@ -33,6 +34,8 @@ import type {
   GeneralLedgerLine,
   LedgerAccount,
   LedgerWindow,
+  ProfitAndLoss,
+  ProfitAndLossLine,
   TrialBalance,
   TrialBalanceLine,
 } from '@recouple/adapters';
@@ -52,7 +55,7 @@ import { describe, readOptionalString, type JsonObject } from './reader';
 import { toQboAccount } from './setup';
 
 /** The reports this adapter reads. There is deliberately nothing else here. */
-export type QboReportName = 'TrialBalance' | 'GeneralLedger';
+export type QboReportName = 'TrialBalance' | 'GeneralLedger' | 'ProfitAndLoss';
 
 /**
  * The general ledger's columns, by Intuit's own keys, in the order asked for:
@@ -662,6 +665,244 @@ export function parseGeneralLedgerReport(
   });
 
   return { ...header, accounts };
+}
+
+// --- the profit and loss ------------------------------------------------------
+
+/**
+ * The profit and loss's data sections, by Intuit's `group`, and what each
+ * adds to net income: income adds, cost of goods sold and expenses subtract.
+ */
+const PROFIT_AND_LOSS_SECTIONS: Readonly<Record<string, 1n | -1n>> = Object.freeze({
+  Income: 1n,
+  COGS: -1n,
+  Expenses: -1n,
+  OtherIncome: 1n,
+  OtherExpenses: -1n,
+});
+
+/**
+ * The profit and loss's computed rows: a `Summary` and nothing else, each the
+ * arithmetic QuickBooks documents over the data sections. Each one printed is
+ * checked against that arithmetic over the lines read; none is ever a line.
+ */
+const PROFIT_AND_LOSS_COMPUTED: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  GrossProfit: ['Income', 'COGS'],
+  NetOperatingIncome: ['Income', 'COGS', 'Expenses'],
+  NetOtherIncome: ['OtherIncome', 'OtherExpenses'],
+  NetIncome: ['Income', 'COGS', 'Expenses', 'OtherIncome', 'OtherExpenses'],
+});
+
+/** The one money column a `summarize_column_by=Total` report carries, by Intuit's key. */
+const PROFIT_AND_LOSS_TOTAL_KEY = 'total';
+
+interface ProfitAndLossColumns {
+  readonly width: number;
+  readonly account: number;
+  readonly amount: number;
+}
+
+/**
+ * Exactly an account column and one money column. A money column keyed
+ * anything but `total` — a multicurrency company's home-currency column, or a
+ * report split by month — is refused by the key we expected, never read as
+ * the year's total in the home currency.
+ */
+function profitAndLossColumns(report: Report): ProfitAndLossColumns {
+  const columns = report.Columns.Column;
+  const account = columns.flatMap((column, index) => (column.ColType === 'Account' ? [index] : []));
+  const money = columns.flatMap((column, index) => (column.ColType === 'Money' ? [index] : []));
+  const [accountAt] = account;
+  if (account.length !== 1 || accountAt === undefined) {
+    throw new QboMalformedResponse(
+      `expected exactly one Account column in the profit and loss, got ${account.length}`,
+      'ProfitAndLoss.Columns.Column.account',
+    );
+  }
+  const [amountAt] = money;
+  const key = (index: number): string | undefined =>
+    (columns[index]?.MetaData ?? []).find((entry) => entry.Name === 'ColKey')?.Value;
+  if (
+    money.length !== 1 ||
+    amountAt === undefined ||
+    columns.length !== 2 ||
+    (key(amountAt) !== undefined && key(amountAt) !== PROFIT_AND_LOSS_TOTAL_KEY)
+  ) {
+    throw new QboMalformedResponse(
+      'expected one money column keyed total in the profit and loss, and nothing else',
+      `ProfitAndLoss.Columns.Column.${PROFIT_AND_LOSS_TOTAL_KEY}`,
+    );
+  }
+  return { width: columns.length, account: accountAt, amount: amountAt };
+}
+
+/**
+ * QuickBooks' `ProfitAndLoss` report, one total column, as the port's
+ * `ProfitAndLoss`.
+ *
+ * The top of the report is a list of sections, each named by its `group`.
+ * The five data sections (`PROFIT_AND_LOSS_SECTIONS`) hold accounts: every
+ * data row at any depth beneath one is a line, filed under that section; a
+ * nested section is a parent account and its sub-accounts, and its `Summary`
+ * is checked against the lines beneath it and never read as one. The four
+ * computed sections (`PROFIT_AND_LOSS_COMPUTED` — Gross Profit, Net
+ * Operating Income, Net Other Income, Net Income) hold only a `Summary`, and
+ * each is checked against its arithmetic over the lines read. **Every total
+ * the report prints must equal the lines read, to the cent, or the read is
+ * refused**: a row dropped or read twice is a loud failure, never a smaller
+ * company. A section of a group not named here is refused rather than
+ * skipped, because a skipped section is a silently missing number.
+ *
+ * Empty only when the report says `NoReportData`; cut short is
+ * `QboReportTooLarge`; the period QuickBooks reports must be the window asked
+ * for. Amounts are in each section's natural sign — income positive, a
+ * contra-income account such as sales discounts negative.
+ */
+export function parseProfitAndLossReport(
+  body: unknown,
+  asked: { readonly window: LedgerWindow },
+): ProfitAndLoss {
+  const report = readReport(body, 'ProfitAndLoss');
+  const header = {
+    sourceKind: 'qbo' as const,
+    window: asked.window,
+    ...(report.Header.ReportBasis === undefined ? {} : { basis: report.Header.ReportBasis }),
+    ...(report.Header.Currency === undefined ? {} : { currency: report.Header.Currency }),
+  };
+  for (const [field, expected] of [
+    ['StartPeriod', asked.window.from],
+    ['EndPeriod', asked.window.to],
+  ] as const) {
+    const printed = report.Header[field];
+    if (printed !== undefined && printed !== expected) {
+      throw new QboMalformedResponse(
+        `asked for a profit and loss over ${asked.window.from} to ${asked.window.to} and ` +
+          `QuickBooks answered with a different ${field}`,
+        `ProfitAndLoss.Header.${field}`,
+      );
+    }
+  }
+
+  const top = report.Rows.Row ?? [];
+  if (top.length === 0) {
+    if (!saysNoData(report)) {
+      throw new QboMalformedResponse(
+        'the profit and loss has no rows and does not say it has no data',
+        'ProfitAndLoss.Rows',
+      );
+    }
+    return { ...header, lines: [] };
+  }
+
+  const columns = profitAndLossColumns(report);
+  const lines: ProfitAndLossLine[] = [];
+  const sectionTotals = new Map<string, Cents>();
+
+  const summaryOf = (row: ReportRow, at: string): Cents | undefined =>
+    row.Summary === undefined
+      ? undefined
+      : reportAmountToCents(
+          cellsOf(row.Summary.ColData, columns.width, `${at}.Summary.ColData`)[columns.amount]
+            ?.value ?? '',
+          `${at}.Summary.ColData[${columns.amount}]`,
+        );
+
+  const walk = (rows: readonly ReportRow[], path: string, group: string, depth: number): Cents => {
+    let total = ZERO;
+    rows.forEach((row, index) => {
+      const at = `${path}.Row[${index}]`;
+      if (kindOf(row, at) === 'section') {
+        if (depth + 1 > REPORT_MAX_DEPTH) {
+          throw new QboMalformedResponse(
+            `the report nests more than ${REPORT_MAX_DEPTH} sections deep at ${at}`,
+            at,
+          );
+        }
+        const under = walk(row.Rows?.Row ?? [], `${at}.Rows`, group, depth + 1);
+        assertTotal(under, summaryOf(row, at), `${at}.Summary`);
+        total = addCents(total, under);
+        return;
+      }
+      const cells = cellsOf(row.ColData ?? [], columns.width, `${at}.ColData`);
+      const accountCell = cells[columns.account];
+      const accountName = textOf(accountCell);
+      if (accountName === undefined) {
+        throw new QboMalformedResponse(
+          `expected an account name at ${at}.ColData[${columns.account}]`,
+          `${at}.ColData[${columns.account}]`,
+        );
+      }
+      const accountExternalId = idOf(accountCell);
+      const amountCents =
+        reportAmountToCents(
+          cells[columns.amount]?.value ?? '',
+          `${at}.ColData[${columns.amount}]`,
+        ) ?? ZERO;
+      lines.push({
+        ...(accountExternalId === undefined ? {} : { accountExternalId }),
+        accountName,
+        section: group,
+        amountCents,
+      });
+      total = addCents(total, amountCents);
+    });
+    return total;
+  };
+
+  const computed: Array<{ group: string; printed: Cents | undefined; at: string }> = [];
+  top.forEach((row, index) => {
+    const at = `ProfitAndLoss.Rows.Row[${index}]`;
+    if (kindOf(row, at) !== 'section') {
+      throw new QboMalformedResponse(
+        `expected a section at ${at}, got an account outside any section`,
+        at,
+      );
+    }
+    const group = row.group ?? '';
+    if (Object.hasOwn(PROFIT_AND_LOSS_SECTIONS, group)) {
+      if (sectionTotals.has(group)) {
+        throw new QboMalformedResponse(`expected one section per group at ${at}`, `${at}.group`);
+      }
+      const under = walk(row.Rows?.Row ?? [], `${at}.Rows`, group, 1);
+      assertTotal(under, summaryOf(row, at), `${at}.Summary`);
+      sectionTotals.set(group, under);
+      return;
+    }
+    if (Object.hasOwn(PROFIT_AND_LOSS_COMPUTED, group)) {
+      if (row.Rows !== undefined || row.Summary === undefined) {
+        throw new QboMalformedResponse(
+          `expected a computed row holding only a Summary at ${at}`,
+          at,
+        );
+      }
+      computed.push({ group, printed: summaryOf(row, at), at: `${at}.Summary` });
+      return;
+    }
+    // The group is QuickBooks' text; the path names the position, not the group.
+    throw new QboMalformedResponse(`expected a profit and loss section this reader knows at ${at}`, `${at}.group`);
+  });
+
+  for (const { group, printed, at } of computed) {
+    const parts = PROFIT_AND_LOSS_COMPUTED[group] ?? [];
+    let net = 0n;
+    for (const part of parts) {
+      net += (PROFIT_AND_LOSS_SECTIONS[part] ?? 0n) * BigInt(sectionTotals.get(part) ?? ZERO);
+    }
+    assertTotal(cents(Number(net)), printed, at);
+  }
+
+  return { ...header, lines };
+}
+
+/**
+ * The lines read under a total must add up to it. A blank total checks
+ * nothing; a printed one that disagrees is a refused read. Numbers are not
+ * quoted: they are the customer's.
+ */
+function assertTotal(read: Cents, printed: Cents | undefined, path: string): void {
+  if (printed !== undefined && printed !== read) {
+    throw new QboMalformedResponse(`the amounts read do not add up to the total printed at ${path}`, path);
+  }
 }
 
 // --- the chart of accounts -----------------------------------------------------

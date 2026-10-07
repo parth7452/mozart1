@@ -28,6 +28,7 @@ adds up rather than as a test that still passes.
 | `report-trial-balance-nested.json` | The same nine accounts inside nested sections, each with its own `Summary`: four totals that must never be read as lines, and must each tie out |
 | `report-general-ledger.json` | `GET /reports/GeneralLedger` for September 2026 with the nine columns we ask for: a section per account, a "Beginning Balance" row, a `Summary` per section, and a parent account whose total covers its sub-account |
 | `report-general-ledger-no-data.json` | The same report with `NoReportData: true` and no rows: the only shape an empty ledger is read from |
+| `report-profit-and-loss.json` | `GET /reports/ProfitAndLoss` for 2025-10-01 to 2026-09-30, `summarize_column_by=Total` (ADR 0073): the five data sections, Trade Deductions (95) as a parent section holding its own row and Distributor Chargebacks (96) as contra-income, and the four computed rows (Gross Profit, Net Operating Income, Net Other Income, Net Income), each of which must equal its arithmetic. Hand-written, not recorded |
 
 The books fixtures share one set of numbers: the receivable ends September at
 $4,130.25 in the chart, the trial balance and the ledger's running balance;

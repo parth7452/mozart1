@@ -2,16 +2,20 @@ import {
   GENERAL_LEDGER_MAX_WINDOW_DAYS,
   booksAccountRoles,
   cents,
+  deductionsSizing,
   parsePrintedDate,
   reconcileDeductions,
+  sizingWindow,
   windowDays,
   type BooksAccountRole,
   type BooksCase,
+  type DeductionsSizing,
   type GeneralLedger,
   type GeneralLedgerLine,
   type GeneralLedgerOptions,
   type LedgerAccount,
   type LedgerWindow,
+  type ProfitAndLoss,
   type ReconciliationRow,
   type TrialBalance,
 } from '@recouple/core-domain';
@@ -63,11 +67,15 @@ import { qboAppConfigFromEnv, qboTokenStoreFromEnv, type EnvVars } from './ledge
 
 type Identity = { readonly orgId: string; readonly userId: string };
 
-/** The three reads the page makes: `AccountingSource`'s books, and nothing else of it. */
+/**
+ * The four reads the page makes: `AccountingSource`'s books, and the profit
+ * and loss the sizing card is computed from (ADR 0073) — nothing else of it.
+ */
 export interface BooksSource {
   chartOfAccounts(): Promise<readonly LedgerAccount[]>;
   trialBalance(asOf: string): Promise<TrialBalance>;
   generalLedger(window: LedgerWindow, options?: GeneralLedgerOptions): Promise<GeneralLedger>;
+  profitAndLoss(window: LedgerWindow): Promise<ProfitAndLoss>;
 }
 
 export interface BooksSources {
@@ -281,6 +289,8 @@ export type ConnectionBooks =
       readonly realmId: string;
       /** Whether the workspace has saved an account map for this connection. */
       readonly mapped: boolean;
+      /** The trailing year's deductions beside its sales, and today's balances (ADR 0073). */
+      readonly sizing: BooksSection<DeductionsSizing>;
       readonly chart: BooksSection<BooksChart>;
       readonly trialBalance: BooksSection<TrialBalance>;
       readonly ledger: BooksSection<BooksLedger>;
@@ -304,8 +314,10 @@ export function postingAccountIds(connection: PostingConnectionView): readonly s
  * Every enabled connection's books, read side by side.
  *
  * Per connection the chart is read first — it is the read that refreshes a
- * stale token, once, under the company's lock — and then the trial balance
- * and the general ledger together. A failure costs its own section and
+ * stale token, once, under the company's lock — and then the trial balance,
+ * the general ledger and the trailing year's profit and loss together. The
+ * profit and loss is joined to the chart for the sizing card (ADR 0073,
+ * `deductionsSizing`), so it is asked only when the chart was read. A failure costs its own section and
  * nothing else: it is logged by class name and ids, since what an error says
  * may quote the accounting system's own answer, and shown as a fixed code. A
  * failure of the sign-in itself is not asked for three times: the other two
@@ -356,6 +368,7 @@ async function connectionBooks(
       kind: 'read',
       ...ids,
       mapped: connection.map !== undefined,
+      sizing: { kind: 'skipped' },
       chart: unreadable,
       trialBalance: { kind: 'skipped' },
       ledger: { kind: 'skipped' },
@@ -379,6 +392,7 @@ async function connectionBooks(
       kind: 'read',
       ...ids,
       mapped: connection.map !== undefined,
+      sizing: { kind: 'skipped' },
       chart,
       trialBalance: { kind: 'skipped' },
       ledger: { kind: 'skipped' },
@@ -387,7 +401,7 @@ async function connectionBooks(
   }
 
   const { request } = input;
-  const [trialBalance, ledger] = await Promise.all([
+  const [trialBalance, ledger, profitAndLoss] = await Promise.all([
     attempt('trial balance', where, () => reader.trialBalance(input.asOf)),
     request.scope === 'all'
       ? attempt('general ledger', where, async (): Promise<BooksLedger> => ({
@@ -402,7 +416,25 @@ async function connectionBooks(
             }),
             scope: 'deductions',
           })),
+    // Sizing joins the profit and loss to the chart; with no chart it is not asked.
+    chart.kind !== 'read'
+      ? Promise.resolve<BooksSection<ProfitAndLoss>>({ kind: 'skipped' })
+      : attempt('profit and loss', where, () => reader.profitAndLoss(sizingWindow(input.asOf))),
   ]);
+
+  const sizing: BooksSection<DeductionsSizing> =
+    chart.kind !== 'read' || profitAndLoss.kind === 'skipped'
+      ? { kind: 'skipped' }
+      : profitAndLoss.kind === 'unreadable'
+        ? profitAndLoss
+        : {
+            kind: 'read',
+            value: deductionsSizing(
+              chart.value.accounts,
+              profitAndLoss.value,
+              postingAccountIds(connection),
+            ),
+          };
 
   const reconciliation: BooksSection<BooksReconciliation> =
     chart.kind !== 'read' || ledger.kind !== 'read'
@@ -413,6 +445,7 @@ async function connectionBooks(
     kind: 'read',
     ...ids,
     mapped: connection.map !== undefined,
+    sizing,
     chart,
     trialBalance,
     ledger,

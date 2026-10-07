@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  * platform's, as on Settings → QuickBooks (ADR 0063 §1). Per connection: a
  * token refresh at worst (a lock connection 30 s, the company's lock 15 s,
  * Intuit's token call 10 s), the chart in two pages of `BOOKS_READ_TIMEOUT_MS`
- * each, then the trial balance and the general ledger side by side — 85 s —
+ * each, then the trial balance, the general ledger and the profit and loss
+ * (ADR 0073) side by side — 85 s —
  * with the connections themselves side by side.
  */
 export const maxDuration = 90;

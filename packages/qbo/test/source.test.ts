@@ -51,7 +51,7 @@ describe('QboAccountingSource', () => {
     // on the adapter it has to appear on the port first, which is an ADR.
     // `getInvoiceHistories` is a read, and ADR 0035 is its ADR.
     // `chartOfAccounts`, `trialBalance` and `generalLedger` are reads too, and
-    // ADR 0066 is theirs.
+    // ADR 0066 is theirs. `profitAndLoss` is a read, and ADR 0073 is its ADR.
     expect(Object.getOwnPropertyNames(QboAccountingSource.prototype).sort()).toEqual([
       'chartOfAccounts',
       'constructor',
@@ -60,6 +60,7 @@ describe('QboAccountingSource', () => {
       'listCredits',
       'listInvoices',
       'listPayments',
+      'profitAndLoss',
       'trialBalance',
     ]);
   });

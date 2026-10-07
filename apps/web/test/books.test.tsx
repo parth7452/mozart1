@@ -109,6 +109,7 @@ describe('booksSourcesFromEnv fails closed', () => {
           kind: 'read',
           ...CONNECTION,
           mapped: false,
+          sizing: { kind: 'skipped' },
           chart: { kind: 'unreadable', failure: 'failed' },
           trialBalance: { kind: 'skipped' },
           ledger: { kind: 'skipped' },
@@ -333,6 +334,7 @@ describe('booksFor', () => {
           asked.push(options?.accountIds);
           return memory.generalLedger(window, options);
         },
+        profitAndLoss: (window) => memory.profitAndLoss(window),
       }),
     };
     const [books] = await booksFor(sources, IDENTITY, [{ ...connection, map: undefined }], {
@@ -356,6 +358,9 @@ describe('booksFor', () => {
           throw new QboRequestFailed('secret-body again', 0, undefined);
         },
         generalLedger: async () => {
+          throw new Error('unreachable in this test');
+        },
+        profitAndLoss: async () => {
           throw new Error('unreachable in this test');
         },
       }),

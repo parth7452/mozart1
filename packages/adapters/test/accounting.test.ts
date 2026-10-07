@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GENERAL_LEDGER_MAX_WINDOW_DAYS,
+  SIZING_WINDOW_DAYS,
   cents,
   trialBalanceDifferenceCents,
   windowDays,
@@ -74,7 +75,9 @@ describe('AccountingSource', () => {
       // The books, read through and never written (ADR 0066 §1).
       | 'chartOfAccounts'
       | 'trialBalance'
-      | 'generalLedger';
+      | 'generalLedger'
+      // Read to size the deductions beside sales, and never written (ADR 0073).
+      | 'profitAndLoss';
     type Unexpected = Exclude<keyof AccountingSource, ReadOnlySurface>;
     const noWriteMethods: Unexpected[] = [];
     expect(noWriteMethods).toEqual([]);
@@ -284,6 +287,20 @@ describe('InMemoryAccountingSource, the books (ADR 0066 §1)', () => {
     expect(windowDays({ from: '2026-03-29', to: '2026-09-30' })).toBe(GENERAL_LEDGER_MAX_WINDOW_DAYS);
     await expect(source.generalLedger({ from: '2026-03-29', to: '2026-09-30' })).resolves.toBeDefined();
     await expect(source.generalLedger({ from: '2026-03-28', to: '2026-09-30' })).rejects.toBeInstanceOf(
+      RangeError,
+    );
+  });
+
+  it('returns its profit and loss over a year, and refuses a longer window (ADR 0073)', async () => {
+    const lines = [
+      { accountExternalId: '79', accountName: 'Sales of Product Income', section: 'Income', amountCents: cents(100) },
+    ];
+    const pnlSource = new InMemoryAccountingSource({ profitAndLossLines: lines });
+    const year = { from: '2025-10-01', to: '2026-09-30' };
+    expect(windowDays(year)).toBe(SIZING_WINDOW_DAYS);
+    expect(await pnlSource.profitAndLoss(year)).toEqual({ sourceKind: 'qbo', window: year, lines });
+    expect((await new InMemoryAccountingSource().profitAndLoss(year)).lines).toEqual([]);
+    await expect(pnlSource.profitAndLoss({ from: '2025-09-30', to: '2026-09-30' })).rejects.toBeInstanceOf(
       RangeError,
     );
   });
