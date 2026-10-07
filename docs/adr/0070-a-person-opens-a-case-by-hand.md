@@ -1,7 +1,12 @@
 # 0070 — A person opens a case by hand
 
-- Status: **Proposed** 2026-10-07. Not accepted. Migration 0042 is applied to
-  no remote database.
+- Status: **Accepted** by the founder 2026-10-07. Migration 0042 applied on the
+  founder's go the same day, to `mozart-preview` and then production, and read
+  back on both: the stored statement's md5 equals the file's
+  (`488cd01d…`); the four checks name the new values; `deduction_identifiers`
+  still has three checks; `app_rw` still holds no UPDATE or DELETE on
+  `uploads`, `deduction_identifiers` or `declined_candidates`. The security
+  advisor shows nothing new.
 - Date: 2026-10-07
 - Builds on: ADR 0019 (a debtor is master data a person made), ADR 0024 (an
   arrival is a fact), ADR 0025 (identity), ADR 0029 (a ledger extract is a
@@ -12,9 +17,8 @@
 
 ## The decisions that are the founder's
 
-1. **Accept this ADR**, or not, and apply migration 0042 (preview first). The
-   app code reads the new values, so it is not to be deployed before 0042 is
-   applied.
+1. **Accept this ADR**, and apply migration 0042 (preview first). Done
+   2026-10-07; the app code reads the new values, so it was deployed after.
 2. **A case with no documents** (asked 2026-10-07; answered "allow it and flag
    it"). Built: it opens, and the case page says *Incomplete — no documents
    attached* until a document other than the entry itself is on the case. A
