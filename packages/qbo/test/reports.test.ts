@@ -420,6 +420,24 @@ describe('parseGeneralLedgerReport', () => {
     );
   });
 
+  it('reads a general ledger whose columns are named by ColType alone', () => {
+    const byKey = parseGeneralLedgerReport(fixture('report-general-ledger.json'), { window: SEPTEMBER });
+    const byType = parseGeneralLedgerReport(fixture('report-general-ledger-coltype.json'), {
+      window: SEPTEMBER,
+    });
+    expect(byType).toEqual(byKey);
+  });
+
+  it('refuses a ColType-named general ledger with two tx_date columns', () => {
+    const report = copyOf('report-general-ledger-coltype.json');
+    const columns = (report['Columns'] as { Column: Json[] }).Column;
+    const amount = columns.find((column) => column['ColType'] === 'txn_type');
+    (amount as Json)['ColType'] = 'tx_date';
+    expect(malformedAt(() => parseGeneralLedgerReport(report, { window: SEPTEMBER }))).toBe(
+      'GeneralLedger.Columns.Column.tx_date',
+    );
+  });
+
   it('refuses a report QuickBooks cut short at its own limit', () => {
     const report = copyOf('report-general-ledger.json');
     const rows = ((rowsOf(report)[3] as Json)['Rows'] as { Row: Json[] }).Row;

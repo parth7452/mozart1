@@ -473,7 +473,10 @@ type GeneralLedgerColumns = Readonly<Record<GeneralLedgerColumn, number>> & {
 
 function generalLedgerColumns(report: Report): GeneralLedgerColumns {
   const keys = report.Columns.Column.map(
-    (column) => (column.MetaData ?? []).find((entry) => entry.Name === 'ColKey')?.Value,
+    // A column is named by its ColKey MetaData where Intuit sends one, else by
+    // its ColType: real GeneralLedger reports often carry only the latter.
+    (column) =>
+      (column.MetaData ?? []).find((entry) => entry.Name === 'ColKey')?.Value ?? column.ColType,
   );
   const at = {} as Record<GeneralLedgerColumn, number>;
   for (const column of GENERAL_LEDGER_COLUMNS) {
