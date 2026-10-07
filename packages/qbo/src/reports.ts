@@ -296,7 +296,8 @@ function trialBalanceColumns(report: Report): TrialBalanceColumns {
     if (found.length !== 1 || first === undefined) {
       throw new QboMalformedResponse(
         `expected exactly one ${what} column in the trial balance, got ${found.length}`,
-        'TrialBalance.Columns.Column',
+        // `what` is one of our own three constants, never text from the report.
+        `TrialBalance.Columns.Column.${what}`,
       );
     }
     return first;
@@ -481,7 +482,8 @@ function generalLedgerColumns(report: Report): GeneralLedgerColumns {
     if (found.length !== 1 || first === undefined) {
       throw new QboMalformedResponse(
         `expected exactly one ${column} column in the general ledger, got ${found.length}`,
-        'GeneralLedger.Columns.Column',
+        // `column` is one of GENERAL_LEDGER_COLUMNS, never a key read from the report.
+        `GeneralLedger.Columns.Column.${column}`,
       );
     }
     at[column] = first;
