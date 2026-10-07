@@ -1107,3 +1107,42 @@ table.settlement-lines td .hint { display: inline; margin: 0; }
   .setting-control { justify-self: stretch; }
 }
 .modal-cancel { color: var(--ink-soft); font-size: 13px; }
+
+/* --- The profile menu and the settings panel ------------------------------- */
+/* The sidebar keeps the three pages a person works in; everything else opens
+   from the profile menu as a panel in the new-case dialog's shape. */
+.viewer-menu { position: relative; }
+.viewer-menu > summary { list-style: none; cursor: pointer; border-radius: 6px; }
+.viewer-menu > summary::-webkit-details-marker { display: none; }
+.viewer-menu > summary:hover .viewer-email, .viewer-menu[open] > summary .viewer-email { color: var(--lime); }
+.viewer-caret { margin-left: auto; color: #9aa7bb; font-size: 12px; line-height: 1; transition: transform .15s ease; }
+.viewer-menu:not([open]) .viewer-caret { transform: rotate(180deg); }
+.viewer-menu-items {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 30;
+  padding: 6px; border: 1px solid #344057; border-radius: 8px; background: #1a2539;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+.viewer-menu-item, .viewer-menu .sign-out button {
+  display: block; width: 100%; box-sizing: border-box; padding: 9px 10px; border-radius: 5px;
+  font-size: 12px; text-align: left; text-decoration: none; color: #e3e7ee;
+}
+.viewer-menu .sign-out { padding: 0; margin-top: 2px; border-top: 1px solid #344057; padding-top: 2px; }
+.viewer-menu-item:hover, .viewer-menu-item:focus-visible, .viewer-menu-item.active,
+.viewer-menu .sign-out button:hover, .viewer-menu .sign-out button:focus-visible { background: #25332e; color: var(--lime); }
+
+.settings-panel { display: flex; }
+.settings-panel .modal-panel { width: min(1280px, calc(100vw - 32px)); }
+.settings-nav a { display: block; padding: 8px; border-radius: 8px; font-size: 14px; color: var(--ink); text-decoration: none; }
+.settings-nav a:hover { background: var(--line); }
+.settings-nav a.active { background: var(--line); font-weight: 600; }
+.settings-body > .workspace-main { padding: 0 0 32px; max-width: none; margin: 0; }
+.settings-body .page-heading { padding-right: 40px; }
+.settings-body .page-heading h1 { font-size: clamp(26px, 2.4vw, 34px); }
+@media (max-width: 720px) {
+  .settings-panel .modal-panel { grid-template-rows: auto minmax(0, 1fr); }
+  .settings-panel .modal-nav { display: block; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .settings-nav .modal-nav-caption { display: none; }
+  .settings-nav ul { display: flex; gap: 4px; }
+  .settings-nav li + li { margin-top: 0; }
+  .settings-nav a { white-space: nowrap; }
+}
