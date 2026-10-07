@@ -33,6 +33,10 @@ export const CASE_STATES = [
   // 0042). Closed but not terminal: its way out is an undo, back to exactly the
   // state it left, and the database is what holds it to that.
   'merged',
+  // A case opened in error, removed by an owner or approver (ADR 0072). Closed,
+  // never left: the database refuses every move out of it, and the row and its
+  // events stay on the record for audit.
+  'removed',
 ] as const;
 
 export type CaseState = (typeof CASE_STATES)[number];
@@ -66,7 +70,7 @@ export type MergeableState = (typeof MERGEABLE_STATES)[number];
  * merged case is not the deduction any more, so no list of open work, no total
  * and no matcher counts it — but it is not terminal, because an undo reopens it.
  */
-export const CLOSED_STATES = [...TERMINAL_STATES, 'merged'] as const satisfies readonly CaseState[];
+export const CLOSED_STATES = [...TERMINAL_STATES, 'merged', 'removed'] as const satisfies readonly CaseState[];
 export type ClosedState = (typeof CLOSED_STATES)[number];
 
 /** Conditions the orchestrator must evaluate before a transition is legal. */
@@ -88,7 +92,9 @@ export type GuardName =
   /** A person said the two are one deduction, and the pair may be merged (ADR 0042). */
   | 'duplicate_confirmed_by_person'
   /** A person undid the merge; the case returns to the state it left. */
-  | 'merge_undone_by_person';
+  | 'merge_undone_by_person'
+  /** An owner or approver removed a case opened in error (ADR 0072). */
+  | 'removed_by_owner_or_approver';
 
 export interface Transition {
   readonly from: CaseState;
@@ -295,6 +301,18 @@ export const TRANSITIONS: readonly Transition[] = [
       idempotency: 'one undo per pair: unique (org_id, least(a, b), greatest(a, b), action)',
     },
   ]),
+  // Removing a case opened in error (ADR 0072): from any state before a filing,
+  // one way. `app.removal_is_guarded()` is the referee.
+  ...MERGEABLE_STATES.map(
+    (state): Transition => ({
+      from: state,
+      to: 'removed',
+      trigger: 'case.removed',
+      guards: ['removed_by_owner_or_approver'],
+      workflow: 'remove.case',
+      idempotency: 'a removed case never leaves removed; a second removal is refused',
+    }),
+  ),
 ];
 
 export const INITIAL_STATE: CaseState = 'discovered';

@@ -85,6 +85,8 @@ import {
 } from '@recouple/pipeline';
 import type {
   CaseMerges,
+  RemovedCase,
+  CaseRemovalStore,
   CaseOutcome,
   CaseRecord,
   CaseWorkflow,
@@ -1060,7 +1062,9 @@ const CASE_SUMMARY_SELECT = `select ${CASE_SUMMARY_COLUMNS}
  * names the survivor (ADR 0042); nothing here writes, so there is nothing to
  * redirect to it.
  */
-const CASE_SEARCH_WHERE = `where ($1::text is null or d.state = $1::text)
+// A removed case (ADR 0072) is listed only when the search asks for that state.
+const CASE_SEARCH_WHERE = `where (case when $1::text is null then d.state <> 'removed'
+                else d.state = $1::text end)
     and ($2::text is null
          or d.claim_id ilike $2 escape '\\'
          or d.id::text ilike $2 escape '\\'
@@ -1344,6 +1348,7 @@ export class PostgresStore
     PipelineStore,
     CaseWorkflowStore,
     DuplicateReviewStore,
+    CaseRemovalStore,
     JobStore,
     UnreadDocumentsStore,
     EvidenceAttachStore,
@@ -4457,6 +4462,7 @@ export class PostgresStore
     return this.withTenant(async (client) => {
       const { rows } = await client.query<CaseSummaryRow>(
         `${CASE_SUMMARY_SELECT}
+          where d.state <> 'removed'
           order by d.created_at desc
           limit $1`,
         [limit],
@@ -4570,6 +4576,7 @@ export class PostgresStore
            select d.state, d.deduction_amount_cents, d.dispute_deadline,
                   ${DECLINED_SQL} as declined
              from deductions d
+            where d.state <> 'removed'
          )
          select state, declined, count(*)::text as cases,
                 sum(deduction_amount_cents)::text as deducted,
@@ -4731,7 +4738,7 @@ export class PostgresStore
                   (select coalesce(sum(k.estimated_recoverable_cents), 0)
                      from declined_candidates k where k.deduction_id = d.id) as declined_cents
              from deductions d
-            where d.state <> 'merged'
+            where d.state not in ('merged', 'removed')
          ),
          agg as (
            select c.debtor_id, c.printed,
@@ -5678,6 +5685,52 @@ export class PostgresStore
   async mergesFor(deductionId: string): Promise<CaseMerges> {
     return this.withTenant((client) => workflow.mergesFor(client, deductionId));
   }
+
+  /**
+   * Who removed this case and when (ADR 0072), from its `case.removed` event;
+   * `undefined` when it was never removed. Names come from the member's display
+   * name in this tenant, else the user's, else their email.
+   */
+  async caseRemoval(deductionId: string): Promise<CaseRemoval | undefined> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{
+        removed_by: string | null;
+        removed_at: Date;
+        reason: string | null;
+      }>(
+        `select coalesce(nullif(m.display_name, ''), u.full_name, u.email) as removed_by,
+                e.event_time as removed_at,
+                e.payload->>'reason' as reason
+           from deduction_events e
+           left join users u on u.id = e.created_by
+           left join memberships m on m.user_id = e.created_by and m.org_id = e.org_id
+          where e.deduction_id = $1 and e.event_type = 'case.removed'
+          order by e.id desc
+          limit 1`,
+        [deductionId],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return {
+        removedBy: row.removed_by ?? 'a former member',
+        removedAt: new Date(row.removed_at).toISOString(),
+        ...(row.reason === null ? {} : { reason: row.reason }),
+      };
+    });
+  }
+
+  /** Removes cases opened in error, all or none (ADR 0072). */
+  async removeCases(ids: readonly string[], reason?: string): Promise<readonly RemovedCase[]> {
+    return this.withTenant((client) => workflow.removeCases(client, this.tenant, ids, reason));
+  }
+}
+
+/** Who removed a case opened in error, and when (ADR 0072). */
+export interface CaseRemoval {
+  readonly removedBy: string;
+  /** ISO timestamp. */
+  readonly removedAt: string;
+  readonly reason?: string;
 }
 
 /**

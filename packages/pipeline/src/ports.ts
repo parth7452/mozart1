@@ -2148,3 +2148,65 @@ export class DuplicateVerdictAlreadyRecordedError extends CaseWorkflowError {
     this.name = 'DuplicateVerdictAlreadyRecordedError';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Removing a case opened in error (ADR 0072)
+// ---------------------------------------------------------------------------
+
+/** At most this many cases are removed in one request (ADR 0072 §7). */
+export const MAX_CASES_REMOVED_AT_ONCE = 100;
+
+/** At most this many characters of reason ride on a `case.removed` event. */
+export const MAX_REMOVAL_REASON_LENGTH = 500;
+
+/**
+ * Why a removal was refused: `app.removal_is_guarded()`'s reasons (`RCR01`,
+ * migration 0044), plus the store's own checks before it writes.
+ */
+export const CASE_REMOVAL_REFUSALS = [
+  'not_owner_or_approver',
+  'not_removable_state',
+  'no_event',
+  'survivor_of_merge',
+  'irreversible',
+  'too_many',
+  'none_given',
+  'reason_too_long',
+] as const;
+export type CaseRemovalRefusal = (typeof CASE_REMOVAL_REFUSALS)[number];
+
+/**
+ * A removal was refused, and the whole request with it: removal is all or
+ * nothing. The reason is one of `CASE_REMOVAL_REFUSALS`, never text off a page.
+ */
+export class CaseRemovalRefusedError extends CaseWorkflowError {
+  constructor(
+    readonly deductionId: string | undefined,
+    readonly reason: CaseRemovalRefusal,
+  ) {
+    super(
+      `case removal refused (${reason})` +
+        (deductionId === undefined ? '' : `: case ${deductionId}`),
+    );
+    this.name = 'CaseRemovalRefusedError';
+  }
+}
+
+/** One case removed: the state it left. */
+export interface RemovedCase {
+  readonly deductionId: string;
+  readonly stateBefore: string;
+}
+
+/** Removing cases opened in error (ADR 0072). An owner's or approver's act. */
+export interface CaseRemovalStore {
+  /**
+   * Removes every case named, in one transaction, or none of them. Each gets a
+   * `case.removed` event naming the caller first, then moves to `removed`.
+   *
+   * @throws {CaseRemovalRefusedError} any one case may not be removed
+   * @throws {CaseNotVisibleError} a case is not one this tenant may see
+   * @throws {WrongRoleError} this member may read a case but not write
+   */
+  removeCases(ids: readonly string[], reason?: string): Promise<readonly RemovedCase[]>;
+}

@@ -27,6 +27,7 @@ import { CaseActions } from './case-actions';
 import { CasePostingCard } from './case-posting';
 import type {
   CasePosting,
+  CaseRemoval,
   DisputeWindowAnswer,
   ManualEntrySummary,
   PayerCodeMappingAnswer,
@@ -295,6 +296,8 @@ export interface CaseReviewProps {
   readonly today: Date;
   /** Whether this member's role may add documents and decide. */
   readonly mayAct: boolean;
+  /** Who removed this case opened in error, and when (ADR 0072). */
+  readonly removal?: CaseRemoval;
   /**
    * Whether this member's role may approve a packet (`owner`, `approver`).
    * Defaults to no: a view that cannot tell should not offer the one button
@@ -447,6 +450,7 @@ export function CaseReview({
   costMicros,
   today,
   mayAct,
+  removal,
   mayApprove = false,
   viewerUserId = '',
   workflow,
@@ -556,6 +560,15 @@ export function CaseReview({
             {said === undefined ? null : (
               <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
             )}
+            {summary.state === 'removed' ? (
+              <p className="notice bad removed-banner">
+                This case was removed
+                {removal === undefined
+                  ? ''
+                  : ` by ${removal.removedBy} on ${removal.removedAt.slice(0, 10)}`}
+                . It is kept for audit and counts in no list or total.
+              </p>
+            ) : null}
 
             {manualEntry === undefined ? null : (
               <ManualEntryCard entry={manualEntry} caseAmountCents={summary.deductionAmountCents} />

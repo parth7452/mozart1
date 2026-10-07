@@ -58,6 +58,7 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
   upload_duplicate_case: ['APDP-99812'],
   open_held_cases: ['3'],
   nc_invalid: ['deduction amount'],
+  cases_removed: ['2'],
 };
 
 /**
@@ -69,6 +70,12 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
  * is one line; forgetting to is a failing test.
  */
 const EVERY_KEY: readonly string[] = [
+  // Removing a case opened in error (ADR 0072).
+  'cases_removed',
+  'remove_none',
+  'remove_reason_too_long',
+  'remove_refused',
+  'remove_role',
   // Opening a case by hand (ADR 0070).
   'case_duplicate_manual',
   'case_opened_manually',
