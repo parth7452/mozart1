@@ -155,6 +155,9 @@ const harness = vi.hoisted(() => ({
   chartReads: 0,
   caseReads: [] as unknown[],
   connectionReads: [] as unknown[],
+  /** What the kept-snapshot store answers, and who asked it for what. */
+  kept: [] as unknown[],
+  keptReads: [] as Array<{ tenant: unknown; connectionId: string; limit: number }>,
 }));
 
 vi.mock('../lib/session', () => ({
@@ -192,6 +195,19 @@ vi.mock('@recouple/store-postgres', async (importOriginal) => {
       async casesInWindow(window: unknown) {
         harness.caseReads.push({ tenant: this.tenant, window });
         return harness.cases;
+      }
+    },
+    PostgresLedgerSnapshotStore: class {
+      constructor(
+        _config: unknown,
+        private readonly tenant: unknown,
+      ) {}
+      async recentSnapshots(connectionId: string, limit: number) {
+        harness.keptReads.push({ tenant: this.tenant, connectionId, limit });
+        return harness.kept;
+      }
+      async recordLedgerSnapshot() {
+        throw new Error('the Books page never keeps a snapshot');
       }
     },
   };
@@ -298,6 +314,9 @@ beforeEach(() => {
   harness.chartReads = 0;
   harness.caseReads = [];
   harness.connectionReads = [];
+  harness.kept = [];
+  harness.keptReads = [];
+  vi.unstubAllEnvs();
   errors.length = 0;
 });
 
@@ -551,6 +570,74 @@ describe('/books', () => {
   it('is a section of the settings panel', async () => {
     const html = await page();
     expect(html).toContain('<a class="active" aria-current="page" href="/books">Books</a>');
+  });
+
+  describe('kept snapshots (ADR 0074)', () => {
+    const SHA_NEW = 'ab'.repeat(32);
+    const SHA_OLD = 'cd'.repeat(32);
+
+    it('shows nothing about them, and reads none, when LEDGER_SNAPSHOTS is off', async () => {
+      vi.stubEnv('LEDGER_SNAPSHOTS', '');
+      const html = await page();
+      expect(html).not.toContain('Kept snapshots');
+      expect(harness.keptReads).toEqual([]);
+    });
+
+    it('lists the latest twelve per connection, with status, totals and the start of the hash', async () => {
+      vi.stubEnv('LEDGER_SNAPSHOTS', '1');
+      harness.kept = [
+        {
+          snapshotId: 'snap-2',
+          runId: 'run-2',
+          asOf: '2026-09-30',
+          status: 'refused',
+          refusalClass: 'QboReportTooLarge',
+          trialBalanceLineCount: 0,
+          ledgerLineCount: 0,
+          sha256: SHA_NEW,
+          prevSha256: SHA_OLD,
+          createdAt: '2026-09-30T07:00:00.000Z',
+        },
+        {
+          snapshotId: 'snap-1',
+          runId: 'run-1',
+          asOf: '2026-09-29',
+          status: 'complete',
+          totalDebitCents: 2_238_065,
+          totalCreditCents: 2_238_065,
+          trialBalanceLineCount: 3,
+          ledgerLineCount: 5,
+          sha256: SHA_OLD,
+          createdAt: '2026-09-29T07:00:00.000Z',
+        },
+      ];
+      const html = await page();
+      expect(harness.keptReads).toEqual([
+        { tenant: { orgId: ORG_ID, userId: USER_ID }, connectionId: CONNECTION, limit: 12 },
+      ]);
+      const kept = card(html, 'Kept snapshots');
+      expect(kept).toContain('2026-09-30');
+      expect(kept).toContain('Not read (QboReportTooLarge)');
+      expect(kept).toContain('Kept: 3 balances, 5 postings');
+      expect(kept).toContain('$22,380.65');
+      expect(kept).toContain(`>${SHA_NEW.slice(0, 12)}</code>`);
+      expect(kept).not.toContain(`>${SHA_NEW}</code>`);
+      expect(kept.indexOf('2026-09-30')).toBeLessThan(kept.indexOf('2026-09-29'));
+      // A list, with nothing to press.
+      expect(kept).not.toContain('<form');
+      expect(kept).not.toContain('<button');
+    });
+
+    it('says when none has been kept yet', async () => {
+      vi.stubEnv('LEDGER_SNAPSHOTS', '1');
+      const html = await page();
+      expect(card(html, 'Kept snapshots')).toContain('No snapshot has been kept for this company yet.');
+    });
+
+    it('refuses a switch that is neither on nor off rather than guessing', async () => {
+      vi.stubEnv('LEDGER_SNAPSHOTS', 'yes');
+      await expect(page()).rejects.toThrow(/LEDGER_SNAPSHOTS must be "1" or unset/);
+    });
   });
 });
 

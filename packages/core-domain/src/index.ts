@@ -5,6 +5,7 @@ export * from './sizing';
 export * from './identity';
 export * from './journal';
 export * from './ledger-extract';
+export * from './ledger-snapshot';
 export * from './manual-entry';
 export * from './money';
 export * from './packet';

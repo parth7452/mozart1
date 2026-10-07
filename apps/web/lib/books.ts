@@ -40,6 +40,7 @@ import {
   type PostingConnectionView,
 } from '@recouple/store-postgres';
 import { qboAppConfigFromEnv, qboTokenStoreFromEnv, type EnvVars } from './ledger-sync';
+import { postingAccountIds } from './posting-accounts';
 
 /**
  * The Books page's read (ADR 0066 §1–§3): each enabled connection's chart of
@@ -297,18 +298,7 @@ export type ConnectionBooks =
       readonly reconciliation: BooksSection<BooksReconciliation>;
     };
 
-/** The accounts a saved map posts deductions to: held, and written off. */
-export function postingAccountIds(connection: PostingConnectionView): readonly string[] {
-  const map = connection.map;
-  if (map === undefined) return [];
-  return [
-    ...new Set([
-      map.deductionsReceivableAccountId,
-      map.unclassifiedWriteoff,
-      ...Object.values(map.writeoffByFamily),
-    ]),
-  ];
-}
+export { postingAccountIds } from './posting-accounts';
 
 /**
  * Every enabled connection's books, read side by side.

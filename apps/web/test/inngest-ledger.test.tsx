@@ -33,6 +33,7 @@ import { PostgresQboTokenStore, QboRealmMismatchError } from '@recouple/store-po
 import { QboAuthError, type QboTokenStore } from '@recouple/qbo';
 import {
   accountingSourceFromEnv,
+  ledgerSnapshotsOn,
   qboTokenCipherFromEnv,
   qboTokenStoreFromEnv,
 } from '../lib/ledger-sync';
@@ -662,5 +663,35 @@ describe('what this deployment can read a ledger with', () => {
     if (resolved.kind === 'not_configured') {
       expect(resolved.reason).toContain('netsuite');
     }
+  });
+});
+
+describe('whether a sync keeps the books (ADR 0074)', () => {
+  it('is off unless LEDGER_SNAPSHOTS is exactly 1, and refuses anything else', () => {
+    expect(ledgerSnapshotsOn({})).toBe(false);
+    expect(ledgerSnapshotsOn({ LEDGER_SNAPSHOTS: '' })).toBe(false);
+    expect(ledgerSnapshotsOn({ LEDGER_SNAPSHOTS: '0' })).toBe(false);
+    expect(ledgerSnapshotsOn({ LEDGER_SNAPSHOTS: '1' })).toBe(true);
+    expect(() => ledgerSnapshotsOn({ LEDGER_SNAPSHOTS: 'true' })).toThrow(/LEDGER_SNAPSHOTS/);
+  });
+
+  it('hands a ready source its company’s books reads, from the same client', () => {
+    const resolved = accountingSourceFromEnv(
+      { QBO_CLIENT_ID: 'client', QBO_CLIENT_SECRET: 'secret', QBO_ENVIRONMENT: 'sandbox' },
+      {
+        tokenStoreFor: () => ({
+          async load() {
+            return undefined;
+          },
+          async save() {},
+          async withRefreshLock<T>(_realm: string, work: () => Promise<T>) {
+            return work();
+          },
+        }),
+      },
+    ).resolve(connectionRecord());
+    expect(resolved.kind).toBe('ready');
+    if (resolved.kind !== 'ready') return;
+    expect(resolved.books).toBe(resolved.source);
   });
 });

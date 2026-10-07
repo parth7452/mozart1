@@ -8,9 +8,9 @@
  * them is `AccountingSource`, one layer out, which re-exports every name here.
  *
  * **Read through, never stored.** Nothing here is persisted and nothing here
- * writes: a snapshot table is ADR 0066's proposal, not this file's. So every
- * figure a page shows from these rows is what the ledger answered in that
- * request, and says so.
+ * writes: the snapshot a daily sync keeps is `ledger-snapshot.ts`'s (ADR
+ * 0074). So every figure a page shows from these rows is what the ledger
+ * answered in that request, and says so.
  *
  * The two questions:
  *
