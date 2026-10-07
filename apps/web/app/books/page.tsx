@@ -1,7 +1,8 @@
-import { PostgresBooksStore } from '@recouple/store-postgres';
-import { BooksPage } from '../../components/books';
+import { PostgresBooksStore, PostgresLedgerSnapshotStore } from '@recouple/store-postgres';
+import { BooksPage, KEPT_SNAPSHOTS_SHOWN, type KeptSnapshots } from '../../components/books';
 import { booksFor, booksRequestFrom, booksSourcesFromEnv, utcDay } from '../../lib/books';
 import { env } from '../../lib/env';
+import { ledgerSnapshotsOn } from '../../lib/ledger-sync';
 import { postingStoreFor } from '../../lib/posting';
 import { requireSession } from '../../lib/session';
 import { viewerOf } from '../../lib/viewer';
@@ -37,6 +38,11 @@ export const maxDuration = 90;
  * The window and the scope come from the address and are validated before
  * anything is asked (`booksRequestFrom`); neither reaches QuickBooks as
  * anything but two proven dates.
+ *
+ * Where `LEDGER_SNAPSHOTS` is on, it also lists each connection's latest
+ * snapshots the daily sync kept (ADR 0074), read through RLS as `app_rw`. It
+ * never takes one: a GET that stored a customer's ledger on every view would
+ * be a write nobody asked for.
  */
 export default async function BooksRoute({
   searchParams,
@@ -68,5 +74,29 @@ export default async function BooksRoute({
           ).casesInWindow(request.window),
         });
 
-  return <BooksPage viewer={viewerOf(session)} books={books} request={request} asOf={asOf} />;
+  let kept: KeptSnapshots | undefined;
+  if (ledgerSnapshotsOn()) {
+    const snapshots = new PostgresLedgerSnapshotStore({ connectionString: env.databaseUrl }, identity);
+    kept = Object.fromEntries(
+      await Promise.all(
+        connections.map(
+          async (connection) =>
+            [
+              connection.connectionId,
+              await snapshots.recentSnapshots(connection.connectionId, KEPT_SNAPSHOTS_SHOWN),
+            ] as const,
+        ),
+      ),
+    );
+  }
+
+  return (
+    <BooksPage
+      viewer={viewerOf(session)}
+      books={books}
+      request={request}
+      asOf={asOf}
+      {...(kept === undefined ? {} : { kept })}
+    />
+  );
 }

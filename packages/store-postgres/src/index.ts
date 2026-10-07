@@ -39,6 +39,7 @@ export * from './inbound';
 export * from './team';
 export * from './portal';
 export * from './books';
+export * from './snapshots';
 export {
   SUGGESTION_CANDIDATES_LIMIT,
   type DocumentSuggestions,

@@ -19,9 +19,28 @@
  * on and the row is what makes them actionable. A sync that broke is an error:
  * the row is written first, and then it is rethrown, because a partial run
  * reported as a success is how a coverage number goes wrong (CLAUDE.md).
+ *
+ * **And, where snapshots are on, the books are kept** (ADR 0074). After a
+ * completed run row, the run reads the chart, the trial balance and the
+ * deductions accounts' ledger and keeps them as one hash-chained snapshot
+ * naming the run. A books read that fails is kept as a `refused` snapshot and
+ * changes nothing about what the run found.
  */
 
-import type { LedgerAnomaly, LedgerAnomalyKind, LedgerWindow } from '@recouple/core-domain';
+import {
+  booksAccountRoles,
+  buildLedgerSnapshot,
+  snapshotSha256,
+  type GeneralLedger,
+  type GeneralLedgerOptions,
+  type LedgerAccount,
+  type LedgerAnomaly,
+  type LedgerAnomalyKind,
+  type LedgerSnapshotContent,
+  type LedgerSnapshotStatus,
+  type LedgerWindow,
+  type TrialBalance,
+} from '@recouple/core-domain';
 import { syncLedger, type DiscoveryStore, type LedgerSource, type SyncReport } from './discovery';
 
 /**
@@ -179,8 +198,53 @@ export type ResolvedLedgerSource =
        * this job knows no provider's errors.
        */
       readonly deadGrant?: (error: unknown) => DeadLedgerGrant | undefined;
+      /**
+       * The same connection's books reads (ADR 0066 §1), for the snapshot a
+       * run keeps when snapshots are on (ADR 0074). Absent where a source has
+       * none: such a run keeps a `refused` snapshot rather than none.
+       */
+      readonly books?: LedgerBooksSource;
     }
   | { readonly kind: 'not_configured'; readonly reason: string };
+
+/** The three books reads a snapshot needs: `AccountingSource`'s, and nothing else of it. */
+export interface LedgerBooksSource {
+  chartOfAccounts(): Promise<readonly LedgerAccount[]>;
+  trialBalance(asOf: string): Promise<TrialBalance>;
+  generalLedger(window: LedgerWindow, options?: GeneralLedgerOptions): Promise<GeneralLedger>;
+}
+
+/**
+ * Where a kept snapshot goes (ADR 0074). `PostgresLedgerSnapshotStore` is
+ * one, declared structurally for `LedgerSyncRunStore`'s reason.
+ */
+export interface LedgerSnapshotStore {
+  /** The chain's head for the connection: its latest snapshot's hash, if any. */
+  latestSnapshotSha(connectionId: string): Promise<string | undefined>;
+  recordLedgerSnapshot(input: {
+    readonly content: LedgerSnapshotContent;
+    readonly sha256: string;
+    readonly prevSha256: string | null;
+  }): Promise<string>;
+}
+
+/**
+ * What a run needs to keep a snapshot. Present only where `LEDGER_SNAPSHOTS=1`
+ * (ADR 0074 §6); absent, a run keeps none and reads no books.
+ */
+export interface LedgerSnapshotDeps {
+  readonly store: LedgerSnapshotStore;
+  /** The accounts the workspace's latest account map posts to, for this connection. */
+  postingAccountIds(connectionId: string): Promise<readonly string[]>;
+}
+
+/** What a run kept: the snapshot's id and status, and a refusal's class name. */
+export interface LedgerSnapshotKept {
+  readonly snapshotId: string;
+  readonly status: LedgerSnapshotStatus;
+  readonly sha256: string;
+  readonly refusalClass?: string;
+}
 
 export interface LedgerSourceFactory {
   resolve(
@@ -197,6 +261,8 @@ export interface LedgerSyncJobDeps {
   readonly windowDays?: number;
   /** Passed through to `syncLedger`, which defaults it (ADR 0029 §4). */
   readonly minDisputeCents?: number;
+  /** Keep a snapshot of the books after a completed run (ADR 0074). Off when absent. */
+  readonly snapshots?: LedgerSnapshotDeps;
 }
 
 export interface LedgerSyncJobInput {
@@ -224,6 +290,8 @@ export interface LedgerSyncJobResult {
    * move is already a `case.classified` event on its case.
    */
   readonly classifiedCount?: number;
+  /** The snapshot a completed run kept, when snapshots are on (ADR 0074). */
+  readonly snapshot?: LedgerSnapshotKept;
   /**
    * Why it did not sync, for a log line — never for the run row.
    *
@@ -438,7 +506,88 @@ export async function syncLedgerJob(
     undefined,
     report.anomalies.map(toAnomalyRecord),
   );
-  return { ...completed, classifiedCount: report.classified.length };
+  // After the run row, which the snapshot names, and never in the way of what
+  // the run found: a books read that fails is a refused snapshot, and only a
+  // snapshot that cannot be *recorded* throws — after the run row is written.
+  const snapshot =
+    deps.snapshots === undefined
+      ? undefined
+      : await keepSnapshot(deps.snapshots, resolved, connection, completed.runId, window);
+  return {
+    ...completed,
+    classifiedCount: report.classified.length,
+    ...(snapshot === undefined ? {} : { snapshot }),
+  };
+}
+
+/** A class name, as `ledger_snapshots.refusal_class` admits one. */
+const CLASS_NAME = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
+
+/** A resolved source that has no books reads, so a run cannot keep a complete snapshot. */
+export class LedgerBooksNotReadableError extends Error {
+  constructor(readonly connectionId: string) {
+    super(`the accounting source for connection ${connectionId} has no books reads`);
+    this.name = 'LedgerBooksNotReadableError';
+  }
+}
+
+/**
+ * Reads the books and keeps a snapshot of them for a completed run (ADR 0074):
+ * the chart, the trial balance as of the run's last day, and the general
+ * ledger over the run's window on the accounts `booksAccountRoles` gives a
+ * role — the receivable, the map's posting accounts and the deductions-like
+ * ones. Never the whole ledger.
+ *
+ * Any failure to read or build is a `refused` snapshot carrying the error's
+ * class name — never its message, which may quote the ledger — and no lines.
+ * It still chains. Recording is not caught: a snapshot the door refuses, or a
+ * database that is not there, fails the job after its run row stands, so it
+ * reaches the failure alert rather than a log line nobody reads (ADR 0074 §5).
+ */
+async function keepSnapshot(
+  deps: LedgerSnapshotDeps,
+  resolved: Extract<ResolvedLedgerSource, { kind: 'ready' }>,
+  connection: LedgerConnectionRecord,
+  runId: string,
+  window: LedgerWindow,
+): Promise<LedgerSnapshotKept> {
+  const ids = {
+    orgId: connection.orgId,
+    connectionId: connection.connectionId,
+    runId,
+    window,
+  };
+  let content: LedgerSnapshotContent;
+  try {
+    const books = resolved.books;
+    if (books === undefined) throw new LedgerBooksNotReadableError(connection.connectionId);
+    const chart = await books.chartOfAccounts();
+    const posting = await deps.postingAccountIds(connection.connectionId);
+    const accountIds = [...booksAccountRoles(chart, posting).keys()];
+    const [trialBalance, generalLedger] = await Promise.all([
+      books.trialBalance(window.to),
+      books.generalLedger(window, { accountIds }),
+    ]);
+    content = buildLedgerSnapshot({ ...ids, status: 'complete', trialBalance, generalLedger });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : undefined;
+    const refusalClass = name !== undefined && CLASS_NAME.test(name) ? name : 'UnnamedError';
+    console.warn(
+      `[recouple] ledger sync: connection ${connection.connectionId} for org ${connection.orgId}: ` +
+        `the books could not be read for run ${runId} (${refusalClass}); keeping a refused snapshot`,
+    );
+    content = buildLedgerSnapshot({ ...ids, status: 'refused', refusalClass });
+  }
+
+  const prevSha256 = (await deps.store.latestSnapshotSha(connection.connectionId)) ?? null;
+  const sha256 = snapshotSha256(content, prevSha256);
+  const snapshotId = await deps.store.recordLedgerSnapshot({ content, sha256, prevSha256 });
+  return {
+    snapshotId,
+    status: content.status,
+    sha256,
+    ...(content.refusal_class === null ? {} : { refusalClass: content.refusal_class }),
+  };
 }
 
 /**

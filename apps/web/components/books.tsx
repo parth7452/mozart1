@@ -17,6 +17,7 @@ import {
   type ReconciliationRow,
   type TrialBalance,
 } from '@recouple/core-domain';
+import type { LedgerSnapshotSummary } from '@recouple/store-postgres';
 import type {
   BooksChart,
   BooksFailure,
@@ -46,6 +47,15 @@ import type { Viewer } from './case-list';
 
 /** How many postings one account lists. The count is always shown whole. */
 export const LEDGER_LINES_SHOWN_PER_ACCOUNT = 500;
+
+/** How many kept snapshots each connection lists, newest first (ADR 0074). */
+export const KEPT_SNAPSHOTS_SHOWN = 12;
+
+/** How many hex characters of a snapshot's hash are shown. */
+export const SNAPSHOT_HASH_SHOWN = 12;
+
+/** Each connection's latest kept snapshots, by connection id. */
+export type KeptSnapshots = Readonly<Record<string, readonly LedgerSnapshotSummary[]>>;
 
 /** Where the proposal to keep snapshots is written down. */
 export const SNAPSHOT_ADR_URL =
@@ -97,12 +107,18 @@ export function BooksPage({
   books,
   request,
   asOf,
+  kept,
 }: {
   viewer: Viewer;
   books: readonly ConnectionBooks[];
   request: BooksRequest;
   /** The day the trial balance was asked as of. */
   asOf: string;
+  /**
+   * The snapshots the daily sync kept, per connection (ADR 0074). Absent
+   * where `LEDGER_SNAPSHOTS` is off, and then nothing about them is shown.
+   */
+  kept?: KeptSnapshots;
 }) {
   const query = `from=${request.window.from}&to=${request.window.to}`;
   return (
@@ -165,6 +181,7 @@ export function BooksPage({
               connection={connection}
               request={request}
               query={query}
+              {...(kept === undefined ? {} : { kept: kept[connection.connectionId] ?? [] })}
             />
           ))
         )}
@@ -181,22 +198,29 @@ function ConnectionBooksView({
   connection,
   request,
   query,
+  kept,
 }: {
   connection: ConnectionBooks;
   request: BooksRequest;
   query: string;
+  kept?: readonly LedgerSnapshotSummary[];
 }) {
   const company = `company ${connection.realmId}`;
+  const keptView =
+    kept === undefined ? null : <KeptSnapshotsCard snapshots={kept} company={company} />;
   if (connection.kind === 'not_configured') {
     return (
-      <section className="card connection" aria-label={`Books, ${company}`}>
-        <h2>QuickBooks {company}</h2>
-        <p className="empty">
-          This deployment is not set up to read QuickBooks, so nothing was asked of it. For your
-          administrator: the Intuit app credentials and the token key — see
-          docs/qbo-credentials.md.
-        </p>
-      </section>
+      <>
+        <section className="card connection" aria-label={`Books, ${company}`}>
+          <h2>QuickBooks {company}</h2>
+          <p className="empty">
+            This deployment is not set up to read QuickBooks, so nothing was asked of it. For your
+            administrator: the Intuit app credentials and the token key — see
+            docs/qbo-credentials.md.
+          </p>
+        </section>
+        {keptView}
+      </>
     );
   }
   return (
@@ -237,7 +261,75 @@ function ConnectionBooksView({
           )}
         </Section>
       </section>
+
+      {keptView}
     </>
+  );
+}
+
+/**
+ * What the daily sync kept of this company's books (ADR 0074): the latest
+ * snapshots, newest first, with the start of each one's hash. A list of what
+ * was stored, nothing more — no action, and nothing here is read live.
+ */
+function KeptSnapshotsCard({
+  snapshots,
+  company,
+}: {
+  snapshots: readonly LedgerSnapshotSummary[];
+  company: string;
+}) {
+  return (
+    <section className="card connection" aria-label={`Kept snapshots, ${company}`}>
+      <h2>Kept snapshots — QuickBooks {company}</h2>
+      <p className="empty">
+        Each completed daily sync keeps the trial balance and the postings on the receivable,
+        posting and deductions accounts, chained by hash to the one before. These are kept, not read
+        just now. The latest {KEPT_SNAPSHOTS_SHOWN} are listed.
+      </p>
+      {snapshots.length === 0 ? (
+        <p className="empty">No snapshot has been kept for this company yet.</p>
+      ) : (
+        <div className="table-scroll" role="region" aria-label="Kept snapshots" tabIndex={0}>
+          <table className="cases books-snapshots">
+            <thead>
+              <tr>
+                <th scope="col">As of</th>
+                <th scope="col">Status</th>
+                <th scope="col" className="money">
+                  Debits
+                </th>
+                <th scope="col" className="money">
+                  Credits
+                </th>
+                <th scope="col">Hash</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshots.map((snapshot) => (
+                <tr key={snapshot.snapshotId}>
+                  <td>{snapshot.asOf}</td>
+                  <td>
+                    {snapshot.status === 'complete'
+                      ? `Kept: ${snapshot.trialBalanceLineCount} balances, ${snapshot.ledgerLineCount} postings`
+                      : `Not read (${snapshot.refusalClass ?? 'unknown'})`}
+                  </td>
+                  <td className="money">
+                    {snapshot.totalDebitCents === undefined ? '' : money(snapshot.totalDebitCents)}
+                  </td>
+                  <td className="money">
+                    {snapshot.totalCreditCents === undefined ? '' : money(snapshot.totalCreditCents)}
+                  </td>
+                  <td>
+                    <code title={snapshot.sha256}>{snapshot.sha256.slice(0, SNAPSHOT_HASH_SHOWN)}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -2,8 +2,9 @@
 
 - Status: **accepted** by the founder on 2026-10-04 (§1–§3, the read, built
   and merged in PR #145). §4 (keeping snapshots) is approved as the direction
-  and still **not built**: it needs a migration the founder applies by hand,
-  and nothing in it exists yet.
+  and is **built by ADR 0074** (proposed): migration 0045, applied nowhere
+  yet, and code that runs only where `LEDGER_SNAPSHOTS=1`. The founder's
+  answers to §4's three questions are recorded there.
 - Date: 2026-10-04
 - Extends: ADR 0026 (the `AccountingSource` port), ADR 0063 §1 (a settings
   request reads a chart live and may refresh the company's token)

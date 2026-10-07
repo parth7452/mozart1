@@ -8,18 +8,23 @@ import type { QboTokenStore } from '@recouple/qbo';
 import { KmsTokenCipher, type TokenCipher } from '@recouple/crypto';
 import type {
   LedgerConnectionRecord,
+  LedgerSnapshotDeps,
   LedgerSourceFactory,
   LedgerSyncJobDeps,
   ResolvedLedgerSource,
 } from '@recouple/pipeline';
 import {
   PostgresDiscoveryStore,
+  PostgresLedgerSnapshotStore,
   PostgresLedgerSyncStore,
+  PostgresPostingStore,
   PostgresQboTokenStore,
   listConnectionsToSync,
   type ConnectionToSync,
+  type PostgresStoreConfig,
 } from '@recouple/store-postgres';
 import { env } from './env';
+import { postingAccountIds } from './posting-accounts';
 import { tenantStore } from './store';
 
 /**
@@ -257,15 +262,19 @@ export function accountingSourceFromEnv(
         };
       }
 
+      const source = new QboAccountingSource({
+        realmId: connection.providerAccountId,
+        baseUrl: app.baseUrl,
+        clientId: app.clientId,
+        clientSecret: app.clientSecret,
+        tokenStore,
+      });
       return {
         kind: 'ready',
-        source: new QboAccountingSource({
-          realmId: connection.providerAccountId,
-          baseUrl: app.baseUrl,
-          clientId: app.clientId,
-          clientSecret: app.clientSecret,
-          tokenStore,
-        }),
+        source,
+        // The same company's books reads, for the snapshot a run keeps where
+        // `LEDGER_SNAPSHOTS` is on (ADR 0074). Unused where it is off.
+        books: source,
         // Intuit refused the stored sign-in for good, and which stored row it
         // was: the one the store opened last, since the client reads again
         // under the lock before it refreshes (ADR 0046). A store that cannot
@@ -305,14 +314,24 @@ export function ledgerSyncDepsFor(
   // it builds per connection runs as `app_rw` with exactly these claims, the
   // same as every other read and write on this path (ADR 0033 §5).
   sources: LedgerSourceFactory = accountingSourceFromEnv(process.env, { identity }),
+  environment: EnvVars = process.env,
 ): LedgerSyncHandle {
   const store = tenantStore(identity);
   const config = { connectionString: env.databaseUrl };
   const runs = new PostgresLedgerSyncStore(config, identity, store);
   const discovery = new PostgresDiscoveryStore(config, identity, store);
+  const snapshots = ledgerSnapshotsOn(environment)
+    ? ledgerSnapshotDepsFor(config, identity)
+    : undefined;
 
   return {
-    deps: { runs, discovery, sources, now: () => new Date() },
+    deps: {
+      runs,
+      discovery,
+      sources,
+      now: () => new Date(),
+      ...(snapshots === undefined ? {} : { snapshots }),
+    },
     async close(): Promise<void> {
       // The same call `runReadRequested` makes in its `finally` — and today the
       // same no-op, because the pools are shared per connection string and
@@ -321,6 +340,52 @@ export function ledgerSyncDepsFor(
       // ever does hold something per instance is released by the code that
       // built it rather than by nobody.
       await store.close();
+    },
+  };
+}
+
+/** The switch that turns kept snapshots of the books on (ADR 0074 §6). */
+export const LEDGER_SNAPSHOTS = 'LEDGER_SNAPSHOTS';
+
+/**
+ * Whether a completed sync keeps a snapshot of the books (ADR 0074), and so
+ * whether the Books page lists the ones kept.
+ *
+ * Off unless `LEDGER_SNAPSHOTS` is `1`: unset, empty and `0` are off, and any
+ * other value throws rather than guessing, because the switch exists so this
+ * code can deploy before migration 0045 is applied, and a typo that turned it
+ * on there would fail every sync. Not to be set on a deployment whose
+ * database does not carry 0045.
+ */
+export function ledgerSnapshotsOn(environment: EnvVars = process.env): boolean {
+  const value = environment[LEDGER_SNAPSHOTS];
+  if (value === undefined || value.trim() === '' || value.trim() === '0') return false;
+  if (value.trim() === '1') return true;
+  throw new Error(
+    `${LEDGER_SNAPSHOTS} must be "1" or unset; this environment has ${JSON.stringify(value)}. ` +
+      'It is not guessed at: turned on before migration 0045 is applied, every ledger sync fails ' +
+      '(ADR 0074).',
+  );
+}
+
+/**
+ * What a run needs to keep a snapshot, as this member: the snapshot store,
+ * and the accounts the connection's latest account map posts to — read
+ * through RLS as `app_rw`, the same rule the Books page reads them by
+ * (`postingAccountIds`).
+ */
+export function ledgerSnapshotDepsFor(
+  config: PostgresStoreConfig,
+  identity: { readonly orgId: string; readonly userId: string },
+): LedgerSnapshotDeps {
+  const posting = new PostgresPostingStore(config, identity);
+  return {
+    store: new PostgresLedgerSnapshotStore(config, identity),
+    async postingAccountIds(connectionId: string): Promise<readonly string[]> {
+      const connection = (await posting.postingConnections()).find(
+        (one) => one.connectionId === connectionId,
+      );
+      return connection === undefined ? [] : postingAccountIds(connection);
     },
   };
 }
