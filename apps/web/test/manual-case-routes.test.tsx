@@ -70,13 +70,18 @@ const valid: Record<string, string> = {
   notes: NOTES,
 };
 
-function post(path: string, fields: Record<string, string>, site = 'same-origin'): NextRequest {
+function post(
+  path: string,
+  fields: Record<string, string>,
+  site = 'same-origin',
+  accept?: string,
+): NextRequest {
   const body = new FormData();
   for (const [key, value] of Object.entries(fields)) body.set(key, value);
   return new NextRequest(`https://app.example.test${path}`, {
     method: 'POST',
     body,
-    headers: { 'sec-fetch-site': site },
+    headers: { 'sec-fetch-site': site, ...(accept === undefined ? {} : { accept }) },
   });
 }
 
@@ -159,6 +164,64 @@ describe('POST /cases/new/open', () => {
     expect(harness.closed).toBe(1);
     expect(errors.mock.calls.flat().join(' ')).not.toContain('CB-2026-001');
     errors.mockRestore();
+  });
+});
+
+describe('POST /cases/new/open asked for JSON (the dialog\'s documents script)', () => {
+  const JSON_ACCEPT = 'application/json';
+  async function answer(response: Response): Promise<Record<string, unknown>> {
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+    return (await response.json()) as Record<string, unknown>;
+  }
+  /** The redirect the same request answers without JSON, relative. */
+  async function redirectFor(fields: Record<string, string>): Promise<string> {
+    const url = where(await OPEN(post('/cases/new/open', fields)));
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  it('names the case it opened and the page to go to', async () => {
+    const body = await answer(await OPEN(post('/cases/new/open', valid, 'same-origin', JSON_ACCEPT)));
+    expect(body).toEqual({
+      ok: true,
+      deductionId: CASE_ID,
+      caseUrl: `/cases/${CASE_ID}?action=case_opened_manually#add-evidence`,
+    });
+  });
+
+  it('answers a duplicate as a refusal, so no document is filed on the existing case', async () => {
+    harness.openError = new DuplicateCaseError('duplicate', EXISTING, 'CB-2026-001');
+    const body = await answer(await OPEN(post('/cases/new/open', valid, 'same-origin', JSON_ACCEPT)));
+    expect(body).toEqual({ ok: false, redirect: `/cases/${EXISTING}?action=case_duplicate_manual` });
+  });
+
+  it('answers every refusal with the URL the redirect carries, never the notes', async () => {
+    const cases: [() => void, Record<string, string>][] = [
+      [() => (harness.role = 'read_only'), valid],
+      [() => undefined, { ...valid, amount: '12.5x' }],
+      [() => (harness.mayWrite = false), valid],
+      [() => (harness.openError = new ManualCaseRefusedError('unknown_debtor', 'debtorId')), valid],
+      [() => (harness.openError = new Error('connection reset')), valid],
+    ];
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const [arrange, fields] of cases) {
+      harness.role = 'analyst';
+      harness.mayWrite = true;
+      harness.openError = undefined;
+      arrange();
+      const expected = await redirectFor(fields);
+      const body = await answer(await OPEN(post('/cases/new/open', fields, 'same-origin', JSON_ACCEPT)));
+      expect(body).toEqual({ ok: false, redirect: expected });
+      expect(String(body.redirect)).toMatch(/^\/\?nc=.*#new-case$/);
+      expect(decodeURIComponent(String(body.redirect).replace(/\+/g, ' '))).not.toContain(NOTES);
+    }
+    errors.mockRestore();
+  });
+
+  it('still refuses a cross-site request with a 403', async () => {
+    const response = await OPEN(post('/cases/new/open', valid, 'cross-site', JSON_ACCEPT));
+    expect(response.status).toBe(403);
+    expect(harness.storeCalls).toBe(0);
   });
 });
 
