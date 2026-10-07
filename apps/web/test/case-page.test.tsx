@@ -148,6 +148,10 @@ const store = {
   async payerTermsForCase() {
     return { kind: 'none' as const };
   },
+  // No case here was opened by hand (ADR 0070).
+  async manualEntryFor() {
+    return undefined;
+  },
   async documentsForCase() {
     return [document];
   },

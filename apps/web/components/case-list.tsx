@@ -22,6 +22,7 @@ import {
 } from '../lib/case-presentation';
 import { WorkspaceShell } from './workspace-shell';
 import { CaseTable } from './case-table';
+import { NewCaseDialog, type NewCaseDialogProps } from './new-case';
 import { browserUploadNotices, resolveNotice } from '../lib/notices';
 import { MultiUpload } from './multi-upload';
 import { UnreadDocuments } from './unread-documents';
@@ -70,6 +71,7 @@ export function CaseList({
   duplicates,
   filedNothing,
   inboundDomain,
+  newCase,
   notice,
   noticeAbout,
 }: {
@@ -150,6 +152,8 @@ export function CaseList({
   filedNothing?: readonly FiledNothingByAddress[] | undefined;
   /** This deployment's inbound domain, when it receives email. */
   inboundDomain?: string | undefined;
+  /** The open-a-case dialog's inputs (ADR 0070); drawn only for a member who may write. */
+  newCase?: NewCaseDialogProps | undefined;
   /**
    * What happened to the last upload, as a notice *key* — never the sentence
    * itself, which arrives in a query string anybody can write
@@ -187,9 +191,14 @@ export function CaseList({
             </nav>
           </div>
           {mayUpload ? (
-            <a className="button-link" href="#add-document">
-              <span aria-hidden="true">＋</span> Add a document
-            </a>
+            <div className="page-actions">
+              <a className="button-link" href="#new-case">
+                <span aria-hidden="true">＋</span> New case
+              </a>
+              <a className="button-link" href="#add-document">
+                <span aria-hidden="true">＋</span> Add a document
+              </a>
+            </div>
           ) : null}
         </div>
         {said === undefined ? null : (
@@ -309,6 +318,7 @@ export function CaseList({
           <span>YOUR REVENUE. ORCHESTRATED.</span>
           <span>mozart.</span>
         </footer>
+        {mayUpload && newCase !== undefined ? <NewCaseDialog {...newCase} /> : null}
       </main>
     </WorkspaceShell>
   );

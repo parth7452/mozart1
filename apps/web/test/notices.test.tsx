@@ -57,6 +57,7 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
   upload_remittance_cases: ['3'],
   upload_duplicate_case: ['APDP-99812'],
   open_held_cases: ['3'],
+  nc_invalid: ['deduction amount'],
 };
 
 /**
@@ -68,6 +69,18 @@ const ABOUT: Readonly<Partial<Record<NoticeKey, readonly string[]>>> = {
  * is one line; forgetting to is a failing test.
  */
 const EVERY_KEY: readonly string[] = [
+  // Opening a case by hand (ADR 0070).
+  'case_duplicate_manual',
+  'case_opened_manually',
+  'nc_ambiguous',
+  'nc_failed',
+  'nc_invalid',
+  'nc_payer_added',
+  'nc_payer_exists',
+  'nc_payer_invalid',
+  'nc_role',
+  'nc_unknown_assignee',
+  'nc_unknown_debtor',
   'approve_duplicate',
   'approve_is_preparer',
   'approve_no_packet',

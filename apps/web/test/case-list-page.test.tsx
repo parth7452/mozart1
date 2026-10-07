@@ -150,10 +150,24 @@ vi.mock('../lib/session', () => ({
         harness.attachCalls.push(options);
         return harness.attachTargets;
       },
+      async listDebtors() {
+        return [{ debtorId: '99999999-9999-4999-8999-999999999999', displayName: 'Sysco Baltimore' }];
+      },
       async close() {
         return undefined;
       },
     }) as unknown as PostgresStore,
+}));
+
+vi.mock('../lib/team', () => ({
+  teamStoreFor: () => ({
+    async members() {
+      return [
+        { userId: USER_ID, email: 'reviewer@example.test', role: 'analyst' },
+        { userId: '88888888-8888-4888-8888-888888888888', email: 'reader@example.test', role: 'read_only' },
+      ];
+    },
+  }),
 }));
 
 const CaseListPage = (await import('../app/page')).default;
@@ -619,5 +633,19 @@ describe('the case list page', () => {
     expect(harness.duplicateCalls).toEqual([]);
     expect(harness.unattachedCalls).toEqual([]);
     expect(harness.attachCalls).toEqual([]);
+  });
+
+  it('offers a writer the New case dialog and a read_only member neither (ADR 0070)', async () => {
+    const html = await render({ nc: 'nc_invalid', field: 'amount', deductionReference: 'CB-1' });
+    expect(html).toContain('href="#new-case"');
+    expect(html).toContain('id="new-case"');
+    expect(html).toContain('check the highlighted field: deduction amount');
+    expect(html).toContain('value="CB-1"');
+    expect(html).not.toContain('reader@example.test');
+
+    harness.role = 'read_only';
+    const read = await render();
+    expect(read).not.toContain('href="#new-case"');
+    expect(read).not.toContain('id="new-case"');
   });
 });

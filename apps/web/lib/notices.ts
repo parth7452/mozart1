@@ -2,6 +2,7 @@ import { CASE_STATES } from '@recouple/core-domain';
 import { DOC_TYPES } from '@recouple/extraction';
 import { DEADLINE_BASIS_MAX_LENGTH } from '@recouple/pipeline';
 import { UPLOAD_MAX_BYTES, UPLOAD_MAX_MB } from './upload-limits';
+import { NEW_CASE_FIELD_LABELS } from './manual-case';
 
 // Re-exported so the routes keep one import for a limit and its sentence; the
 // numbers themselves live in `upload-limits.ts`, which the browser can load.
@@ -1176,6 +1177,30 @@ export const NOTICES = {
     tone: 'bad',
     text: 'that posting succeeded or is not waiting for a retry, so nothing was sent',
   },
+  // --- opening a case by hand (ADR 0070) ------------------------------------
+  nc_role: { tone: 'bad', text: 'your role can review cases but not open one' },
+  nc_invalid: { tone: 'bad', text: 'check the highlighted field: {0}' },
+  nc_unknown_debtor: {
+    tone: 'bad',
+    text: "that payer is not one of this workspace's — pick one from the list or add it",
+  },
+  nc_unknown_assignee: { tone: 'bad', text: 'that person is not a member of this workspace' },
+  nc_ambiguous: {
+    tone: 'bad',
+    text: 'this reference matches more than one existing case — open it from one of them, or ask an owner',
+  },
+  nc_failed: { tone: 'bad', text: 'the case was not opened — nothing was saved. Try again.' },
+  nc_payer_added: { tone: 'good', text: 'payer added and selected' },
+  nc_payer_exists: { tone: 'good', text: 'that payer was already on the list — selected it' },
+  nc_payer_invalid: { tone: 'bad', text: 'give the payer a name of at most 200 characters' },
+  case_opened_manually: {
+    tone: 'good',
+    text: 'case opened. Attach the remittance, invoice, BOL/POD or promotion agreement below — until a document is attached the case is marked incomplete.',
+  },
+  case_duplicate_manual: {
+    tone: 'bad',
+    text: "this payer's deduction reference is already this case — nothing new was opened",
+  },
   // `satisfies`, not a type annotation: the keys stay literal, so `NoticeKey`
   // is the set of them and a route that names a notice this table does not have
   // fails to compile rather than redirecting to a page that silently shows
@@ -1245,6 +1270,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   upload_remittance_cases: [COUNT],
   open_held_cases: [COUNT],
   upload_duplicate_case: [CLAIM_ID],
+  nc_invalid: [oneOf(Object.values(NEW_CASE_FIELD_LABELS))],
 };
 
 /**

@@ -16,6 +16,7 @@ export const SOURCE_LABELS: Readonly<Record<string, string>> = {
   erp_sync: 'Found in your ledger',
   portal_fetch: 'Read from a payer portal',
   edi_812: 'EDI 812',
+  manual_entry: 'Entered by hand',
   unknown: 'Arrival not recorded',
 };
 
