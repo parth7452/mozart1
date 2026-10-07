@@ -22,6 +22,7 @@ export * from './work-queue';
 export * from './retailer-board';
 export * from './payer-terms';
 export * from './payer-code-map';
+export * from './dispute-windows';
 export * from './invariants/index';
 export * from './sheet-mapping';
 export * from './portal-terms';

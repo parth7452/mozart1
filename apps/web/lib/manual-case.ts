@@ -87,13 +87,13 @@ export function prefillFrom(
   return prefill;
 }
 
-/** Back to the list with the dialog open, a notice key, and what was typed. */
-export function newCaseRedirect(
+/** Where a refusal sends the person: the list with the dialog open, a notice key, and what was typed. */
+export function newCaseTarget(
   request: Request,
   notice: NewCaseNoticeKey,
   values?: NewCasePrefill,
   field?: ManualEntryField,
-): NextResponse {
+): URL {
   const url = new URL('/', request.url);
   url.searchParams.set('nc', notice);
   if (field !== undefined) url.searchParams.set('field', field);
@@ -102,7 +102,52 @@ export function newCaseRedirect(
     if (kept !== undefined) url.searchParams.set(name, kept);
   }
   url.hash = NEW_CASE_ANCHOR;
-  return NextResponse.redirect(url, { status: 303 });
+  return url;
+}
+
+/** Back to the list with the dialog open, a notice key, and what was typed. */
+export function newCaseRedirect(
+  request: Request,
+  notice: NewCaseNoticeKey,
+  values?: NewCasePrefill,
+  field?: ManualEntryField,
+): NextResponse {
+  return NextResponse.redirect(newCaseTarget(request, notice, values, field), { status: 303 });
+}
+
+/** The dialog's script asks for JSON (`Accept: application/json`), as `/upload` does. */
+export function wantsJson(request: Request): boolean {
+  return (request.headers.get('accept') ?? '').toLowerCase().includes('application/json');
+}
+
+/**
+ * What `POST /cases/new/open` answers to the dialog's script. `redirect` is
+ * the same URL the no-script path would have been sent to, as a relative
+ * path, query and hash; `caseUrl` likewise for a case that opened.
+ */
+export type NewCaseJsonAnswer =
+  | { readonly ok: true; readonly deductionId: string; readonly caseUrl: string }
+  | { readonly ok: false; readonly redirect: string };
+
+const relative = (url: URL): string => `${url.pathname}${url.search}${url.hash}`;
+
+/**
+ * One target, answered as a 303 or as JSON — computed once, so the two answers
+ * can never disagree. `openedId` is set only when the target is the case this
+ * request opened; a duplicate's existing case is a refusal, so the script
+ * files no documents on someone else's case.
+ */
+export function answerNewCase(
+  request: Request,
+  target: URL,
+  openedId?: string,
+): NextResponse {
+  if (!wantsJson(request)) return NextResponse.redirect(target, { status: 303 });
+  const body: NewCaseJsonAnswer =
+    openedId === undefined
+      ? { ok: false, redirect: relative(target) }
+      : { ok: true, deductionId: openedId, caseUrl: relative(target) };
+  return NextResponse.json(body, { status: 200 });
 }
 
 /** A form value as a string; a missing one is ''; a file is not a string. */

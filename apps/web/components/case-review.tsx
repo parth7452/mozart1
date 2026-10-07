@@ -25,7 +25,12 @@ import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
 import { CasePostingCard } from './case-posting';
-import type { CasePosting, ManualEntrySummary, PayerCodeMappingAnswer } from '@recouple/store-postgres';
+import type {
+  CasePosting,
+  DisputeWindowAnswer,
+  ManualEntrySummary,
+  PayerCodeMappingAnswer,
+} from '@recouple/store-postgres';
 import { PayerCodeMappingLine } from './reason-code-maps';
 import { mappingWords } from '../lib/reason-code-words';
 import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
@@ -280,6 +285,8 @@ export interface CaseReviewProps {
    * under the code and offered as the decide form's default; never applied.
    */
   readonly payerCodeMapping?: PayerCodeMappingAnswer | undefined;
+  /** The payer's dispute window on the deduction date (ADR 0071); offered, never applied. */
+  readonly disputeWindow?: DisputeWindowAnswer | undefined;
   /** The evidence the chosen reason needs (ADR 0059); undefined before a decision. */
   readonly evidenceChecklist?: EvidenceChecklist | undefined;
   readonly fields: readonly StoredField[];
@@ -432,6 +439,7 @@ export function CaseReview({
   summary,
   payerTerms,
   payerCodeMapping,
+  disputeWindow,
   evidenceChecklist,
   documents,
   fields,
@@ -634,6 +642,7 @@ export function CaseReview({
               deadlineSet={workflow?.deadlineSet}
               mayAct={mayAct && !declined}
               today={today}
+              disputeWindow={disputeWindow}
             />
 
             <CaseActions

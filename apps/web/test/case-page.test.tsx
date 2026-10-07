@@ -206,6 +206,13 @@ vi.mock('../lib/reason-code-maps', async (importOriginal) => ({
   }),
 }));
 
+vi.mock('../lib/dispute-windows', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/dispute-windows')>()),
+  disputeWindowStoreFor: () => ({
+    disputeWindowForCase: async () => ({ kind: 'none' }) as const,
+  }),
+}));
+
 const CasePage = (await import('../app/cases/[id]/page')).default;
 
 describe('the review page for a deduction taken against the invoice, not an item', () => {

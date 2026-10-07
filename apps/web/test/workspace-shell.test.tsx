@@ -118,6 +118,7 @@ describe('the navigation', () => {
     ['books', '/books'],
     ['email', '/settings/email'],
     ['portals', '/settings/portals'],
+    ['dispute-windows', '/settings/dispute-windows'],
   ] as const)('draws %s inside the settings panel, marked current', (section, href) => {
     const html = sidebar(owner(), section);
     expect(html).toContain('class="modal settings-panel" role="dialog" aria-modal="true"');
@@ -127,6 +128,7 @@ describe('the navigation', () => {
       '/books',
       '/settings/email',
       '/settings/portals',
+      '/settings/dispute-windows',
     ]);
     expect(html).toContain(`<a class="active" aria-current="page" href="${href}">`);
     expect(html).toMatch(/<div class="modal-body settings-body"><a class="modal-close" aria-label="Close settings" href="\/">/);

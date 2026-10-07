@@ -5,7 +5,9 @@ import {
   MANUAL_ENTRY_TEXT_MAX,
   type ManualEntryField,
 } from '@recouple/core-domain';
-import type { Notice } from '../lib/notices';
+import { browserUploadNotices, type Notice } from '../lib/notices';
+import { UPLOAD_ACCEPT, UPLOAD_MAX_MB } from '../lib/upload-limits';
+import { NEW_CASE_FILES_HOLDER, NEW_CASE_FILES_INPUT, NewCaseSubmit } from './new-case-submit';
 import { NEW_CASE_ANCHOR, NEW_CASE_FIELDS, type NewCasePrefill } from '../lib/manual-case';
 
 /**
@@ -15,6 +17,8 @@ import { NEW_CASE_ANCHOR, NEW_CASE_FIELDS, type NewCasePrefill } from '../lib/ma
  * in the address opens it and any link to `#` closes it. The sidebar's items
  * are labels for each section's first field, which focus and scroll without
  * touching the address (a link would close the dialog). Pure function of props.
+ * The one script is `NewCaseSubmit`, which only takes over a submit that has
+ * documents chosen; without it the form posts exactly as before.
  */
 
 export interface NewCaseMember {
@@ -43,6 +47,7 @@ const SECTIONS = [
   { title: 'References', first: 'nc-poNumber' },
   { title: 'Dispute', first: 'nc-disputeAmount' },
   { title: 'Ownership & notes', first: 'nc-assigneeId' },
+  { title: 'Documents', first: 'nc-files' },
   { title: 'Add a payer', first: 'nc-displayName' },
 ] as const;
 
@@ -123,7 +128,12 @@ export function NewCaseDialog({
             <p className="notice bad">Add the payer first — use “Add a payer” at the end of this form.</p>
           ) : null}
 
-          <form method="post" action="/cases/new/open" className="modal-form">
+          {/* The documents' file input belongs to this empty form, so a submit of
+              the case form without a script never sends them: it stays
+              url-encoded, and the case page's Add evidence card takes them. */}
+          <form id={NEW_CASE_FILES_HOLDER} hidden></form>
+
+          <NewCaseSubmit notices={browserUploadNotices()}>
             <section aria-labelledby="nc-s-deduction">
               <h3 id="nc-s-deduction">Deduction</h3>
               <Row id="nc-debtorId" label="Payer" description="The retailer or distributor that deducted" required>
@@ -290,21 +300,27 @@ export function NewCaseDialog({
               <Row id="nc-notes" label="Notes" description="Why you think it's invalid" wide>
                 <textarea id="nc-notes" name="notes" rows={3} maxLength={MANUAL_ENTRY_NOTES_MAX} {...invalid('notes')} />
               </Row>
-              <p className="hint">
-                Documents: once the case is open you can attach the remittance, invoice, BOL/POD or
-                promotion agreement on its page. A case with no documents opens marked incomplete.
-              </p>
             </section>
 
-            <div className="modal-footer">
-              <a href="#" className="modal-cancel">
-                Cancel
-              </a>
-              <button className="primary" type="submit">
-                Open case
-              </button>
-            </div>
-          </form>
+            <section aria-labelledby="nc-s-documents">
+              <h3 id="nc-s-documents">Documents</h3>
+              <Row
+                id={NEW_CASE_FILES_INPUT}
+                label="Attach documents"
+                description={`Remittance, invoice, BOL/POD or promotion agreement — PDF, image or spreadsheet, up to ${UPLOAD_MAX_MB} MB each. Optional; a case with none opens marked incomplete.`}
+                wide
+              >
+                <input
+                  type="file"
+                  id={NEW_CASE_FILES_INPUT}
+                  name={NEW_CASE_FILES_INPUT}
+                  accept={UPLOAD_ACCEPT}
+                  multiple
+                  form={NEW_CASE_FILES_HOLDER}
+                />
+              </Row>
+            </section>
+          </NewCaseSubmit>
 
           <form method="post" action="/cases/new/payer" className="modal-form">
             <section aria-labelledby="nc-s-payer">

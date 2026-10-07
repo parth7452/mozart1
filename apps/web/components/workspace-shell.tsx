@@ -19,7 +19,8 @@ export type WorkspaceSection =
   | 'email'
   | 'portals'
   | 'team'
-  | 'reason-codes';
+  | 'reason-codes'
+  | 'dispute-windows';
 
 /**
  * The other workspaces this person belongs to, as buttons that POST to
@@ -87,6 +88,7 @@ export const SETTINGS_SECTIONS: readonly { section: WorkspaceSection; href: stri
   { section: 'books', href: '/books', label: 'Books' },
   { section: 'email', href: '/settings/email', label: 'Email' },
   { section: 'portals', href: '/settings/portals', label: 'Portals' },
+  { section: 'dispute-windows', href: '/settings/dispute-windows', label: 'Dispute windows' },
 ];
 
 function settingsSection(section: WorkspaceSection) {

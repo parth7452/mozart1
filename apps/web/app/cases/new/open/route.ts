@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { ManualEntryError, manualEntryFromForm, type ManualEntryForm } from '@recouple/core-domain';
+import {
+  ManualEntryError,
+  manualEntryFromForm,
+  type ManualEntryField,
+  type ManualEntryForm,
+} from '@recouple/core-domain';
 import { ManualCaseRefusedError } from '@recouple/store-postgres';
 import { AmbiguousIdentityError, DuplicateCaseError } from '@recouple/pipeline';
 import { requireSession, storeFor } from '../../../../lib/session';
@@ -10,7 +15,8 @@ import {
   formString,
   isManualEntryField,
   NEW_CASE_FIELDS,
-  newCaseRedirect,
+  answerNewCase,
+  newCaseTarget,
   type NewCaseNoticeKey,
   type NewCasePrefill,
 } from '../../../../lib/manual-case';
@@ -36,14 +42,22 @@ const REFUSAL_NOTICE: Readonly<Record<ManualCaseRefusedError['refusal'], NewCase
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isCrossSite(request)) return refuseCrossSite();
 
+  // Every refusal goes to one target, answered as a 303 or, for the dialog's
+  // script, as JSON naming that same URL (`answerNewCase`).
+  const refuse = (
+    notice: NewCaseNoticeKey,
+    values?: NewCasePrefill,
+    field?: ManualEntryField,
+  ): NextResponse => answerNewCase(request, newCaseTarget(request, notice, values, field));
+
   const session = await requireSession();
-  if (!mayWrite(session.org.role)) return newCaseRedirect(request, 'nc_role');
+  if (!mayWrite(session.org.role)) return refuse('nc_role');
 
   const form = await request.formData();
   const values: Record<string, string> = {};
   for (const name of [...NEW_CASE_FIELDS, 'notes'] as const) {
     const value = formString(form, name);
-    if (value === undefined) return newCaseRedirect(request, 'nc_failed');
+    if (value === undefined) return refuse('nc_failed');
     values[name] = value;
   }
   const echoed: NewCasePrefill = {};
@@ -69,37 +83,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     entry = manualEntryFromForm(posted);
   } catch (error) {
     if (error instanceof ManualEntryError) {
-      return newCaseRedirect(request, 'nc_invalid', echoed, error.field);
+      return refuse('nc_invalid', echoed, error.field);
     }
     throw error;
   }
 
-  const toCase = (deductionId: string, notice: NoticeKey, hash?: string): NextResponse => {
+  const caseTarget = (deductionId: string, notice: NoticeKey, hash?: string): URL => {
     const url = new URL(`/cases/${deductionId}`, request.url);
     url.searchParams.set('action', notice);
     if (hash !== undefined) url.hash = hash;
-    return NextResponse.redirect(url, { status: 303 });
+    return url;
   };
 
   const identity = { orgId: session.org.orgId, userId: session.userId };
   const store = storeFor(session);
   try {
-    if (!(await store.memberMayWrite(identity))) return newCaseRedirect(request, 'nc_role', echoed);
+    if (!(await store.memberMayWrite(identity))) return refuse('nc_role', echoed);
     const opened = await store.openManualCase({ entry });
     console.info(
       `[recouple] manual case opened: ${opened.deductionId} document ${opened.documentId} ` +
         `org ${identity.orgId} by ${identity.userId}`,
     );
-    return toCase(opened.deductionId, 'case_opened_manually', 'add-evidence');
+    return answerNewCase(
+      request,
+      caseTarget(opened.deductionId, 'case_opened_manually', 'add-evidence'),
+      opened.deductionId,
+    );
   } catch (error) {
     if (error instanceof ManualCaseRefusedError) {
       const field = isManualEntryField(error.field) ? error.field : undefined;
-      return newCaseRedirect(request, REFUSAL_NOTICE[error.refusal], echoed, field);
+      return refuse(REFUSAL_NOTICE[error.refusal], echoed, field);
     }
-    if (error instanceof DuplicateCaseError) return toCase(error.existingDeductionId, 'case_duplicate_manual');
-    if (error instanceof AmbiguousIdentityError) return newCaseRedirect(request, 'nc_ambiguous', echoed);
+    if (error instanceof DuplicateCaseError) {
+      // Not the case this request opened: the script files nothing on it.
+      return answerNewCase(request, caseTarget(error.existingDeductionId, 'case_duplicate_manual'));
+    }
+    if (error instanceof AmbiguousIdentityError) return refuse('nc_ambiguous', echoed);
     console.error(`[recouple] manual case failed: org ${identity.orgId} (${className(error)})`);
-    return newCaseRedirect(request, 'nc_failed', echoed);
+    return refuse('nc_failed', echoed);
   } finally {
     await store.close();
   }
