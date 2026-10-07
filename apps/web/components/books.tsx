@@ -5,9 +5,13 @@ import {
   DEDUCTION_ACCOUNT_SUBTYPES,
   GENERAL_LEDGER_MAX_WINDOW_DAYS,
   RECONCILIATION_CANDIDATE_DAYS,
+  formatBps,
   trialBalanceDifferenceCents,
   type BooksAccountRole,
   type BooksCase,
+  type DeductionsSizing,
+  type SizingBalance,
+  type UnmatchedReason,
   type GeneralLedgerAccount,
   type GeneralLedgerLine,
   type ReconciliationRow,
@@ -197,6 +201,13 @@ function ConnectionBooksView({
   }
   return (
     <>
+      <section className="card connection" aria-label={`Deductions sizing, ${company}`}>
+        <h2>Deductions sizing — QuickBooks {company}</h2>
+        <Section section={connection.sizing} what="The profit and loss for sizing">
+          {(sizing) => <SizingCard sizing={sizing} mapped={connection.mapped} />}
+        </Section>
+      </section>
+
       <section className="card connection" aria-label={`Chart of accounts, ${company}`}>
         <h2>Chart of accounts — QuickBooks {company}</h2>
         <Section section={connection.chart} what="The chart of accounts">
@@ -252,6 +263,175 @@ function Section<T>({
     <p className="notice bad" role="alert">
       {what} could not be read. {FAILURE_WORDS[section.failure]}
     </p>
+  );
+}
+
+const UNMATCHED_WORDS: Readonly<Record<UnmatchedReason, string>> = {
+  no_account_id: 'printed with no account id',
+  not_in_chart: 'an account not in the chart read',
+  not_revenue_or_expense: 'an account classified neither Revenue nor Expense',
+};
+
+/**
+ * The sizing card (ADR 0073): the trailing year's deductions beside its
+ * sales, and today's balances. Every figure is `deductionsSizing`'s; the rate
+ * is its basis points, formatted as text, and is shown only when there were
+ * sales to take it over.
+ */
+function SizingCard({ sizing, mapped }: { sizing: DeductionsSizing; mapped: boolean }) {
+  const reducedRevenue = Math.abs(sizing.revenueDeductionsCents);
+  const asExpense = Math.abs(sizing.expenseDeductionsCents);
+  const { balances } = sizing;
+  return (
+    <>
+      <p className="empty">
+        The trailing 12 months, {sizing.window.from} to {sizing.window.to}
+        {sizing.basis === undefined ? '' : `, ${sizing.basis.toLowerCase()} basis`}
+        {sizing.currency === undefined ? '' : `, ${sizing.currency}`}, from QuickBooks’ profit and
+        loss.
+      </p>
+      <dl className="books-sizing">
+        <div>
+          <dt>Gross sales</dt>
+          <dd className="money" data-sizing="gross-sales">
+            {money(sizing.grossSalesCents)}
+          </dd>
+        </div>
+        <div>
+          <dt>Other income (not counted as sales)</dt>
+          <dd className="money" data-sizing="other-income">
+            {money(sizing.otherIncomeCents)}
+          </dd>
+        </div>
+        <div>
+          <dt>Deductions booked against revenue</dt>
+          <dd className="money" data-sizing="against-revenue">
+            {sizing.revenueDeductionsCents <= 0
+              ? `reduced revenue by ${money(reducedRevenue)}`
+              : `${money(sizing.revenueDeductionsCents)}, added to revenue`}
+          </dd>
+        </div>
+        <div>
+          <dt>Deductions booked as expense</dt>
+          <dd className="money" data-sizing="as-expense">
+            {money(asExpense)}
+          </dd>
+        </div>
+        <div>
+          <dt>Deductions as a share of gross sales</dt>
+          <dd className="money" data-sizing="rate">
+            {sizing.bps === null ? (
+              'not computable — no sales recorded in the window'
+            ) : (
+              <strong>{formatBps(sizing.bps)}</strong>
+            )}
+          </dd>
+        </div>
+      </dl>
+      {sizing.bps === null ? null : (
+        <p className="empty">
+          {money(sizing.deductionsCents)} of deductions ({money(reducedRevenue)} against revenue and{' '}
+          {money(asExpense)} as expense) over {money(sizing.grossSalesCents)} of gross sales.
+        </p>
+      )}
+      {sizing.unmatchedLines.length === 0 ? null : (
+        <p className="notice bad" role="status">
+          {sizing.unmatchedLines.length.toLocaleString('en-US')} P&amp;L{' '}
+          {sizing.unmatchedLines.length === 1 ? 'row' : 'rows'} not matched to an account, and
+          counted in none of the figures above:{' '}
+          {sizing.unmatchedLines
+            .map((one) => `${one.line.accountName} (${money(one.line.amountCents)}, ${UNMATCHED_WORDS[one.reason]})`)
+            .join('; ')}
+          .
+        </p>
+      )}
+
+      <h3 className="section">Deductions accounts on the profit and loss</h3>
+      {sizing.contributions.length === 0 ? (
+        <p className="empty">No account that looks like deductions has an amount in this window.</p>
+      ) : (
+        <div className="table-scroll" role="region" aria-label="Deductions accounts" tabIndex={0}>
+          <table className="cases books-sizing-accounts">
+            <thead>
+              <tr>
+                <th scope="col">Account</th>
+                <th scope="col">Booked</th>
+                <th scope="col" className="money">
+                  Amount
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sizing.contributions.map((one) => (
+                <tr key={one.account.externalId}>
+                  <td>{one.account.fullyQualifiedName}</td>
+                  <td>{one.side === 'revenue' ? 'Against revenue' : 'As expense'}</td>
+                  <td className="money">{money(one.amountCents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h3 className="section">Balances today</h3>
+      <div className="table-scroll" role="region" aria-label="Balances today" tabIndex={0}>
+        <table className="cases books-sizing-balances">
+          <tbody>
+            <tr>
+              <th scope="row">Accounts receivable, total</th>
+              <td className="money">
+                {balances.receivableTotalCents !== undefined
+                  ? money(balances.receivableTotalCents)
+                  : balances.receivable.length === 0
+                    ? 'no receivable account'
+                    : 'not reported'}
+              </td>
+            </tr>
+            {balances.receivable.length > 1 || balances.receivableTotalCents === undefined
+              ? balances.receivable.map((one) => (
+                  <BalanceRow key={one.account.externalId} label={one.account.fullyQualifiedName} one={one} />
+                ))
+              : null}
+            {balances.undepositedFunds.length === 0 ? (
+              <tr>
+                <th scope="row">Undeposited Funds</th>
+                <td className="money">no such account</td>
+              </tr>
+            ) : (
+              balances.undepositedFunds.map((one) => (
+                <BalanceRow key={one.account.externalId} label={one.account.fullyQualifiedName} one={one} />
+              ))
+            )}
+            {balances.deductions.map((one) => (
+              <BalanceRow
+                key={one.account.externalId}
+                label={`${one.account.fullyQualifiedName}${one.posting ? ' (account map)' : ''}`}
+                one={one}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {mapped ? null : (
+        <p className="empty">
+          This workspace has saved no account map, so no Deductions Receivable account is named.
+        </p>
+      )}
+      <p className="empty" role="note">
+        Which accounts count as deductions is a heuristic (written out with the chart of accounts
+        below); amounts are QuickBooks’ own, to the cent.
+      </p>
+    </>
+  );
+}
+
+function BalanceRow({ label, one }: { label: string; one: SizingBalance }) {
+  return (
+    <tr>
+      <th scope="row">{label}</th>
+      <td className="money">{one.balanceCents === undefined ? 'not reported' : money(one.balanceCents)}</td>
+    </tr>
   );
 }
 

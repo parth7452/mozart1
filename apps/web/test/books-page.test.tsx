@@ -5,6 +5,7 @@ import {
   cents,
   type GeneralLedgerLine,
   type LedgerAccount,
+  type ProfitAndLossLine,
   type ReasonFamily,
   type TrialBalanceLine,
 } from '@recouple/core-domain';
@@ -140,13 +141,17 @@ const harness = vi.hoisted(() => ({
   connections: [] as unknown[],
   cases: undefined as unknown,
   trialBalanceLines: [] as unknown[],
+  /** The chart the source answers with; `CHART` unless a test gives another. */
+  accounts: undefined as unknown,
+  profitAndLossLines: [] as unknown[],
   /** What a read throws, by which read. */
-  fails: {} as { chart?: unknown; trialBalance?: unknown; ledger?: unknown },
+  fails: {} as { chart?: unknown; trialBalance?: unknown; ledger?: unknown; profitAndLoss?: unknown },
   /** Whether a source can be built at all. */
   configured: true,
   sourcesAsked: [] as Array<{ identity: unknown; connectionId: string; mayRefresh: boolean }>,
   ledgerReads: [] as Array<{ window: unknown; accountIds: readonly string[] | undefined }>,
   trialBalanceReads: [] as string[],
+  profitAndLossReads: [] as unknown[],
   chartReads: 0,
   caseReads: [] as unknown[],
   connectionReads: [] as unknown[],
@@ -209,9 +214,10 @@ vi.mock('../lib/books', async (importOriginal) => {
         });
         if (!harness.configured) return undefined;
         const memory = new InMemoryAccountingSource({
-          accounts: CHART,
+          accounts: (harness.accounts as LedgerAccount[] | undefined) ?? CHART,
           trialBalanceLines: harness.trialBalanceLines as TrialBalanceLine[],
           ledgerLines: LINES,
+          profitAndLossLines: harness.profitAndLossLines as ProfitAndLossLine[],
         });
         return {
           async chartOfAccounts() {
@@ -231,6 +237,11 @@ vi.mock('../lib/books', async (importOriginal) => {
             harness.ledgerReads.push({ window, accountIds: options?.accountIds });
             if (harness.fails.ledger !== undefined) throw harness.fails.ledger;
             return memory.generalLedger(window, options);
+          },
+          async profitAndLoss(window: { from: string; to: string }) {
+            harness.profitAndLossReads.push(window);
+            if (harness.fails.profitAndLoss !== undefined) throw harness.fails.profitAndLoss;
+            return memory.profitAndLoss(window);
           },
         };
       },
@@ -276,11 +287,14 @@ beforeEach(() => {
   ] satisfies PostingConnectionView[];
   harness.cases = CASES;
   harness.trialBalanceLines = [...BALANCED];
+  harness.accounts = undefined;
+  harness.profitAndLossLines = [];
   harness.fails = {};
   harness.configured = true;
   harness.sourcesAsked = [];
   harness.ledgerReads = [];
   harness.trialBalanceReads = [];
+  harness.profitAndLossReads = [];
   harness.chartReads = 0;
   harness.caseReads = [];
   harness.connectionReads = [];
@@ -537,5 +551,140 @@ describe('/books', () => {
   it('is a section of the settings panel', async () => {
     const html = await page();
     expect(html).toContain('<a class="active" aria-current="page" href="/books">Books</a>');
+  });
+});
+
+describe('/books, the deductions sizing card (ADR 0073)', () => {
+  /** The page's chart, classified and with balances, plus a sales account. */
+  const SIZING_CHART: readonly LedgerAccount[] = [
+    account('84', 'Accounts Receivable (A/R)', 'Accounts Receivable', {
+      classification: 'Asset',
+      currentBalanceCents: cents(413_025),
+    }),
+    account('4', 'Undeposited Funds', 'Other Current Asset', {
+      accountSubType: 'UndepositedFunds',
+      classification: 'Asset',
+      currentBalanceCents: cents(88_800),
+    }),
+    account('91', 'Deductions Receivable', 'Other Current Asset', {
+      classification: 'Asset',
+      currentBalanceCents: cents(127_000),
+    }),
+    account('92', 'Allowance for Doubtful Accounts', 'Other Current Asset', {
+      accountSubType: 'AllowanceForBadDebts',
+      classification: 'Asset',
+    }),
+    account('79', 'Sales of Product Income', 'Income', { classification: 'Revenue' }),
+    account('96', 'Trade Deductions:Distributor Chargebacks', 'Income', {
+      accountSubType: 'DiscountsRefundsGiven',
+      classification: 'Revenue',
+    }),
+    account('97', 'Customer Deductions', 'Expense', { classification: 'Expense' }),
+    account('60', 'Freight Out', 'Expense', { classification: 'Expense' }),
+  ];
+
+  function pnlLine(id: string | undefined, name: string, amount: number, section = 'Income'): ProfitAndLossLine {
+    return {
+      ...(id === undefined ? {} : { accountExternalId: id }),
+      accountName: name,
+      section,
+      amountCents: cents(amount),
+    };
+  }
+
+  const YEAR_LINES: readonly ProfitAndLossLine[] = [
+    pnlLine('79', 'Sales of Product Income', 10_000_000),
+    pnlLine('96', 'Distributor Chargebacks', -500_000),
+    pnlLine('97', 'Customer Deductions', 142_000, 'Expenses'),
+    pnlLine('60', 'Freight Out', 77_700, 'Expenses'),
+    // A Revenue account printed under other income: not a sale.
+    pnlLine('79', 'Sales of Product Income', 2_500_000, 'OtherIncome'),
+  ];
+
+  it('sizes the trailing year’s deductions against its sales, above the chart', async () => {
+    harness.accounts = SIZING_CHART;
+    harness.profitAndLossLines = [...YEAR_LINES];
+    const html = await page();
+
+    expect(harness.profitAndLossReads).toEqual([{ from: '2025-10-01', to: '2026-09-30' }]);
+    expect(html.indexOf('aria-label="Deductions sizing')).toBeLessThan(
+      html.indexOf('aria-label="Chart of accounts'),
+    );
+    const sizing = card(html, 'Deductions sizing');
+    expect(sizing).toContain('2025-10-01 to 2026-09-30');
+    expect(sizing).toMatch(/data-sizing="gross-sales">\$100,000.00</);
+    expect(sizing).toMatch(/data-sizing="against-revenue">reduced revenue by \$5,000.00</);
+    expect(sizing).toMatch(/data-sizing="as-expense">\$1,420.00</);
+    expect(sizing).toContain('Other income (not counted as sales)');
+    expect(sizing).toMatch(/data-sizing="other-income">\$25,000.00</);
+    expect(sizing).toContain('<strong>6.42%</strong>');
+    // The contributing accounts, each with its amount; freight is not one.
+    expect(sizing).toContain('Trade Deductions:Distributor Chargebacks');
+    expect(sizing).toContain('-$5,000.00');
+    expect(sizing).toContain('Customer Deductions');
+    expect(sizing).not.toContain('Freight Out');
+    // Today's balances, and "not reported" rather than zero.
+    expect(sizing).toContain('Accounts receivable, total');
+    expect(sizing).toContain('$4,130.25');
+    expect(sizing).toContain('$888.00');
+    expect(sizing).toContain('Deductions Receivable (account map)');
+    expect(sizing).toContain('$1,270.00');
+    expect(sizing).toMatch(/Allowance for Doubtful Accounts<\/th><td class="money">not reported</);
+    expect(sizing).toContain('Which accounts count as deductions is a heuristic');
+    expect(sizing).toContain('amounts are QuickBooks’ own, to the cent.');
+    expect(sizing).not.toContain('not matched to an account');
+  });
+
+  it('gives no rate over no sales, and says why', async () => {
+    harness.accounts = SIZING_CHART;
+    harness.profitAndLossLines = [pnlLine('96', 'Distributor Chargebacks', -500_000)];
+    const sizing = card(await page(), 'Deductions sizing');
+    expect(sizing).toContain('not computable — no sales recorded in the window');
+    expect(sizing).not.toMatch(/\d\.\d\d%/);
+    expect(sizing).toContain('reduced revenue by $5,000.00');
+  });
+
+  it('lists the profit and loss rows it could not match, never dropping them', async () => {
+    harness.accounts = SIZING_CHART;
+    harness.profitAndLossLines = [...YEAR_LINES, pnlLine(undefined, 'Uncategorized Income', 1_234)];
+    const sizing = card(await page(), 'Deductions sizing');
+    expect(sizing).toContain('1 P&amp;L row not matched to an account');
+    expect(sizing).toContain('Uncategorized Income ($12.34, printed with no account id)');
+    // Gross sales are not quietly larger for it.
+    expect(sizing).toMatch(/data-sizing="gross-sales">\$100,000.00</);
+  });
+
+  it('costs only the sizing card when the profit and loss cannot be read, and logs no figure', async () => {
+    const QUOTED = '6721.85';
+    harness.accounts = SIZING_CHART;
+    harness.profitAndLossLines = [...YEAR_LINES];
+    harness.fails.profitAndLoss = new QboMalformedResponse(
+      `amount ${QUOTED} on Sales of Product Income does not add up`,
+      'ProfitAndLoss.Rows.Row[0].Summary',
+    );
+    const html = await page();
+
+    const sizing = card(html, 'Deductions sizing');
+    expect(sizing).toContain('role="alert"');
+    expect(sizing).toContain('The profit and loss for sizing could not be read.');
+    expect(sizing).toContain('answered in a shape this page does not read');
+    expect(sizing).not.toContain('<table');
+    // The rest of the page is unchanged.
+    expect(card(html, 'Chart of accounts')).toContain('Deductions Receivable');
+    expect(card(html, 'Trial balance')).toContain('In balance');
+    expect(card(html, 'General ledger,')).toContain('CM-2210');
+
+    expect(html).not.toContain(QUOTED);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('profit and loss unreadable (QboMalformedResponse), at ProfitAndLoss.Rows.Row[0].Summary');
+    expect(errors.join('\n')).not.toContain(QUOTED);
+    expect(errors.join('\n')).not.toContain('Sales of Product');
+  });
+
+  it('asks for no profit and loss when the chart it is joined to could not be read', async () => {
+    harness.fails.chart = new QboMalformedResponse('Account[3].Active', 'Account[3].Active');
+    const html = await page();
+    expect(harness.profitAndLossReads).toEqual([]);
+    expect(card(html, 'Deductions sizing')).toContain('was not read');
   });
 });

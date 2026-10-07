@@ -28,6 +28,7 @@ import type {
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  ProfitAndLoss,
   TrialBalance,
 } from '@recouple/core-domain';
 
@@ -44,6 +45,8 @@ export type {
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  ProfitAndLoss,
+  ProfitAndLossLine,
   TrialBalance,
   TrialBalanceLine,
 } from '@recouple/core-domain';
@@ -94,4 +97,12 @@ export interface AccountingSource {
    * `GENERAL_LEDGER_MAX_LINES`, is refused whole — never returned in part.
    */
   generalLedger(window: LedgerWindow, options?: GeneralLedgerOptions): Promise<GeneralLedger>;
+  /**
+   * The profit and loss over an inclusive window, one total column, in the
+   * company's own accounting basis (ADR 0073). Returned only when every line
+   * read adds up to every total the report printed; a window past
+   * `SIZING_WINDOW_DAYS` is refused before anything is asked. Empty only when
+   * the ledger itself says it has no data for the window.
+   */
+  profitAndLoss(window: LedgerWindow): Promise<ProfitAndLoss>;
 }

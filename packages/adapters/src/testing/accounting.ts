@@ -18,6 +18,7 @@
 
 import {
   GENERAL_LEDGER_MAX_WINDOW_DAYS,
+  SIZING_WINDOW_DAYS,
   sumCents,
   windowDays,
 } from '@recouple/core-domain';
@@ -34,6 +35,8 @@ import type {
   LedgerInvoiceHistories,
   LedgerPayment,
   LedgerWindow,
+  ProfitAndLoss,
+  ProfitAndLossLine,
   TrialBalance,
   TrialBalanceLine,
 } from '../accounting';
@@ -50,6 +53,8 @@ export interface InMemoryLedger {
   readonly trialBalanceLines?: readonly TrialBalanceLine[];
   /** Every general-ledger posting, in the order a real ledger would print them. */
   readonly ledgerLines?: readonly GeneralLedgerLine[];
+  /** The profit and loss's rows, whatever window is asked for: this double keeps one. */
+  readonly profitAndLossLines?: readonly ProfitAndLossLine[];
 }
 
 /**
@@ -69,6 +74,7 @@ export class InMemoryAccountingSource implements AccountingSource {
   private readonly accounts: readonly LedgerAccount[];
   private readonly trialBalanceLines: readonly TrialBalanceLine[];
   private readonly ledgerLines: readonly GeneralLedgerLine[];
+  private readonly profitAndLossLines: readonly ProfitAndLossLine[];
 
   constructor(ledger: InMemoryLedger = {}) {
     this.kind = ledger.kind ?? 'qbo';
@@ -78,6 +84,7 @@ export class InMemoryAccountingSource implements AccountingSource {
     this.accounts = ledger.accounts ?? [];
     this.trialBalanceLines = ledger.trialBalanceLines ?? [];
     this.ledgerLines = ledger.ledgerLines ?? [];
+    this.profitAndLossLines = ledger.profitAndLossLines ?? [];
   }
 
   async listInvoices(window: LedgerWindow): Promise<readonly LedgerInvoice[]> {
@@ -175,5 +182,17 @@ export class InMemoryAccountingSource implements AccountingSource {
       window,
       accounts: [...sections.values()].map((section) => section.account),
     };
+  }
+
+  /**
+   * The rows it was given, over whatever window is asked — this double keeps
+   * one profit and loss. A window longer than the port allows is refused, as a
+   * real adapter refuses it.
+   */
+  async profitAndLoss(window: LedgerWindow): Promise<ProfitAndLoss> {
+    if (windowDays(window) > SIZING_WINDOW_DAYS) {
+      throw new RangeError(`a profit and loss is read over at most ${SIZING_WINDOW_DAYS} days`);
+    }
+    return { sourceKind: this.kind, window, lines: this.profitAndLossLines };
   }
 }
