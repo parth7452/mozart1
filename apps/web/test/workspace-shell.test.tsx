@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { WorkspaceShell } from '../components/workspace-shell';
+import { WorkspaceShell, type WorkspaceSection } from '../components/workspace-shell';
 import type { Viewer } from '../components/case-list';
 import { viewerOf } from '../lib/viewer';
 import type { Session } from '../lib/session';
@@ -29,9 +29,9 @@ function formTo(path: string): RegExp {
   return new RegExp(`<form(?=[^>]*method="post")(?=[^>]*action="${path.replace('/', '\\/')}")[^>]*>`);
 }
 
-function sidebar(viewer: Viewer): string {
+function sidebar(viewer: Viewer, section?: WorkspaceSection): string {
   return renderToStaticMarkup(
-    <WorkspaceShell viewer={viewer}>
+    <WorkspaceShell viewer={viewer} {...(section === undefined ? {} : { section })}>
       <main />
     </WorkspaceShell>,
   );
@@ -75,5 +75,62 @@ describe('the sidebar', () => {
     const html = sidebar(viewerOf(session([ACME, odd])));
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
+  });
+});
+
+/** The `href`s of the links inside the element whose opening tag matches `open`. */
+function linksIn(html: string, open: RegExp, close: string): string[] {
+  const start = html.search(open);
+  if (start < 0) return [];
+  const body = html.slice(start, html.indexOf(close, start));
+  return [...body.matchAll(/<a[^>]*href="([^"]*)"/g)].map(([, href]) => href!);
+}
+
+describe('the navigation', () => {
+  const owner = () => viewerOf(session([ACME]));
+
+  it('keeps only deductions, coverage and reason codes in the sidebar', () => {
+    const html = sidebar(owner());
+    expect(linksIn(html, /<nav aria-label="Workspace navigation">/, '</nav>')).toEqual([
+      '/',
+      '/coverage',
+      '/settings/reason-codes',
+    ]);
+  });
+
+  it('offers Settings and Sign out from the profile menu', () => {
+    const html = sidebar(owner());
+    expect(html).toMatch(/<details class="viewer-menu"><summary class="viewer"/);
+    const menu = html.slice(html.indexOf('<details class="viewer-menu">'), html.indexOf('</details>'));
+    expect(menu).toMatch(/<a class="viewer-menu-item" href="\/settings\/team">Settings<\/a>/);
+    expect(menu).toMatch(formTo('/logout'));
+  });
+
+  it('draws no settings panel on a page that is not a setting', () => {
+    for (const section of ['deductions', 'coverage', 'reason-codes'] as const) {
+      expect(sidebar(owner(), section)).not.toContain('settings-panel');
+    }
+  });
+
+  it.each([
+    ['team', '/settings/team'],
+    ['quickbooks', '/settings/quickbooks'],
+    ['books', '/books'],
+    ['email', '/settings/email'],
+    ['portals', '/settings/portals'],
+  ] as const)('draws %s inside the settings panel, marked current', (section, href) => {
+    const html = sidebar(owner(), section);
+    expect(html).toContain('class="modal settings-panel" role="dialog" aria-modal="true"');
+    expect(linksIn(html, /<nav class="modal-nav settings-nav"/, '</nav>')).toEqual([
+      '/settings/team',
+      '/settings/quickbooks',
+      '/books',
+      '/settings/email',
+      '/settings/portals',
+    ]);
+    expect(html).toContain(`<a class="active" aria-current="page" href="${href}">`);
+    expect(html).toMatch(/<div class="modal-body settings-body"><a class="modal-close" aria-label="Close settings" href="\/">/);
+    expect(html).toMatch(/<main><\/main><\/div><\/div><\/div>/);
+    expect(html).toContain('class="viewer-menu-item active"');
   });
 });

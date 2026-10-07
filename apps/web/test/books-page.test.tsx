@@ -533,8 +533,8 @@ describe('/books', () => {
     expect(harness.ledgerReads).toHaveLength(1);
   });
 
-  it('is in the workspace navigation', async () => {
+  it('is a section of the settings panel', async () => {
     const html = await page();
-    expect(html).toMatch(/<a class="nav-item active"[^>]*href="\/books"/);
+    expect(html).toContain('<a class="active" aria-current="page" href="/books">Books</a>');
   });
 });
