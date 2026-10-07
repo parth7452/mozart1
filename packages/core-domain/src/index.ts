@@ -4,6 +4,7 @@ export * from './books';
 export * from './identity';
 export * from './journal';
 export * from './ledger-extract';
+export * from './manual-entry';
 export * from './money';
 export * from './packet';
 export * from './retailers';

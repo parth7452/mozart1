@@ -25,7 +25,7 @@ import { browserUploadNotices, DECLINE_DETAIL_MAX_LENGTH, resolveNotice } from '
 import { MultiUpload } from './multi-upload';
 import { CaseActions } from './case-actions';
 import { CasePostingCard } from './case-posting';
-import type { CasePosting, PayerCodeMappingAnswer } from '@recouple/store-postgres';
+import type { CasePosting, ManualEntrySummary, PayerCodeMappingAnswer } from '@recouple/store-postgres';
 import { PayerCodeMappingLine } from './reason-code-maps';
 import { mappingWords } from '../lib/reason-code-words';
 import { familyOf, type PayerTerms, type PayerTermsAnswer, type EvidenceChecklist } from '@recouple/core-domain';
@@ -332,6 +332,8 @@ export interface CaseReviewProps {
    * prepare one here; absent, the draft-accounting card has no form.
    */
   readonly settlementEditor?: SettlementEditor | undefined;
+  /** What a person typed, when the case was opened by hand (ADR 0070). */
+  readonly manualEntry?: ManualEntrySummary | undefined;
 }
 
 /**
@@ -347,6 +349,83 @@ export interface CaseReviewProps {
  * A pure function of what the store returned. Nothing here reads, decides or
  * formats money any way but `money()` over integer cents.
  */
+/**
+ * A case a person opened by hand (ADR 0070): what they typed beyond the case's
+ * own columns, and — until a document other than the entry is on the case —
+ * that it is incomplete, since a packet cannot be assembled without one.
+ */
+export function ManualEntryCard({
+  entry,
+  caseAmountCents,
+}: {
+  entry: ManualEntrySummary;
+  caseAmountCents: number | undefined;
+}) {
+  const partial = caseAmountCents !== undefined && entry.disputeAmountCents < caseAmountCents;
+  return (
+    <div className="card manual-entry" style={{ marginBottom: 18 }}>
+      <h2 className="section" style={{ marginTop: 0 }}>
+        Entered by hand
+      </h2>
+      {entry.evidenceCount === 0 ? (
+        <p className="notice bad">
+          Incomplete — no documents attached. Add the remittance, invoice, BOL/POD or promotion
+          agreement below.
+        </p>
+      ) : null}
+      <dl>
+        {entry.invoiceNumbers.length === 0 ? null : (
+          <>
+            <dt>Invoices</dt>
+            <dd>{entry.invoiceNumbers.join(', ')}</dd>
+          </>
+        )}
+        {entry.poNumber === undefined ? null : (
+          <>
+            <dt>PO number</dt>
+            <dd>{entry.poNumber}</dd>
+          </>
+        )}
+        {entry.paymentReference === undefined ? null : (
+          <>
+            <dt>Check or remittance number</dt>
+            <dd>{entry.paymentReference}</dd>
+          </>
+        )}
+        <dt>Amount to dispute</dt>
+        <dd>
+          {money(entry.disputeAmountCents)}
+          {partial ? ' (partial)' : null}
+        </dd>
+        {entry.endRetailer === undefined ? null : (
+          <>
+            <dt>Via distributor</dt>
+            <dd>{entry.endRetailer.displayName}</dd>
+          </>
+        )}
+        {entry.assignee === undefined ? null : (
+          <>
+            <dt>Owner</dt>
+            <dd>{entry.assignee.fullName ?? entry.assignee.email}</dd>
+          </>
+        )}
+        {entry.notes.length === 0 ? null : (
+          <>
+            <dt>Notes</dt>
+            <dd>
+              {entry.notes.map((note, index) => (
+                <p key={index} style={{ whiteSpace: 'pre-wrap', margin: '0 0 6px' }}>
+                  {note.note}
+                </p>
+              ))}
+            </dd>
+          </>
+        )}
+      </dl>
+    </div>
+  );
+}
+
 export function CaseReview({
   viewer,
   sheetExtract,
@@ -370,6 +449,7 @@ export function CaseReview({
   noticeAbout,
   posting,
   settlementEditor,
+  manualEntry,
 }: CaseReviewProps) {
   const byDocument = new Map<string, StoredField[]>();
   for (const field of fields) {
@@ -469,6 +549,10 @@ export function CaseReview({
               <p className={said.tone === 'good' ? 'notice sent' : 'notice bad'}>{said.text}</p>
             )}
 
+            {manualEntry === undefined ? null : (
+              <ManualEntryCard entry={manualEntry} caseAmountCents={summary.deductionAmountCents} />
+            )}
+
             <div id="case-decision" className="case-section-heading">
               <p className="eyebrow">REVIEW WORK</p>
               <h2>Decision</h2>
@@ -515,7 +599,7 @@ export function CaseReview({
                 been paid for. Evidence belongs on the case it was merged
                 into, which the banner above links to. */}
             {mayAct && summary.state !== 'merged' ? (
-              <div className="card" style={{ marginTop: 18 }}>
+              <div id="add-evidence" className="card" style={{ marginTop: 18 }}>
                 <h2 className="section" style={{ marginTop: 0 }}>
                   Add evidence
                 </h2>

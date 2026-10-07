@@ -50,6 +50,7 @@ export const UPLOAD_SOURCES = [
   'erp_sync', // found in the accounting ledger, never surfaced by anyone
   'portal_fetch', // pulled from the retailer's own portal
   'edi_812', // the debit advice, which is the deduction document itself
+  'manual_entry', // a person typed it into the open-case form (ADR 0070)
 ] as const;
 
 export type UploadSource = (typeof UPLOAD_SOURCES)[number];
@@ -136,6 +137,7 @@ export const DISCOVERED_VIA = [
   'notice', // a deduction_notice: somebody filed a claim and told us about it
   'remittance_line', // a remittance line paid an invoice short, and that is all
   'report_row', // a row of a spreadsheet, read through a confirmed sheet mapping (ADR 0056)
+  'manual', // a person entered it by hand (ADR 0070)
 ] as const;
 
 export type DiscoveredVia = (typeof DISCOVERED_VIA)[number];

@@ -23,6 +23,7 @@ import { SheetMappingSchema, type SheetMapping } from '@recouple/core-domain';
 import type { CellType } from '@recouple/ingest';
 import type { ResultCell } from '@recouple/pipeline';
 import {
+  applyTransition,
   cents,
   CASE_STATES,
   EVIDENCE_TYPE_WORDS,
@@ -37,6 +38,8 @@ import {
   payerTermsFor,
   letterPayerTerms,
   resolveDebtorId,
+  buildManualEntryDocument,
+  retailerMatchKey,
   subCents,
   resolveIdentity,
   tryParsePrintedDate,
@@ -58,6 +61,7 @@ import type {
   PlacedCase,
   RawPayerGroup,
   DocumentCaseSuggestion,
+  ManualEntry,
 } from '@recouple/core-domain';
 import { evidenceOfDocuments, restoreDocument, textByPage } from '@recouple/extraction';
 import type { DocType, ExtractedField, ModelCallRecord } from '@recouple/extraction';
@@ -606,6 +610,62 @@ export function isAssertableSource(value: unknown): value is IngestSource {
  * the first, `unique (document_id)` for the second (ADR 0024 §3). This class is
  * how the store says so before spending a round trip on being refused.
  */
+/** What `openCase` takes. */
+export interface OpenCaseInput {
+  orgId: string;
+  claimId?: string;
+  invoiceNumber?: string;
+  source?: UploadSource;
+  retailerName?: string;
+  /**
+   * A debtor a person chose by id (ADR 0070). When present it is the case's
+   * debtor and `retailerName` is not resolved; the caller has already read it
+   * back through RLS. Absent, `openCase` behaves exactly as it always has.
+   */
+  debtorId?: string;
+  deductionAmountCents?: number;
+  deductionDate?: string;
+  disputeDeadline?: string;
+  discoveredVia?: DiscoveredVia;
+  reasonCodeAsPrinted?: string;
+}
+
+/** The longest payer name a person may add (ADR 0070 §3). */
+export const DEBTOR_NAME_MAX = 200;
+
+/**
+ * Why a case a person opened by hand, or a payer they added, was refused
+ * before anything was written (ADR 0070). `field` names the form field.
+ * Never carries the value typed.
+ */
+export class ManualCaseRefusedError extends Error {
+  constructor(
+    readonly refusal: 'invalid' | 'unknown_debtor' | 'unknown_end_retailer' | 'unknown_assignee',
+    readonly field?: string,
+  ) {
+    super(`manual case refused: ${refusal}${field !== undefined ? ` (${field})` : ''}`);
+    this.name = 'ManualCaseRefusedError';
+  }
+}
+
+/** What the case page shows of a case a person opened by hand (ADR 0070). */
+export interface ManualEntrySummary {
+  readonly deductionId: string;
+  readonly enteredBy: string;
+  readonly invoiceNumbers: readonly string[];
+  readonly poNumber?: string;
+  readonly paymentReference?: string;
+  readonly disputeAmountCents: number;
+  readonly endRetailer?: { readonly debtorId: string; readonly displayName: string };
+  readonly assignee?: { readonly userId: string; readonly email: string; readonly fullName?: string };
+  readonly notes: readonly { readonly note: string; readonly by: string; readonly at: string }[];
+  /**
+   * Documents on the case other than the entry itself. Zero is the page's
+   * "Incomplete — no documents attached" (ADR 0070 decision 2).
+   */
+  readonly evidenceCount: number;
+}
+
 export class ArrivalAlreadyRecordedError extends Error {
   constructor(
     readonly documentId: string,
@@ -2035,169 +2095,458 @@ export class PostgresStore
     );
   }
 
-  async openCase(input: {
-    orgId: string;
-    claimId?: string;
-    invoiceNumber?: string;
-    source?: UploadSource;
-    retailerName?: string;
-    deductionAmountCents?: number;
-    deductionDate?: string;
-    disputeDeadline?: string;
-    discoveredVia?: DiscoveredVia;
-    reasonCodeAsPrinted?: string;
-  }): Promise<CaseRecord> {
-    return this.withTenant(async (client) => {
-      // The name goes on the case as printed, always. Whether it also names a
-      // debtor is a separate question, and the answer is usually no: a debtor
-      // is master data a human created, and untrusted document text may select
-      // one but never mint one (invariant 4, ADR 0019).
-      const debtorId =
-        input.retailerName === undefined
+  async openCase(input: OpenCaseInput): Promise<CaseRecord> {
+    return this.withTenant((client) => this.openCaseOn(client, input));
+  }
+
+  /**
+   * `openCase` on a transaction the caller already holds, so a manual entry's
+   * upload, document, case, links and events commit together (ADR 0070 §7).
+   */
+  private async openCaseOn(client: PoolClient, input: OpenCaseInput): Promise<CaseRecord> {
+    // The name goes on the case as printed, always. Whether it also names a
+    // debtor is a separate question, and the answer is usually no: a debtor
+    // is master data a human created, and untrusted document text may select
+    // one but never mint one (invariant 4, ADR 0019). A debtor a person chose
+    // by id (ADR 0070) is taken as chosen; the caller has checked it is this
+    // tenant's.
+    const debtorId =
+      input.debtorId !== undefined
+        ? input.debtorId
+        : input.retailerName === undefined
           ? undefined
           : resolveDebtorId(input.retailerName, await this.debtorCandidates(client));
 
-      // Is this a deduction we already have? Asked before anything is created,
-      // because the two failures are not symmetric: a second case for one
-      // deduction is visible and the money is still disputable, a wrong merge
-      // is not (ADR 0025). An exact identifier match is the same refusal
-      // `unique (org_id, debtor_id, claim_id)` gives — and that constraint
-      // stays, as the last line of defence behind this.
-      const amountCents =
-        input.deductionAmountCents !== undefined &&
-        Number.isSafeInteger(input.deductionAmountCents) &&
-        input.deductionAmountCents > 0
-          ? cents(input.deductionAmountCents)
-          : undefined;
-      const resolution = await this.resolveArrival(client, {
-        identifiers:
-          input.claimId !== undefined && input.claimId.trim() !== ''
-            ? [{ kind: 'claim_id', identifier: input.claimId }]
-            : [],
-        ...(input.invoiceNumber !== undefined ? { invoiceNumber: input.invoiceNumber } : {}),
-        ...(amountCents !== undefined ? { amountCents } : {}),
-        ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
-        ...(debtorId !== undefined ? { debtorId } : {}),
+    // Is this a deduction we already have? Asked before anything is created,
+    // because the two failures are not symmetric: a second case for one
+    // deduction is visible and the money is still disputable, a wrong merge
+    // is not (ADR 0025). An exact identifier match is the same refusal
+    // `unique (org_id, debtor_id, claim_id)` gives — and that constraint
+    // stays, as the last line of defence behind this.
+    const amountCents =
+      input.deductionAmountCents !== undefined &&
+      Number.isSafeInteger(input.deductionAmountCents) &&
+      input.deductionAmountCents > 0
+        ? cents(input.deductionAmountCents)
+        : undefined;
+    const resolution = await this.resolveArrival(client, {
+      identifiers:
+        input.claimId !== undefined && input.claimId.trim() !== ''
+          ? [{ kind: 'claim_id', identifier: input.claimId }]
+          : [],
+      ...(input.invoiceNumber !== undefined ? { invoiceNumber: input.invoiceNumber } : {}),
+      ...(amountCents !== undefined ? { amountCents } : {}),
+      ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
+      ...(debtorId !== undefined ? { debtorId } : {}),
+    });
+
+    if (resolution?.kind === 'exact') {
+      throw new DuplicateCaseError(
+        duplicateCaseMessage(input.claimId ?? resolution.matchedOn.identifier, resolution.deductionId),
+        resolution.deductionId,
+        input.claimId ?? resolution.matchedOn.identifier,
+      );
+    }
+    if (resolution?.kind === 'ambiguous') {
+      throw new AmbiguousIdentityError(
+        `this arrival matches ${resolution.deductionIds.length} cases on ` +
+          `${resolution.basis.join(', ')} — ${resolution.deductionIds.join(', ')} — ` +
+          'and which one it is, if it is either, is a question for a person',
+        resolution.deductionIds,
+        resolution.basis,
+      );
+    }
+
+    // A failed statement aborts the whole transaction, and the lookup that
+    // explains the failure is itself a statement. The savepoint is what lets
+    // us ask the question rather than hand back a bare driver error.
+    await client.query('savepoint before_open_case');
+    let rows: { id: string; state: CaseState }[];
+    try {
+      ({ rows } = await client.query<{ id: string; state: CaseState }>(
+        `insert into deductions (org_id, debtor_id, claim_id, retailer_name_as_printed,
+                                 deduction_amount_cents, deduction_date, dispute_deadline,
+                                 discovered_via, reason_code_as_printed, state)
+         values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, 'notice'), $9, 'discovered')
+         returning id, state`,
+        [
+          input.orgId,
+          debtorId ?? null,
+          input.claimId ?? null,
+          input.retailerName ?? null,
+          input.deductionAmountCents ?? 1,
+          input.deductionDate ?? null,
+          input.disputeDeadline ?? null,
+          // `coalesce` rather than a default in TypeScript: the column's
+          // default is what says a case nobody labelled was named by a notice,
+          // and there should be one place that says so (migration 0022).
+          input.discoveredVia ?? null,
+          input.reasonCodeAsPrinted ?? null,
+        ],
+      ));
+    } catch (error) {
+      await client.query('rollback to savepoint before_open_case');
+      throw await this.explainDuplicateCase(client, error, input.claimId, debtorId);
+    }
+    await client.query('release savepoint before_open_case');
+    const row = rows[0];
+    if (row === undefined) throw new Error('insert into deductions returned no row');
+
+    // The claim id, said in the place every later source will say its own
+    // name (ADR 0025). Same transaction as the `deductions` row on purpose:
+    // a case whose identifier was written by a second statement that did not
+    // run is a case the next arrival cannot match against, and the arrival is
+    // the thing that would then be duplicated. Verbatim, never normalised —
+    // comparison normalises, storage does not (§4).
+    //
+    // No source, no row: `deduction_identifiers.source` is not nullable and
+    // the only documents that cannot name one are those stored before
+    // provenance existed (ADR 0024). `openCaseFromNotice` records that on
+    // `case.discovered` rather than filing the identifier under a guessed
+    // channel.
+    if (input.claimId !== undefined && input.claimId.trim() !== '' && input.source !== undefined) {
+      await client.query('savepoint before_identifier');
+      try {
+        await client.query(
+          `insert into deduction_identifiers
+             (org_id, deduction_id, source, identifier_kind, identifier)
+           values ($1, $2, $3, 'claim_id', $4)`,
+          [input.orgId, row.id, input.source, input.claimId],
+        );
+      } catch (error) {
+        // `unique (org_id, source, identifier_kind, identifier)` — which the
+        // resolution above should already have caught, so getting here means
+        // two arrivals raced. It is the same duplicate, and it is reported
+        // the same way rather than as a driver error.
+        await client.query('rollback to savepoint before_identifier');
+        throw await this.explainDuplicateIdentifier(client, error, input.claimId, input.source);
+      }
+      await client.query('release savepoint before_identifier');
+    }
+
+    // Probable, never merged: losing a deduction is the worse error, so the
+    // case opens and the pair is named for a reviewer (ADR 0025 §6). The
+    // basis names which facts agreed and never their values — document text
+    // does not go on an event (invariant 4).
+    if (resolution?.kind === 'probable') {
+      await client.query(
+        `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
+         values ($1, $2, 'case.possible_duplicate', $3::jsonb, now())`,
+        [
+          input.orgId,
+          row.id,
+          JSON.stringify({ of: resolution.deductionId, basis: resolution.basis }),
+        ],
+      );
+    }
+
+    return {
+      deductionId: row.id,
+      orgId: input.orgId,
+      state: row.state,
+      ...(input.claimId !== undefined ? { claimId: input.claimId } : {}),
+      ...(input.retailerName !== undefined ? { retailerName: input.retailerName } : {}),
+      ...(debtorId !== undefined ? { debtorId } : {}),
+      ...(input.deductionAmountCents !== undefined
+        ? { deductionAmountCents: input.deductionAmountCents }
+        : {}),
+      ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
+      ...(input.disputeDeadline !== undefined
+        ? { disputeDeadline: input.disputeDeadline }
+        : {}),
+      discoveredVia: input.discoveredVia ?? 'notice',
+      ...(input.reasonCodeAsPrinted !== undefined
+        ? { reasonCodeAsPrinted: input.reasonCodeAsPrinted }
+        : {}),
+    };
+  }
+
+  /** The tenant's payers, for the open-case form's picker. RLS scopes the read. */
+  async listDebtors(): Promise<readonly { debtorId: string; displayName: string }[]> {
+    return this.withTenant(async (client) => {
+      const { rows } = await client.query<{ id: string; display_name: string }>(
+        `select id, display_name from debtors order by lower(display_name), id`,
+      );
+      return rows.map((r) => ({ debtorId: r.id, displayName: r.display_name }));
+    });
+  }
+
+  /**
+   * A payer a person added (ADR 0070 §8). Document text never mints a debtor
+   * (ADR 0019); a member may. A name that folds to a key the tenant already
+   * holds is not a second payer: the existing one comes back, `created: false`,
+   * and nothing is written. A new one gets one `debtor.created` audit row.
+   */
+  async createDebtor(input: {
+    displayName: string;
+  }): Promise<{ debtorId: string; displayName: string; created: boolean }> {
+    const displayName = input.displayName.trim();
+    // eslint-disable-next-line no-control-regex
+    if (displayName === '' || displayName.length > DEBTOR_NAME_MAX || /[\u0000-\u001f\u007f]/.test(displayName)) {
+      throw new ManualCaseRefusedError('invalid', 'displayName');
+    }
+    const retailerKey = retailerMatchKey(displayName);
+    if (retailerKey === '') throw new ManualCaseRefusedError('invalid', 'displayName');
+
+    return this.withTenant(async (client) => {
+      const inserted = await client.query<{ id: string }>(
+        `insert into debtors (org_id, retailer_key, display_name) values ($1, $2, $3)
+         on conflict (org_id, retailer_key) do nothing
+         returning id`,
+        [this.tenant.orgId, retailerKey, displayName],
+      );
+      const id = inserted.rows[0]?.id;
+      if (id === undefined) {
+        const { rows } = await client.query<{ id: string; display_name: string }>(
+          `select id, display_name from debtors where retailer_key = $1`,
+          [retailerKey],
+        );
+        const existing = rows[0];
+        if (existing === undefined) {
+          throw new Error('a debtor with this key exists and cannot be read back');
+        }
+        return { debtorId: existing.id, displayName: existing.display_name, created: false };
+      }
+      await client.query(
+        `insert into audit_log (org_id, actor_id, action, subject_table, subject_id, payload)
+         values ($1, $2, 'debtor.created', 'debtors', $3, $4::jsonb)`,
+        [this.tenant.orgId, this.tenant.userId, id, JSON.stringify({ retailer_key: retailerKey })],
+      );
+      return { debtorId: id, displayName, created: true };
+    });
+  }
+
+  /**
+   * A case a person opened by hand (ADR 0070). The entry is stored as the
+   * case's notice, arriving as `manual_entry` with the member as `created_by`
+   * (§1), and the case opens `classified` (§5). Bytes first, as `putDocument`
+   * writes them; then everything else in one transaction (§7), so a refused
+   * duplicate — `DuplicateCaseError` or `AmbiguousIdentityError`, from
+   * `openCase`'s own rules (§6) — leaves no case and no document.
+   */
+  async openManualCase(input: {
+    entry: ManualEntry;
+    now?: Date;
+  }): Promise<{ deductionId: string; documentId: string }> {
+    const { entry } = input;
+    const orgId = this.tenant.orgId;
+    const enteredBy = this.tenant.userId;
+    const doc = buildManualEntryDocument(entry, enteredBy, input.now ?? new Date());
+
+    const documentId = randomUUID();
+    const storageRef = refForDocument(documentId);
+    await this.blobs.put(storageRef, doc.bytes);
+
+    return this.withTenant(async (client) => {
+      const debtor = await client.query(`select id from debtors where id = $1`, [entry.debtorId]);
+      if (debtor.rowCount !== 1) throw new ManualCaseRefusedError('unknown_debtor', 'debtorId');
+      if (entry.endRetailerDebtorId !== undefined) {
+        const end = await client.query(`select id from debtors where id = $1`, [
+          entry.endRetailerDebtorId,
+        ]);
+        if (end.rowCount !== 1) {
+          throw new ManualCaseRefusedError('unknown_end_retailer', 'endRetailerDebtorId');
+        }
+      }
+      if (entry.assigneeId !== undefined) {
+        const member = await client.query(`select 1 from memberships where user_id = $1`, [
+          entry.assigneeId,
+        ]);
+        if ((member.rowCount ?? 0) < 1) {
+          throw new ManualCaseRefusedError('unknown_assignee', 'assigneeId');
+        }
+      }
+
+      const upload = await client.query<{ id: string }>(
+        `insert into uploads (org_id, source, created_by) values ($1, 'manual_entry', $2)
+         returning id`,
+        [orgId, enteredBy],
+      );
+      const uploadId = upload.rows[0]?.id;
+      if (uploadId === undefined) throw new Error('insert into uploads returned no row');
+
+      await insertDocumentOn(client, documentId, storageRef, {
+        orgId,
+        sha256: doc.sha256,
+        filename: doc.filename,
+        mimeType: doc.mimeType,
+        byteSize: doc.bytes.byteLength,
+        bytes: doc.bytes,
+        uploadId,
+        requiresSplit: false,
       });
 
-      if (resolution?.kind === 'exact') {
-        throw new DuplicateCaseError(
-          duplicateCaseMessage(input.claimId ?? resolution.matchedOn.identifier, resolution.deductionId),
-          resolution.deductionId,
-          input.claimId ?? resolution.matchedOn.identifier,
+      const opened = await this.openCaseOn(client, {
+        orgId,
+        claimId: entry.deductionReference,
+        source: 'manual_entry',
+        debtorId: entry.debtorId,
+        deductionAmountCents: entry.amountCents,
+        deductionDate: entry.deductionDate,
+        discoveredVia: 'manual',
+        reasonCodeAsPrinted: entry.reasonCode,
+        ...(entry.invoiceNumbers[0] !== undefined ? { invoiceNumber: entry.invoiceNumbers[0] } : {}),
+      });
+      const deductionId = opened.deductionId;
+
+      await client.query(
+        `insert into deduction_documents (org_id, deduction_id, document_id, role)
+         values ($1, $2, $3, 'notice')`,
+        [orgId, deductionId, documentId],
+      );
+
+      // Names, never matched as an exact key (ADR 0025 §6). A second manual
+      // case on the same invoice keeps it on its entry and event only: the
+      // identifier is unique per source (ADR 0070, Consequences).
+      for (const invoice of entry.invoiceNumbers) {
+        await client.query(
+          `insert into deduction_identifiers
+             (org_id, deduction_id, source, identifier_kind, identifier)
+           values ($1, $2, 'manual_entry', 'invoice_number', $3)
+           on conflict (org_id, source, identifier_kind, identifier) do nothing`,
+          [orgId, deductionId, invoice],
         );
       }
-      if (resolution?.kind === 'ambiguous') {
-        throw new AmbiguousIdentityError(
-          `this arrival matches ${resolution.deductionIds.length} cases on ` +
-            `${resolution.basis.join(', ')} — ${resolution.deductionIds.join(', ')} — ` +
-            'and which one it is, if it is either, is a question for a person',
-          resolution.deductionIds,
-          resolution.basis,
-        );
-      }
 
-      // A failed statement aborts the whole transaction, and the lookup that
-      // explains the failure is itself a statement. The savepoint is what lets
-      // us ask the question rather than hand back a bare driver error.
-      await client.query('savepoint before_open_case');
-      let rows: { id: string; state: CaseState }[];
-      try {
-        ({ rows } = await client.query<{ id: string; state: CaseState }>(
-          `insert into deductions (org_id, debtor_id, claim_id, retailer_name_as_printed,
-                                   deduction_amount_cents, deduction_date, dispute_deadline,
-                                   discovered_via, reason_code_as_printed, state)
-           values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, 'notice'), $9, 'discovered')
-           returning id, state`,
-          [
-            input.orgId,
-            debtorId ?? null,
-            input.claimId ?? null,
-            input.retailerName ?? null,
-            input.deductionAmountCents ?? 1,
-            input.deductionDate ?? null,
-            input.disputeDeadline ?? null,
-            // `coalesce` rather than a default in TypeScript: the column's
-            // default is what says a case nobody labelled was named by a notice,
-            // and there should be one place that says so (migration 0022).
-            input.discoveredVia ?? null,
-            input.reasonCodeAsPrinted ?? null,
-          ],
-        ));
-      } catch (error) {
-        await client.query('rollback to savepoint before_open_case');
-        throw await this.explainDuplicateCase(client, error, input.claimId, debtorId);
-      }
-      await client.query('release savepoint before_open_case');
-      const row = rows[0];
-      if (row === undefined) throw new Error('insert into deductions returned no row');
-
-      // The claim id, said in the place every later source will say its own
-      // name (ADR 0025). Same transaction as the `deductions` row on purpose:
-      // a case whose identifier was written by a second statement that did not
-      // run is a case the next arrival cannot match against, and the arrival is
-      // the thing that would then be duplicated. Verbatim, never normalised —
-      // comparison normalises, storage does not (§4).
-      //
-      // No source, no row: `deduction_identifiers.source` is not nullable and
-      // the only documents that cannot name one are those stored before
-      // provenance existed (ADR 0024). `openCaseFromNotice` records that on
-      // `case.discovered` rather than filing the identifier under a guessed
-      // channel.
-      if (input.claimId !== undefined && input.claimId.trim() !== '' && input.source !== undefined) {
-        await client.query('savepoint before_identifier');
-        try {
-          await client.query(
-            `insert into deduction_identifiers
-               (org_id, deduction_id, source, identifier_kind, identifier)
-             values ($1, $2, $3, 'claim_id', $4)`,
-            [input.orgId, row.id, input.source, input.claimId],
-          );
-        } catch (error) {
-          // `unique (org_id, source, identifier_kind, identifier)` — which the
-          // resolution above should already have caught, so getting here means
-          // two arrivals raced. It is the same duplicate, and it is reported
-          // the same way rather than as a driver error.
-          await client.query('rollback to savepoint before_identifier');
-          throw await this.explainDuplicateIdentifier(client, error, input.claimId, input.source);
-        }
-        await client.query('release savepoint before_identifier');
-      }
-
-      // Probable, never merged: losing a deduction is the worse error, so the
-      // case opens and the pair is named for a reviewer (ADR 0025 §6). The
-      // basis names which facts agreed and never their values — document text
-      // does not go on an event (invariant 4).
-      if (resolution?.kind === 'probable') {
+      const event = async (type: string, payload: Record<string, unknown>): Promise<void> => {
         await client.query(
           `insert into deduction_events (org_id, deduction_id, event_type, payload, event_time)
-           values ($1, $2, 'case.possible_duplicate', $3::jsonb, now())`,
-          [
-            input.orgId,
-            row.id,
-            JSON.stringify({ of: resolution.deductionId, basis: resolution.basis }),
-          ],
+           values ($1, $2, $3, $4::jsonb, now())`,
+          [orgId, deductionId, type, JSON.stringify(payload)],
         );
+      };
+
+      await event('case.discovered', {
+        document_id: documentId,
+        source: 'manual_entry',
+        discovered_via: 'manual',
+        entered_by: enteredBy,
+        debtor_id: entry.debtorId,
+        invoice_numbers: entry.invoiceNumbers,
+        ...(entry.poNumber !== undefined ? { po_number: entry.poNumber } : {}),
+        ...(entry.paymentReference !== undefined
+          ? { payment_reference: entry.paymentReference }
+          : {}),
+        dispute_amount_cents: entry.disputeAmountCents,
+        ...(entry.endRetailerDebtorId !== undefined
+          ? { end_retailer_debtor_id: entry.endRetailerDebtorId }
+          : {}),
+        // No payer window is held as data yet; a person sets the deadline.
+        deadline: 'no_payer_window_on_record',
+      });
+      if (entry.notes !== undefined) {
+        await event('case.note_added', { note: entry.notes, by: enteredBy });
+      }
+      if (entry.assigneeId !== undefined) {
+        await event('case.assigned', { assignee_id: entry.assigneeId, by: enteredBy });
       }
 
+      // Its type is known by construction, as a ledger extract's is (ADR 0043 §2).
+      applyTransition('discovered', 'classified', 'document.classified', { doc_type_known: true });
+      const moved = await client.query(
+        `update deductions set state = 'classified', updated_at = now()
+          where id = $1 and state = 'discovered'`,
+        [deductionId],
+      );
+      if (moved.rowCount !== 1) {
+        throw new Error(`manual case ${deductionId} was not discovered when it was classified`);
+      }
+      await event('case.classified', { classified_by: 'manual_entry', source: 'manual_entry' });
+
+      return { deductionId, documentId };
+    });
+  }
+
+  /**
+   * What a person typed when they opened this case by hand, or `undefined`
+   * for a case they did not (or this tenant cannot see).
+   */
+  async manualEntryFor(deductionId: string): Promise<ManualEntrySummary | undefined> {
+    return this.withTenant(async (client) => {
+      const kase = await client.query(
+        `select 1 from deductions where id = $1 and discovered_via = 'manual'`,
+        [deductionId],
+      );
+      if (kase.rowCount !== 1) return undefined;
+
+      const discovered = await client.query<{ payload: Record<string, unknown> }>(
+        `select payload from deduction_events
+          where deduction_id = $1 and event_type = 'case.discovered'
+          order by event_time desc, id desc limit 1`,
+        [deductionId],
+      );
+      const p = discovered.rows[0]?.payload;
+      if (p === undefined) throw new Error(`manual case ${deductionId} has no case.discovered event`);
+      const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+      let endRetailer: ManualEntrySummary['endRetailer'];
+      const endId = str(p.end_retailer_debtor_id);
+      if (endId !== undefined) {
+        const { rows } = await client.query<{ id: string; display_name: string }>(
+          `select id, display_name from debtors where id = $1`,
+          [endId],
+        );
+        if (rows[0] !== undefined) {
+          endRetailer = { debtorId: rows[0].id, displayName: rows[0].display_name };
+        }
+      }
+
+      const assigned = await client.query<{ id: string; email: string; full_name: string | null }>(
+        `select u.id, u.email, u.full_name
+           from deduction_events e
+           join users u on u.id = (e.payload->>'assignee_id')::uuid
+          where e.deduction_id = $1 and e.event_type = 'case.assigned'
+          order by e.event_time desc, e.id desc limit 1`,
+        [deductionId],
+      );
+      const a = assigned.rows[0];
+
+      const notes = await client.query<{ note: string; by: string; at: Date | string }>(
+        `select payload->>'note' as note, payload->>'by' as by, event_time as at
+           from deduction_events
+          where deduction_id = $1 and event_type = 'case.note_added'
+          order by event_time, id`,
+        [deductionId],
+      );
+
+      const evidence = await client.query<{ n: string }>(
+        `select count(*) as n
+           from deduction_documents dd
+           join documents d on d.id = dd.document_id
+           left join uploads u on u.id = d.upload_id
+          where dd.deduction_id = $1
+            and dd.role in ('notice', 'evidence')
+            and u.source is distinct from 'manual_entry'`,
+        [deductionId],
+      );
+
+      const poNumber = str(p.po_number);
+      const paymentReference = str(p.payment_reference);
       return {
-        deductionId: row.id,
-        orgId: input.orgId,
-        state: row.state,
-        ...(input.claimId !== undefined ? { claimId: input.claimId } : {}),
-        ...(input.retailerName !== undefined ? { retailerName: input.retailerName } : {}),
-        ...(debtorId !== undefined ? { debtorId } : {}),
-        ...(input.deductionAmountCents !== undefined
-          ? { deductionAmountCents: input.deductionAmountCents }
+        deductionId,
+        enteredBy: str(p.entered_by) ?? '',
+        invoiceNumbers: Array.isArray(p.invoice_numbers)
+          ? p.invoice_numbers.filter((v): v is string => typeof v === 'string')
+          : [],
+        ...(poNumber !== undefined ? { poNumber } : {}),
+        ...(paymentReference !== undefined ? { paymentReference } : {}),
+        disputeAmountCents: Number(p.dispute_amount_cents),
+        ...(endRetailer !== undefined ? { endRetailer } : {}),
+        ...(a !== undefined
+          ? {
+              assignee: {
+                userId: a.id,
+                email: a.email,
+                ...(a.full_name !== null ? { fullName: a.full_name } : {}),
+              },
+            }
           : {}),
-        ...(input.deductionDate !== undefined ? { deductionDate: input.deductionDate } : {}),
-        ...(input.disputeDeadline !== undefined
-          ? { disputeDeadline: input.disputeDeadline }
-          : {}),
-        discoveredVia: input.discoveredVia ?? 'notice',
-        ...(input.reasonCodeAsPrinted !== undefined
-          ? { reasonCodeAsPrinted: input.reasonCodeAsPrinted }
-          : {}),
+        notes: notes.rows.map((r) => ({
+          note: r.note,
+          by: r.by,
+          at: typeof r.at === 'string' ? r.at : r.at.toISOString(),
+        })),
+        evidenceCount: Number(evidence.rows[0]?.n ?? 0),
       };
     });
   }

@@ -1957,3 +1957,31 @@ and posted under its own row; the job and `requeueWriteback` refuse a voided
 row. Void is the store's and the job's rule, not the database's; a voided
 settlement's `writeoffs` row stays, and any future reader of `writeoffs` must
 leave out a decision carrying that event.
+
+**A person opens a case by hand** (ADR 0070, accepted; migration 0042,
+applied to `mozart-preview` and production on 2026-10-07 and read back on
+both). "New case" on the deductions list opens a dialog (`#new-case`, CSS
+`:target`, no script) asking only what identifies the deduction: payer (a
+debtor; one not on the list is added from the same dialog by `createDebtor`,
+which folds the name with `retailerMatchKey` and returns the existing payer
+rather than minting a second), deduction reference, amount, date, the payer's
+reason code as printed and one to twenty invoices; PO, check or remittance
+number, amount to dispute (default the whole), the end retailer behind a
+distributor, an owner and notes are optional. `manualEntryFromForm`
+(`core-domain`) validates and refuses rather than cuts; `openManualCase`
+writes, in one transaction, an `uploads` row (`manual_entry`, the member), the
+entry as canonical JSON (`manual-entry.json`) linked as the case's notice, the
+case (`discovered_via = 'manual'`, `classified` at once, a `claim_id`
+identifier and one `invoice_number` per invoice), and `case.discovered`,
+`case.note_added` and `case.assigned` events. The entry is a document for the
+reason a ledger extract is one: `declineCase` and coverage derive
+`manual_entry` from it, it is served without a scan verdict like `erp_sync`,
+and `packetDocuments` never encloses it — so a case with nothing else on it
+cannot be assembled, and its page says *Incomplete — no documents attached*
+until a document is. Payer plus reference is `openCase`'s duplicate check;
+a duplicate sends the person to the existing case. Not derived yet, and said
+so: the dispute deadline (no payer window is data yet; `case.discovered`
+records `no_payer_window_on_record`), the filing channel, and the QuickBooks
+invoice and GL account at open. `pnpm db:test` re-run on a database the
+Vitest suites have used now fails at migration 0014, whose `uploads` check
+predates `manual_entry`; a fresh scratch database, CI's order, passes.

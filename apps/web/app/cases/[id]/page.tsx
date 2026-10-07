@@ -84,7 +84,7 @@ export default async function CasePage({
     if (summary === undefined) notFound();
 
     const mayAct = mayWrite(session.org.role);
-    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable, payerTerms] =
+    const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable, payerTerms, manualEntry] =
       await Promise.all([
         // The case's documents by their links, and their fields by the same
         // links: a remittance's read and a held notice's belong to no case, and a
@@ -114,6 +114,8 @@ export default async function CasePage({
         // The payer's reason code and reference, derived from the notices and
         // remittances linked to this case when it printed none of its own.
         store.payerTermsForCase(id),
+        // What a person typed, for a case opened by hand (ADR 0070); none otherwise.
+        store.manualEntryFor(id),
       ]);
     // What the payer's code maps to in this workspace's own mappings, on the
     // day the deduction was taken (ADR 0067). After the terms, because a case
@@ -231,6 +233,7 @@ export default async function CasePage({
         noticeAbout={aboutFrom(about)}
         posting={posting}
         settlementEditor={settlementEditor}
+        {...(manualEntry !== undefined ? { manualEntry } : {})}
       />
     );
   } finally {

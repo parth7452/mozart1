@@ -450,7 +450,10 @@ async function packetDocuments(
             encode(d.sha256, 'hex') as sha256
        from deduction_documents dd
        join documents d on d.id = dd.document_id
+       left join uploads u on u.id = d.upload_id
       where dd.deduction_id = $1 and dd.role in ('notice', 'evidence')
+        -- A manual entry is our record of what a person typed, never enclosed (ADR 0070 §4).
+        and (u.source is distinct from 'manual_entry')
       order by (dd.role <> 'notice'), dd.id asc`,
     [deductionId],
   );

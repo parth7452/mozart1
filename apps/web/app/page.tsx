@@ -1,7 +1,9 @@
 import { requireSession, storeFor } from '../lib/session';
 import { mayWrite } from '../lib/pipeline';
 import { mayApprove } from '../lib/workflow';
-import { aboutFrom, UNREAD_AFTER_MINUTES } from '../lib/notices';
+import { aboutFrom, resolveNotice, UNREAD_AFTER_MINUTES } from '../lib/notices';
+import { isManualEntryField, NEW_CASE_FIELD_LABELS, prefillFrom, type NewCaseField } from '../lib/manual-case';
+import { teamStoreFor } from '../lib/team';
 import { CaseList } from '../components/case-list';
 import { ledgerFilterFrom } from '../lib/case-presentation';
 import { inboundEmailFromEnv, inboundStoreFor } from '../lib/inbound';
@@ -34,10 +36,15 @@ export default async function CaseListPage({
     // store: an unknown state or an unusable query is dropped, not passed on.
     q?: string | string[];
     state?: string | string[];
-  }>;
+    // The open-a-case dialog (ADR 0070): a notice key, the field it refused,
+    // and what was typed, each validated by `prefillFrom` before it is shown.
+    nc?: string;
+    field?: string | string[];
+  } & Partial<Record<NewCaseField, string | string[]>>>;
 }) {
   const session = await requireSession();
-  const { upload, action, reread, about, q, state } = await searchParams;
+  const params = await searchParams;
+  const { upload, action, reread, about, q, state, nc, field } = params;
   const store = storeFor(session);
   const mayUpload = mayWrite(session.org.role);
   const filter = ledgerFilterFrom({ q, state });
@@ -62,8 +69,32 @@ export default async function CaseListPage({
       ? await inboundStoreFor({ orgId: session.org.orgId, userId: session.userId })
           .emailsThatFiledNothing(today)
       : undefined;
+    // The open-a-case dialog, for a member who may write: the payers to pick
+    // from, the members who may own a case, and what a refusal echoed back.
+    const invalidField = isManualEntryField(field) ? field : undefined;
+    const newCase = mayUpload
+      ? {
+          debtors: await store.listDebtors(),
+          members: (
+            await teamStoreFor({ orgId: session.org.orgId, userId: session.userId }).members()
+          ).filter((member) => member.role !== 'read_only'),
+          prefill: prefillFrom(params),
+          notice:
+            nc === 'nc_invalid'
+              ? invalidField === undefined
+                ? undefined
+                : resolveNotice(nc, [NEW_CASE_FIELD_LABELS[invalidField]])
+              : nc?.startsWith('nc_') === true
+                ? resolveNotice(nc)
+                : undefined,
+          invalidField,
+          viewerUserId: session.userId,
+          today: today.toISOString().slice(0, 10),
+        }
+      : undefined;
     return (
       <CaseList
+        newCase={newCase}
         viewer={viewerOf(session)}
         cases={ledger.rows}
         ledger={{ filter, matching: ledger.total }}
