@@ -2042,7 +2042,14 @@ the search (unless it asks for `removed`), the tally, the board and Books leave
 it out.
 
 **The books are kept with each sync** (ADR 0074, **proposed**; migration
-0045, **applied nowhere**). ADR 0066 §4, built with the founder's three
+0045, applied to `mozart-preview` (21:22 UTC) and production (21:23) on
+2026-10-07 on the founder's go, and read back on both: the stored
+statement's md5 equals the file's; both tables have RLS, `no_update_delete`
+and `no_truncate`; `app_rw` and `app_ro` hold SELECT only and the request
+roles nothing; the door is definer, pinned and executable by `app_rw` alone;
+no `app` function is unpinned. Its `drop … if exists` guards went through
+the MCP tool spelled with a placeholder the same call replaced and
+md5-checked before executing, so the history row is the file's exact text). ADR 0066 §4, built with the founder's three
 answers: kept indefinitely, the trial balance plus the postings on the
 receivable, posting and deductions accounts only (`booksAccountRoles`), and
 hash-chained per connection. `ledger_snapshots` (one per completed sync run,
@@ -2062,5 +2069,5 @@ that still chains and changes nothing the run found, and a snapshot that
 cannot be recorded fails the job after the run row stands. Never the Books
 page, which only lists the latest twelve per connection. All of it is behind
 `LEDGER_SNAPSHOTS=1` (unset or `0` is off, anything else throws), and the
-switch is **not to be turned on before 0045 is applied** to that deployment's
-database. Suite 41 reads it back.
+switch is never to be turned on for a database 0045 has not reached
+(Production has it on since 2026-10-07). Suite 41 reads it back.
