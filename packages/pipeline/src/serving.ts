@@ -27,6 +27,11 @@ import type { UploadSource } from './ports';
  * The source is the document's own `uploads` row, which is append-only (ADR
  * 0024), never a caller's say-so. `portal_fetch` and `edi_812` are not
  * exempt: when they arrive they are somebody else's bytes.
+ *
+ * A manual entry (ADR 0070), arriving as `manual_entry`, is exempt for the
+ * same reason: JSON our code wrote from the fields a member typed into the
+ * open-case form. No file came through a door; a verdict, if one exists,
+ * still decides.
  */
 export type ServingRefusal = 'infected' | 'unscanned';
 
@@ -38,6 +43,6 @@ export function servingRefusal(input: {
 }): ServingRefusal | undefined {
   if (input.scan === 'clean') return undefined;
   if (input.scan === 'infected') return 'infected';
-  if (input.scan === null && input.source === 'erp_sync') return undefined;
+  if (input.scan === null && (input.source === 'erp_sync' || input.source === 'manual_entry')) return undefined;
   return 'unscanned';
 }

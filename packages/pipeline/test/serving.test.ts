@@ -18,15 +18,26 @@ describe('whether a document’s bytes may be served', () => {
     }
   });
 
-  it('refuses a document with no verdict, or a scanner error, from every door but the ledger', () => {
-    for (const source of [...UPLOAD_SOURCES.filter((s) => s !== 'erp_sync'), null]) {
+  it('refuses a document with no verdict, or a scanner error, from every door but the ledger and a manual entry', () => {
+    for (const source of [
+      ...UPLOAD_SOURCES.filter((s) => s !== 'erp_sync' && s !== 'manual_entry'),
+      null,
+    ]) {
       expect(servingRefusal({ scan: null, source })).toBe('unscanned');
       expect(servingRefusal({ scan: 'error', source })).toBe('unscanned');
     }
+    // A scanner error still refuses either exempt source: only no verdict is exempt.
+    expect(servingRefusal({ scan: 'error', source: 'manual_entry' })).toBe('unscanned');
   });
 
   it('serves a ledger extract nothing scanned, and refuses one a scanner could not clear', () => {
     expect(servingRefusal({ scan: null, source: 'erp_sync' })).toBeUndefined();
     expect(servingRefusal({ scan: 'error', source: 'erp_sync' })).toBe('unscanned');
+  });
+
+  it('serves a manual entry nothing scanned (ADR 0070), and refuses one a scanner could not clear', () => {
+    expect(servingRefusal({ scan: null, source: 'manual_entry' })).toBeUndefined();
+    expect(servingRefusal({ scan: 'error', source: 'manual_entry' })).toBe('unscanned');
+    expect(servingRefusal({ scan: 'infected', source: 'manual_entry' })).toBe('infected');
   });
 });
