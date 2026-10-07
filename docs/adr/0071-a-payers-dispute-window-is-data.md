@@ -1,9 +1,16 @@
 # 0071 — A payer's dispute window is data, and fills in a deadline
 
-- Status: **Proposed** 2026-10-07, at the founder's request ("add the payer
-  dispute windows so deadlines auto-fill"). Migration 0043 is applied nowhere;
-  applying it and deploying wait for the founder's go. The app code reads the
-  new table, so it is not to be deployed before 0043 is applied.
+- Status: **Accepted** by the founder 2026-10-07 ("merge and go for it").
+  Migration 0043 applied on that go to `mozart-preview` and then production,
+  and read back on both: the migration's own closing check passes, the stored
+  statement's md5 equals the file's (`292f6618…`), RLS is on with
+  `tenant_read` and `tenant_insert`, the three triggers are present, `app_rw`
+  holds SELECT and INSERT only, no `app` function is unpinned, and the
+  security advisor shows nothing new. The Supabase MCP `apply_migration` (and
+  `execute_sql`) hang until timeout on any statement containing `drop`, so the
+  file was applied through `execute_sql` without its `drop … if exists`
+  guards (no-ops on a first apply) and its history row written with the
+  file's exact text.
 - Date: 2026-10-07
 - Builds on: ADR 0019 (a debtor is master data a person made; a window the
   page does not print is "a retailer rule, Phase 2's job"), ADR 0067 (payer

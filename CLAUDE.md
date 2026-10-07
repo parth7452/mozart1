@@ -1985,3 +1985,26 @@ records `no_payer_window_on_record`), the filing channel, and the QuickBooks
 invoice and GL account at open. `pnpm db:test` re-run on a database the
 Vitest suites have used now fails at migration 0014, whose `uploads` check
 predates `manual_entry`; a fresh scratch database, CI's order, passes.
+
+**A payer's dispute window fills in a deadline** (ADR 0071, accepted;
+migration 0043, applied to `mozart-preview` and production on 2026-10-07 and
+read back on both). `payer_dispute_windows` holds, per tenant and debtor, N
+calendar days from the deduction date (1–730) from an effective date, with a
+source, a confidence and the owner or approver who recorded it — append-only,
+RLS, 0040's shape; `app.payer_dispute_windows_as_of()` and
+`resolveDisputeWindow` (`core-domain`) are one rule (latest `effective_from`,
+then latest recording). `PostgresStore.openCaseOn`, the one statement every
+path opens a case through, fills `dispute_deadline` from the window in force on
+the deduction date when no deadline was given and the case has a debtor and a
+date, with a `case.deadline_derived` event in the same transaction; a printed
+deadline and a person's `case.deadline_set` win, and an open case is never
+rewritten — its page shows the window and prefills the deadline form instead.
+Settings → Dispute windows records them and lists payers with open cases and
+no window. The New case dialog also takes documents: with files chosen it opens
+the case through `/cases/new/open` answering JSON and sends each file through
+`/upload` filed on the new case; without JavaScript it submits as before.
+**The Supabase MCP tools hang until timeout on any SQL containing `drop`**
+(they wait for a confirmation a non-interactive session never gives): apply a
+migration's `drop … if exists` guards only when they matter, write the
+history row with the file's exact text (base64 through `convert_from`), and
+compare the stored md5 with the file's.
