@@ -412,7 +412,7 @@ export class PostgresPayerCodeMapStore {
                   as has_documents
            from deductions d
            left join debtors b on b.id = d.debtor_id
-          where d.state <> 'merged'
+          where d.state not in ('merged', 'removed')
           order by d.created_at desc, d.id
           limit $1`,
         [UNMAPPED_CASES_LIMIT + 1],

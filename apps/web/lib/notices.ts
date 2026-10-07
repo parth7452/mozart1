@@ -1201,6 +1201,21 @@ export const NOTICES = {
     tone: 'bad',
     text: "this payer's deduction reference is already this case — nothing new was opened",
   },
+  // Removing cases opened in error (ADR 0072).
+  cases_removed: {
+    tone: 'good',
+    text: 'removed {0} case(s). They are gone from every list and total, and their record is kept for audit.',
+  },
+  remove_role: { tone: 'bad', text: 'only an owner or an approver can delete a case — nothing was removed' },
+  remove_refused: {
+    tone: 'bad',
+    text: 'nothing was removed: one of these cases can no longer be deleted (it was filed, closed or removed since). Check the list below and try again.',
+  },
+  remove_reason_too_long: {
+    tone: 'bad',
+    text: 'the reason is longer than 500 characters — nothing was removed',
+  },
+  remove_none: { tone: 'bad', text: 'no case was selected — tick one or more cases first' },
   // `satisfies`, not a type annotation: the keys stay literal, so `NoticeKey`
   // is the set of them and a route that names a notice this table does not have
   // fails to compile rather than redirecting to a page that silently shows
@@ -1271,6 +1286,7 @@ const NOTICE_ABOUT: Readonly<Partial<Record<NoticeKey, readonly RegExp[]>>> = {
   open_held_cases: [COUNT],
   upload_duplicate_case: [CLAIM_ID],
   nc_invalid: [oneOf(Object.values(NEW_CASE_FIELD_LABELS))],
+  cases_removed: [COUNT],
 };
 
 /**

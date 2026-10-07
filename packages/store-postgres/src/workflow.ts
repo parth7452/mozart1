@@ -49,6 +49,12 @@ import {
   ActorIsNotTheSessionError,
   CaseAlreadyDeclinedError,
   CaseNotVisibleError,
+  CaseRemovalRefusedError,
+  CASE_REMOVAL_REFUSALS,
+  MAX_CASES_REMOVED_AT_ONCE,
+  MAX_REMOVAL_REASON_LENGTH,
+  type CaseRemovalRefusal,
+  type RemovedCase,
   CaseWorkflowError,
   checkEnteredDeadline,
   ConfirmationNumberRequiredError,
@@ -2405,4 +2411,93 @@ async function latestPacket(
   );
   const row = rows[0];
   return row === undefined ? undefined : toPacket(row);
+}
+
+// ---------------------------------------------------------------------------
+// Removing a case opened in error (ADR 0072)
+// ---------------------------------------------------------------------------
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const REMOVABLE_STATES: readonly CaseState[] = [
+  'discovered',
+  'classified',
+  'evidence_pending',
+  'evidence_complete',
+  'decided',
+  'auto_dispute_queued',
+  'analyst_review',
+  'auto_writeoff_queued',
+  'awaiting_approval',
+];
+
+/**
+ * Removes every case named or none (ADR 0072). Row locks in id order, so two
+ * overlapping removals cannot deadlock; per case the `case.removed` event first
+ * and then the state, because `app.removal_is_guarded()` refuses the move
+ * without the event. The database is the referee; the checks here only name
+ * the refusal before anything is written.
+ */
+export async function removeCases(
+  client: PoolClient,
+  tenant: TenantContext,
+  ids: readonly string[],
+  reason?: string,
+): Promise<RemovedCase[]> {
+  const action = 'removing a case';
+  const unique = [...new Set(ids.map(idKey))].sort();
+  if (unique.length === 0) throw new CaseRemovalRefusedError(undefined, 'none_given');
+  if (unique.length > MAX_CASES_REMOVED_AT_ONCE) {
+    throw new CaseRemovalRefusedError(undefined, 'too_many');
+  }
+  const trimmed = reason?.trim();
+  if (trimmed !== undefined && trimmed.length > MAX_REMOVAL_REASON_LENGTH) {
+    throw new CaseRemovalRefusedError(undefined, 'reason_too_long');
+  }
+  for (const id of unique) {
+    if (!UUID_SHAPE.test(id)) throw new CaseNotVisibleError(id);
+  }
+
+  const locked: LockedCase[] = [];
+  for (const id of unique) {
+    locked.push(await lockCase(client, id, action, tenant.userId, APPROVER_ROLES));
+  }
+  for (const found of locked) {
+    if (found.state === 'removed') {
+      throw new CaseRemovalRefusedError(found.deductionId, 'irreversible');
+    }
+    if (!REMOVABLE_STATES.includes(found.state)) {
+      throw new CaseRemovalRefusedError(found.deductionId, 'not_removable_state');
+    }
+  }
+
+  const removed: RemovedCase[] = [];
+  for (const found of locked) {
+    const payload: Record<string, unknown> = { state_before: found.state };
+    if (trimmed !== undefined && trimmed !== '') payload.reason = trimmed;
+    await translating(
+      client,
+      'remove_case',
+      async () => {
+        await appendEvent(client, tenant, found.deductionId, 'case.removed', payload);
+        await setState(client, found.deductionId, 'removed');
+      },
+      async (error) => caseRemovalRefused(error, found.deductionId) ?? error,
+    );
+    removed.push({ deductionId: found.deductionId, stateBefore: found.state });
+  }
+  return removed;
+}
+
+/** `RCR01` from `app.removal_is_guarded()`, as the named error; else nothing. */
+function caseRemovalRefused(error: unknown, deductionId: string): CaseRemovalRefusedError | undefined {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code !== 'RCR01') return undefined;
+  const hint = (error as { hint?: unknown } | null)?.hint;
+  const reason = (CASE_REMOVAL_REFUSALS as readonly string[]).includes(hint as string)
+    ? (hint as CaseRemovalRefusal)
+    : 'not_removable_state';
+  const refused = new CaseRemovalRefusedError(deductionId, reason);
+  (refused as { cause?: unknown }).cause = error;
+  return refused;
 }

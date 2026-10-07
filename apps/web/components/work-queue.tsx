@@ -30,6 +30,9 @@ export interface QueueViewer {
   readonly mayApprove: boolean;
 }
 
+/** The form every row's checkbox joins, by its `form` attribute (ADR 0072). */
+export const BULK_CLOSE_FORM = 'bulk-close';
+
 export const BUCKET_TITLES: Readonly<Record<QueueBucket, string>> = {
   due_soon: `Due within ${DUE_SOON_DAYS} days`,
   past_deadline: 'Past the deadline',
@@ -132,6 +135,15 @@ export function WorkQueue({
         </div>
         <span className="ledger-tag">MOST URGENT FIRST</span>
       </div>
+      {/* Closing cases opened in error (ADR 0072), for an owner or approver
+          only: the database refuses anyone else. A GET to the confirmation
+          page; each row's checkbox joins this form by its `form` attribute,
+          so no form nests and no script is needed. */}
+      {viewer.mayApprove && ranked.length > 0 ? (
+        <form id={BULK_CLOSE_FORM} method="get" action="/cases/remove" className="queue-bulk-close">
+          <button type="submit">Close selected</button>
+        </form>
+      ) : null}
       {ranked.length === 0 ? (
         <p className="empty">
           {waiting > 0
@@ -177,6 +189,16 @@ export function WorkQueue({
                     return (
                       <li key={row.case.deductionId} className="queue-row">
                         <span className="queue-who">
+                          {viewer.mayApprove ? (
+                            <input
+                              type="checkbox"
+                              name="id"
+                              value={row.case.deductionId}
+                              form={BULK_CLOSE_FORM}
+                              className="queue-select"
+                              aria-label={`Select case ${row.case.claimId ?? row.case.deductionId.slice(0, 8)}`}
+                            />
+                          ) : null}
                           <Link
                             href={`/cases/${row.case.deductionId}`}
                             className="customer-name queue-case-link"
@@ -227,6 +249,14 @@ export function WorkQueue({
                           <Link href={`/cases/${row.case.deductionId}`} className="queue-open">
                             Open case <span aria-hidden="true">→</span>
                           </Link>
+                          {viewer.mayApprove ? (
+                            <Link
+                              href={`/cases/remove?id=${row.case.deductionId}`}
+                              className="queue-close"
+                            >
+                              Close case
+                            </Link>
+                          ) : null}
                         </span>
                       </li>
                     );

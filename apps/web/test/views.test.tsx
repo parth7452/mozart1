@@ -1080,6 +1080,21 @@ describe('documents that were read and that no case holds', () => {
 });
 
 describe('the review page', () => {
+  it('says a removed case was removed, by whom and when (ADR 0072)', () => {
+    const html = renderToStaticMarkup(
+      <CaseReview documents={[document()]} mayAct={false}
+        viewer={viewer}
+        summary={summary({ state: 'removed' })}
+        removal={{ removedBy: 'Dana Owner', removedAt: '2026-10-07T12:00:00.000Z' }}
+        fields={[]}
+        reconciliation={undefined}
+        costMicros={0}
+        today={today}
+      />,
+    );
+    expect(html).toContain('This case was removed by Dana Owner on 2026-10-07.');
+  });
+
   it('shows every field with the page and quote it came from', () => {
     const html = renderToStaticMarkup(
       <CaseReview documents={[document()]} mayAct={false}

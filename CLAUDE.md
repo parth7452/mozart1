@@ -2008,3 +2008,22 @@ the case through `/cases/new/open` answering JSON and sends each file through
 migration's `drop … if exists` guards only when they matter, write the
 history row with the file's exact text (base64 through `convert_from`), and
 compare the stored md5 with the file's.
+
+**A case opened in error is removed, not deleted** (ADR 0072, accepted;
+migration 0044, applied to `mozart-preview` and production on 2026-10-07 and
+read back on both). An owner or approver can close a case from
+the review queue — "Close case" under each "Open case →", or a checkbox per
+row and "Close selected" — through a confirmation page ("Delete this case?")
+that lists any selected case that cannot go and why. `removeCases` writes, in
+one transaction for up to 100 cases or none, a `case.removed` event naming the
+caller (`state_before`, an optional reason of at most 500 characters) and then
+moves the case to `removed`: closed (`CLOSED_STATES`), not terminal, never
+left. `app.removal_is_guarded()` refuses (SQLSTATE `RCR01`,
+`CaseRemovalRefusedError`) anyone but an owner or approver, any state past
+the nine before a filing, a move with no event, the survivor of a standing
+merge and every move out. The row, its events and its identifiers stay, so the
+claim stays reserved and re-uploading it is `DuplicateCaseError` naming the
+removed case, whose page says who removed it and when and offers nothing.
+Coverage (`coverage_by_period_by_source`, `coverage_by_period`), the list,
+the search (unless it asks for `removed`), the tally, the board and Books leave
+it out.

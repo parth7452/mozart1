@@ -126,7 +126,7 @@ export class PostgresBooksStore {
                 count(*) over ()::text as total
            from deductions d
            left join debtors b on b.id = d.debtor_id
-          where d.state <> 'merged'
+          where d.state not in ('merged', 'removed')
             and coalesce(d.deduction_date, (d.created_at at time zone 'UTC')::date)
                 between $1::date and $2::date
           order by coalesce(d.deduction_date, (d.created_at at time zone 'UTC')::date),

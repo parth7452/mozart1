@@ -71,13 +71,18 @@ describe('the case state machine', () => {
   // exactly that shape, so it cannot become a way round the gate.
   it('requires an approval row on every edge out of awaiting_approval', () => {
     const edges = transitionsFrom('awaiting_approval');
-    const filing = edges.filter((edge) => edge.trigger !== 'case.merged_into');
+    const filing = edges.filter(
+      (edge) => edge.trigger !== 'case.merged_into' && edge.trigger !== 'case.removed',
+    );
     expect(filing.length).toBeGreaterThan(0);
     for (const edge of filing) {
       expect(edge.guards).toContain('approval_row_exists');
     }
     expect(edges.filter((edge) => edge.trigger === 'case.merged_into')).toEqual([
       expect.objectContaining({ to: 'merged', guards: ['duplicate_confirmed_by_person'] }),
+    ]);
+    expect(edges.filter((edge) => edge.trigger === 'case.removed')).toEqual([
+      expect.objectContaining({ to: 'removed', guards: ['removed_by_owner_or_approver'] }),
     ]);
   });
 
@@ -107,12 +112,13 @@ describe('the case state machine', () => {
       'auto_dispute_queued',
       'auto_writeoff_queued',
     ]);
-    // Besides routing, a decided case can only be merged away (ADR 0042).
+    // Besides routing, a decided case can only be merged away (ADR 0042) or
+    // removed as opened in error (ADR 0072).
     expect(
       transitionsFrom('decided')
         .filter((t) => t.trigger !== 'decision.routed')
         .map((t) => `${t.to} on ${t.trigger}`),
-    ).toEqual(['merged on case.merged_into']);
+    ).toEqual(['merged on case.merged_into', 'removed on case.removed']);
   });
 
   // An edge is keyed by (from, to, trigger): the same pair of states can be
@@ -254,7 +260,7 @@ describe('the case state machine', () => {
     it('is closed but not terminal: an undo is its way out', () => {
       expect(isClosed('merged')).toBe(true);
       expect(isTerminal('merged')).toBe(false);
-      expect(CLOSED_STATES).toEqual([...TERMINAL_STATES, 'merged']);
+      expect(CLOSED_STATES).toEqual([...TERMINAL_STATES, 'merged', 'removed']);
       for (const state of TERMINAL_STATES) expect(isClosed(state)).toBe(true);
     });
 
@@ -262,7 +268,7 @@ describe('the case state machine', () => {
       for (const state of CASE_STATES) {
         const filedOrAfter = (['submitted', 'written_off', 'won', 'lost', 'partial'] as const)
           .some((filed) => filed === state || isReachable(filed, state, { avoid: ['merged'] }));
-        if (state === 'merged') continue;
+        if (state === 'merged' || state === 'removed') continue;
         expect(isMergeable(state), state).toBe(!filedOrAfter);
       }
       expect(MERGEABLE_STATES).toHaveLength(9);
@@ -302,6 +308,32 @@ describe('the case state machine', () => {
     it('opens no way to a filing that skips awaiting_approval', () => {
       for (const outcome of ['submitted', 'written_off'] as const) {
         expect(isReachable('merged', outcome, { avoid: ['awaiting_approval'] })).toBe(false);
+      }
+    });
+  });
+
+  describe('removing a case opened in error (ADR 0072)', () => {
+    it('is closed, not terminal, and has no way out', () => {
+      expect(isClosed('removed')).toBe(true);
+      expect(isTerminal('removed')).toBe(false);
+      expect(transitionsFrom('removed')).toHaveLength(0);
+    });
+
+    it('enters removed from exactly the states before a filing, with a person', () => {
+      for (const state of MERGEABLE_STATES) {
+        expect(
+          applyTransition(state, 'removed', 'case.removed', { removed_by_owner_or_approver: true })
+            .workflow,
+        ).toBe('remove.case');
+        expect(() => applyTransition(state, 'removed', 'case.removed')).toThrow(
+          /removed_by_owner_or_approver/,
+        );
+      }
+      expect(
+        TRANSITIONS.filter((t) => t.to === 'removed').map((t) => t.from).sort(),
+      ).toEqual([...MERGEABLE_STATES].sort());
+      for (const state of ['submitted', 'won', 'lost', 'partial', 'written_off', 'merged'] as const) {
+        expect(canTransition(state, 'removed')).toBe(false);
       }
     });
   });

@@ -84,7 +84,9 @@ export default async function CasePage({
     const summary = await store.caseSummary(id);
     if (summary === undefined) notFound();
 
-    const mayAct = mayWrite(session.org.role);
+    // A removed case (ADR 0072) is kept for audit and offers no action at all.
+    const removal = summary.state === 'removed' ? await store.caseRemoval(id) : undefined;
+    const mayAct = mayWrite(session.org.role) && summary.state !== 'removed';
     const [documents, fields, costMicros, reconciliation, workflow, duplicates, merges, attachable, payerTerms, manualEntry] =
       await Promise.all([
         // The case's documents by their links, and their fields by the same
@@ -228,7 +230,8 @@ export default async function CasePage({
         costMicros={costMicros}
         today={new Date()}
         mayAct={mayAct}
-        mayApprove={mayApprove(session.org.role)}
+        mayApprove={mayApprove(session.org.role) && summary.state !== 'removed'}
+        {...(removal !== undefined ? { removal } : {})}
         viewerUserId={session.userId}
         workflow={workflow}
         duplicates={duplicates}
