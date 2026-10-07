@@ -1,0 +1,789 @@
+{
+  "Header": {
+    "Time": "2026-09-30T09:12:47-07:00",
+    "ReportName": "GeneralLedger",
+    "ReportBasis": "Accrual",
+    "StartPeriod": "2026-09-01",
+    "EndPeriod": "2026-09-30",
+    "Currency": "USD",
+    "Option": [
+      {
+        "Name": "NoReportData",
+        "Value": "false"
+      }
+    ]
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColTitle": "Date",
+        "ColType": "tx_date"
+      },
+      {
+        "ColTitle": "Transaction Type",
+        "ColType": "txn_type"
+      },
+      {
+        "ColTitle": "No.",
+        "ColType": "doc_num"
+      },
+      {
+        "ColTitle": "Name",
+        "ColType": "name"
+      },
+      {
+        "ColTitle": "Memo/Description",
+        "ColType": "memo"
+      },
+      {
+        "ColTitle": "Account",
+        "ColType": "account_name"
+      },
+      {
+        "ColTitle": "Debit",
+        "ColType": "debt_amt"
+      },
+      {
+        "ColTitle": "Credit",
+        "ColType": "credit_amt"
+      },
+      {
+        "ColTitle": "Balance",
+        "ColType": "rbal_nat_amount"
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Accounts Receivable (A/R)",
+              "id": "84"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                {
+                  "value": "Beginning Balance"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "4900.25"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-02"
+                },
+                {
+                  "value": "Payment",
+                  "id": "302"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "Sysco Baltimore, LLC",
+                  "id": "58"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "1270.00"
+                },
+                {
+                  "value": "3630.25"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-05"
+                },
+                {
+                  "value": "Payment",
+                  "id": "303"
+                },
+                {
+                  "value": "CHK-9921"
+                },
+                {
+                  "value": "US Foods, Inc.",
+                  "id": "72"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "500.00"
+                },
+                {
+                  "value": "3130.25"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-12"
+                },
+                {
+                  "value": "Invoice",
+                  "id": "150"
+                },
+                {
+                  "value": "1052"
+                },
+                {
+                  "value": "Sysco Baltimore, LLC",
+                  "id": "58"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": "2400.00"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "5530.25"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-18"
+                },
+                {
+                  "value": "Journal Entry",
+                  "id": "610"
+                },
+                {
+                  "value": "RC-JE-1"
+                },
+                {
+                  "value": "US Foods, Inc.",
+                  "id": "72"
+                },
+                {
+                  "value": "Deduction held, claim CB-203"
+                },
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "500.00"
+                },
+                {
+                  "value": "5030.25"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-25"
+                },
+                {
+                  "value": "Payment",
+                  "id": "305"
+                },
+                {
+                  "value": "ACH-90144"
+                },
+                {
+                  "value": "Sysco Baltimore, LLC",
+                  "id": "58"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "Accounts Receivable (A/R)",
+                  "id": "84"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "900.00"
+                },
+                {
+                  "value": "4130.25"
+                }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Accounts Receivable (A/R)"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "2400.00"
+            },
+            {
+              "value": "3170.00"
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Deductions Receivable",
+              "id": "91"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                {
+                  "value": "Beginning Balance"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "770.00"
+                }
+              ],
+              "type": "Data"
+            },
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-18"
+                },
+                {
+                  "value": "Journal Entry",
+                  "id": "610"
+                },
+                {
+                  "value": "RC-JE-1"
+                },
+                {
+                  "value": "US Foods, Inc.",
+                  "id": "72"
+                },
+                {
+                  "value": "Deduction held, claim CB-203"
+                },
+                {
+                  "value": "Deductions Receivable",
+                  "id": "91"
+                },
+                {
+                  "value": "500.00"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "1270.00"
+                }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Deductions Receivable"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "500.00"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Trade Deductions",
+              "id": "95"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "Header": {
+                "ColData": [
+                  {
+                    "value": "Distributor Chargebacks",
+                    "id": "96"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "Rows": {
+                "Row": [
+                  {
+                    "ColData": [
+                      {
+                        "value": "2026-09-01"
+                      },
+                      {
+                        "value": "Credit Memo",
+                        "id": "501"
+                      },
+                      {
+                        "value": "CM-2210"
+                      },
+                      {
+                        "value": "Sysco Baltimore, LLC",
+                        "id": "58"
+                      },
+                      {
+                        "value": "Shortage allowance, claim 4471"
+                      },
+                      {
+                        "value": "Trade Deductions:Distributor Chargebacks",
+                        "id": "96"
+                      },
+                      {
+                        "value": "1270.00"
+                      },
+                      {
+                        "value": ""
+                      },
+                      {
+                        "value": "1270.00"
+                      }
+                    ],
+                    "type": "Data"
+                  },
+                  {
+                    "ColData": [
+                      {
+                        "value": "2026-09-10"
+                      },
+                      {
+                        "value": "Credit Memo",
+                        "id": "502"
+                      },
+                      {
+                        "value": "CM-2211"
+                      },
+                      {
+                        "value": "US Foods, Inc.",
+                        "id": "72"
+                      },
+                      {
+                        "value": ""
+                      },
+                      {
+                        "value": "Trade Deductions:Distributor Chargebacks",
+                        "id": "96"
+                      },
+                      {
+                        "value": "500.00"
+                      },
+                      {
+                        "value": ""
+                      },
+                      {
+                        "value": "1770.00"
+                      }
+                    ],
+                    "type": "Data"
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total for Distributor Chargebacks"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": "1770.00"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "type": "Section"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Trade Deductions with sub-accounts"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "1770.00"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "type": "Section"
+      },
+      {
+        "Header": {
+          "ColData": [
+            {
+              "value": "Customer Deductions",
+              "id": "97"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "ColData": [
+                {
+                  "value": "2026-09-22"
+                },
+                {
+                  "value": "Journal Entry",
+                  "id": "615"
+                },
+                {
+                  "value": "RC-JE-2"
+                },
+                {
+                  "value": "Sysco Baltimore, LLC",
+                  "id": "58"
+                },
+                {
+                  "value": "Written off, claim 4480"
+                },
+                {
+                  "value": "Customer Deductions",
+                  "id": "97"
+                },
+                {
+                  "value": "320.00"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "320.00"
+                }
+              ],
+              "type": "Data"
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Customer Deductions"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "320.00"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "type": "Section"
+      }
+    ]
+  }
+}

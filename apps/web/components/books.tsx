@@ -166,10 +166,7 @@ export function BooksPage({
         )}
 
         <p className="empty" role="note">
-          Nothing on this page is stored: a figure read today cannot be shown again tomorrow as it
-          was. Keeping a snapshot of the trial balance and the ledger with each daily sync — for
-          month-end tie-out and for defending a recovery in a post-audit — is proposed, not built:{' '}
-          <a href={SNAPSHOT_ADR_URL}>ADR 0066</a>.
+          Nothing on this page is stored — it is a snapshot of your books at the moment you opened it.
         </p>
       </main>
     </WorkspaceShell>

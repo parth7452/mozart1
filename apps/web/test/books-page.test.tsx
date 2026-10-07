@@ -424,10 +424,11 @@ describe('/books', () => {
     expect(reconciliation).toContain('Only the first 3 of 812 cases in this window were compared');
   });
 
-  it('links the proposal to keep snapshots, and has nothing to press but the window', async () => {
+  it('says nothing is stored, and has nothing to press but the window', async () => {
     const html = await page();
-    expect(html).toContain('Nothing on this page is stored');
-    expect(html).toContain('docs/adr/0066-the-books-are-read-through-and-a-snapshot-is-proposed.md');
+    expect(html).toContain(
+      'Nothing on this page is stored — it is a snapshot of your books at the moment you opened it.',
+    );
     expect(html.match(/<form /g)).toHaveLength(2); // the window, and the shell's sign-out
     expect(html).toContain('<form action="/books" method="get">');
     expect(html).not.toMatch(/<form[^>]*action="\/books"[^>]*method="post"/);
