@@ -473,18 +473,36 @@ async function attempt<T>(
 const CLASS_NAME = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
 
 /**
- * Logs a failed read — its class name, Intuit's HTTP status when a request
- * got that far, and ids; never a message, which may quote the accounting
- * system's answer — and answers the code the page shows.
+ * A malformed response's structural path, as `reports.ts` names it: object
+ * keys and array indexes only (`GeneralLedger.Rows.Row[3].ColData[0]`,
+ * `GeneralLedger.Columns.Column.debt_amt`). Anything else is not logged.
  */
-function logged(what: string, error: unknown, where: string): BooksFailure {
+const STRUCTURAL_PATH = /^[A-Za-z_]+(\.[A-Za-z_]+|\[\d{1,6}\])*$/;
+
+/**
+ * Logs a failed read — its class name, Intuit's HTTP status when a request
+ * got that far, a malformed response's structural path, and ids; never a
+ * message, which may quote the accounting system's answer — and answers the
+ * code the page shows. The path is logged only when it is letters,
+ * underscores, dots and bracketed indexes, at most 200 characters: our own
+ * key names and positions, so it says which check refused the report and
+ * can carry no value, name or amount from it.
+ */
+export function logged(what: string, error: unknown, where: string): BooksFailure {
   const name = error instanceof Error ? error.name : undefined;
   const className = name !== undefined && CLASS_NAME.test(name) ? name : 'unnamed';
   const status =
     error instanceof QboRequestFailed && Number.isInteger(error.status) && error.status > 0
       ? `, HTTP ${error.status}`
       : '';
-  console.error(`[recouple] books: ${what} unreadable (${className}${status}), ${where}`);
+  const path =
+    error instanceof QboMalformedResponse &&
+    typeof error.fieldPath === 'string' &&
+    error.fieldPath.length <= 200 &&
+    STRUCTURAL_PATH.test(error.fieldPath)
+      ? `, at ${error.fieldPath}`
+      : '';
+  console.error(`[recouple] books: ${what} unreadable (${className}${status})${path}, ${where}`);
   return failureOf(error);
 }
 

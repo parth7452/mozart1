@@ -39,6 +39,7 @@ const {
   booksRequestFrom,
   booksSourcesFromEnv,
   failureOf,
+  logged: logFailure,
   postingAccountIds,
   withoutRefresh,
 } = await import('../lib/books');
@@ -377,5 +378,42 @@ describe('booksFor', () => {
       `[recouple] books: trial balance unreadable (QboRequestFailed), connection ${CONNECTION.connectionId} org ${IDENTITY.orgId}`,
     ]);
     expect(logged.join('\n')).not.toContain('secret-body');
+  });
+});
+
+describe('a malformed report is logged with its structural path', () => {
+  it('logs the path and never the message', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      logFailure(
+        'general ledger',
+        new QboMalformedResponse('msg with SECRET', 'GeneralLedger.Rows.Row[3].ColData[0]'),
+        'connection c org o',
+      );
+      const line = errors.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(line).toBe(
+        '[recouple] books: general ledger unreadable (QboMalformedResponse), at GeneralLedger.Rows.Row[3].ColData[0], connection c org o',
+      );
+      expect(line).not.toContain('SECRET');
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('logs no path when it carries anything but keys and indexes', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      logFailure(
+        'general ledger',
+        new QboMalformedResponse('x', 'GeneralLedger.Rows.Row[0] Acme Corp'),
+        'connection c org o',
+      );
+      logFailure('general ledger', new QboMalformedResponse('x', `G${'.a'.repeat(120)}`), 'w');
+      const line = errors.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(line).not.toContain(', at ');
+      expect(line).not.toContain('Acme');
+    } finally {
+      errors.mockRestore();
+    }
   });
 });

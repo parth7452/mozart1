@@ -215,7 +215,7 @@ describe('parseTrialBalanceReport', () => {
     const twoDebits = copyOf('report-trial-balance.json');
     ((twoDebits['Columns'] as Json)['Column'] as Json[]).push({ ColTitle: 'Debit', ColType: 'Money' });
     expect(malformedAt(() => parseTrialBalanceReport(twoDebits, { asOf: AS_OF }))).toBe(
-      'TrialBalance.Columns.Column',
+      'TrialBalance.Columns.Column.Debit',
     );
 
     // A row with a cell missing.
@@ -374,8 +374,9 @@ describe('parseGeneralLedgerReport', () => {
     const report = copyOf('report-general-ledger.json');
     const columns = (report['Columns'] as Json)['Column'] as Array<{ MetaData: Array<{ Value: string }> }>;
     columns[6]!.MetaData[0]!.Value = 'debt_home_amt';
+    // The path names which of our own column keys is missing, never the report's.
     expect(malformedAt(() => parseGeneralLedgerReport(report, { window: SEPTEMBER }))).toBe(
-      'GeneralLedger.Columns.Column',
+      'GeneralLedger.Columns.Column.debt_amt',
     );
   });
 
