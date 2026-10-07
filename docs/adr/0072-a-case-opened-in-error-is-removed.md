@@ -1,6 +1,15 @@
 # 0072 — A case opened in error is removed, not deleted
 
-- Status: **Proposed**. Migration 0044 is written and applied nowhere.
+- Status: **Accepted** by the founder 2026-10-07. Migration 0044 applied on
+  that go to `mozart-preview` and then production, and read back on both: the
+  stored statement's md5 equals the file's (`9b76e20e…`), the state check
+  admits `removed`, the `removal_is_guarded` trigger is present and its
+  function pinned and not definer, both coverage views are `security_invoker`
+  with their SELECT grants unchanged, and no `app` function is unpinned. The
+  constraint swap went through `execute_sql` as one `do` block (the Supabase
+  MCP hangs on SQL containing `drop`), the trigger's `drop … if exists` guard
+  was left out (a no-op on a first apply), and the history row holds the
+  file's exact text.
 - Date: 2026-10-07
 - Builds on: ADR 0020 (a case is worked by people, behind a gate), ADR 0042
   (a merged case is closed, not terminal, and counts nowhere), ADR 0070 (a

@@ -2009,8 +2009,9 @@ migration's `drop … if exists` guards only when they matter, write the
 history row with the file's exact text (base64 through `convert_from`), and
 compare the stored md5 with the file's.
 
-**A case opened in error is removed, not deleted** (ADR 0072, **proposed**;
-migration 0044, applied nowhere). An owner or approver can close a case from
+**A case opened in error is removed, not deleted** (ADR 0072, accepted;
+migration 0044, applied to `mozart-preview` and production on 2026-10-07 and
+read back on both). An owner or approver can close a case from
 the review queue — "Close case" under each "Open case →", or a checkbox per
 row and "Close selected" — through a confirmation page ("Delete this case?")
 that lists any selected case that cannot go and why. `removeCases` writes, in
@@ -2025,4 +2026,4 @@ claim stays reserved and re-uploading it is `DuplicateCaseError` naming the
 removed case, whose page says who removed it and when and offers nothing.
 Coverage (`coverage_by_period_by_source`, `coverage_by_period`), the list,
 the search (unless it asks for `removed`), the tally, the board and Books leave
-it out. Not to be deployed before 0044 is applied.
+it out.
