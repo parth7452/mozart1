@@ -66,6 +66,9 @@ what enforces each one.
   got taken twice.
 - Every new agent decision path needs a recorded fixture/cassette for both the
   Claude and the Jev call.
+- Coding work delegated to a subagent goes to the `coder` agent
+  (`.claude/agents/coder.md`: Opus, `effort: low`), never to another model or
+  effort level (founder, 2026-10-07).
 - Any schema change to append-only tables, any new outbound side effect, and any
   threshold change requires a numbered ADR in `docs/adr/` **first**. A
   PreToolUse hook blocks edits to `supabase/migrations/**` and
