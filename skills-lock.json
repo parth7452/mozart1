@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/hindsight-docs/SKILL.md",
       "computedHash": "ffd7ec7f7acfde19d0da7a0e9e241dbecd110bd9c7e81a46579b8d98112306a5"
+    },
+    "investor-warm-intros": {
+      "source": "paulklayvc/skills",
+      "sourceType": "github",
+      "skillPath": "investor-warm-intros/SKILL.md",
+      "computedHash": "9eff52cd0c5d68983533a860db4e95a51e083f8d8446f172711a7d8be21c4d99"
     }
   }
 }
